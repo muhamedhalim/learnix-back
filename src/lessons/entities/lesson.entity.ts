@@ -1,0 +1,98 @@
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
+  Index,
+} from 'typeorm';
+import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
+import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
+
+@Entity('lessons')
+export class Lesson {
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  @Column({ type: 'varchar', length: 255, nullable: false })
+  @Index('IDX_lessons_title')
+  title!: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: false, name: 'title_ar' })
+  @Index('IDX_lessons_title_ar')
+  title_ar!: string;
+
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'description_ar' })
+  description_ar!: string | null;
+
+  @Column({ type: 'int', nullable: false, name: 'teacher_id' })
+  @Index('IDX_lessons_teacher_id')
+  teacher_id!: number;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'teacher_id' })
+  teacher!: User;
+
+  @Column({ type: 'int', nullable: false, name: 'subject_id' })
+  @Index('IDX_lessons_subject_id')
+  subject_id!: number;
+
+  @ManyToOne(() => Subject)
+  @JoinColumn({ name: 'subject_id' })
+  subject!: Subject;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  thumbnail!: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'vimeo_video_id',
+  })
+  vimeo_video_id!: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+    name: 'vimeo_embed_url',
+  })
+  vimeo_embed_url!: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false })
+  price!: number;
+
+  @Column({ type: 'int', nullable: true })
+  duration!: number | null; // Duration in seconds
+
+  @Column({ type: 'boolean', default: false, name: 'is_group' })
+  is_group!: boolean;
+
+  @Column({ type: 'int', default: 7, name: 'available_for_days' })
+  available_for_days!: number;
+
+  @Column({ type: 'int', default: 0, name: 'students_count' })
+  students_count!: number;
+
+  @CreateDateColumn({ name: 'created_at' })
+  created_at!: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updated_at!: Date;
+
+  @DeleteDateColumn({ name: 'deleted_at' })
+  deleted_at!: Date | null;
+
+  // Phase 4: Payment relations
+  @OneToMany(() => LessonPurchase, (purchase) => purchase.lesson)
+  purchases!: LessonPurchase[];
+}

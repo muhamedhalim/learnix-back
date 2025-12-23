@@ -1,0 +1,213 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { readdir, unlink } from 'fs/promises';
+import { join } from 'path';
+import { User } from '../users/entities/user.entity';
+
+/**
+ * CleanupService
+ *
+ * Automated file cleanup service that runs weekly to remove orphaned files
+ * from the uploads directory. Orphaned files are files that exist on disk but
+ * are not referenced in the database.
+ *
+ * This prevents storage bloat from failed uploads, deleted users,
+ * or other edge cases where files remain after database records are removed.
+ *
+ * TODO: Add cleanup for other entities as we build them:
+ * - Lesson thumbnails
+ * - Book covers
+ * - Exam question images
+ */
+@Injectable()
+export class CleanupService {
+  private readonly logger = new Logger(CleanupService.name);
+  private readonly uploadDir: string;
+
+  constructor(
+    private configService: ConfigService,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+  ) {
+    this.uploadDir =
+      this.configService.get<string>('UPLOAD_DIR') || './uploads';
+  }
+
+  /**
+   * Scheduled cleanup job - runs every Sunday at 2 AM
+   * Cron format: '0 2 * * 0' (minute hour day month weekday)
+   */
+  @Cron('0 2 * * 0', {
+    name: 'file-cleanup',
+    timeZone: 'UTC',
+  })
+  async performWeeklyCleanup() {
+    this.logger.log('Starting weekly file cleanup job...');
+
+    const startTime = Date.now();
+    let totalOrphaned = 0;
+    let totalDeleted = 0;
+    let totalErrors = 0;
+
+    try {
+      // Cleanup profiles folder
+      const profilesResult = await this.cleanupProfilesFolder();
+      totalOrphaned += profilesResult.orphaned;
+      totalDeleted += profilesResult.deleted;
+      totalErrors += profilesResult.errors;
+
+      const duration = Date.now() - startTime;
+
+      this.logger.log(
+        `Weekly cleanup completed - Duration: ${duration}ms, Orphaned: ${totalOrphaned}, Deleted: ${totalDeleted}, Errors: ${totalErrors}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        'Weekly cleanup failed',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  /**
+   * Manual cleanup trigger - can be called programmatically if needed
+   */
+  async triggerManualCleanup(): Promise<{
+    success: boolean;
+    message: string;
+    stats: {
+      totalOrphaned: number;
+      totalDeleted: number;
+      totalErrors: number;
+      duration: number;
+    };
+  }> {
+    this.logger.log('Manual cleanup triggered');
+
+    const startTime = Date.now();
+    let totalOrphaned = 0;
+    let totalDeleted = 0;
+    let totalErrors = 0;
+
+    try {
+      const profilesResult = await this.cleanupProfilesFolder();
+      totalOrphaned += profilesResult.orphaned;
+      totalDeleted += profilesResult.deleted;
+      totalErrors += profilesResult.errors;
+
+      const duration = Date.now() - startTime;
+
+      return {
+        success: true,
+        message: 'Manual cleanup completed successfully',
+        stats: {
+          totalOrphaned,
+          totalDeleted,
+          totalErrors,
+          duration,
+        },
+      };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+
+      return {
+        success: false,
+        message:
+          error instanceof Error ? error.message : 'Manual cleanup failed',
+        stats: {
+          totalOrphaned,
+          totalDeleted,
+          totalErrors,
+          duration,
+        },
+      };
+    }
+  }
+
+  /**
+   * Clean up orphaned files in the profiles folder
+   */
+  private async cleanupProfilesFolder(): Promise<{
+    orphaned: number;
+    deleted: number;
+    errors: number;
+  }> {
+    this.logger.log('Scanning profiles folder for orphaned files...');
+
+    const folderPath = join(this.uploadDir, 'profiles');
+    let orphanedCount = 0;
+    let deletedCount = 0;
+    let errorCount = 0;
+
+    try {
+      // Get all files in folder
+      const files = await readdir(folderPath);
+
+      if (files.length === 0) {
+        this.logger.log('No files found in profiles folder');
+        return { orphaned: 0, deleted: 0, errors: 0 };
+      }
+
+      // Get all profile picture URLs from database
+      const users = await this.userRepository.find({
+        select: ['profile_picture_url'],
+      });
+      const referencedFilenames = new Set<string>();
+
+      // Extract filenames from URLs
+      users.forEach((user) => {
+        if (user.profile_picture_url) {
+          const filename = user.profile_picture_url.split('/').pop();
+          if (filename) {
+            referencedFilenames.add(filename);
+          }
+        }
+      });
+
+      this.logger.log(
+        `Found ${files.length} files on disk, ${referencedFilenames.size} referenced in database`,
+      );
+
+      // Check each file
+      for (const file of files) {
+        if (!referencedFilenames.has(file)) {
+          orphanedCount++;
+          this.logger.warn(`Orphaned file detected: profiles/${file}`);
+
+          // Delete orphaned file
+          try {
+            await unlink(join(folderPath, file));
+            deletedCount++;
+            this.logger.log(`Deleted orphaned file: profiles/${file}`);
+          } catch (error) {
+            errorCount++;
+            this.logger.error(
+              `Failed to delete orphaned file: profiles/${file}`,
+              error,
+            );
+          }
+        }
+      }
+
+      this.logger.log(
+        `Cleanup profiles - Orphaned: ${orphanedCount}, Deleted: ${deletedCount}, Errors: ${errorCount}`,
+      );
+
+      return {
+        orphaned: orphanedCount,
+        deleted: deletedCount,
+        errors: errorCount,
+      };
+    } catch (error) {
+      this.logger.error('Failed to cleanup profiles folder', error);
+      return {
+        orphaned: orphanedCount,
+        deleted: deletedCount,
+        errors: errorCount + 1,
+      };
+    }
+  }
+}
