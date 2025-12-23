@@ -4,6 +4,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
   name = 'InitialSchema1734986400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Enable UUID extension first
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+
     // This migration creates all tables by syncing from entities
     // Using synchronize in a controlled migration
     await queryRunner.query(`
@@ -365,9 +368,6 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "UQ_notification_settings_user_id" UNIQUE ("user_id"),
         CONSTRAINT "FK_notification_settings_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
       );
-
-      -- Enable UUID extension if not exists
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
     `);
   }
 
