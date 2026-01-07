@@ -22,11 +22,19 @@ import * as cookieParser from 'cookie-parser';
 import { Reflector } from '@nestjs/core';
 import helmet from 'helmet';
 import * as basicAuth from 'express-basic-auth';
+import * as compression from 'compression';
+import { initializeSentry } from './config/sentry.config';
 
 const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
+  // Initialize Sentry for error tracking (before app creation)
+  initializeSentry();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Enable response compression for better performance
+  app.use(compression());
 
   // Protect Bull Board with basic authentication (Issue #13)
   const bullBoardUser = process.env.BULL_BOARD_USER || 'admin';

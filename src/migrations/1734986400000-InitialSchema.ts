@@ -372,17 +372,23 @@ export class InitialSchema1734986400000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TABLE IF EXISTS "notification_settings" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "notification_settings" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "notifications" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "purchase_codes" CASCADE`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "discount_code_usage" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "discount_code_usage" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "discount_codes" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "package_purchases" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "lesson_purchases" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "payments" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "exam_attempts" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "exams" CASCADE`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "lesson_package_items" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "lesson_package_items" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "lesson_packages" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "lessons" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "student_profiles" CASCADE`);

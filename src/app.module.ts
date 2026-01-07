@@ -4,8 +4,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CacheModule } from '@nestjs/cache-manager';
+import { WinstonModule } from 'nest-winston';
 import { redisStore } from 'cache-manager-redis-yet';
 import { validate } from './config/env.validation';
+import { winstonConfig } from './config/logger.config';
 import { THROTTLE } from './common/constants';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -40,6 +42,10 @@ import { DiscountCodesModule } from './discount-codes/discount-codes.module';
 import { PurchaseCodesModule } from './purchase-codes/purchase-codes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
+// Phase 5: Admin Dashboard & Analytics
+import { AnalyticsModule } from './analytics/analytics.module';
+import { ReportsModule } from './reports/reports.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -47,6 +53,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       envFilePath: '.env',
       validate,
     }),
+    WinstonModule.forRoot(winstonConfig),
     ScheduleModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true,
@@ -177,6 +184,10 @@ import { NotificationsModule } from './notifications/notifications.module';
     DiscountCodesModule,
     PurchaseCodesModule,
     NotificationsModule,
+
+    // Phase 5: Admin Dashboard & Analytics
+    AnalyticsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
