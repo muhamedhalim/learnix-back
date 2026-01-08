@@ -175,7 +175,7 @@ export class TeachersService {
     // Filter by subject
     if (subjectId) {
       queryBuilder.andWhere(
-        'EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher_id = teacher.id AND ts.subject_id = :subjectId)',
+        'EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher_profile_id = teacher.id AND ts.subject_id = :subjectId)',
         { subjectId },
       );
     }

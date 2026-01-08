@@ -30,7 +30,7 @@ export class TeacherProfile {
   @ManyToMany(() => Subject)
   @JoinTable({
     name: 'teacher_subjects',
-    joinColumn: { name: 'teacher_id', referencedColumnName: 'id' },
+    joinColumn: { name: 'teacher_profile_id', referencedColumnName: 'id' },
     inverseJoinColumn: { name: 'subject_id', referencedColumnName: 'id' },
   })
   subjects!: Subject[];
