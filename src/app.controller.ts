@@ -2,6 +2,7 @@ import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
+import { SkipCsrf } from './common/guards/csrf.guard';
 
 @ApiTags('System')
 @Controller()
@@ -65,6 +66,7 @@ export class AppController {
   }
 
   @Post('init-admin')
+  @SkipCsrf()
   @UseGuards(InitAdminGuard)
   @ApiOperation({
     summary: 'Initialize first admin user',
