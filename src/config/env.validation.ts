@@ -93,18 +93,14 @@ export class EnvironmentVariables {
   @IsOptional()
   FIREBASE_PRIVATE_KEY?: string;
 
-  // Vimeo (optional until video features are implemented)
+  // Bunny.net Stream (video hosting)
   @IsString()
   @IsOptional()
-  VIMEO_ACCESS_TOKEN?: string;
+  BUNNY_STREAM_LIBRARY_ID?: string;
 
   @IsString()
   @IsOptional()
-  VIMEO_CLIENT_ID?: string;
-
-  @IsString()
-  @IsOptional()
-  VIMEO_CLIENT_SECRET?: string;
+  BUNNY_STREAM_API_KEY?: string;
 
   // Paymob (optional until payment features are implemented)
   @IsString()

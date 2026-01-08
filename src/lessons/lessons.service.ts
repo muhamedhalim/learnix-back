@@ -16,6 +16,7 @@ import {
   LessonFilterDto,
   UpdateVimeoInfoDto,
 } from './dto';
+import { VIDEO_URL_PATTERNS } from '../common/constants';
 import {
   PaginatedResponse,
   PaginationMeta,
@@ -43,6 +44,12 @@ export interface LessonWithDetails {
     title_ar: string;
   };
   thumbnail: string | null;
+  // Primary video fields (Bunny.net)
+  video_url: string | null;
+  video_platform: 'bunny' | 'vimeo';
+  bunny_video_id: string | null;
+  bunny_library_id: string | null;
+  // Legacy Vimeo fields (backward compatibility)
   vimeo_video_id: string | null;
   vimeo_embed_url: string | null;
   price: number;
@@ -428,9 +435,122 @@ export class LessonsService {
 
   /**
    * Generate Vimeo embed URL from video ID
+   * @deprecated Use Bunny.net URLs instead
    */
   generateVimeoEmbedUrl(vimeoVideoId: string): string {
     return `https://player.vimeo.com/video/${vimeoVideoId}`;
+  }
+
+  /**
+   * Update lesson video URL (Bunny.net - Primary)
+   * Extracts library_id and video_id from URL and stores them separately
+   */
+  async updateVideoUrl(
+    lessonId: number,
+    teacherId: number,
+    videoUrl: string,
+    duration?: number,
+  ): Promise<{
+    message: string;
+    video_url: string;
+    video_platform: string;
+    bunny_video_id: string;
+    bunny_library_id: string;
+  }> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+    }
+
+    // Verify ownership
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException('You can only update your own lessons');
+    }
+
+    // Validate Bunny.net URL format using regex from constants
+    const match = videoUrl.match(VIDEO_URL_PATTERNS.BUNNY);
+
+    if (!match || !match[1] || !match[2]) {
+      throw new BadRequestException(
+        'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
+      );
+    }
+
+    // Extract library ID and video ID from URL
+    const libraryId = match[1];
+    const videoId = match[2];
+
+    // Update lesson with Bunny.net video info
+    lesson.video_url = videoUrl;
+    lesson.video_platform = 'bunny';
+    lesson.bunny_video_id = videoId;
+    lesson.bunny_library_id = libraryId;
+    if (duration !== undefined) {
+      lesson.duration = duration;
+    }
+
+    await this.lessonsRepository.save(lesson);
+
+    return {
+      message: 'Video URL updated successfully',
+      video_url: videoUrl,
+      video_platform: 'bunny',
+      bunny_video_id: videoId,
+      bunny_library_id: libraryId,
+    };
+  }
+
+  /**
+   * Update lesson video URL (Vimeo - Legacy)
+   * @deprecated Use updateVideoUrl() with Bunny.net URLs instead
+   */
+  async updateVimeoUrl(
+    lessonId: number,
+    teacherId: number,
+    vimeoUrl: string,
+    duration?: number,
+  ): Promise<{
+    message: string;
+    video_url: string;
+    video_platform: string;
+  }> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+    }
+
+    // Verify ownership
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException('You can only update your own lessons');
+    }
+
+    // Validate Vimeo URL format
+    if (!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
+      throw new BadRequestException(
+        'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
+      );
+    }
+
+    // Update lesson with Vimeo video info
+    lesson.video_url = vimeoUrl;
+    lesson.video_platform = 'vimeo';
+    if (duration !== undefined) {
+      lesson.duration = duration;
+    }
+
+    await this.lessonsRepository.save(lesson);
+
+    return {
+      message: 'Vimeo URL updated successfully (legacy)',
+      video_url: vimeoUrl,
+      video_platform: 'vimeo',
+    };
   }
 
   /**
@@ -523,6 +643,12 @@ export class LessonsService {
         title_ar: lesson.subject.title_ar,
       },
       thumbnail: lesson.thumbnail,
+      // Primary video fields (Bunny.net)
+      video_url: lesson.video_url,
+      video_platform: lesson.video_platform,
+      bunny_video_id: lesson.bunny_video_id,
+      bunny_library_id: lesson.bunny_library_id,
+      // Legacy Vimeo fields (backward compatibility)
       vimeo_video_id: lesson.vimeo_video_id,
       vimeo_embed_url: lesson.vimeo_embed_url,
       price: Number(lesson.price),

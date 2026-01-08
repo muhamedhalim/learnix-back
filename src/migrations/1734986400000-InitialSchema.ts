@@ -30,10 +30,10 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "UQ_users_firebase_uid" UNIQUE ("firebase_uid"),
         CONSTRAINT "PK_users" PRIMARY KEY ("id")
       );
-      CREATE INDEX "IDX_users_email" ON "users" ("email");
-      CREATE INDEX "IDX_users_role" ON "users" ("role");
-      CREATE INDEX "IDX_users_status" ON "users" ("status");
-      CREATE INDEX "IDX_users_deleted_at" ON "users" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_users_email" ON "users" ("email");
+      CREATE INDEX IF NOT EXISTS "IDX_users_role" ON "users" ("role");
+      CREATE INDEX IF NOT EXISTS "IDX_users_status" ON "users" ("status");
+      CREATE INDEX IF NOT EXISTS "IDX_users_deleted_at" ON "users" ("deleted_at");
 
       -- Subjects table
       CREATE TABLE IF NOT EXISTS "subjects" (
@@ -47,7 +47,7 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         "deleted_at" TIMESTAMP,
         CONSTRAINT "PK_subjects" PRIMARY KEY ("id")
       );
-      CREATE INDEX "IDX_subjects_deleted_at" ON "subjects" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_subjects_deleted_at" ON "subjects" ("deleted_at");
 
       -- Teacher profiles table
       CREATE TABLE IF NOT EXISTS "teacher_profiles" (
@@ -69,8 +69,8 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "PK_teacher_profiles" PRIMARY KEY ("id"),
         CONSTRAINT "FK_teacher_profiles_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
       );
-      CREATE INDEX "IDX_teacher_profiles_rating" ON "teacher_profiles" ("rating");
-      CREATE INDEX "IDX_teacher_profiles_deleted_at" ON "teacher_profiles" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_teacher_profiles_rating" ON "teacher_profiles" ("rating");
+      CREATE INDEX IF NOT EXISTS "IDX_teacher_profiles_deleted_at" ON "teacher_profiles" ("deleted_at");
 
       -- Teacher subjects (many-to-many)
       CREATE TABLE IF NOT EXISTS "teacher_subjects" (
@@ -80,8 +80,8 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_teacher_subjects_teacher" FOREIGN KEY ("teacher_profile_id") REFERENCES "teacher_profiles"("id") ON DELETE CASCADE,
         CONSTRAINT "FK_teacher_subjects_subject" FOREIGN KEY ("subject_id") REFERENCES "subjects"("id") ON DELETE CASCADE
       );
-      CREATE INDEX "IDX_teacher_subjects_teacher" ON "teacher_subjects" ("teacher_profile_id");
-      CREATE INDEX "IDX_teacher_subjects_subject" ON "teacher_subjects" ("subject_id");
+      CREATE INDEX IF NOT EXISTS "IDX_teacher_subjects_teacher" ON "teacher_subjects" ("teacher_profile_id");
+      CREATE INDEX IF NOT EXISTS "IDX_teacher_subjects_subject" ON "teacher_subjects" ("subject_id");
 
       -- Student profiles table
       CREATE TABLE IF NOT EXISTS "student_profiles" (
@@ -101,7 +101,7 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "PK_student_profiles" PRIMARY KEY ("id"),
         CONSTRAINT "FK_student_profiles_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
       );
-      CREATE INDEX "IDX_student_profiles_deleted_at" ON "student_profiles" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_student_profiles_deleted_at" ON "student_profiles" ("deleted_at");
 
       -- Lessons table
       CREATE TABLE IF NOT EXISTS "lessons" (
@@ -126,10 +126,10 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_lessons_teacher" FOREIGN KEY ("teacher_id") REFERENCES "users"("id"),
         CONSTRAINT "FK_lessons_subject" FOREIGN KEY ("subject_id") REFERENCES "subjects"("id")
       );
-      CREATE INDEX "IDX_lessons_teacher_id" ON "lessons" ("teacher_id");
-      CREATE INDEX "IDX_lessons_subject_id" ON "lessons" ("subject_id");
-      CREATE INDEX "IDX_lessons_is_published" ON "lessons" ("is_published");
-      CREATE INDEX "IDX_lessons_deleted_at" ON "lessons" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_lessons_teacher_id" ON "lessons" ("teacher_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lessons_subject_id" ON "lessons" ("subject_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lessons_is_published" ON "lessons" ("is_published");
+      CREATE INDEX IF NOT EXISTS "IDX_lessons_deleted_at" ON "lessons" ("deleted_at");
 
       -- Lesson packages table
       CREATE TABLE IF NOT EXISTS "lesson_packages" (
@@ -150,9 +150,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_lesson_packages_teacher" FOREIGN KEY ("teacher_id") REFERENCES "users"("id"),
         CONSTRAINT "FK_lesson_packages_subject" FOREIGN KEY ("subject_id") REFERENCES "subjects"("id")
       );
-      CREATE INDEX "IDX_lesson_packages_teacher_id" ON "lesson_packages" ("teacher_id");
-      CREATE INDEX "IDX_lesson_packages_subject_id" ON "lesson_packages" ("subject_id");
-      CREATE INDEX "IDX_lesson_packages_deleted_at" ON "lesson_packages" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_packages_teacher_id" ON "lesson_packages" ("teacher_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_packages_subject_id" ON "lesson_packages" ("subject_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_packages_deleted_at" ON "lesson_packages" ("deleted_at");
 
       -- Lesson package items table
       CREATE TABLE IF NOT EXISTS "lesson_package_items" (
@@ -166,8 +166,8 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_lesson_package_items_package" FOREIGN KEY ("package_id") REFERENCES "lesson_packages"("id") ON DELETE CASCADE,
         CONSTRAINT "FK_lesson_package_items_lesson" FOREIGN KEY ("lesson_id") REFERENCES "lessons"("id") ON DELETE CASCADE
       );
-      CREATE INDEX "IDX_lesson_package_items_package_id" ON "lesson_package_items" ("package_id");
-      CREATE INDEX "IDX_lesson_package_items_lesson_id" ON "lesson_package_items" ("lesson_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_package_items_package_id" ON "lesson_package_items" ("package_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_package_items_lesson_id" ON "lesson_package_items" ("lesson_id");
 
       -- Exams table
       CREATE TABLE IF NOT EXISTS "exams" (
@@ -192,10 +192,10 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_exams_lesson" FOREIGN KEY ("lesson_id") REFERENCES "lessons"("id"),
         CONSTRAINT "FK_exams_subject" FOREIGN KEY ("subject_id") REFERENCES "subjects"("id")
       );
-      CREATE INDEX "IDX_exams_teacher_id" ON "exams" ("teacher_id");
-      CREATE INDEX "IDX_exams_lesson_id" ON "exams" ("lesson_id");
-      CREATE INDEX "IDX_exams_subject_id" ON "exams" ("subject_id");
-      CREATE INDEX "IDX_exams_deleted_at" ON "exams" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_exams_teacher_id" ON "exams" ("teacher_id");
+      CREATE INDEX IF NOT EXISTS "IDX_exams_lesson_id" ON "exams" ("lesson_id");
+      CREATE INDEX IF NOT EXISTS "IDX_exams_subject_id" ON "exams" ("subject_id");
+      CREATE INDEX IF NOT EXISTS "IDX_exams_deleted_at" ON "exams" ("deleted_at");
 
       -- Exam attempts table
       CREATE TABLE IF NOT EXISTS "exam_attempts" (
@@ -215,9 +215,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_exam_attempts_exam" FOREIGN KEY ("exam_id") REFERENCES "exams"("id") ON DELETE CASCADE,
         CONSTRAINT "FK_exam_attempts_student" FOREIGN KEY ("student_id") REFERENCES "users"("id")
       );
-      CREATE INDEX "IDX_exam_attempts_exam_id" ON "exam_attempts" ("exam_id");
-      CREATE INDEX "IDX_exam_attempts_student_id" ON "exam_attempts" ("student_id");
-      CREATE INDEX "IDX_exam_attempts_status" ON "exam_attempts" ("status");
+      CREATE INDEX IF NOT EXISTS "IDX_exam_attempts_exam_id" ON "exam_attempts" ("exam_id");
+      CREATE INDEX IF NOT EXISTS "IDX_exam_attempts_student_id" ON "exam_attempts" ("student_id");
+      CREATE INDEX IF NOT EXISTS "IDX_exam_attempts_status" ON "exam_attempts" ("status");
 
       -- Payments table
       CREATE TABLE IF NOT EXISTS "payments" (
@@ -236,9 +236,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "UQ_payments_transaction_id" UNIQUE ("transaction_id"),
         CONSTRAINT "FK_payments_student" FOREIGN KEY ("student_id") REFERENCES "users"("id")
       );
-      CREATE INDEX "IDX_payments_student_id" ON "payments" ("student_id");
-      CREATE INDEX "IDX_payments_status" ON "payments" ("status");
-      CREATE INDEX "IDX_payments_transaction_id" ON "payments" ("transaction_id");
+      CREATE INDEX IF NOT EXISTS "IDX_payments_student_id" ON "payments" ("student_id");
+      CREATE INDEX IF NOT EXISTS "IDX_payments_status" ON "payments" ("status");
+      CREATE INDEX IF NOT EXISTS "IDX_payments_transaction_id" ON "payments" ("transaction_id");
 
       -- Lesson purchases table
       CREATE TABLE IF NOT EXISTS "lesson_purchases" (
@@ -253,9 +253,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_lesson_purchases_student" FOREIGN KEY ("student_id") REFERENCES "users"("id"),
         CONSTRAINT "FK_lesson_purchases_lesson" FOREIGN KEY ("lesson_id") REFERENCES "lessons"("id")
       );
-      CREATE INDEX "IDX_lesson_purchases_student_id" ON "lesson_purchases" ("student_id");
-      CREATE INDEX "IDX_lesson_purchases_lesson_id" ON "lesson_purchases" ("lesson_id");
-      CREATE INDEX "IDX_lesson_purchases_access_expires_at" ON "lesson_purchases" ("access_expires_at");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_purchases_student_id" ON "lesson_purchases" ("student_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_purchases_lesson_id" ON "lesson_purchases" ("lesson_id");
+      CREATE INDEX IF NOT EXISTS "IDX_lesson_purchases_access_expires_at" ON "lesson_purchases" ("access_expires_at");
 
       -- Package purchases table
       CREATE TABLE IF NOT EXISTS "package_purchases" (
@@ -269,8 +269,8 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_package_purchases_student" FOREIGN KEY ("student_id") REFERENCES "users"("id"),
         CONSTRAINT "FK_package_purchases_package" FOREIGN KEY ("package_id") REFERENCES "lesson_packages"("id")
       );
-      CREATE INDEX "IDX_package_purchases_student_id" ON "package_purchases" ("student_id");
-      CREATE INDEX "IDX_package_purchases_package_id" ON "package_purchases" ("package_id");
+      CREATE INDEX IF NOT EXISTS "IDX_package_purchases_student_id" ON "package_purchases" ("student_id");
+      CREATE INDEX IF NOT EXISTS "IDX_package_purchases_package_id" ON "package_purchases" ("package_id");
 
       -- Discount codes table
       CREATE TABLE IF NOT EXISTS "discount_codes" (
@@ -290,9 +290,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "PK_discount_codes" PRIMARY KEY ("id"),
         CONSTRAINT "UQ_discount_codes_code" UNIQUE ("code")
       );
-      CREATE INDEX "IDX_discount_codes_code" ON "discount_codes" ("code");
-      CREATE INDEX "IDX_discount_codes_is_active" ON "discount_codes" ("is_active");
-      CREATE INDEX "IDX_discount_codes_deleted_at" ON "discount_codes" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_discount_codes_code" ON "discount_codes" ("code");
+      CREATE INDEX IF NOT EXISTS "IDX_discount_codes_is_active" ON "discount_codes" ("is_active");
+      CREATE INDEX IF NOT EXISTS "IDX_discount_codes_deleted_at" ON "discount_codes" ("deleted_at");
 
       -- Discount code usage table
       CREATE TABLE IF NOT EXISTS "discount_code_usage" (
@@ -307,8 +307,8 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_discount_code_usage_student" FOREIGN KEY ("student_id") REFERENCES "users"("id"),
         CONSTRAINT "FK_discount_code_usage_payment" FOREIGN KEY ("payment_id") REFERENCES "payments"("id")
       );
-      CREATE INDEX "IDX_discount_code_usage_discount_code_id" ON "discount_code_usage" ("discount_code_id");
-      CREATE INDEX "IDX_discount_code_usage_student_id" ON "discount_code_usage" ("student_id");
+      CREATE INDEX IF NOT EXISTS "IDX_discount_code_usage_discount_code_id" ON "discount_code_usage" ("discount_code_id");
+      CREATE INDEX IF NOT EXISTS "IDX_discount_code_usage_student_id" ON "discount_code_usage" ("student_id");
 
       -- Purchase codes table
       CREATE TABLE IF NOT EXISTS "purchase_codes" (
@@ -330,9 +330,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "FK_purchase_codes_package" FOREIGN KEY ("package_id") REFERENCES "lesson_packages"("id"),
         CONSTRAINT "FK_purchase_codes_used_by" FOREIGN KEY ("used_by_id") REFERENCES "users"("id")
       );
-      CREATE INDEX "IDX_purchase_codes_code" ON "purchase_codes" ("code");
-      CREATE INDEX "IDX_purchase_codes_is_used" ON "purchase_codes" ("is_used");
-      CREATE INDEX "IDX_purchase_codes_deleted_at" ON "purchase_codes" ("deleted_at");
+      CREATE INDEX IF NOT EXISTS "IDX_purchase_codes_code" ON "purchase_codes" ("code");
+      CREATE INDEX IF NOT EXISTS "IDX_purchase_codes_is_used" ON "purchase_codes" ("is_used");
+      CREATE INDEX IF NOT EXISTS "IDX_purchase_codes_deleted_at" ON "purchase_codes" ("deleted_at");
 
       -- Notifications table
       CREATE TABLE IF NOT EXISTS "notifications" (
@@ -350,9 +350,9 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         CONSTRAINT "PK_notifications" PRIMARY KEY ("id"),
         CONSTRAINT "FK_notifications_user" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
       );
-      CREATE INDEX "IDX_notifications_user_id" ON "notifications" ("user_id");
-      CREATE INDEX "IDX_notifications_is_read" ON "notifications" ("is_read");
-      CREATE INDEX "IDX_notifications_created_at" ON "notifications" ("created_at");
+      CREATE INDEX IF NOT EXISTS "IDX_notifications_user_id" ON "notifications" ("user_id");
+      CREATE INDEX IF NOT EXISTS "IDX_notifications_is_read" ON "notifications" ("is_read");
+      CREATE INDEX IF NOT EXISTS "IDX_notifications_created_at" ON "notifications" ("created_at");
 
       -- Notification settings table
       CREATE TABLE IF NOT EXISTS "notification_settings" (
@@ -372,17 +372,23 @@ export class InitialSchema1734986400000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`DROP TABLE IF EXISTS "notification_settings" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "notification_settings" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "notifications" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "purchase_codes" CASCADE`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "discount_code_usage" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "discount_code_usage" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "discount_codes" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "package_purchases" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "lesson_purchases" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "payments" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "exam_attempts" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "exams" CASCADE`);
-    await queryRunner.query(`DROP TABLE IF EXISTS "lesson_package_items" CASCADE`);
+    await queryRunner.query(
+      `DROP TABLE IF EXISTS "lesson_package_items" CASCADE`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "lesson_packages" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "lessons" CASCADE`);
     await queryRunner.query(`DROP TABLE IF EXISTS "student_profiles" CASCADE`);

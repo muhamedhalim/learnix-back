@@ -52,6 +52,36 @@ export class Lesson {
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail!: string | null;
 
+  // Primary video fields (Bunny.net)
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'video_url' })
+  video_url!: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: 'bunny',
+    name: 'video_platform',
+  })
+  @Index('IDX_lessons_video_platform')
+  video_platform!: 'bunny' | 'vimeo';
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'bunny_video_id',
+  })
+  bunny_video_id!: string | null;
+
+  @Column({
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+    name: 'bunny_library_id',
+  })
+  bunny_library_id!: string | null;
+
+  // Legacy Vimeo fields (for backward compatibility during migration)
   @Column({
     type: 'varchar',
     length: 255,

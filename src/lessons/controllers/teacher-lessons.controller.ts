@@ -25,6 +25,8 @@ import {
   UpdateLessonDto,
   LessonFilterDto,
   UpdateVimeoInfoDto,
+  UpdateLessonVideoDto,
+  UpdateVimeoUrlDto,
 } from '../dto';
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -225,13 +227,112 @@ export class TeacherLessonsController {
   }
 
   /**
-   * Update Vimeo info for a lesson
+   * Update video URL for a lesson (Bunny.net - Primary)
+   */
+  @Put(':id/video')
+  @ApiOperation({
+    summary: 'Update lesson video URL (Bunny.net)',
+    description:
+      'Updates the video URL for a lesson using Bunny.net Stream. Automatically extracts and stores library ID and video ID. Teacher can only update their own lessons.',
+  })
+  @ApiParam({ name: 'id', description: 'Lesson ID', type: 'number' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Video URL updated successfully',
+    schema: {
+      example: {
+        message: 'Video URL updated successfully',
+        video_url: 'https://iframe.mediadelivery.net/embed/123456/abc-def-ghi',
+        video_platform: 'bunny',
+        bunny_video_id: 'abc-def-ghi',
+        bunny_library_id: '123456',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid Bunny.net URL format',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Lesson not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'You can only update your own lessons',
+  })
+  async updateVideoUrl(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateLessonVideoDto,
+  ) {
+    return this.lessonsService.updateVideoUrl(
+      id,
+      user.userId,
+      dto.video_url,
+      dto.duration,
+    );
+  }
+
+  /**
+   * Update Vimeo URL for a lesson (Legacy - Deprecated)
+   * @deprecated Use PUT /lessons/:id/video with Bunny.net URLs instead
    */
   @Put(':id/vimeo')
   @ApiOperation({
-    summary: 'Update Vimeo info',
+    summary: 'Update Vimeo URL (Legacy - Deprecated)',
     description:
-      'Updates Vimeo video information for a lesson. Automatically generates embed URL if not provided. Teacher only.',
+      'DEPRECATED: Use PUT /teacher/lessons/:id/video instead. Updates the video URL for a lesson using Vimeo (legacy support only).',
+    deprecated: true,
+  })
+  @ApiParam({ name: 'id', description: 'Lesson ID', type: 'number' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Vimeo URL updated successfully',
+    schema: {
+      example: {
+        message: 'Vimeo URL updated successfully (legacy)',
+        video_url: 'https://vimeo.com/123456789',
+        video_platform: 'vimeo',
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid Vimeo URL format',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Lesson not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'You can only update your own lessons',
+  })
+  async updateVimeoUrl(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateVimeoUrlDto,
+  ) {
+    const vimeoUrl = dto.vimeo_url || dto.video_url;
+    return this.lessonsService.updateVimeoUrl(
+      id,
+      user.userId,
+      vimeoUrl,
+      dto.duration,
+    );
+  }
+
+  /**
+   * Update Vimeo info for a lesson (Legacy DTO - Deprecated)
+   * @deprecated Use PUT /lessons/:id/video with Bunny.net URLs instead
+   */
+  @Put(':id/vimeo-info')
+  @ApiOperation({
+    summary: 'Update Vimeo info (Legacy - Deprecated)',
+    description:
+      'DEPRECATED: Use PUT /teacher/lessons/:id/video instead. Updates Vimeo video information for a lesson.',
+    deprecated: true,
   })
   @ApiParam({ name: 'id', description: 'Lesson ID' })
   @ApiResponse({
