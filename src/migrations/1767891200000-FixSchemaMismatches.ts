@@ -43,12 +43,17 @@ export class FixSchemaMismatches1767891200000 implements MigrationInterface {
       WHERE "full_name" IS NOT NULL AND "first_name" IS NULL;
     `);
 
-    // 6. Rename password to password_hash
+    // 6. Drop the old full_name column (now migrated to first_name)
+    await queryRunner.query(`
+      ALTER TABLE "users" DROP COLUMN IF EXISTS "full_name";
+    `);
+
+    // 7. Rename password to password_hash
     await queryRunner.query(`
       ALTER TABLE "users" RENAME COLUMN "password" TO "password_hash";
     `);
 
-    // 7. Add missing user columns
+    // 8. Add missing user columns
     await queryRunner.query(`
       ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "profile_picture_url" character varying;
     `);
@@ -102,6 +107,13 @@ export class FixSchemaMismatches1767891200000 implements MigrationInterface {
     `);
     await queryRunner.query(`
       ALTER TABLE "users" RENAME COLUMN "password_hash" TO "password";
+    `);
+    // Restore full_name column before dropping first_name/last_name
+    await queryRunner.query(`
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "full_name" character varying;
+    `);
+    await queryRunner.query(`
+      UPDATE "users" SET "full_name" = "first_name" WHERE "first_name" IS NOT NULL;
     `);
     await queryRunner.query(`
       ALTER TABLE "users" DROP COLUMN IF EXISTS "last_name";
