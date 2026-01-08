@@ -112,7 +112,11 @@ async function bootstrap() {
             return false;
           }
         })
-    : ['http://localhost:3000', 'http://localhost:5173'];
+    : [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://dodline.vercel.app',
+      ];
 
   logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
 
