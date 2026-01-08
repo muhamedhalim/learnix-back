@@ -4,6 +4,11 @@ export class MigrateToBunnyNet1767891201000 implements MigrationInterface {
   name = 'MigrateToBunnyNet1767891201000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // First, rename vimeo_embed_html to vimeo_embed_url to match entity
+    await queryRunner.query(`
+      ALTER TABLE "lessons" RENAME COLUMN "vimeo_embed_html" TO "vimeo_embed_url"
+    `);
+
     // Add new Bunny.net columns
     await queryRunner.query(`
       ALTER TABLE "lessons" ADD COLUMN IF NOT EXISTS "video_url" character varying(500)
@@ -57,6 +62,11 @@ export class MigrateToBunnyNet1767891201000 implements MigrationInterface {
 
     await queryRunner.query(`
       ALTER TABLE "lessons" DROP COLUMN IF EXISTS "video_url"
+    `);
+
+    // Revert column rename
+    await queryRunner.query(`
+      ALTER TABLE "lessons" RENAME COLUMN "vimeo_embed_url" TO "vimeo_embed_html"
     `);
   }
 }
