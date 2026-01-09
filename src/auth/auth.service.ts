@@ -30,7 +30,7 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto) {
-    const { email, password, username, full_name } = registerDto;
+    const { email, password, username, first_name, last_name } = registerDto;
 
     // Use generic error to prevent username/email enumeration
     const existingUser = await this.userRepository.findOne({
@@ -45,16 +45,12 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
 
-    const nameParts = full_name.trim().split(' ');
-    const first_name = nameParts[0] || '';
-    const last_name = nameParts.slice(1).join(' ') || '';
-
     const newUser = this.userRepository.create({
       username,
       email,
       password_hash: hashedPassword,
-      first_name,
-      last_name,
+      first_name: first_name.trim(),
+      last_name: last_name.trim(),
       role: UserRole.STUDENT, // Default role for registration
       is_active: true,
     });

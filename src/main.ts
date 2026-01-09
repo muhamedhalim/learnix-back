@@ -133,7 +133,13 @@ async function bootstrap() {
         return callback(null, true);
       }
 
+      // Check if origin is in allowed list
       if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      }
+      // Allow all Vercel preview deployments (*.vercel.app)
+      else if (origin.endsWith('.vercel.app')) {
+        logger.log(`Accepting Vercel preview deployment: ${origin}`);
         callback(null, true);
       } else {
         logger.warn(`Blocked CORS request from: ${origin}`);
