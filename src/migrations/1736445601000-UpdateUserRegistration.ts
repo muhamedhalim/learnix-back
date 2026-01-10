@@ -4,132 +4,90 @@ export class UpdateUserRegistration1736445601000 implements MigrationInterface {
   name = 'UpdateUserRegistration1736445601000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Add new name column (combining first_name and last_name)
+    // Add "name" column if missing, fill values, then set NOT NULL
     await queryRunner.query(`
-      ALTER TABLE "users" ADD COLUMN "name" character varying
+      ALTER TABLE "users"
+      ADD COLUMN IF NOT EXISTS "name" character varying
     `);
 
-    // Migrate existing data: combine first_name and last_name into name
     await queryRunner.query(`
       UPDATE "users"
       SET "name" = COALESCE(TRIM(CONCAT(first_name, ' ', last_name)), email)
       WHERE "name" IS NULL
     `);
 
-    // Make name NOT NULL after data migration
     await queryRunner.query(`
-      ALTER TABLE "users" ALTER COLUMN "name" SET NOT NULL
+      ALTER TABLE "users"
+      ALTER COLUMN "name" SET NOT NULL
     `);
 
-    // Add parent_phone column
+    // Add "parent_phone" column if missing
     await queryRunner.query(`
-      ALTER TABLE "users" ADD COLUMN "parent_phone" character varying
+      ALTER TABLE "users"
+      ADD COLUMN IF NOT EXISTS "parent_phone" character varying
     `);
 
-    // Create index on parent_phone
+    // Create index for parent_phone if it doesn't exist
     await queryRunner.query(`
-      CREATE INDEX "IDX_users_parent_phone" ON "users" ("parent_phone")
+      CREATE INDEX IF NOT EXISTS "IDX_users_parent_phone" ON "users" ("parent_phone")
     `);
 
-    // Make phone unique and not null (set default for existing records first)
+    // Ensure phone column has values and is NOT NULL
     await queryRunner.query(`
       UPDATE "users" SET "phone" = CONCAT('temp_', id::text)
       WHERE "phone" IS NULL
     `);
 
     await queryRunner.query(`
-      ALTER TABLE "users" ALTER COLUMN "phone" SET NOT NULL
+      ALTER TABLE "users"
+      ALTER COLUMN "phone" SET NOT NULL
     `);
 
-    await queryRunner.query(`
-      ALTER TABLE "users" ADD CONSTRAINT "UQ_users_phone" UNIQUE ("phone")
-    `);
+    // --- Idempotent creation of unique constraint "UQ_users_phone" ---
+    // Postgres doesn't support ALTER TABLE ... ADD CONSTRAINT IF NOT EXISTS,
+    // so check table metadata and only create if absent.
+    const table = await queryRunner.getTable('users');
 
-    // Create index on phone
-    await queryRunner.query(`
-      CREATE INDEX "IDX_users_phone" ON "users" ("phone")
-    `);
+    const hasPhoneUnique =
+      (table?.uniques ?? []).some((u) => u.name === 'UQ_users_phone') ||
+      (table?.indices ?? []).some((i) => i.name === 'UQ_users_phone');
 
-    // Drop username and related index
-    await queryRunner.query(`
-      DROP INDEX IF EXISTS "IDX_users_username"
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP COLUMN IF EXISTS "username"
-    `);
-
-    // Drop first_name and last_name columns
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP COLUMN IF EXISTS "first_name"
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP COLUMN IF EXISTS "last_name"
-    `);
+    if (!hasPhoneUnique) {
+      await queryRunner.query(`
+        ALTER TABLE "users"
+        ADD CONSTRAINT "UQ_users_phone" UNIQUE ("phone")
+      `);
+    }
+    // ------------------------------------------------------------------
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Add back username, first_name, last_name
+    // Drop the unique constraint if it exists
+    // Use defensive SQL to avoid errors if absent
     await queryRunner.query(`
-      ALTER TABLE "users" ADD COLUMN "username" character varying
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'UQ_users_phone'
+        ) THEN
+          ALTER TABLE "users" DROP CONSTRAINT "UQ_users_phone";
+        END IF;
+      END$$;
     `);
 
+    // Drop the parent_phone index if exists
     await queryRunner.query(`
-      ALTER TABLE "users" ADD COLUMN "first_name" character varying
+      DROP INDEX IF EXISTS "IDX_users_parent_phone";
     `);
 
-    await queryRunner.query(`
-      ALTER TABLE "users" ADD COLUMN "last_name" character varying
-    `);
-
-    // Migrate name back to first_name (simple approach)
-    await queryRunner.query(`
-      UPDATE "users" SET "first_name" = "name"
-    `);
-
-    // Create username from email
-    await queryRunner.query(`
-      UPDATE "users" SET "username" = SPLIT_PART(email, '@', 1)
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" ALTER COLUMN "username" SET NOT NULL
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" ADD CONSTRAINT "UQ_users_username" UNIQUE ("username")
-    `);
-
-    await queryRunner.query(`
-      CREATE INDEX "IDX_users_username" ON "users" ("username")
-    `);
-
-    // Remove phone constraints
-    await queryRunner.query(`
-      DROP INDEX IF EXISTS "IDX_users_phone"
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "UQ_users_phone"
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" ALTER COLUMN "phone" DROP NOT NULL
-    `);
-
-    // Drop parent_phone
-    await queryRunner.query(`
-      DROP INDEX IF EXISTS "IDX_users_parent_phone"
-    `);
-
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP COLUMN IF EXISTS "parent_phone"
-    `);
-
-    // Drop name column
-    await queryRunner.query(`
-      ALTER TABLE "users" DROP COLUMN IF EXISTS "name"
-    `);
+    // Optionally keep data; below lines remove the added columns if you want to fully revert:
+    // Note: drop columns only if you are sure you want to remove them.
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP COLUMN IF EXISTS "parent_phone";`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "users" DROP COLUMN IF EXISTS "name";`,
+    );
   }
 }
