@@ -16,8 +16,8 @@ import { PurchaseCodeType } from './purchase-code-type.enum';
 @Index('IDX_purchase_codes_expires', ['expires_at'])
 @Index('IDX_purchase_codes_type_item', ['type', 'item_id'])
 export class PurchaseCode {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 16, unique: true })
   code!: string;
@@ -25,8 +25,8 @@ export class PurchaseCode {
   @Column({ type: 'enum', enum: PurchaseCodeType })
   type!: PurchaseCodeType;
 
-  @Column({ type: 'int', name: 'item_id' })
-  item_id!: number;
+  @Column({ type: 'uuid', name: 'item_id' })
+  item_id!: string;
 
   @Column({ type: 'boolean', default: false, name: 'is_used' })
   is_used!: boolean;

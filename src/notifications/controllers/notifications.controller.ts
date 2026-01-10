@@ -5,7 +5,7 @@ import {
   Param,
   Query,
   UseGuards,
-  ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -76,7 +76,7 @@ export class NotificationsController {
     description: 'Notification not found',
   })
   async markAsRead(
-    @Param('id', ParseIntPipe) notificationId: number,
+    @Param('id', ParseUUIDPipe) notificationId: string,
     @GetUser() user: JwtPayload,
   ) {
     const notification = await this.notificationsService.markAsRead(

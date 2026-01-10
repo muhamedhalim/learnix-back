@@ -17,8 +17,8 @@ import { NotificationType } from './notification-type.enum';
 @Index('IDX_notifications_sent_at', ['sent_at'])
 @Index('IDX_notifications_user_read', ['user_id', 'is_read'])
 export class Notification {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;

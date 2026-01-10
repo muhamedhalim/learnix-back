@@ -38,7 +38,7 @@ import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 
 export interface PaymentResponse {
-  payment_id: number;
+  payment_id: string;
   payment_key: string;
   paymob_order_id: number;
   amount: number;
@@ -77,14 +77,14 @@ interface TeacherRevenuePeriodRaw {
 }
 
 interface TeacherTopLessonsRaw {
-  lesson_id: number;
+  lesson_id: string;
   lesson_title: string;
   revenue: string;
   sales: string;
 }
 
 interface TeacherRevenueByLessonRaw {
-  lesson_id: number;
+  lesson_id: string;
   lesson_title: string;
   purchase_count: string;
   total_revenue: string;
@@ -92,7 +92,7 @@ interface TeacherRevenueByLessonRaw {
 }
 
 interface TeacherRevenueByPackageRaw {
-  package_id: number;
+  package_id: string;
   package_title: string;
   purchase_count: string;
   total_revenue: string;
@@ -162,7 +162,7 @@ export class PaymentsService {
 
     // Apply discount code if provided
     let discountAmount = 0;
-    let discountCodeId: number | null = null;
+    let discountCodeId: string | null = null;
 
     if (dto.discount_code) {
       const verification = await this.discountCodesService.verifyCode(
@@ -285,7 +285,7 @@ export class PaymentsService {
 
     // Apply discount code if provided
     let discountAmount = 0;
-    let discountCodeId: number | null = null;
+    let discountCodeId: string | null = null;
 
     if (dto.discount_code) {
       const verification = await this.discountCodesService.verifyCode(
@@ -377,7 +377,7 @@ export class PaymentsService {
    * Reopen an expired lesson at 50% price
    */
   async reopenLesson(
-    lessonId: number,
+    lessonId: string,
     userId: string,
     billingData: BillingDataDto,
   ): Promise<PaymentResponse> {
@@ -456,7 +456,7 @@ export class PaymentsService {
   /**
    * Process successful payment - grant access
    */
-  async processSuccessfulPayment(paymentId: number): Promise<void> {
+  async processSuccessfulPayment(paymentId: string): Promise<void> {
     await retryTransaction(this.dataSource, async (manager) => {
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
@@ -594,7 +594,7 @@ export class PaymentsService {
    * Process failed payment
    */
   async processFailedPayment(
-    paymentId: number,
+    paymentId: string,
     failureReason?: string,
   ): Promise<void> {
     await this.paymentsRepository.update(paymentId, {
@@ -610,7 +610,7 @@ export class PaymentsService {
    */
   async checkLessonAccess(
     userId: string,
-    lessonId: number,
+    lessonId: string,
   ): Promise<AccessCheckResult> {
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: {
@@ -640,7 +640,7 @@ export class PaymentsService {
   /**
    * Extend lesson access by 1 day (admin only)
    */
-  async extendLessonAccess(purchaseId: number): Promise<LessonPurchase> {
+  async extendLessonAccess(purchaseId: string): Promise<LessonPurchase> {
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: { id: purchaseId },
     });
@@ -829,7 +829,7 @@ export class PaymentsService {
   /**
    * Get payment by ID
    */
-  async getPaymentById(paymentId: number): Promise<Payment | null> {
+  async getPaymentById(paymentId: string): Promise<Payment | null> {
     return await this.paymentsRepository.findOne({
       where: { id: paymentId },
       relations: ['user'],
@@ -837,17 +837,19 @@ export class PaymentsService {
   }
 
   /**
-   * Get payment by merchant order ID (our payment.id)
+   * Get payment by merchant order ID (our payment.id - UUID)
    */
   async getPaymentByMerchantOrderId(
     merchantOrderId: string,
   ): Promise<Payment | null> {
-    const paymentId = parseInt(merchantOrderId, 10);
-    if (isNaN(paymentId)) {
+    // Validate UUID format
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(merchantOrderId)) {
       return null;
     }
     return await this.paymentsRepository.findOne({
-      where: { id: paymentId },
+      where: { id: merchantOrderId },
     });
   }
 
@@ -930,7 +932,7 @@ export class PaymentsService {
       sales: number;
     }>;
     top_lessons: Array<{
-      lesson_id: number;
+      lesson_id: string;
       lesson_title: string;
       revenue: number;
       sales: number;
@@ -1046,7 +1048,7 @@ export class PaymentsService {
    */
   async getTeacherRevenueByLesson(teacherId: string): Promise<{
     lessons: Array<{
-      lesson_id: number;
+      lesson_id: string;
       lesson_title: string;
       purchase_count: number;
       total_revenue: number;
@@ -1086,7 +1088,7 @@ export class PaymentsService {
    */
   async getTeacherRevenueByPackage(teacherId: string): Promise<{
     packages: Array<{
-      package_id: number;
+      package_id: string;
       package_title: string;
       purchase_count: number;
       total_revenue: number;

@@ -2,7 +2,7 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsInt,
+  IsUUID,
   IsNumber,
   MaxLength,
   Min,
@@ -48,13 +48,12 @@ export class CreateBookDto {
   description_ar?: string;
 
   @ApiProperty({
-    description: 'Subject ID the book belongs to',
-    example: 1,
+    description: 'Subject ID the book belongs to (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsInt()
+  @IsUUID('4', { message: 'Subject ID must be a valid UUID' })
   @IsNotEmpty()
-  @Type(() => Number)
-  subject_id!: number;
+  subject_id!: string;
 
   @ApiPropertyOptional({
     description: 'Cover image URL (from upload)',

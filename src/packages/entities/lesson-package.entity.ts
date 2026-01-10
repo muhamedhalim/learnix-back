@@ -20,8 +20,8 @@ import { PackagePurchase } from '../../payments/entities/package-purchase.entity
 @Index('IDX_lesson_packages_price', ['price'])
 @Index('IDX_lesson_packages_created_at', ['created_at'])
 export class LessonPackage {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ length: 255 })
   title!: string;

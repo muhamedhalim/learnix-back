@@ -3,7 +3,6 @@ import {
   Get,
   Param,
   Query,
-  ParseIntPipe,
   ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
@@ -104,7 +103,7 @@ export class PackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.packagesService.findOne(id);
   }
 

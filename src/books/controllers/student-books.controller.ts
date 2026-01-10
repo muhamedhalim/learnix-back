@@ -5,7 +5,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -95,7 +95,7 @@ export class StudentBooksController {
   })
   async checkAccess(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) bookId: number,
+    @Param('id', ParseUUIDPipe) bookId: string,
   ) {
     const purchase = await this.bookPurchasesService.checkAlreadyPurchased(
       user.userId,
@@ -132,7 +132,7 @@ export class StudentBooksController {
   })
   async getDownloadUrl(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) bookId: number,
+    @Param('id', ParseUUIDPipe) bookId: string,
   ) {
     const result = await this.bookPurchasesService.getDownloadUrl(
       user.userId,

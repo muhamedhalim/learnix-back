@@ -17,8 +17,8 @@ export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
   unique: true,
 })
 export class AttendanceRecord {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   @Index('IDX_attendance_student_id')
@@ -28,9 +28,9 @@ export class AttendanceRecord {
   @JoinColumn({ name: 'student_id' })
   student!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'lesson_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'lesson_id' })
   @Index('IDX_attendance_lesson_id')
-  lesson_id!: number;
+  lesson_id!: string;
 
   @ManyToOne(() => Lesson)
   @JoinColumn({ name: 'lesson_id' })

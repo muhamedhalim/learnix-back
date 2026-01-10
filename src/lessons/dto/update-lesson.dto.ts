@@ -4,6 +4,7 @@ import {
   IsOptional,
   MaxLength,
   IsInt,
+  IsUUID,
   Min,
   IsNumber,
   IsBoolean,
@@ -51,14 +52,13 @@ export class UpdateLessonDto {
   description_ar?: string;
 
   @ApiProperty({
-    description: 'Subject ID this lesson belongs to',
-    example: 2,
+    description: 'Subject ID this lesson belongs to (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
     required: false,
   })
-  @IsInt()
+  @IsUUID('4', { message: 'Subject ID must be a valid UUID' })
   @IsOptional()
-  @Min(1)
-  subject_id?: number;
+  subject_id?: string;
 
   @ApiProperty({
     description: 'Lesson price in EGP',

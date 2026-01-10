@@ -16,8 +16,8 @@ import { Payment } from '../../payments/entities/payment.entity';
   unique: true,
 })
 export class BookPurchase {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   @Index('IDX_book_purchases_student_id')
@@ -27,17 +27,17 @@ export class BookPurchase {
   @JoinColumn({ name: 'student_id' })
   student!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'book_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'book_id' })
   @Index('IDX_book_purchases_book_id')
-  book_id!: number;
+  book_id!: string;
 
   @ManyToOne(() => Book, (book) => book.purchases, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'book_id' })
   book!: Book;
 
-  @Column({ type: 'int', nullable: false, name: 'payment_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'payment_id' })
   @Index('IDX_book_purchases_payment_id')
-  payment_id!: number;
+  payment_id!: string;
 
   @ManyToOne(() => Payment)
   @JoinColumn({ name: 'payment_id' })

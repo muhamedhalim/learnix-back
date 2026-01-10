@@ -114,7 +114,7 @@ export class SubjectsService {
   /**
    * Find a single subject by ID
    */
-  async findOne(id: number): Promise<Subject> {
+  async findOne(id: string): Promise<Subject> {
     const subject = await this.subjectsRepository.findOne({
       where: { id },
     });
@@ -130,7 +130,7 @@ export class SubjectsService {
    * Update a subject
    */
   async update(
-    id: number,
+    id: string,
     updateSubjectDto: UpdateSubjectDto,
   ): Promise<Subject> {
     const subject = await this.findOne(id);
@@ -167,7 +167,7 @@ export class SubjectsService {
   /**
    * Soft delete a subject
    */
-  async remove(id: number): Promise<void> {
+  async remove(id: string): Promise<void> {
     const subject = await this.findOne(id);
 
     // TODO: Check if subject has lessons (prevent deletion if used)
@@ -186,7 +186,7 @@ export class SubjectsService {
    * Returns teachers who teach this subject with their stats
    */
   async findTeachersBySubject(
-    subjectId: number,
+    subjectId: string,
     page: number = 1,
     limit: number = 20,
   ): Promise<PaginatedResponse<Record<string, unknown>>> {

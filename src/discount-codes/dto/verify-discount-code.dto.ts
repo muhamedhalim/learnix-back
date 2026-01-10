@@ -22,11 +22,10 @@ export class VerifyDiscountCodeDto {
 
   @ApiProperty({
     description: 'ID of the item being purchased',
-    example: 1,
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @IsNumber()
-  @Type(() => Number)
-  item_id!: number;
+  @IsString()
+  item_id!: string;
 
   @ApiProperty({
     description: 'Original price of the item (in EGP)',
@@ -41,7 +40,7 @@ export class VerifyDiscountCodeDto {
 export interface VerificationResult {
   valid: boolean;
   error?: string;
-  discount_code_id?: number;
+  discount_code_id?: string;
   discount_type?: string;
   discount_value?: number;
   discount_amount?: number;

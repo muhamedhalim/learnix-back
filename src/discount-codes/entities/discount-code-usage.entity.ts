@@ -18,11 +18,11 @@ import { Payment } from '../../payments/entities/payment.entity';
 @Index('IDX_discount_usage_payment', ['payment_id'])
 @Unique('UQ_discount_code_user', ['discount_code_id', 'user_id'])
 export class DiscountCodeUsage {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-  @Column({ type: 'int', name: 'discount_code_id' })
-  discount_code_id!: number;
+  @Column({ type: 'uuid', name: 'discount_code_id' })
+  discount_code_id!: string;
 
   @ManyToOne(() => DiscountCode, (code) => code.usages, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'discount_code_id' })
@@ -35,8 +35,8 @@ export class DiscountCodeUsage {
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @Column({ type: 'int', name: 'payment_id' })
-  payment_id!: number;
+  @Column({ type: 'uuid', name: 'payment_id' })
+  payment_id!: string;
 
   @ManyToOne(() => Payment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'payment_id' })

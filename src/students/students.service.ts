@@ -25,7 +25,7 @@ import {
  * Response type for student profile with user info
  */
 export interface StudentProfileWithDetails {
-  id: number;
+  id: string;
   user: {
     id: string;
     name: string;
@@ -256,7 +256,7 @@ export class StudentsService {
    * Get a single student by profile ID
    * Used by admin to view any student's details
    */
-  async findStudentById(id: number): Promise<StudentProfileWithDetails> {
+  async findStudentById(id: string): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
       where: { id },
       relations: ['user'],
@@ -276,7 +276,7 @@ export class StudentsService {
    * @param notes - Optional approval notes (stored for audit trail)
    */
   async approveStudent(
-    profileId: number,
+    profileId: string,
     notes?: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
@@ -313,7 +313,7 @@ export class StudentsService {
    * Sets user status to REJECTED with reason
    */
   async rejectStudent(
-    profileId: number,
+    profileId: string,
     dto: RejectStudentDto,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
@@ -345,7 +345,7 @@ export class StudentsService {
    * Admin update student's grade level
    */
   async updateGradeLevel(
-    profileId: number,
+    profileId: string,
     gradeLevel: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
@@ -368,7 +368,7 @@ export class StudentsService {
    * Get student statistics
    * Returns lesson count, exam count, average score, etc.
    */
-  async getStudentStats(profileId: number): Promise<StudentStats> {
+  async getStudentStats(profileId: string): Promise<StudentStats> {
     const profile = await this.studentProfilesRepository.findOne({
       where: { id: profileId },
     });

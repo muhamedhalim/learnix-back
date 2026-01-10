@@ -10,8 +10,8 @@ import {
 
 @Entity('subjects')
 export class Subject {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   @Index('IDX_subjects_name')

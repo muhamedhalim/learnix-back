@@ -16,8 +16,8 @@ import { BookPurchase } from './book-purchase.entity';
 
 @Entity('books')
 export class Book {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   @Index('IDX_books_title')
@@ -41,9 +41,9 @@ export class Book {
   @JoinColumn({ name: 'teacher_id' })
   teacher!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'subject_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'subject_id' })
   @Index('IDX_books_subject_id')
-  subject_id!: number;
+  subject_id!: string;
 
   @ManyToOne(() => Subject)
   @JoinColumn({ name: 'subject_id' })

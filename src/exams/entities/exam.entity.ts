@@ -17,8 +17,8 @@ import { ExamAttempt } from './exam-attempt.entity';
 
 @Entity('exams')
 export class Exam {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   @Index('IDX_exams_title')
@@ -42,9 +42,9 @@ export class Exam {
   @JoinColumn({ name: 'teacher_id' })
   teacher!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'subject_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'subject_id' })
   @Index('IDX_exams_subject_id')
-  subject_id!: number;
+  subject_id!: string;
 
   @ManyToOne(() => Subject)
   @JoinColumn({ name: 'subject_id' })

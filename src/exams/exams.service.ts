@@ -35,7 +35,7 @@ import {
  * Response type for exam with teacher and subject details
  */
 export interface ExamWithDetails {
-  id: number;
+  id: string;
   title: string;
   title_ar: string;
   description: string | null;
@@ -46,7 +46,7 @@ export interface ExamWithDetails {
     email: string;
   };
   subject: {
-    id: number;
+    id: string;
     name: string;
     grade_level: string;
   };
@@ -71,7 +71,7 @@ export interface ExamListItem extends ExamWithDetails {
  * Response type for student's available exam (without correct answers)
  */
 export interface ExamForTaking {
-  id: number;
+  id: string;
   title: string;
   title_ar: string;
   description: string | null;
@@ -93,7 +93,7 @@ export interface ExamForTaking {
  */
 export interface SubmissionResult {
   message: string;
-  attempt_id: number;
+  attempt_id: string;
   score_mcq: number;
   essay_pending: boolean;
   total_mcq_questions: number;
@@ -106,7 +106,7 @@ export interface SubmissionResult {
  * Response type for exam result (fully graded)
  */
 export interface ExamResult {
-  exam_id: number;
+  exam_id: string;
   exam_title: string;
   exam_title_ar: string;
   score_mcq: number;
@@ -409,7 +409,7 @@ export class ExamsService {
    * Get exam submissions for grading
    */
   async getSubmissions(
-    examId: number,
+    examId: string,
     teacherId: string,
     page: number = 1,
     limit: number = 20,
@@ -482,7 +482,7 @@ export class ExamsService {
    */
   async gradeEssay(
     teacherId: string,
-    examId: number,
+    examId: string,
     dto: GradeEssayDto,
   ): Promise<{
     message: string;
@@ -589,7 +589,7 @@ export class ExamsService {
    * Only allowed if no submissions exist
    */
   async update(
-    examId: number,
+    examId: string,
     teacherId: string,
     dto: UpdateExamDto,
   ): Promise<ExamWithDetails> {
@@ -678,7 +678,7 @@ export class ExamsService {
   /**
    * Delete an exam (soft delete)
    */
-  async delete(examId: number, teacherId: string): Promise<void> {
+  async delete(examId: string, teacherId: string): Promise<void> {
     await this.validateTeacherOwnership(examId, teacherId);
     await this.examsRepository.softDelete(examId);
   }
@@ -767,7 +767,7 @@ export class ExamsService {
    * Get exam for taking (strips correct answers)
    */
   async findOneForTaking(
-    examId: number,
+    examId: string,
     studentId: string,
   ): Promise<ExamForTaking> {
     const exam = await this.examsRepository.findOne({
@@ -910,7 +910,7 @@ export class ExamsService {
   /**
    * Get exam result (only if fully graded)
    */
-  async getExamResult(studentId: string, examId: number): Promise<ExamResult> {
+  async getExamResult(studentId: string, examId: string): Promise<ExamResult> {
     const attempt = await this.attemptsRepository.findOne({
       where: { exam_id: examId, student_id: studentId },
       relations: ['exam'],
@@ -1040,7 +1040,7 @@ export class ExamsService {
   /**
    * Find a single exam by ID
    */
-  async findOne(examId: number): Promise<ExamWithDetails> {
+  async findOne(examId: string): Promise<ExamWithDetails> {
     const exam = await this.examsRepository.findOne({
       where: { id: examId },
       relations: ['teacher', 'subject'],
@@ -1059,7 +1059,7 @@ export class ExamsService {
    * Validate teacher owns the exam
    */
   private async validateTeacherOwnership(
-    examId: number,
+    examId: string,
     teacherId: string,
   ): Promise<Exam> {
     const exam = await this.examsRepository.findOne({

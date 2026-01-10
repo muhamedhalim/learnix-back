@@ -5,7 +5,7 @@ import {
   Post,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -110,7 +110,7 @@ export class AdminBooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const book = await this.booksService.findOneAdmin(id);
     const stats = await this.bookPurchasesService.getBookPurchaseStats(id);
 
@@ -137,7 +137,7 @@ export class AdminBooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async hardDelete(@Param('id', ParseIntPipe) id: number) {
+  async hardDelete(@Param('id', ParseUUIDPipe) id: string) {
     await this.booksService.hardDelete(id);
     return {
       message: 'Book permanently deleted',
@@ -165,7 +165,7 @@ export class AdminBooksController {
     status: HttpStatus.CONFLICT,
     description: 'Book is not deleted',
   })
-  async restore(@Param('id', ParseIntPipe) id: number) {
+  async restore(@Param('id', ParseUUIDPipe) id: string) {
     const book = await this.booksService.restore(id);
     return {
       message: 'Book restored successfully',

@@ -7,7 +7,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -143,7 +143,7 @@ export class TeacherPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const pkg = await this.packagesService.findOne(id);
     return pkg;
   }
@@ -172,7 +172,7 @@ export class TeacherPackagesController {
   })
   async update(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdatePackageDto,
   ) {
     const pkg = await this.packagesService.update(id, user.userId, updateDto);
@@ -206,7 +206,7 @@ export class TeacherPackagesController {
   })
   async delete(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.packagesService.delete(id, user.userId);
     return {
@@ -242,7 +242,7 @@ export class TeacherPackagesController {
   })
   async addLessons(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() addLessonsDto: AddLessonsDto,
   ) {
     const pkg = await this.packagesService.addLessons(
@@ -279,7 +279,7 @@ export class TeacherPackagesController {
   })
   async removeLessons(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() removeLessonsDto: RemoveLessonsDto,
   ) {
     const pkg = await this.packagesService.removeLessons(
@@ -312,7 +312,7 @@ export class TeacherPackagesController {
   })
   async toggleActive(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body('is_active') isActive: boolean,
   ) {
     const pkg = await this.packagesService.toggleActive(

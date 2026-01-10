@@ -7,7 +7,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -145,7 +145,7 @@ export class TeacherBooksController {
   })
   async findOne(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     // Validate teacher owns this book
     await this.booksService.checkOwnership(id, user.userId);
@@ -182,7 +182,7 @@ export class TeacherBooksController {
   })
   async update(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateBookDto,
   ) {
     const book = await this.booksService.update(id, user.userId, dto);
@@ -215,7 +215,7 @@ export class TeacherBooksController {
   })
   async delete(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.booksService.delete(id, user.userId);
     return {

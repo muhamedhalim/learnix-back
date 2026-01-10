@@ -6,7 +6,7 @@ import {
   Delete,
   Body,
   Param,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   HttpCode,
   UseGuards,
@@ -130,7 +130,7 @@ export class AdminSubjectsController {
     description: 'Subject with this title already exists',
   })
   async update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateSubjectDto: UpdateSubjectDto,
   ) {
     const subject = await this.subjectsService.update(id, updateSubjectDto);
@@ -163,7 +163,7 @@ export class AdminSubjectsController {
     status: HttpStatus.CONFLICT,
     description: 'Cannot delete subject with existing lessons',
   })
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.subjectsService.remove(id);
     return {
       message: 'Subject deleted successfully',

@@ -16,7 +16,7 @@ import { IdempotencyService } from '../../idempotency/idempotency.service';
 interface WebhookResponse {
   status: 'success' | 'pending' | 'failed' | 'error' | 'already_processed';
   message?: string;
-  payment_id?: number;
+  payment_id?: string;
   transaction_id?: number;
 }
 
@@ -66,7 +66,7 @@ export class PaymentsWebhookController {
 
     // Step 2: Check idempotency (prevent duplicate processing)
     const idempotencyCheck = await this.idempotencyService.checkWebhook(
-      parseInt(merchantOrderId, 10),
+      merchantOrderId,
       transactionId.toString(),
     );
 

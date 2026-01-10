@@ -144,7 +144,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * - Duplicate coupon usage records
    */
   async checkWebhook<T = any>(
-    paymentId: number,
+    paymentId: string,
     externalOrderId: string,
   ): Promise<IdempotencyCheckResult<T>> {
     if (!this.redisClient || !this.redisClient.isReady) {
@@ -197,7 +197,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * System will work without idempotency protection if Redis is down.
    */
   async storeWebhookResult<T = any>(
-    paymentId: number,
+    paymentId: string,
     externalOrderId: string,
     result: T,
   ): Promise<void> {
@@ -355,7 +355,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * @param externalOrderId - External order ID from gateway
    * @returns Redis key string
    */
-  private buildWebhookKey(paymentId: number, externalOrderId: string): string {
+  private buildWebhookKey(paymentId: string, externalOrderId: string): string {
     return `idempotency:webhook:${paymentId}:${externalOrderId}`;
   }
 

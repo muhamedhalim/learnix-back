@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsDateString, Min, Max } from 'class-validator';
+import {
+  IsEnum,
+  IsString,
+  IsNumber,
+  IsDateString,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { PurchaseCodeType } from '../entities/purchase-code-type.enum';
 
@@ -14,11 +21,10 @@ export class GeneratePurchaseCodesDto {
 
   @ApiProperty({
     description: 'ID of the item (lesson_id, package_id, or book_id)',
-    example: 1,
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @IsNumber()
-  @Type(() => Number)
-  item_id!: number;
+  @IsString()
+  item_id!: string;
 
   @ApiProperty({
     description: 'Number of codes to generate',

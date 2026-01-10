@@ -30,7 +30,7 @@ export class PurchaseCodeFilterDto extends PaginationDto {
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
-  item_id?: number;
+  item_id?: string;
 
   @ApiProperty({
     description: 'Include expired codes',

@@ -71,7 +71,7 @@ export class CreateDiscountCodeDto {
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
-  item_ids?: number[];
+  item_ids?: string[];
 
   @ApiProperty({
     description: 'Maximum number of times this code can be used',

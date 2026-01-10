@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   MaxLength,
   IsInt,
+  IsUUID,
   Min,
   IsOptional,
   IsArray,
@@ -53,12 +54,11 @@ export class CreateExamDto {
   description_ar?: string;
 
   @ApiProperty({
-    description: 'Subject ID this exam belongs to',
-    example: 1,
+    description: 'Subject ID this exam belongs to (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsInt()
-  @Min(1)
-  subject_id!: number;
+  @IsUUID('4', { message: 'Subject ID must be a valid UUID' })
+  subject_id!: string;
 
   @ApiProperty({
     description: 'Exam duration in seconds',

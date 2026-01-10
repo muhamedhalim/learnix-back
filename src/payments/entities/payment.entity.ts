@@ -20,8 +20,8 @@ import { ItemType } from './item-type.enum';
 @Index('IDX_payments_created_at', ['created_at'])
 @Index('IDX_payments_user_status', ['user_id', 'status'])
 export class Payment {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;
@@ -33,8 +33,8 @@ export class Payment {
   @Column({ type: 'enum', enum: ItemType, name: 'item_type' })
   item_type!: ItemType;
 
-  @Column({ type: 'int', name: 'item_id' })
-  item_id!: number;
+  @Column({ type: 'uuid', name: 'item_id' })
+  item_id!: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   amount!: number;

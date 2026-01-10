@@ -8,7 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -83,7 +83,7 @@ export class AdminDiscountCodesController {
     description: 'Discount code details',
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     const discountCode = await this.discountCodesService.findOne(id);
     return { data: discountCode };
   }
@@ -99,7 +99,7 @@ export class AdminDiscountCodesController {
     status: HttpStatus.OK,
     description: 'Usage statistics',
   })
-  async getUsage(@Param('id', ParseIntPipe) id: number) {
+  async getUsage(@Param('id', ParseUUIDPipe) id: string) {
     const stats = await this.discountCodesService.getUsageStats(id);
     return { data: stats };
   }
@@ -117,7 +117,7 @@ export class AdminDiscountCodesController {
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   async update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDiscountCodeDto,
   ) {
     const discountCode = await this.discountCodesService.update(id, dto);
@@ -138,7 +138,7 @@ export class AdminDiscountCodesController {
     description: 'Discount code deleted successfully',
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  async remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
     await this.discountCodesService.remove(id);
     return { message: 'Discount code deleted successfully' };
   }

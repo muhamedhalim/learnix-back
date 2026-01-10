@@ -138,7 +138,7 @@ export class BooksService {
   /**
    * Find a single book by ID
    */
-  async findOne(id: number): Promise<Book> {
+  async findOne(id: string): Promise<Book> {
     const book = await this.booksRepository.findOne({
       where: { id, deleted_at: IsNull() },
       relations: ['teacher', 'subject'],
@@ -154,7 +154,7 @@ export class BooksService {
   /**
    * Find a book by ID (including soft deleted, for admin)
    */
-  async findOneAdmin(id: number): Promise<Book> {
+  async findOneAdmin(id: string): Promise<Book> {
     const book = await this.booksRepository.findOne({
       where: { id },
       relations: ['teacher', 'subject'],
@@ -172,7 +172,7 @@ export class BooksService {
    * Update a book (teacher must own it)
    */
   async update(
-    id: number,
+    id: string,
     teacherId: string,
     dto: UpdateBookDto,
   ): Promise<Book> {
@@ -222,7 +222,7 @@ export class BooksService {
   /**
    * Soft delete a book (teacher must own it)
    */
-  async delete(id: number, teacherId: string): Promise<void> {
+  async delete(id: string, teacherId: string): Promise<void> {
     const book = await this.findOne(id);
 
     // Ownership validation
@@ -237,7 +237,7 @@ export class BooksService {
   /**
    * Hard delete a book (admin only)
    */
-  async hardDelete(id: number): Promise<void> {
+  async hardDelete(id: string): Promise<void> {
     const book = await this.findOneAdmin(id);
     await this.booksRepository.remove(book);
     this.logger.log(`Book hard deleted: ${id}`);
@@ -246,7 +246,7 @@ export class BooksService {
   /**
    * Restore a soft-deleted book (admin only)
    */
-  async restore(id: number): Promise<Book> {
+  async restore(id: string): Promise<Book> {
     const book = await this.findOneAdmin(id);
 
     if (!book.deleted_at) {
@@ -262,7 +262,7 @@ export class BooksService {
   /**
    * Increment purchase count
    */
-  async incrementPurchaseCount(bookId: number): Promise<void> {
+  async incrementPurchaseCount(bookId: string): Promise<void> {
     await this.booksRepository.increment({ id: bookId }, 'purchase_count', 1);
     this.logger.log(`Book purchase count incremented: ${bookId}`);
   }
@@ -270,7 +270,7 @@ export class BooksService {
   /**
    * Check if teacher owns the book
    */
-  async checkOwnership(bookId: number, teacherId: string): Promise<boolean> {
+  async checkOwnership(bookId: string, teacherId: string): Promise<boolean> {
     const book = await this.findOne(bookId);
     return book.teacher_id === teacherId;
   }

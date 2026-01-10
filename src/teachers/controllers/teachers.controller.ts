@@ -3,7 +3,7 @@ import {
   Get,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -93,7 +93,7 @@ export class TeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.teachersService.findTeacherById(id);
   }
 
@@ -123,7 +123,7 @@ export class TeachersController {
     description: 'List of teachers for the subject',
   })
   async findBySubject(
-    @Param('subjectId', ParseIntPipe) subjectId: number,
+    @Param('subjectId', ParseUUIDPipe) subjectId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {

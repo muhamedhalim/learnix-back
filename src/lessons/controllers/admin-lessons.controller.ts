@@ -4,7 +4,7 @@ import {
   Delete,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -125,7 +125,7 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.lessonsService.findOne(id);
   }
 
@@ -147,7 +147,7 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async getStats(@Param('id', ParseIntPipe) id: number) {
+  async getStats(@Param('id', ParseUUIDPipe) id: string) {
     const stats = await this.lessonsService.getLessonStats(id);
     return {
       stats,
@@ -172,7 +172,7 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async delete(@Param('id', ParseIntPipe) id: number) {
+  async delete(@Param('id', ParseUUIDPipe) id: string) {
     await this.lessonsService.adminDelete(id);
     return {
       message: 'Lesson deleted successfully',

@@ -3,7 +3,7 @@ import {
   Get,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -112,7 +112,7 @@ export class StudentExamsController {
   })
   async getExamResult(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
   ) {
     return this.examsService.getExamResult(user.userId, examId);
   }

@@ -12,13 +12,12 @@ export class BookFilterDto {
   search?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by subject ID',
-    example: 1,
+    description: 'Filter by subject ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsInt()
-  @Type(() => Number)
-  subject_id?: number;
+  @IsUUID()
+  subject_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by teacher ID (UUID)',

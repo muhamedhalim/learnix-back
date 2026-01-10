@@ -242,7 +242,7 @@ export class NotificationsService {
    * Mark a notification as read
    */
   async markAsRead(
-    notificationId: number,
+    notificationId: string,
     userId: string,
   ): Promise<Notification> {
     const notification = await this.notificationsRepository.findOne({

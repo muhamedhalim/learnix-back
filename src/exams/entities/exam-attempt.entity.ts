@@ -28,11 +28,11 @@ import { Answer } from './question.interface';
 @Index('IDX_exam_attempts_student_id', ['student_id'])
 @Index('IDX_exam_attempts_status', ['status'])
 export class ExamAttempt {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-  @Column({ type: 'int', nullable: false, name: 'exam_id' })
-  exam_id!: number;
+  @Column({ type: 'uuid', nullable: false, name: 'exam_id' })
+  exam_id!: string;
 
   @ManyToOne(() => Exam, (exam) => exam.attempts)
   @JoinColumn({ name: 'exam_id' })

@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsInt, Min, Max, IsEnum } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
+  IsUUID,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { UserStatus } from '../../users/entities/user-status.enum';
 
@@ -26,12 +34,11 @@ export class TeacherFilterDto {
   @ApiProperty({
     description: 'Filter by subject ID',
     required: false,
-    example: 1,
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @Type(() => Number)
-  @IsInt()
+  @IsUUID()
   @IsOptional()
-  subjectId?: number;
+  subjectId?: string;
 
   @ApiProperty({
     description: 'Sort by field',

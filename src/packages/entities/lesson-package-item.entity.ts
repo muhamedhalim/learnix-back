@@ -16,18 +16,18 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 @Index('IDX_lesson_package_items_lesson_id', ['lesson_id'])
 @Unique('UQ_lesson_package_items_package_lesson', ['package_id', 'lesson_id'])
 export class LessonPackageItem {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
-  @Column('int')
-  package_id!: number;
+  @Column('uuid')
+  package_id!: string;
 
   @ManyToOne(() => LessonPackage, (pkg) => pkg.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'package_id' })
   package!: LessonPackage;
 
-  @Column('int')
-  lesson_id!: number;
+  @Column('uuid')
+  lesson_id!: string;
 
   @ManyToOne(() => Lesson, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'lesson_id' })

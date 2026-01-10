@@ -5,7 +5,7 @@ import {
   Param,
   Body,
   Req,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -53,7 +53,7 @@ export class SessionController {
   })
   async enterLesson(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) lessonId: number,
+    @Param('id', ParseUUIDPipe) lessonId: string,
     @Req() request: Request,
   ) {
     const ipAddress =
@@ -96,7 +96,7 @@ export class SessionController {
   })
   async exitLesson(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) lessonId: number,
+    @Param('id', ParseUUIDPipe) lessonId: string,
     @Body() dto: UpdateSessionDto,
   ) {
     // Find active session
@@ -141,7 +141,7 @@ export class SessionController {
     description: 'Progress updated',
   })
   async updateProgress(
-    @Param('sessionId', ParseIntPipe) sessionId: number,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: UpdateSessionDto,
   ) {
     const session = await this.attendanceService.updateSessionProgress(

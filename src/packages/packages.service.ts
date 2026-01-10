@@ -25,7 +25,7 @@ import {
 } from '../common/interfaces/pagination.interface';
 
 export interface PackageWithDetails {
-  id: number;
+  id: string;
   title: string;
   title_ar: string;
   description: string | null;
@@ -43,7 +43,7 @@ export interface PackageWithDetails {
   thumbnail: string | null;
   lessons_count: number;
   lessons: Array<{
-    id: number;
+    id: string;
     title: string;
     title_ar: string;
     price: number;
@@ -188,7 +188,7 @@ export class PackagesService {
   /**
    * Find a single package by ID
    */
-  async findOne(id: number): Promise<PackageWithDetails> {
+  async findOne(id: string): Promise<PackageWithDetails> {
     const pkg = await this.packagesRepository
       .createQueryBuilder('package')
       .leftJoinAndSelect('package.teacher', 'teacher')
@@ -210,7 +210,7 @@ export class PackagesService {
    * Update a package (ownership check)
    */
   async update(
-    packageId: number,
+    packageId: string,
     teacherId: string,
     dto: UpdatePackageDto,
   ): Promise<PackageWithDetails> {
@@ -235,7 +235,7 @@ export class PackagesService {
   /**
    * Delete a package (ownership check)
    */
-  async delete(packageId: number, teacherId: string): Promise<void> {
+  async delete(packageId: string, teacherId: string): Promise<void> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
@@ -254,7 +254,7 @@ export class PackagesService {
   /**
    * Admin delete (no ownership check)
    */
-  async adminDelete(packageId: number): Promise<void> {
+  async adminDelete(packageId: string): Promise<void> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
@@ -280,7 +280,7 @@ export class PackagesService {
    * Add lessons to a package (with transaction)
    */
   async addLessons(
-    packageId: number,
+    packageId: string,
     teacherId: string,
     dto: AddLessonsDto,
   ): Promise<PackageWithDetails> {
@@ -333,7 +333,7 @@ export class PackagesService {
    * Remove lessons from a package
    */
   async removeLessons(
-    packageId: number,
+    packageId: string,
     teacherId: string,
     dto: RemoveLessonsDto,
   ): Promise<PackageWithDetails> {
@@ -366,7 +366,7 @@ export class PackagesService {
   /**
    * Calculate and update original price (sum of lesson prices)
    */
-  async calculateOriginalPrice(packageId: number): Promise<number> {
+  async calculateOriginalPrice(packageId: string): Promise<number> {
     const result: { total: string | null } | undefined =
       await this.packageItemsRepository
         .createQueryBuilder('item')
@@ -388,7 +388,7 @@ export class PackagesService {
    * Reorder lessons in a package
    */
   async reorderLessons(
-    packageId: number,
+    packageId: string,
     teacherId: string,
     orderMap: Record<number, number>,
   ): Promise<PackageWithDetails> {
@@ -421,7 +421,7 @@ export class PackagesService {
    * Toggle package active status
    */
   async toggleActive(
-    packageId: number,
+    packageId: string,
     teacherId: string,
     isActive: boolean,
   ): Promise<PackageWithDetails> {
@@ -446,7 +446,7 @@ export class PackagesService {
   /**
    * Get package statistics (placeholder for Purchases module)
    */
-  async getPackageStats(packageId: number): Promise<PackageStats> {
+  async getPackageStats(packageId: string): Promise<PackageStats> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
@@ -466,7 +466,7 @@ export class PackagesService {
    * Validate that all lessons belong to the teacher
    */
   async validateLessonsOwnership(
-    lessonIds: number[],
+    lessonIds: string[],
     teacherId: string,
   ): Promise<void> {
     const lessons = await this.lessonsRepository

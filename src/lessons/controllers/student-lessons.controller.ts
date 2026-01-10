@@ -3,7 +3,7 @@ import {
   Get,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -123,7 +123,7 @@ export class StudentLessonsController {
   })
   async getLessonWithAccess(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     const lesson = await this.lessonsService.findOne(id);
     const accessInfo = await this.lessonsService.validateAccess(

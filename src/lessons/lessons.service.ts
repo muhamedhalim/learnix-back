@@ -26,7 +26,7 @@ import {
  * Response type for lesson with teacher and subject details
  */
 export interface LessonWithDetails {
-  id: number;
+  id: string;
   title: string;
   title_ar: string;
   description: string | null;
@@ -38,7 +38,7 @@ export interface LessonWithDetails {
     profile_picture_url: string | null;
   };
   subject: {
-    id: number;
+    id: string;
     name: string;
     grade_level: string;
   };
@@ -257,7 +257,7 @@ export class LessonsService {
    * Find lessons by subject
    */
   async findBySubject(
-    subjectId: number,
+    subjectId: string,
     filter: Omit<LessonFilterDto, 'subject_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
     return this.findAll({
@@ -269,7 +269,7 @@ export class LessonsService {
   /**
    * Find a single lesson by ID
    */
-  async findOne(id: number): Promise<LessonWithDetails> {
+  async findOne(id: string): Promise<LessonWithDetails> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id },
       relations: ['teacher', 'subject'],
@@ -287,7 +287,7 @@ export class LessonsService {
    * Only the owner teacher can update
    */
   async update(
-    lessonId: number,
+    lessonId: string,
     teacherId: string,
     dto: UpdateLessonDto,
   ): Promise<LessonWithDetails> {
@@ -345,7 +345,7 @@ export class LessonsService {
    * Delete a lesson (soft delete)
    * Only the owner teacher can delete
    */
-  async delete(lessonId: number, teacherId: string): Promise<void> {
+  async delete(lessonId: string, teacherId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -365,7 +365,7 @@ export class LessonsService {
   /**
    * Admin force delete a lesson
    */
-  async adminDelete(lessonId: number): Promise<void> {
+  async adminDelete(lessonId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -395,7 +395,7 @@ export class LessonsService {
    * Only the owner teacher can update
    */
   async updateVimeoInfo(
-    lessonId: number,
+    lessonId: string,
     teacherId: string,
     dto: UpdateVimeoInfoDto,
   ): Promise<LessonWithDetails> {
@@ -445,7 +445,7 @@ export class LessonsService {
    * Extracts library_id and video_id from URL and stores them separately
    */
   async updateVideoUrl(
-    lessonId: number,
+    lessonId: string,
     teacherId: string,
     videoUrl: string,
     duration?: number,
@@ -507,7 +507,7 @@ export class LessonsService {
    * @deprecated Use updateVideoUrl() with Bunny.net URLs instead
    */
   async updateVimeoUrl(
-    lessonId: number,
+    lessonId: string,
     teacherId: string,
     vimeoUrl: string,
     duration?: number,
@@ -556,7 +556,7 @@ export class LessonsService {
    * Get lesson statistics
    * Returns purchase count, revenue, etc.
    */
-  async getLessonStats(lessonId: number): Promise<LessonStats> {
+  async getLessonStats(lessonId: string): Promise<LessonStats> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -578,7 +578,7 @@ export class LessonsService {
    * Increment students count when a lesson is purchased
    * Called internally by Purchases module
    */
-  async incrementStudentsCount(lessonId: number): Promise<void> {
+  async incrementStudentsCount(lessonId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -596,7 +596,7 @@ export class LessonsService {
    * Placeholder for Purchases module integration
    */
   async validateAccess(
-    lessonId: number,
+    lessonId: string,
     studentId: string,
   ): Promise<{ hasAccess: boolean; expiresAt: Date | null }> {
     const lesson = await this.lessonsRepository.findOne({

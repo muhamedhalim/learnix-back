@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsInt,
+  IsUUID,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -12,12 +12,12 @@ import { BillingDataDto } from './billing-data.dto';
 
 export class PurchasePackageDto {
   @ApiProperty({
-    description: 'ID of the package to purchase',
-    example: 1,
+    description: 'ID of the package to purchase (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsInt()
+  @IsUUID('4', { message: 'Package ID must be a valid UUID' })
   @IsNotEmpty()
-  package_id!: number;
+  package_id!: string;
 
   @ApiPropertyOptional({
     description: 'Discount code to apply',

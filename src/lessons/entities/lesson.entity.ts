@@ -16,8 +16,8 @@ import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
 
 @Entity('lessons')
 export class Lesson {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
   @Index('IDX_lessons_title')
@@ -41,9 +41,9 @@ export class Lesson {
   @JoinColumn({ name: 'teacher_id' })
   teacher!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'subject_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'subject_id' })
   @Index('IDX_lessons_subject_id')
-  subject_id!: number;
+  subject_id!: string;
 
   @ManyToOne(() => Subject)
   @JoinColumn({ name: 'subject_id' })

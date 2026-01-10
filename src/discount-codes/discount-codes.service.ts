@@ -72,7 +72,7 @@ export class DiscountCodesService {
   /**
    * Update a discount code (admin only)
    */
-  async update(id: number, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
+  async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
     });
@@ -109,7 +109,7 @@ export class DiscountCodesService {
   /**
    * Soft delete a discount code (admin only)
    */
-  async remove(id: number): Promise<void> {
+  async remove(id: string): Promise<void> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
     });
@@ -189,7 +189,7 @@ export class DiscountCodesService {
   /**
    * Find one discount code by ID (admin only)
    */
-  async findOne(id: number): Promise<DiscountCode> {
+  async findOne(id: string): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
       relations: ['usages', 'usages.user'],
@@ -312,9 +312,9 @@ export class DiscountCodesService {
    * Uses pessimistic locking to prevent double redemption
    */
   async applyDiscount(
-    discountCodeId: number,
+    discountCodeId: string,
     userId: string,
-    paymentId: number,
+    paymentId: string,
     discountAmount: number,
     manager: EntityManager,
   ): Promise<void> {
@@ -365,7 +365,7 @@ export class DiscountCodesService {
   /**
    * Get usage statistics for a discount code
    */
-  async getUsageStats(id: number): Promise<{
+  async getUsageStats(id: string): Promise<{
     total_uses: number;
     remaining_uses: number;
     total_discount_given: number;

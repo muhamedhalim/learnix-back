@@ -21,7 +21,7 @@ interface BookPurchaseStatsRaw {
 }
 
 interface TeacherBookRevenueRaw {
-  book_id: number;
+  book_id: string;
   book_title: string;
   sales: string;
   revenue: string;
@@ -43,8 +43,8 @@ export class BookPurchasesService {
    */
   async purchaseBook(
     studentId: string,
-    bookId: number,
-    paymentId: number,
+    bookId: string,
+    paymentId: string,
     pricePaid: number,
   ): Promise<BookPurchase> {
     // Check if already purchased
@@ -81,7 +81,7 @@ export class BookPurchasesService {
    */
   async checkAlreadyPurchased(
     studentId: string,
-    bookId: number,
+    bookId: string,
   ): Promise<BookPurchase | null> {
     return this.purchasesRepository.findOne({
       where: {
@@ -155,7 +155,7 @@ export class BookPurchasesService {
    */
   async getDownloadUrl(
     studentId: string,
-    bookId: number,
+    bookId: string,
   ): Promise<{ download_url: string; book: Book }> {
     // Check if student purchased this book
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
@@ -176,7 +176,7 @@ export class BookPurchasesService {
   /**
    * Find purchase by ID
    */
-  async findPurchaseById(id: number): Promise<BookPurchase> {
+  async findPurchaseById(id: string): Promise<BookPurchase> {
     const purchase = await this.purchasesRepository.findOne({
       where: { id },
       relations: ['book', 'book.teacher', 'book.subject', 'student', 'payment'],
@@ -257,7 +257,7 @@ export class BookPurchasesService {
   /**
    * Get purchase statistics for a book
    */
-  async getBookPurchaseStats(bookId: number): Promise<{
+  async getBookPurchaseStats(bookId: string): Promise<{
     total_purchases: number;
     total_revenue: number;
     avg_price: number;
@@ -286,7 +286,7 @@ export class BookPurchasesService {
     total_revenue: number;
     total_sales: number;
     books: Array<{
-      book_id: number;
+      book_id: string;
       book_title: string;
       sales: number;
       revenue: number;

@@ -7,7 +7,7 @@ import {
   Query,
   HttpStatus,
   UseGuards,
-  ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -117,7 +117,7 @@ export class PaymentsController {
     description: 'Lesson not found',
   })
   async reopenLesson(
-    @Param('id', ParseIntPipe) lessonId: number,
+    @Param('id', ParseUUIDPipe) lessonId: string,
     @Body() billingData: BillingDataDto,
     @GetUser() user: JwtPayload,
   ) {
@@ -199,7 +199,7 @@ export class PaymentsController {
     description: 'Access status retrieved successfully',
   })
   async checkLessonAccess(
-    @Param('id', ParseIntPipe) lessonId: number,
+    @Param('id', ParseUUIDPipe) lessonId: string,
     @GetUser() user: JwtPayload,
   ) {
     const access = await this.paymentsService.checkLessonAccess(

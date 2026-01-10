@@ -1,5 +1,4 @@
 import {
-  IsInt,
   IsNotEmpty,
   IsEnum,
   IsOptional,
@@ -7,7 +6,6 @@ import {
   IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
 import { AttendanceStatus } from '../entities/attendance-record.entity';
 
 export class MarkAttendanceDto {
@@ -20,13 +18,12 @@ export class MarkAttendanceDto {
   student_id!: string;
 
   @ApiProperty({
-    description: 'Lesson ID',
-    example: 1,
+    description: 'Lesson ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsInt()
+  @IsUUID()
   @IsNotEmpty()
-  @Type(() => Number)
-  lesson_id!: number;
+  lesson_id!: string;
 
   @ApiProperty({
     description: 'Attendance status',

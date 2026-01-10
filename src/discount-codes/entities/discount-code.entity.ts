@@ -16,8 +16,8 @@ import { DiscountCodeUsage } from './discount-code-usage.entity';
 @Index('IDX_discount_codes_active', ['is_active'])
 @Index('IDX_discount_codes_valid_dates', ['valid_from', 'valid_until'])
 export class DiscountCode {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', length: 50, unique: true })
   code!: string;
@@ -32,7 +32,7 @@ export class DiscountCode {
   applicable_to!: string[];
 
   @Column({ type: 'jsonb', nullable: true, name: 'item_ids' })
-  item_ids!: number[] | null;
+  item_ids!: string[] | null;
 
   @Column({ type: 'int', default: 1, name: 'max_uses' })
   max_uses!: number;

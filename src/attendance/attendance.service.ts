@@ -108,7 +108,7 @@ export class AttendanceService {
    * Update existing attendance record
    */
   async updateAttendance(
-    id: number,
+    id: string,
     markerId: string,
     status: AttendanceStatus,
     notes?: string,
@@ -132,7 +132,7 @@ export class AttendanceService {
   /**
    * Delete attendance record
    */
-  async deleteAttendance(id: number): Promise<void> {
+  async deleteAttendance(id: string): Promise<void> {
     const attendance = await this.findAttendanceById(id);
     await this.attendanceRepository.remove(attendance);
     this.logger.log(`Attendance deleted: ${id}`);
@@ -143,7 +143,7 @@ export class AttendanceService {
    */
   async checkAttendanceExists(
     studentId: string,
-    lessonId: number,
+    lessonId: string,
   ): Promise<AttendanceRecord | null> {
     return this.attendanceRepository.findOne({
       where: {
@@ -156,7 +156,7 @@ export class AttendanceService {
   /**
    * Find attendance by ID
    */
-  async findAttendanceById(id: number): Promise<AttendanceRecord> {
+  async findAttendanceById(id: string): Promise<AttendanceRecord> {
     const attendance = await this.attendanceRepository.findOne({
       where: { id },
       relations: ['student', 'lesson', 'marker'],
@@ -174,7 +174,7 @@ export class AttendanceService {
    */
   async enterLesson(
     studentId: string,
-    lessonId: number,
+    lessonId: string,
     ipAddress?: string,
     deviceInfo?: string,
   ): Promise<LessonSession> {
@@ -208,7 +208,7 @@ export class AttendanceService {
    * End a lesson session and check for auto-attendance
    */
   async exitLesson(
-    sessionId: number,
+    sessionId: string,
     watchPercentage: number,
     durationSeconds: number,
   ): Promise<{ session: LessonSession; auto_attendance: boolean }> {
@@ -239,7 +239,7 @@ export class AttendanceService {
    * Update session progress (during playback)
    */
   async updateSessionProgress(
-    sessionId: number,
+    sessionId: string,
     watchPercentage: number,
   ): Promise<LessonSession> {
     const session = await this.findSessionById(sessionId);
@@ -302,7 +302,7 @@ export class AttendanceService {
   /**
    * Find session by ID
    */
-  async findSessionById(id: number): Promise<LessonSession> {
+  async findSessionById(id: string): Promise<LessonSession> {
     const session = await this.sessionsRepository.findOne({
       where: { id },
       relations: ['student', 'lesson'],
@@ -320,7 +320,7 @@ export class AttendanceService {
    */
   async findActiveSession(
     studentId: string,
-    lessonId: number,
+    lessonId: string,
   ): Promise<LessonSession | null> {
     return this.sessionsRepository.findOne({
       where: {
@@ -398,7 +398,7 @@ export class AttendanceService {
    * Get attendance for a lesson (teacher view)
    */
   async getLessonAttendance(
-    lessonId: number,
+    lessonId: string,
     filter: AttendanceFilterDto,
   ): Promise<{ data: AttendanceRecord[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
@@ -557,7 +557,7 @@ export class AttendanceService {
   /**
    * Get lesson attendance statistics
    */
-  async getLessonAttendanceStats(lessonId: number): Promise<{
+  async getLessonAttendanceStats(lessonId: string): Promise<{
     total: number;
     present: number;
     absent: number;

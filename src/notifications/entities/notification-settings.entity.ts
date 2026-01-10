@@ -13,8 +13,8 @@ import { User } from '../../users/entities/user.entity';
 @Entity('notification_settings')
 @Index('IDX_notification_settings_user', ['user_id'], { unique: true })
 export class NotificationSettings {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', unique: true, name: 'user_id' })
   user_id!: string;

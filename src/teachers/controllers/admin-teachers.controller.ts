@@ -6,7 +6,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   HttpCode,
   UseGuards,
@@ -155,7 +155,7 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.teachersService.findTeacherById(id);
   }
 
@@ -177,7 +177,7 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async getStats(@Param('id', ParseIntPipe) id: number) {
+  async getStats(@Param('id', ParseUUIDPipe) id: string) {
     const stats = await this.teachersService.getTeacherStats(id);
     return {
       stats,
@@ -208,7 +208,7 @@ export class AdminTeachersController {
     description: 'Teacher is already approved',
   })
   async approve(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveTeacherDto,
   ) {
     const teacher = await this.teachersService.approveTeacher(
@@ -249,7 +249,7 @@ export class AdminTeachersController {
     description: 'Rejection reason is required',
   })
   async reject(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectTeacherDto,
   ) {
     const teacher = await this.teachersService.rejectTeacher(id, rejectDto);
@@ -282,7 +282,7 @@ export class AdminTeachersController {
     description: 'One or more subjects not found',
   })
   async assignSubjects(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() assignDto: AssignSubjectsDto,
   ) {
     const teacher = await this.teachersService.assignSubjects(id, assignDto);

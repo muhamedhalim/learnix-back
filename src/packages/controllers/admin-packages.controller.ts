@@ -4,7 +4,7 @@ import {
   Delete,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -119,7 +119,7 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.packagesService.findOne(id);
   }
 
@@ -141,7 +141,7 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async getStats(@Param('id', ParseIntPipe) id: number) {
+  async getStats(@Param('id', ParseUUIDPipe) id: string) {
     const stats = await this.packagesService.getPackageStats(id);
     return {
       stats,
@@ -166,7 +166,7 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async delete(@Param('id', ParseIntPipe) id: number) {
+  async delete(@Param('id', ParseUUIDPipe) id: string) {
     await this.packagesService.adminDelete(id);
     return {
       message: 'Package deleted successfully',

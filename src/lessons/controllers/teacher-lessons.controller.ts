@@ -7,7 +7,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -150,7 +150,7 @@ export class TeacherLessonsController {
   })
   async findOne(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     // First get the lesson to verify ownership
     const lesson = await this.lessonsService.findOne(id);
@@ -184,7 +184,7 @@ export class TeacherLessonsController {
   })
   async update(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateLessonDto,
   ) {
     const lesson = await this.lessonsService.update(id, user.userId, updateDto);
@@ -218,7 +218,7 @@ export class TeacherLessonsController {
   })
   async delete(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     await this.lessonsService.delete(id, user.userId);
     return {
@@ -263,7 +263,7 @@ export class TeacherLessonsController {
   })
   async updateVideoUrl(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateLessonVideoDto,
   ) {
     return this.lessonsService.updateVideoUrl(
@@ -311,7 +311,7 @@ export class TeacherLessonsController {
   })
   async updateVimeoUrl(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateVimeoUrlDto,
   ) {
     const vimeoUrl = dto.vimeo_url || dto.video_url;
@@ -349,7 +349,7 @@ export class TeacherLessonsController {
   })
   async updateVimeoInfo(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() vimeoDto: UpdateVimeoInfoDto,
   ) {
     const lesson = await this.lessonsService.updateVimeoInfo(

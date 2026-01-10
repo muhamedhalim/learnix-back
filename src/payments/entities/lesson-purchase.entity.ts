@@ -19,8 +19,8 @@ import { Payment } from './payment.entity';
 @Index('IDX_lesson_purchases_expires_at', ['access_expires_at'])
 @Index('IDX_lesson_purchases_student_lesson', ['student_id', 'lesson_id'])
 export class LessonPurchase {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', name: 'student_id' })
   student_id!: string;
@@ -29,15 +29,15 @@ export class LessonPurchase {
   @JoinColumn({ name: 'student_id' })
   student!: User;
 
-  @Column({ type: 'int', name: 'lesson_id' })
-  lesson_id!: number;
+  @Column({ type: 'uuid', name: 'lesson_id' })
+  lesson_id!: string;
 
   @ManyToOne(() => Lesson, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'lesson_id' })
   lesson!: Lesson;
 
-  @Column({ type: 'int', name: 'payment_id' })
-  payment_id!: number;
+  @Column({ type: 'uuid', name: 'payment_id' })
+  payment_id!: string;
 
   @ManyToOne(() => Payment, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'payment_id' })

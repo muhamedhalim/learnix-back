@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsArray,
   ValidateNested,
+  IsString,
   IsInt,
   Min,
   ArrayMinSize,
@@ -12,11 +13,10 @@ import { Type } from 'class-transformer';
 export class PackageLessonItemDto {
   @ApiProperty({
     description: 'Lesson ID to add to the package',
-    example: 1,
+    example: '123e4567-e89b-12d3-a456-426614174000',
   })
-  @IsInt()
-  @Min(1)
-  lessonId!: number;
+  @IsString()
+  lessonId!: string;
 
   @ApiProperty({
     description: 'Order index for the lesson in the package (0-based)',
@@ -33,8 +33,8 @@ export class AddLessonsDto {
     description: 'Array of lessons to add to the package',
     type: [PackageLessonItemDto],
     example: [
-      { lessonId: 1, orderIndex: 0 },
-      { lessonId: 2, orderIndex: 1 },
+      { lessonId: '123e4567-e89b-12d3-a456-426614174000', orderIndex: 0 },
+      { lessonId: '223e4567-e89b-12d3-a456-426614174001', orderIndex: 1 },
     ],
   })
   @IsArray()

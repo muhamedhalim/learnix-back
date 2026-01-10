@@ -6,6 +6,7 @@ import {
   Query,
   HttpStatus,
   UseGuards,
+  ParseUUIDPipe,
   ParseIntPipe,
 } from '@nestjs/common';
 import {
@@ -129,7 +130,7 @@ export class AdminPaymentsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Payment not found',
   })
-  async getPaymentById(@Param('id', ParseIntPipe) id: number) {
+  async getPaymentById(@Param('id', ParseUUIDPipe) id: string) {
     const payment = await this.paymentsService.getPaymentById(id);
     if (!payment) {
       return { error: 'Payment not found' };
@@ -151,7 +152,7 @@ export class AdminPaymentsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Purchase not found',
   })
-  async extendLessonAccess(@Param('id', ParseIntPipe) purchaseId: number) {
+  async extendLessonAccess(@Param('id', ParseUUIDPipe) purchaseId: string) {
     const purchase = await this.paymentsService.extendLessonAccess(purchaseId);
     return {
       message: 'Lesson access extended by 1 day',

@@ -4,7 +4,7 @@ import {
   Post,
   Body,
   Param,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
@@ -56,7 +56,7 @@ export class ExamsController {
   })
   async getExamForTaking(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
   ) {
     return this.examsService.findOneForTaking(examId, user.userId);
   }

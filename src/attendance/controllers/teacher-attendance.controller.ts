@@ -7,7 +7,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   UseGuards,
   ForbiddenException,
@@ -48,7 +48,7 @@ export class TeacherAttendanceController {
    * Validate teacher owns the lesson
    */
   private async validateOwnership(
-    lessonId: number,
+    lessonId: string,
     teacherId: string,
   ): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
@@ -92,7 +92,7 @@ export class TeacherAttendanceController {
   })
   async markAttendance(
     @GetUser() user: JwtPayload,
-    @Param('lessonId', ParseIntPipe) lessonId: number,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Body() dto: MarkAttendanceDto,
   ) {
     // Validate ownership
@@ -136,8 +136,8 @@ export class TeacherAttendanceController {
   })
   async updateAttendance(
     @GetUser() user: JwtPayload,
-    @Param('lessonId', ParseIntPipe) lessonId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: AttendanceStatus,
     @Body('notes') notes?: string,
   ) {
@@ -181,8 +181,8 @@ export class TeacherAttendanceController {
   })
   async deleteAttendance(
     @GetUser() user: JwtPayload,
-    @Param('lessonId', ParseIntPipe) lessonId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('id', ParseUUIDPipe) id: string,
   ) {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
@@ -244,7 +244,7 @@ export class TeacherAttendanceController {
   })
   async getLessonAttendance(
     @GetUser() user: JwtPayload,
-    @Param('lessonId', ParseIntPipe) lessonId: number,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Query() filter: AttendanceFilterDto,
   ) {
     // Validate ownership
@@ -273,7 +273,7 @@ export class TeacherAttendanceController {
   })
   async getLessonStats(
     @GetUser() user: JwtPayload,
-    @Param('lessonId', ParseIntPipe) lessonId: number,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
   ) {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);

@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  ParseUUIDPipe,
   ParseIntPipe,
   HttpStatus,
   UseGuards,
@@ -162,7 +163,7 @@ export class TeacherExamsController {
   })
   async getSubmissions(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
   ) {
@@ -203,7 +204,7 @@ export class TeacherExamsController {
   })
   async gradeEssay(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
     @Body() gradeDto: GradeEssayDto,
   ) {
     return this.examsService.gradeEssay(user.userId, examId, gradeDto);
@@ -237,7 +238,7 @@ export class TeacherExamsController {
   })
   async update(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
     @Body() updateDto: UpdateExamDto,
   ) {
     const exam = await this.examsService.update(examId, user.userId, updateDto);
@@ -270,7 +271,7 @@ export class TeacherExamsController {
   })
   async delete(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseIntPipe) examId: number,
+    @Param('id', ParseUUIDPipe) examId: string,
   ) {
     await this.examsService.delete(examId, user.userId);
     return {

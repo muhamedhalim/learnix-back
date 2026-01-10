@@ -6,16 +6,16 @@ export class CreateBooksAndAttendance1736445600000
   name = 'CreateBooksAndAttendance1736445600000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Create books table (teacher_id is UUID to match users.id)
+    // Create books table (all IDs are UUID for consistency)
     await queryRunner.query(`
       CREATE TABLE "books" (
-        "id" SERIAL NOT NULL,
+        "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "title" character varying(255) NOT NULL,
         "title_ar" character varying(255) NOT NULL,
         "description" text,
         "description_ar" text,
         "teacher_id" uuid NOT NULL,
-        "subject_id" integer NOT NULL,
+        "subject_id" uuid NOT NULL,
         "cover_image" character varying(500),
         "book_file" character varying(500) NOT NULL,
         "price" numeric(10,2) NOT NULL,
@@ -56,13 +56,13 @@ export class CreateBooksAndAttendance1736445600000
       FOREIGN KEY ("subject_id") REFERENCES "subjects"("id") ON DELETE CASCADE
     `);
 
-    // Create book_purchases table (student_id is UUID)
+    // Create book_purchases table (all IDs are UUID)
     await queryRunner.query(`
       CREATE TABLE "book_purchases" (
-        "id" SERIAL NOT NULL,
+        "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "student_id" uuid NOT NULL,
-        "book_id" integer NOT NULL,
-        "payment_id" integer NOT NULL,
+        "book_id" uuid NOT NULL,
+        "payment_id" uuid NOT NULL,
         "price_paid" numeric(10,2) NOT NULL,
         "purchased_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_book_purchases" PRIMARY KEY ("id")
@@ -101,12 +101,12 @@ export class CreateBooksAndAttendance1736445600000
       FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE CASCADE
     `);
 
-    // Create attendance_records table (student_id and marked_by are UUID)
+    // Create attendance_records table (all IDs are UUID)
     await queryRunner.query(`
       CREATE TABLE "attendance_records" (
-        "id" SERIAL NOT NULL,
+        "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "student_id" uuid NOT NULL,
-        "lesson_id" integer NOT NULL,
+        "lesson_id" uuid NOT NULL,
         "status" character varying(20) NOT NULL DEFAULT 'present',
         "marked_by" uuid,
         "is_auto_marked" boolean NOT NULL DEFAULT false,
@@ -125,6 +125,9 @@ export class CreateBooksAndAttendance1736445600000
     `);
     await queryRunner.query(`
       CREATE INDEX "IDX_attendance_status" ON "attendance_records" ("status")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX "IDX_attendance_marked_at" ON "attendance_records" ("marked_at")
     `);
     await queryRunner.query(`
       CREATE UNIQUE INDEX "IDX_attendance_student_lesson"
@@ -148,12 +151,12 @@ export class CreateBooksAndAttendance1736445600000
       FOREIGN KEY ("marked_by") REFERENCES "users"("id") ON DELETE SET NULL
     `);
 
-    // Create lesson_sessions table (student_id is UUID)
+    // Create lesson_sessions table (all IDs are UUID)
     await queryRunner.query(`
       CREATE TABLE "lesson_sessions" (
-        "id" SERIAL NOT NULL,
+        "id" uuid NOT NULL DEFAULT gen_random_uuid(),
         "student_id" uuid NOT NULL,
-        "lesson_id" integer NOT NULL,
+        "lesson_id" uuid NOT NULL,
         "entered_at" TIMESTAMP NOT NULL DEFAULT now(),
         "exited_at" TIMESTAMP,
         "duration_seconds" integer NOT NULL DEFAULT 0,

@@ -26,7 +26,7 @@ import {
  * Response type for teacher profile with user info and subjects
  */
 export interface TeacherProfileWithDetails {
-  id: number;
+  id: string;
   user: {
     id: string;
     name: string;
@@ -244,7 +244,7 @@ export class TeachersService {
    * Get a single teacher by profile ID
    * Used by admin to view any teacher's details
    */
-  async findTeacherById(id: number): Promise<TeacherProfileWithDetails> {
+  async findTeacherById(id: string): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id },
       relations: ['user', 'subjects'],
@@ -264,7 +264,7 @@ export class TeachersService {
    * @param notes - Optional approval notes (stored for audit trail)
    */
   async approveTeacher(
-    profileId: number,
+    profileId: string,
     notes?: string,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
@@ -301,7 +301,7 @@ export class TeachersService {
    * Sets user status to REJECTED with reason
    */
   async rejectTeacher(
-    profileId: number,
+    profileId: string,
     dto: RejectTeacherDto,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
@@ -334,7 +334,7 @@ export class TeachersService {
    * Replaces all existing subject assignments
    */
   async assignSubjects(
-    profileId: number,
+    profileId: string,
     dto: AssignSubjectsDto,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
@@ -376,7 +376,7 @@ export class TeachersService {
    * Get teacher statistics
    * Returns lesson count, student count, total earnings, etc.
    */
-  async getTeacherStats(profileId: number): Promise<TeacherStats> {
+  async getTeacherStats(profileId: string): Promise<TeacherStats> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id: profileId },
     });
@@ -447,7 +447,7 @@ export class TeachersService {
    * Recalculates average rating
    */
   async updateTeacherRating(
-    profileId: number,
+    profileId: string,
     newRating: number,
   ): Promise<void> {
     const profile = await this.teacherProfilesRepository.findOne({

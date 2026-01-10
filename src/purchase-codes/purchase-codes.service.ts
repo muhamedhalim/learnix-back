@@ -176,7 +176,7 @@ export class PurchaseCodesService {
   private async grantLessonAccess(
     manager: ReturnType<DataSource['createEntityManager']>,
     payment: Payment,
-    lessonId: number,
+    lessonId: string,
   ): Promise<void> {
     const lesson = await manager.findOne(Lesson, {
       where: { id: lessonId },
@@ -207,7 +207,7 @@ export class PurchaseCodesService {
   private async grantPackageAccess(
     manager: ReturnType<DataSource['createEntityManager']>,
     payment: Payment,
-    packageId: number,
+    packageId: string,
   ): Promise<void> {
     const pkg = await manager.findOne(LessonPackage, {
       where: { id: packageId },

@@ -3,7 +3,7 @@ import {
   Get,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -96,7 +96,7 @@ export class BooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.booksService.findOne(id);
   }
 }

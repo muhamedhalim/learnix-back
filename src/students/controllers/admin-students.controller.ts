@@ -6,7 +6,7 @@ import {
   Body,
   Param,
   Query,
-  ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
   HttpCode,
   UseGuards,
@@ -154,7 +154,7 @@ export class AdminStudentsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.studentsService.findStudentById(id);
   }
 
@@ -176,7 +176,7 @@ export class AdminStudentsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  async getStats(@Param('id', ParseIntPipe) id: number) {
+  async getStats(@Param('id', ParseUUIDPipe) id: string) {
     const stats = await this.studentsService.getStudentStats(id);
     return {
       stats,
@@ -207,7 +207,7 @@ export class AdminStudentsController {
     description: 'Student is already approved',
   })
   async approve(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveStudentDto,
   ) {
     const student = await this.studentsService.approveStudent(
@@ -248,7 +248,7 @@ export class AdminStudentsController {
     description: 'Rejection reason is required',
   })
   async reject(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectStudentDto,
   ) {
     const student = await this.studentsService.rejectStudent(id, rejectDto);
@@ -281,7 +281,7 @@ export class AdminStudentsController {
     description: 'Invalid grade level',
   })
   async updateGradeLevel(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateGradeLevelDto,
   ) {
     const student = await this.studentsService.updateGradeLevel(

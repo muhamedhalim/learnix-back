@@ -12,8 +12,8 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 
 @Entity('lesson_sessions')
 export class LessonSession {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   @Index('IDX_lesson_sessions_student_id')
@@ -23,9 +23,9 @@ export class LessonSession {
   @JoinColumn({ name: 'student_id' })
   student!: User;
 
-  @Column({ type: 'int', nullable: false, name: 'lesson_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'lesson_id' })
   @Index('IDX_lesson_sessions_lesson_id')
-  lesson_id!: number;
+  lesson_id!: string;
 
   @ManyToOne(() => Lesson)
   @JoinColumn({ name: 'lesson_id' })

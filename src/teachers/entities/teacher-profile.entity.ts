@@ -16,8 +16,8 @@ import { Subject } from '../../subjects/entities/subject.entity';
 
 @Entity('teacher_profiles')
 export class TeacherProfile {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'uuid', unique: true, nullable: false, name: 'user_id' })
   @Index('IDX_teacher_profiles_user_id')

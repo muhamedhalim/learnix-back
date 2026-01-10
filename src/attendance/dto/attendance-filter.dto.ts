@@ -19,13 +19,12 @@ export class AttendanceFilterDto {
   student_id?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by lesson ID',
-    example: 1,
+    description: 'Filter by lesson ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsInt()
-  @Type(() => Number)
-  lesson_id?: number;
+  @IsUUID()
+  lesson_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by attendance status',

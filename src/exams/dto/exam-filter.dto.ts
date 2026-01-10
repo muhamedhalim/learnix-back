@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsInt,
+  IsUUID,
   Min,
   Max,
   IsOptional,
@@ -61,15 +62,13 @@ export class ExamFilterDto {
   search?: string;
 
   @ApiProperty({
-    description: 'Filter by subject ID',
-    example: 1,
+    description: 'Filter by subject ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
     required: false,
   })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
+  @IsUUID('4')
   @IsOptional()
-  subject_id?: number;
+  subject_id?: string;
 
   @ApiProperty({
     description: 'Filter by active status',
