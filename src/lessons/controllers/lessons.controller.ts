@@ -4,6 +4,7 @@ import {
   Param,
   Query,
   ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -145,7 +146,7 @@ export class LessonsController {
     description: 'List of lessons by teacher',
   })
   async findByTeacher(
-    @Param('teacherId', ParseIntPipe) teacherId: number,
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {

@@ -3,7 +3,7 @@ import {
   IsString,
   IsEnum,
   IsOptional,
-  IsInt,
+  IsUUID,
   IsObject,
   MaxLength,
 } from 'class-validator';
@@ -11,10 +11,13 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NotificationType } from '../entities/notification-type.enum';
 
 export class SendNotificationDto {
-  @ApiProperty({ description: 'User ID to send notification to' })
-  @IsInt()
+  @ApiProperty({
+    description: 'User ID (UUID) to send notification to',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsUUID('4')
   @IsNotEmpty()
-  user_id!: number;
+  user_id!: string;
 
   @ApiProperty({
     enum: NotificationType,

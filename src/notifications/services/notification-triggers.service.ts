@@ -142,7 +142,7 @@ export class NotificationTriggersService {
    * Notify for attendance (when student is marked present)
    */
   async notifyAttendance(
-    userId: number,
+    userId: string,
     lessonName: string,
     attendedAt: Date,
   ): Promise<void> {
@@ -182,7 +182,7 @@ export class NotificationTriggersService {
    * Send custom notification (admin triggered)
    */
   async sendCustomNotification(
-    userId: number,
+    userId: string,
     title: string,
     message: string,
     sendSms: boolean = false,

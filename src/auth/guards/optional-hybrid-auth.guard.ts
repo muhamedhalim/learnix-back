@@ -69,11 +69,10 @@ export class OptionalHybridAuthGuard implements CanActivate {
     const payloadObj: JwtPayload | undefined =
       typeof verified === 'object' && verified !== null ? verified : undefined;
 
+    // sub is now a UUID string
     const sub =
-      payloadObj && 'sub' in payloadObj
-        ? typeof payloadObj.sub === 'number'
-          ? payloadObj.sub
-          : parseInt(String(payloadObj.sub), 10)
+      payloadObj && 'sub' in payloadObj && typeof payloadObj.sub === 'string'
+        ? payloadObj.sub
         : undefined;
 
     const email =
@@ -81,7 +80,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
         ? payloadObj.email
         : undefined;
 
-    if (typeof sub !== 'number' || Number.isNaN(sub) || !email) {
+    if (!sub || !email) {
       this.logger.debug(
         'JWT payload missing required claims, continuing without auth',
       );

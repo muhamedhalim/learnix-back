@@ -31,8 +31,8 @@ export class PurchaseCode {
   @Column({ type: 'boolean', default: false, name: 'is_used' })
   is_used!: boolean;
 
-  @Column({ type: 'int', nullable: true, name: 'used_by' })
-  used_by!: number | null;
+  @Column({ type: 'uuid', nullable: true, name: 'used_by' })
+  used_by!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'used_by' })
@@ -44,8 +44,8 @@ export class PurchaseCode {
   @Column({ type: 'timestamptz', name: 'expires_at' })
   expires_at!: Date;
 
-  @Column({ type: 'int', name: 'created_by' })
-  created_by!: number;
+  @Column({ type: 'uuid', name: 'created_by' })
+  created_by!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'created_by' })

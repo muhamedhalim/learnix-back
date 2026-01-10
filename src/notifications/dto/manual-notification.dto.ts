@@ -3,7 +3,7 @@ import {
   IsString,
   IsOptional,
   IsArray,
-  IsInt,
+  IsUUID,
   IsBoolean,
   MaxLength,
   ArrayMinSize,
@@ -31,14 +31,14 @@ export class ManualNotificationDto {
 
   @ApiPropertyOptional({
     description:
-      'Specific user IDs to send to (if not provided, sends to all students)',
-    example: [1, 2, 3],
+      'Specific user IDs (UUIDs) to send to (if not provided, sends to all students)',
+    example: ['550e8400-e29b-41d4-a716-446655440000'],
   })
   @IsOptional()
   @IsArray()
-  @IsInt({ each: true })
+  @IsUUID('4', { each: true })
   @ArrayMinSize(1)
-  user_ids?: number[];
+  user_ids?: string[];
 
   @ApiPropertyOptional({
     description: 'Send SMS along with in-app notification',

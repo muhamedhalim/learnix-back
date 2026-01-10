@@ -247,7 +247,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * Same key should be used for retries of the same logical operation.
    */
   async checkPaymentRequest<T = any>(
-    userId: number,
+    userId: string,
     idempotencyKey: string,
   ): Promise<IdempotencyCheckResult<T>> {
     if (!this.redisClient || !this.redisClient.isReady) {
@@ -291,7 +291,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * If payment fails, don't store result (allow retry with same key).
    */
   async storePaymentResult<T = any>(
-    userId: number,
+    userId: string,
     idempotencyKey: string,
     result: T,
   ): Promise<void> {
@@ -366,7 +366,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * @param idempotencyKey - Client-provided key
    * @returns Redis key string
    */
-  private buildPaymentKey(userId: number, idempotencyKey: string): string {
+  private buildPaymentKey(userId: string, idempotencyKey: string): string {
     return `idempotency:payment:${userId}:${idempotencyKey}`;
   }
 }

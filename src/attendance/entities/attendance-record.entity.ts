@@ -20,9 +20,9 @@ export class AttendanceRecord {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', nullable: false, name: 'student_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   @Index('IDX_attendance_student_id')
-  student_id!: number;
+  student_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'student_id' })
@@ -44,8 +44,8 @@ export class AttendanceRecord {
   @Index('IDX_attendance_status')
   status!: AttendanceStatus;
 
-  @Column({ type: 'int', nullable: true, name: 'marked_by' })
-  marked_by!: number | null;
+  @Column({ type: 'uuid', nullable: true, name: 'marked_by' })
+  marked_by!: string | null;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'marked_by' })

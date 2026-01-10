@@ -30,14 +30,14 @@ export class UsersService {
   /**
    * Get cache key for a specific user profile
    */
-  private getUserCacheKey(userId: number): string {
+  private getUserCacheKey(userId: string): string {
     return `user:profile:${userId}`;
   }
 
   /**
    * Invalidate user profile cache
    */
-  private async invalidateUserCache(userId: number) {
+  private async invalidateUserCache(userId: string) {
     const cacheKey = this.getUserCacheKey(userId);
     await this.cacheManager.del(cacheKey);
     this.logger.debug(`Invalidated cache for user ${userId}`);
@@ -80,7 +80,7 @@ export class UsersService {
     };
   }
 
-  async findOne(id: number) {
+  async findOne(id: string) {
     // Try to get from cache first
     const cacheKey = this.getUserCacheKey(id);
     const cached = await this.cacheManager.get(cacheKey);
@@ -166,7 +166,7 @@ export class UsersService {
     };
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto) {
+  async update(id: string, updateUserDto: UpdateUserDto) {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -236,7 +236,7 @@ export class UsersService {
     };
   }
 
-  async remove(id: number) {
+  async remove(id: string) {
     const user = await this.userRepository.findOne({
       where: { id },
     });
@@ -305,7 +305,7 @@ export class UsersService {
     return user;
   }
 
-  async uploadProfilePicture(userId: number, file: Express.Multer.File) {
+  async uploadProfilePicture(userId: string, file: Express.Multer.File) {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -338,7 +338,7 @@ export class UsersService {
   /**
    * Update user role (admin only)
    */
-  async updateRole(userId: number, newRole: UserRole) {
+  async updateRole(userId: string, newRole: UserRole) {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });

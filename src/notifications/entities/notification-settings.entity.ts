@@ -16,8 +16,8 @@ export class NotificationSettings {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', unique: true, name: 'user_id' })
-  user_id!: number;
+  @Column({ type: 'uuid', unique: true, name: 'user_id' })
+  user_id!: string;
 
   @OneToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })

@@ -49,7 +49,7 @@ export class TeacherAttendanceController {
    */
   private async validateOwnership(
     lessonId: number,
-    teacherId: number,
+    teacherId: string,
   ): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId, deleted_at: IsNull() },

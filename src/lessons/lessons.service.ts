@@ -32,7 +32,7 @@ export interface LessonWithDetails {
   description: string | null;
   description_ar: string | null;
   teacher: {
-    id: number;
+    id: string;
     name: string;
     email: string;
     profile_picture_url: string | null;
@@ -85,7 +85,7 @@ export class LessonsService {
    * Only teachers can create lessons
    */
   async create(
-    teacherId: number,
+    teacherId: string,
     dto: CreateLessonDto,
   ): Promise<LessonWithDetails> {
     // Validate teacher exists and has correct role
@@ -244,7 +244,7 @@ export class LessonsService {
    * Find lessons by teacher
    */
   async findByTeacher(
-    teacherId: number,
+    teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
     return this.findAll({
@@ -288,7 +288,7 @@ export class LessonsService {
    */
   async update(
     lessonId: number,
-    teacherId: number,
+    teacherId: string,
     dto: UpdateLessonDto,
   ): Promise<LessonWithDetails> {
     const lesson = await this.lessonsRepository.findOne({
@@ -345,7 +345,7 @@ export class LessonsService {
    * Delete a lesson (soft delete)
    * Only the owner teacher can delete
    */
-  async delete(lessonId: number, teacherId: number): Promise<void> {
+  async delete(lessonId: number, teacherId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -381,7 +381,7 @@ export class LessonsService {
    * Find teacher's own lessons
    */
   async findMyLessons(
-    teacherId: number,
+    teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
     return this.findAll({
@@ -396,7 +396,7 @@ export class LessonsService {
    */
   async updateVimeoInfo(
     lessonId: number,
-    teacherId: number,
+    teacherId: string,
     dto: UpdateVimeoInfoDto,
   ): Promise<LessonWithDetails> {
     const lesson = await this.lessonsRepository.findOne({
@@ -446,7 +446,7 @@ export class LessonsService {
    */
   async updateVideoUrl(
     lessonId: number,
-    teacherId: number,
+    teacherId: string,
     videoUrl: string,
     duration?: number,
   ): Promise<{
@@ -508,7 +508,7 @@ export class LessonsService {
    */
   async updateVimeoUrl(
     lessonId: number,
-    teacherId: number,
+    teacherId: string,
     vimeoUrl: string,
     duration?: number,
   ): Promise<{
@@ -597,7 +597,7 @@ export class LessonsService {
    */
   async validateAccess(
     lessonId: number,
-    studentId: number,
+    studentId: string,
   ): Promise<{ hasAccess: boolean; expiresAt: Date | null }> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },

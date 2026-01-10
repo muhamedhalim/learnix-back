@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsBoolean,
   IsEnum,
+  IsUUID,
   Min,
   Max,
 } from 'class-validator';
@@ -27,13 +28,12 @@ export class PackageFilterDto {
   search?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter by teacher ID',
-    example: 1,
+    description: 'Filter by teacher ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  teacher_id?: number;
+  @IsUUID('4')
+  teacher_id?: string;
 
   @ApiPropertyOptional({
     description: 'Minimum price filter',

@@ -42,7 +42,7 @@ export class BookPurchasesService {
    * Called after successful payment
    */
   async purchaseBook(
-    studentId: number,
+    studentId: string,
     bookId: number,
     paymentId: number,
     pricePaid: number,
@@ -80,7 +80,7 @@ export class BookPurchasesService {
    * Check if student already purchased a book
    */
   async checkAlreadyPurchased(
-    studentId: number,
+    studentId: string,
     bookId: number,
   ): Promise<BookPurchase | null> {
     return this.purchasesRepository.findOne({
@@ -95,7 +95,7 @@ export class BookPurchasesService {
    * Get student's purchased books
    */
   async getMyBooks(
-    studentId: number,
+    studentId: string,
     filter: BookFilterDto,
   ): Promise<{ data: BookPurchase[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
@@ -154,7 +154,7 @@ export class BookPurchasesService {
    * Validates the student has purchased the book
    */
   async getDownloadUrl(
-    studentId: number,
+    studentId: string,
     bookId: number,
   ): Promise<{ download_url: string; book: Book }> {
     // Check if student purchased this book
@@ -282,7 +282,7 @@ export class BookPurchasesService {
   /**
    * Get teacher's book revenue
    */
-  async getTeacherBookRevenue(teacherId: number): Promise<{
+  async getTeacherBookRevenue(teacherId: string): Promise<{
     total_revenue: number;
     total_sales: number;
     books: Array<{

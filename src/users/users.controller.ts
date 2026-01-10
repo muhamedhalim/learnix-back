@@ -9,7 +9,7 @@ import {
   Query,
   UseGuards,
   Request,
-  ParseIntPipe,
+  ParseUUIDPipe,
   ForbiddenException,
   UseInterceptors,
   UploadedFile,
@@ -54,7 +54,7 @@ export class UsersController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Get user by ID (admin only)' })
-  async findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.findOne(id);
   }
 
@@ -72,7 +72,7 @@ export class UsersController {
   @Roles('admin')
   @ApiOperation({ summary: 'Update user (admin only)' })
   async update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
   ) {
     return this.usersService.update(id, updateUserDto);
@@ -110,7 +110,7 @@ export class UsersController {
   @Roles('admin')
   @ApiOperation({ summary: 'Delete user (admin only)' })
   async remove(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseUUIDPipe) id: string,
     @Request() req: UserRequest,
   ) {
     if (id === req.user.userId) {

@@ -3,6 +3,7 @@ import {
   IsString,
   IsOptional,
   IsInt,
+  IsUUID,
   Min,
   Max,
   IsBoolean,
@@ -20,14 +21,13 @@ export class LessonFilterDto {
   search?: string;
 
   @ApiProperty({
-    description: 'Filter by teacher ID',
+    description: 'Filter by teacher ID (UUID)',
     required: false,
-    example: 1,
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @Type(() => Number)
-  @IsInt()
+  @IsUUID('4')
   @IsOptional()
-  teacher_id?: number;
+  teacher_id?: string;
 
   @ApiProperty({
     description: 'Filter by subject ID',

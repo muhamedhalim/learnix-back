@@ -15,9 +15,9 @@ export class LessonSession {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', nullable: false, name: 'student_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   @Index('IDX_lesson_sessions_student_id')
-  student_id!: number;
+  student_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'student_id' })

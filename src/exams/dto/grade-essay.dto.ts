@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsUUID,
   IsInt,
   Min,
   IsNumber,
@@ -17,11 +18,10 @@ import {
 export class GradeEssayDto {
   @ApiProperty({
     description: 'ID of the student whose essay is being graded',
-    example: 1,
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsInt({ message: 'Student ID must be an integer' })
-  @Min(1, { message: 'Invalid student ID' })
-  student_id!: number;
+  @IsUUID('4', { message: 'Student ID must be a valid UUID' })
+  student_id!: string;
 
   @ApiProperty({
     description: 'Index of the question being graded (0-based)',

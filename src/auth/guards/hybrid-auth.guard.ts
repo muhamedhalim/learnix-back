@@ -74,11 +74,10 @@ export class HybridAuthGuard implements CanActivate {
     const payloadObj: JwtPayload | undefined =
       typeof verified === 'object' && verified !== null ? verified : undefined;
 
+    // sub is now a UUID string
     const sub =
-      payloadObj && 'sub' in payloadObj
-        ? typeof payloadObj.sub === 'number'
-          ? payloadObj.sub
-          : parseInt(String(payloadObj.sub), 10)
+      payloadObj && 'sub' in payloadObj && typeof payloadObj.sub === 'string'
+        ? payloadObj.sub
         : undefined;
 
     const email =
@@ -86,20 +85,20 @@ export class HybridAuthGuard implements CanActivate {
         ? payloadObj.email
         : undefined;
 
-    // FIX 3: Check if we have the required params BEFORE building the object.
-    // The error indicates 'validateUser' requires BOTH sub and email.
-    if (typeof sub !== 'number' || Number.isNaN(sub) || !email) {
+    // Check if we have the required params BEFORE building the object.
+    // validateUser requires BOTH sub (string UUID) and email.
+    if (!sub || !email) {
       this.logger.warn(
         'JWT payload is missing required "sub" or "email" claims.',
       );
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    // Now TS knows 'sub' is a number and 'email' is a string
+    // Now TS knows 'sub' is a string and 'email' is a string
     const validateParams = { sub: sub, email: email };
 
     try {
-      // This call is now valid as validateParams matches { sub: number, email: string }
+      // This call is now valid as validateParams matches { sub: string, email: string }
       const user = await this.authService.validateUser(validateParams);
       if (!user) {
         this.logger.warn('JWT verified but user not found or inactive');

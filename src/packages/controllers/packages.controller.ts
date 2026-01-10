@@ -4,6 +4,7 @@ import {
   Param,
   Query,
   ParseIntPipe,
+  ParseUUIDPipe,
   HttpStatus,
 } from '@nestjs/common';
 import {
@@ -133,7 +134,7 @@ export class PackagesController {
     description: 'List of packages by teacher',
   })
   async findByTeacher(
-    @Param('teacherId', ParseIntPipe) teacherId: number,
+    @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
   ) {
     return this.packagesService.findByTeacher(teacherId, {

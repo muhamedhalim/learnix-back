@@ -1,9 +1,9 @@
 import { Request } from 'express';
 
 export interface JwtPayload {
-  userId: number;
+  userId: string;
   email: string;
-  username: string;
+  name: string;
   role: string; // Single role (matches JWT payload from auth.service.ts)
 }
 

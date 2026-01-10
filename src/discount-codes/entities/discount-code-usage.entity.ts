@@ -28,8 +28,8 @@ export class DiscountCodeUsage {
   @JoinColumn({ name: 'discount_code_id' })
   discount_code!: DiscountCode;
 
-  @Column({ type: 'int', name: 'user_id' })
-  user_id!: number;
+  @Column({ type: 'uuid', name: 'user_id' })
+  user_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })

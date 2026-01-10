@@ -59,13 +59,11 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    // Generate user ID in format: u_randomstring based on actual ID
-    const userId = `u_${savedUser.id.toString(36)}${Math.random().toString(36).substr(2, 6)}`;
-
     // Return pending approval message instead of tokens
+    // Use the UUID directly as the user identifier
     return {
       message: 'Registration request received. Pending approval',
-      userId: userId,
+      userId: savedUser.id,
     };
   }
 
@@ -127,8 +125,8 @@ export class AuthService {
     };
   }
 
-  async validateUser(payload: { sub: number; email: string }): Promise<{
-    userId: number;
+  async validateUser(payload: { sub: string; email: string }): Promise<{
+    userId: string;
     email: string;
     name: string;
     role: UserRole;
@@ -184,7 +182,7 @@ export class AuthService {
    * Store refresh token for a user with indexed token_id for fast lookup
    */
   private async storeRefreshToken(
-    userId: number,
+    userId: string,
     refreshToken: string,
   ): Promise<void> {
     const hashedToken = await this.hashRefreshToken(refreshToken);
@@ -322,7 +320,7 @@ export class AuthService {
   /**
    * Logout user by clearing refresh token and token_id
    */
-  async logout(userId: number): Promise<void> {
+  async logout(userId: string): Promise<void> {
     await this.userRepository.update(userId, {
       refresh_token: null,
       refresh_token_id: null,

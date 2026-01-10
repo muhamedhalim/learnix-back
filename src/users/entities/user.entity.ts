@@ -12,8 +12,8 @@ import { UserStatus } from './user-status.enum';
 
 @Entity('users')
 export class User {
-  @PrimaryGeneratedColumn()
-  id!: number;
+  @PrimaryGeneratedColumn('uuid')
+  id!: string;
 
   @Column({ type: 'varchar', nullable: false })
   name!: string;

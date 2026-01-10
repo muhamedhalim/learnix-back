@@ -33,9 +33,9 @@ export class Book {
   @Column({ type: 'text', nullable: true, name: 'description_ar' })
   description_ar!: string | null;
 
-  @Column({ type: 'int', nullable: false, name: 'teacher_id' })
+  @Column({ type: 'uuid', nullable: false, name: 'teacher_id' })
   @Index('IDX_books_teacher_id')
-  teacher_id!: number;
+  teacher_id!: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'teacher_id' })

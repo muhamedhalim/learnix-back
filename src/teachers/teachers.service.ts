@@ -28,7 +28,7 @@ import {
 export interface TeacherProfileWithDetails {
   id: number;
   user: {
-    id: number;
+    id: string;
     name: string;
     email: string;
     phone: string;
@@ -73,7 +73,7 @@ export class TeachersService {
    * Get a teacher's own profile by user ID
    * Used by teachers to view their profile
    */
-  async findTeacherProfile(userId: number): Promise<TeacherProfileWithDetails> {
+  async findTeacherProfile(userId: string): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { user_id: userId },
       relations: ['user', 'subjects'],
@@ -91,7 +91,7 @@ export class TeachersService {
    * Teachers can update their qualifications, bio, experience, and phone
    */
   async updateProfile(
-    userId: number,
+    userId: string,
     dto: UpdateTeacherProfileDto,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
@@ -260,20 +260,20 @@ export class TeachersService {
   /**
    * Approve a pending teacher
    * Sets user status to APPROVED
-   * @param teacherId - Teacher profile ID
+   * @param profileId - Teacher profile ID (numeric)
    * @param notes - Optional approval notes (stored for audit trail)
    */
   async approveTeacher(
-    teacherId: number,
+    profileId: number,
     notes?: string,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
       relations: ['user', 'subjects'],
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     if (profile.user.status === UserStatus.APPROVED) {
@@ -290,7 +290,7 @@ export class TeachersService {
     // TODO: Send notification to teacher about approval
     if (notes) {
       // For now, just log. Later: save to audit_logs table
-      console.log(`Teacher ${teacherId} approved with notes: ${notes}`);
+      console.log(`Teacher ${profileId} approved with notes: ${notes}`);
     }
 
     return this.mapToProfileWithDetails(profile);
@@ -301,16 +301,16 @@ export class TeachersService {
    * Sets user status to REJECTED with reason
    */
   async rejectTeacher(
-    teacherId: number,
+    profileId: number,
     dto: RejectTeacherDto,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
       relations: ['user', 'subjects'],
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     if (profile.user.status === UserStatus.REJECTED) {
@@ -334,16 +334,16 @@ export class TeachersService {
    * Replaces all existing subject assignments
    */
   async assignSubjects(
-    teacherId: number,
+    profileId: number,
     dto: AssignSubjectsDto,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
       relations: ['subjects'],
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     // Validate all subject IDs exist
@@ -365,7 +365,7 @@ export class TeachersService {
 
     // Reload with all relations
     const updatedProfile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
       relations: ['user', 'subjects'],
     });
 
@@ -376,13 +376,13 @@ export class TeachersService {
    * Get teacher statistics
    * Returns lesson count, student count, total earnings, etc.
    */
-  async getTeacherStats(teacherId: number): Promise<TeacherStats> {
+  async getTeacherStats(profileId: number): Promise<TeacherStats> {
     const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     // TODO: Implement actual stats queries when Lessons and Purchases modules are ready
@@ -400,7 +400,7 @@ export class TeachersService {
    * Called during teacher registration
    */
   async createTeacherProfile(
-    userId: number,
+    userId: string,
     qualifications: string,
     yearsOfExperience: number,
     bio?: string,
@@ -447,15 +447,15 @@ export class TeachersService {
    * Recalculates average rating
    */
   async updateTeacherRating(
-    teacherId: number,
+    profileId: number,
     newRating: number,
   ): Promise<void> {
     const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: teacherId },
+      where: { id: profileId },
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     // Calculate new average rating

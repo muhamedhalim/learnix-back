@@ -126,7 +126,7 @@ export class PaymentsService {
    */
   async purchaseLesson(
     dto: PurchaseLessonDto,
-    userId: number,
+    userId: string,
   ): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
@@ -255,7 +255,7 @@ export class PaymentsService {
    */
   async purchasePackage(
     dto: PurchasePackageDto,
-    userId: number,
+    userId: string,
   ): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
@@ -378,7 +378,7 @@ export class PaymentsService {
    */
   async reopenLesson(
     lessonId: number,
-    userId: number,
+    userId: string,
     billingData: BillingDataDto,
   ): Promise<PaymentResponse> {
     // Find expired purchase
@@ -609,7 +609,7 @@ export class PaymentsService {
    * Check if student has active access to a lesson
    */
   async checkLessonAccess(
-    userId: number,
+    userId: string,
     lessonId: number,
   ): Promise<AccessCheckResult> {
     const purchase = await this.lessonPurchasesRepository.findOne({
@@ -668,7 +668,7 @@ export class PaymentsService {
   /**
    * Get student's purchased lessons (active access)
    */
-  async getMyLessons(userId: number): Promise<LessonPurchase[]> {
+  async getMyLessons(userId: string): Promise<LessonPurchase[]> {
     return await this.lessonPurchasesRepository.find({
       where: {
         student_id: userId,
@@ -682,7 +682,7 @@ export class PaymentsService {
   /**
    * Get student's purchased packages
    */
-  async getMyPackages(userId: number): Promise<PackagePurchase[]> {
+  async getMyPackages(userId: string): Promise<PackagePurchase[]> {
     return await this.packagePurchasesRepository.find({
       where: { student_id: userId },
       relations: [
@@ -699,7 +699,7 @@ export class PaymentsService {
    * Get student's purchase history
    */
   async getMyPurchases(
-    userId: number,
+    userId: string,
     filter: PaymentFilterDto,
   ): Promise<{ data: Payment[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
@@ -918,7 +918,7 @@ export class PaymentsService {
    * Get teacher revenue with date range filtering and grouping
    */
   async getTeacherRevenue(
-    teacherId: number,
+    teacherId: string,
     fromDate?: string,
     toDate?: string,
     groupBy: 'day' | 'week' | 'month' = 'month',
@@ -1044,7 +1044,7 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by lesson for a teacher
    */
-  async getTeacherRevenueByLesson(teacherId: number): Promise<{
+  async getTeacherRevenueByLesson(teacherId: string): Promise<{
     lessons: Array<{
       lesson_id: number;
       lesson_title: string;
@@ -1084,7 +1084,7 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by package for a teacher
    */
-  async getTeacherRevenueByPackage(teacherId: number): Promise<{
+  async getTeacherRevenueByPackage(teacherId: string): Promise<{
     packages: Array<{
       package_id: number;
       package_title: string;

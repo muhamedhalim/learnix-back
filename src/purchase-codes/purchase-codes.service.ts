@@ -45,7 +45,7 @@ export class PurchaseCodesService {
    */
   async generateCodes(
     dto: GeneratePurchaseCodesDto,
-    adminId: number,
+    adminId: string,
   ): Promise<PurchaseCode[]> {
     // Validate item exists
     if (dto.type === PurchaseCodeType.LESSON) {
@@ -110,7 +110,7 @@ export class PurchaseCodesService {
    */
   async verifyAndRedeem(
     dto: VerifyPurchaseCodeDto,
-    userId: number,
+    userId: string,
   ): Promise<Payment> {
     return await retryTransaction(this.dataSource, async (manager) => {
       // Find unused, unexpired code with pessimistic lock

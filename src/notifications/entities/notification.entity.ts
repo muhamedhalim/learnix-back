@@ -20,8 +20,8 @@ export class Notification {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', name: 'user_id' })
-  user_id!: number;
+  @Column({ type: 'uuid', name: 'user_id' })
+  user_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })

@@ -26,7 +26,7 @@ export class BooksService {
   /**
    * Create a new book (teacher only)
    */
-  async create(teacherId: number, dto: CreateBookDto): Promise<Book> {
+  async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
     // Validate subject exists
     const subject = await this.subjectsRepository.findOne({
       where: { id: dto.subject_id, deleted_at: IsNull() },
@@ -129,7 +129,7 @@ export class BooksService {
    * Find teacher's own books
    */
   async findMyBooks(
-    teacherId: number,
+    teacherId: string,
     filter: Omit<BookFilterDto, 'teacher_id'>,
   ): Promise<{ data: Book[]; meta: PaginationMeta }> {
     return this.findAll({ ...filter, teacher_id: teacherId });
@@ -173,7 +173,7 @@ export class BooksService {
    */
   async update(
     id: number,
-    teacherId: number,
+    teacherId: string,
     dto: UpdateBookDto,
   ): Promise<Book> {
     const book = await this.findOne(id);
@@ -222,7 +222,7 @@ export class BooksService {
   /**
    * Soft delete a book (teacher must own it)
    */
-  async delete(id: number, teacherId: number): Promise<void> {
+  async delete(id: number, teacherId: string): Promise<void> {
     const book = await this.findOne(id);
 
     // Ownership validation
@@ -270,7 +270,7 @@ export class BooksService {
   /**
    * Check if teacher owns the book
    */
-  async checkOwnership(bookId: number, teacherId: number): Promise<boolean> {
+  async checkOwnership(bookId: number, teacherId: string): Promise<boolean> {
     const book = await this.findOne(bookId);
     return book.teacher_id === teacherId;
   }

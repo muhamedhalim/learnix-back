@@ -217,7 +217,7 @@ export class DiscountCodesService {
    */
   async verifyCode(
     dto: VerifyDiscountCodeDto,
-    userId: number,
+    userId: string,
   ): Promise<VerificationResult> {
     const code = await this.discountCodesRepository.findOne({
       where: {
@@ -313,7 +313,7 @@ export class DiscountCodesService {
    */
   async applyDiscount(
     discountCodeId: number,
-    userId: number,
+    userId: string,
     paymentId: number,
     discountAmount: number,
     manager: EntityManager,
@@ -369,7 +369,7 @@ export class DiscountCodesService {
     total_uses: number;
     remaining_uses: number;
     total_discount_given: number;
-    users: { user_id: number; used_at: Date; discount_amount: number }[];
+    users: { user_id: string; used_at: Date; discount_amount: number }[];
   }> {
     const code = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },

@@ -19,8 +19,8 @@ export class PackagePurchase {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', name: 'student_id' })
-  student_id!: number;
+  @Column({ type: 'uuid', name: 'student_id' })
+  student_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'student_id' })

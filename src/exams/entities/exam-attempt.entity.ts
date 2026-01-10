@@ -38,8 +38,8 @@ export class ExamAttempt {
   @JoinColumn({ name: 'exam_id' })
   exam!: Exam;
 
-  @Column({ type: 'int', nullable: false, name: 'student_id' })
-  student_id!: number;
+  @Column({ type: 'uuid', nullable: false, name: 'student_id' })
+  student_id!: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: 'student_id' })

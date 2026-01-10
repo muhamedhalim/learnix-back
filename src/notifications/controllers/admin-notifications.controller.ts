@@ -42,7 +42,7 @@ export class AdminNotificationsController {
   async sendManualNotification(
     @Body() dto: ManualNotificationDto,
   ): Promise<{ message: string; data: ManualNotificationResponseDto }> {
-    let userIds: number[];
+    let userIds: string[];
 
     if (dto.user_ids && dto.user_ids.length > 0) {
       // Send to specific users

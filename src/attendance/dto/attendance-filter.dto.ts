@@ -1,17 +1,22 @@
-import { IsOptional, IsInt, IsEnum, IsDateString } from 'class-validator';
+import {
+  IsOptional,
+  IsInt,
+  IsEnum,
+  IsDateString,
+  IsUUID,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { AttendanceStatus } from '../entities/attendance-record.entity';
 
 export class AttendanceFilterDto {
   @ApiPropertyOptional({
-    description: 'Filter by student ID',
-    example: 1,
+    description: 'Filter by student ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsInt()
-  @Type(() => Number)
-  student_id?: number;
+  @IsUUID()
+  student_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by lesson ID',

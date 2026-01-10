@@ -19,9 +19,9 @@ export class TeacherProfile {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'int', unique: true, nullable: false, name: 'user_id' })
+  @Column({ type: 'uuid', unique: true, nullable: false, name: 'user_id' })
   @Index('IDX_teacher_profiles_user_id')
-  user_id!: number;
+  user_id!: string;
 
   @OneToOne(() => User)
   @JoinColumn({ name: 'user_id' })

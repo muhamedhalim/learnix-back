@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, IsEnum } from 'class-validator';
+import { IsOptional, IsString, IsInt, IsEnum, IsUUID } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -21,13 +21,12 @@ export class BookFilterDto {
   subject_id?: number;
 
   @ApiPropertyOptional({
-    description: 'Filter by teacher ID',
-    example: 5,
+    description: 'Filter by teacher ID (UUID)',
+    example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsInt()
-  @Type(() => Number)
-  teacher_id?: number;
+  @IsUUID()
+  teacher_id?: string;
 
   @ApiPropertyOptional({
     description: 'Sort by field',

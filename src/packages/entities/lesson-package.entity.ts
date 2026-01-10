@@ -35,8 +35,8 @@ export class LessonPackage {
   @Column('text', { nullable: true })
   description_ar!: string | null;
 
-  @Column('int')
-  teacher_id!: number;
+  @Column('uuid')
+  teacher_id!: string;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'teacher_id' })

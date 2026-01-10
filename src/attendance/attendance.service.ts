@@ -45,7 +45,7 @@ export class AttendanceService {
    * Mark attendance manually (teacher/admin)
    */
   async markAttendance(
-    markerId: number | null,
+    markerId: string | null,
     dto: MarkAttendanceDto,
     isAutoMarked: boolean = false,
   ): Promise<AttendanceRecord> {
@@ -109,7 +109,7 @@ export class AttendanceService {
    */
   async updateAttendance(
     id: number,
-    markerId: number,
+    markerId: string,
     status: AttendanceStatus,
     notes?: string,
   ): Promise<AttendanceRecord> {
@@ -142,7 +142,7 @@ export class AttendanceService {
    * Check if attendance already exists
    */
   async checkAttendanceExists(
-    studentId: number,
+    studentId: string,
     lessonId: number,
   ): Promise<AttendanceRecord | null> {
     return this.attendanceRepository.findOne({
@@ -173,7 +173,7 @@ export class AttendanceService {
    * Start a lesson session (track video watch)
    */
   async enterLesson(
-    studentId: number,
+    studentId: string,
     lessonId: number,
     ipAddress?: string,
     deviceInfo?: string,
@@ -319,7 +319,7 @@ export class AttendanceService {
    * Find active session for student in lesson
    */
   async findActiveSession(
-    studentId: number,
+    studentId: string,
     lessonId: number,
   ): Promise<LessonSession | null> {
     return this.sessionsRepository.findOne({
@@ -336,7 +336,7 @@ export class AttendanceService {
    * Get student's attendance history
    */
   async getStudentAttendance(
-    studentId: number,
+    studentId: string,
     filter: AttendanceFilterDto,
   ): Promise<{ data: AttendanceRecord[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
@@ -519,7 +519,7 @@ export class AttendanceService {
   /**
    * Get student attendance statistics
    */
-  async getStudentAttendanceStats(studentId: number): Promise<{
+  async getStudentAttendanceStats(studentId: string): Promise<{
     total: number;
     present: number;
     absent: number;

@@ -145,7 +145,7 @@ export class NotificationsService {
    * Get parent phone number (from settings override or student profile)
    */
   private async getParentPhone(
-    userId: number,
+    userId: string,
     settings: NotificationSettings,
   ): Promise<string | null> {
     // Check for override in settings
@@ -165,7 +165,7 @@ export class NotificationsService {
    * Get paginated notifications for a user
    */
   async findAllForUser(
-    userId: number,
+    userId: string,
     filter: NotificationFilterDto,
   ): Promise<PaginatedNotifications> {
     const page = filter.page || 1;
@@ -232,7 +232,7 @@ export class NotificationsService {
   /**
    * Get unread notification count for a user
    */
-  async getUnreadCount(userId: number): Promise<number> {
+  async getUnreadCount(userId: string): Promise<number> {
     return this.notificationsRepository.count({
       where: { user_id: userId, is_read: false },
     });
@@ -243,7 +243,7 @@ export class NotificationsService {
    */
   async markAsRead(
     notificationId: number,
-    userId: number,
+    userId: string,
   ): Promise<Notification> {
     const notification = await this.notificationsRepository.findOne({
       where: { id: notificationId, user_id: userId },
@@ -265,7 +265,7 @@ export class NotificationsService {
   /**
    * Mark all notifications as read for a user
    */
-  async markAllAsRead(userId: number): Promise<{ count: number }> {
+  async markAllAsRead(userId: string): Promise<{ count: number }> {
     const result = await this.notificationsRepository.update(
       { user_id: userId, is_read: false },
       { is_read: true, read_at: new Date() },
@@ -277,7 +277,7 @@ export class NotificationsService {
   /**
    * Get or create notification settings for a user
    */
-  async getOrCreateSettings(userId: number): Promise<NotificationSettings> {
+  async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
     let settings = await this.settingsRepository.findOne({
       where: { user_id: userId },
     });
@@ -303,7 +303,7 @@ export class NotificationsService {
    * Update notification settings for a user
    */
   async updateSettings(
-    userId: number,
+    userId: string,
     dto: UpdateNotificationSettingsDto,
   ): Promise<NotificationSettings> {
     const settings = await this.getOrCreateSettings(userId);
