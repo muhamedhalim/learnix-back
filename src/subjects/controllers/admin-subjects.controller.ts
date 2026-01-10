@@ -10,19 +10,25 @@ import {
   HttpStatus,
   HttpCode,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiParam,
   ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { SubjectsService } from '../subjects.service';
 import { CreateSubjectDto, UpdateSubjectDto } from '../dto';
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UploadService } from '../../uploads/upload.service';
 
 @ApiTags('Admin - Subjects')
 @Controller('admin/subjects')
@@ -30,17 +36,40 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminSubjectsController {
-  constructor(private readonly subjectsService: SubjectsService) {}
+  constructor(
+    private readonly subjectsService: SubjectsService,
+    private readonly uploadService: UploadService,
+  ) {}
 
   /**
-   * Create a new subject
+   * Create a new subject with thumbnail upload
    * Admin only
    */
   @Post()
+  @UseInterceptors(FileInterceptor('thumbnail'))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Create a new subject',
-    description:
-      'Creates a new subject with English and Arabic titles. Admin only.',
+    description: 'Creates a new subject with optional thumbnail. Admin only.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'الفيزياء' },
+        description: {
+          type: 'string',
+          example: 'مادة الفيزياء للصف الثالث الثانوي',
+        },
+        gradeLevel: {
+          type: 'string',
+          enum: ['grade_10', 'grade_11', 'grade_12'],
+          example: 'grade_12',
+        },
+        thumbnail: { type: 'string', format: 'binary' },
+      },
+      required: ['name', 'gradeLevel'],
+    },
   })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -48,7 +77,7 @@ export class AdminSubjectsController {
   })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
-    description: 'Subject with this title already exists',
+    description: 'Subject with this name already exists',
   })
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
@@ -58,7 +87,19 @@ export class AdminSubjectsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  async create(@Body() createSubjectDto: CreateSubjectDto) {
+  async create(
+    @Body() createSubjectDto: CreateSubjectDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    // Upload thumbnail if provided
+    if (file) {
+      const uploadResult = await this.uploadService.uploadFile(
+        file,
+        'thumbnails',
+      );
+      createSubjectDto.thumbnail = uploadResult.url;
+    }
+
     const subject = await this.subjectsService.create(createSubjectDto);
     return {
       message: 'Subject created successfully',

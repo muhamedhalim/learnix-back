@@ -15,6 +15,7 @@ import { PaymobService } from './services/paymob.service';
 import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
+import { TeacherPaymentsController } from './controllers/teacher-payments.controller';
 
 // External modules
 import { IdempotencyModule } from '../idempotency/idempotency.module';
@@ -37,6 +38,7 @@ import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
     PaymentsController,
     PaymentsWebhookController,
     AdminPaymentsController,
+    TeacherPaymentsController,
   ],
   providers: [PaymentsService, PaymobService],
   exports: [PaymentsService, PaymobService],

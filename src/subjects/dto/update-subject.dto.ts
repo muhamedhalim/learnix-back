@@ -1,21 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, MaxLength, MinLength, IsOptional } from 'class-validator';
+import {
+  IsString,
+  MaxLength,
+  MinLength,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
+import { GradeLevel } from './create-subject.dto';
 
 export class UpdateSubjectDto {
   @ApiProperty({
-    description: 'Subject name in English',
-    example: 'Advanced Physics',
-    required: false,
-    maxLength: 255,
-  })
-  @IsString()
-  @IsOptional()
-  @MinLength(2)
-  @MaxLength(255)
-  title?: string;
-
-  @ApiProperty({
-    description: 'Subject name in Arabic',
+    description: 'Subject name',
     example: 'الفيزياء المتقدمة',
     required: false,
     maxLength: 255,
@@ -24,10 +19,10 @@ export class UpdateSubjectDto {
   @IsOptional()
   @MinLength(2)
   @MaxLength(255)
-  title_ar?: string;
+  name?: string;
 
   @ApiProperty({
-    description: 'Subject description in English',
+    description: 'Subject description',
     required: false,
     maxLength: 2000,
   })
@@ -37,12 +32,22 @@ export class UpdateSubjectDto {
   description?: string;
 
   @ApiProperty({
-    description: 'Subject description in Arabic',
+    description: 'Grade level',
+    example: 'grade_12',
+    enum: GradeLevel,
     required: false,
-    maxLength: 2000,
+  })
+  @IsEnum(GradeLevel)
+  @IsOptional()
+  gradeLevel?: GradeLevel;
+
+  @ApiProperty({
+    description: 'Thumbnail image URL',
+    required: false,
+    maxLength: 500,
   })
   @IsString()
   @IsOptional()
-  @MaxLength(2000)
-  description_ar?: string;
+  @MaxLength(500)
+  thumbnail?: string;
 }

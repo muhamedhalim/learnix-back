@@ -47,10 +47,10 @@ export class UsersService {
     const [users, total] = await this.userRepository.findAndCount({
       select: [
         'id',
-        'username',
+        'name',
         'email',
-        'first_name',
-        'last_name',
+        'phone',
+        'parent_phone',
         'is_active',
         'role',
         'created_at',
@@ -64,10 +64,9 @@ export class UsersService {
     return {
       data: users.map((user) => ({
         id: user.id,
-        username: user.username,
+        name: user.name,
         email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
+        phone: user.phone,
         is_active: user.is_active,
         role: user.role,
         created_at: user.created_at,
@@ -96,11 +95,10 @@ export class UsersService {
       where: { id },
       select: [
         'id',
-        'username',
+        'name',
         'email',
-        'first_name',
-        'last_name',
         'phone',
+        'parent_phone',
         'is_active',
         'role',
         'profile_picture_url',
@@ -115,11 +113,10 @@ export class UsersService {
 
     const userProfile = {
       id: user.id,
-      username: user.username,
+      name: user.name,
       email: user.email,
-      first_name: user.first_name,
-      last_name: user.last_name,
       phone: user.phone,
+      parent_phone: user.parent_phone,
       is_active: user.is_active,
       role: user.role,
       profile_picture_url: user.profile_picture_url,
@@ -145,10 +142,10 @@ export class UsersService {
       where: { role },
       select: [
         'id',
-        'username',
+        'name',
         'email',
-        'first_name',
-        'last_name',
+        'phone',
+        'parent_phone',
         'is_active',
         'role',
         'created_at',
@@ -174,10 +171,10 @@ export class UsersService {
       where: { id },
       select: [
         'id',
-        'username',
+        'name',
         'email',
-        'first_name',
-        'last_name',
+        'phone',
+        'parent_phone',
         'is_active',
         'role',
         'profile_picture_url',
@@ -198,24 +195,24 @@ export class UsersService {
       }
     }
 
-    if (updateUserDto.username && updateUserDto.username !== user.username) {
-      const usernameExists = await this.userRepository.findOne({
-        where: { username: updateUserDto.username },
+    if (updateUserDto.phone && updateUserDto.phone !== user.phone) {
+      const phoneExists = await this.userRepository.findOne({
+        where: { phone: updateUserDto.phone },
       });
-      if (usernameExists) {
-        throw new ConflictException('Username already in use');
+      if (phoneExists) {
+        throw new ConflictException('Phone number already in use');
       }
     }
 
     // Use explicit field assignment to prevent mass assignment vulnerability
-    if (updateUserDto.username !== undefined) {
-      user.username = updateUserDto.username;
+    if (updateUserDto.name !== undefined) {
+      user.name = updateUserDto.name;
     }
-    if (updateUserDto.first_name !== undefined) {
-      user.first_name = updateUserDto.first_name;
+    if (updateUserDto.phone !== undefined) {
+      user.phone = updateUserDto.phone;
     }
-    if (updateUserDto.last_name !== undefined) {
-      user.last_name = updateUserDto.last_name;
+    if (updateUserDto.parentPhone !== undefined) {
+      user.parent_phone = updateUserDto.parentPhone;
     }
 
     await this.userRepository.save(user);
@@ -231,10 +228,9 @@ export class UsersService {
       message: 'User updated successfully',
       user: {
         id: user.id,
-        username: user.username,
+        name: user.name,
         email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
+        phone: user.phone,
         role: user.role,
       },
     };
@@ -288,17 +284,13 @@ export class UsersService {
     });
 
     if (!user) {
-      const safeName: string = (name as string) || '';
-      const nameParts: string[] = safeName.split(' ');
-      const firstName: string = nameParts[0] || '';
-      const lastName: string = nameParts.slice(1).join(' ') || '';
+      const safeName: string = (name as string) || 'Firebase User';
 
       user = this.userRepository.create({
         firebase_uid: uid,
         email: email || '',
-        username: email || '',
-        first_name: firstName,
-        last_name: lastName,
+        name: safeName,
+        phone: '', // Firebase users don't have phone by default
         role: UserRole.STUDENT, // Default role for Firebase users
         is_active: true,
         password_hash: null,

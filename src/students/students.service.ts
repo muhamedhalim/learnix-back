@@ -28,11 +28,10 @@ export interface StudentProfileWithDetails {
   id: number;
   user: {
     id: number;
-    username: string;
+    name: string;
     email: string;
-    first_name: string | null;
-    last_name: string | null;
-    phone: string | null;
+    phone: string;
+    parent_phone: string | null;
     profile_picture_url: string | null;
     status: UserStatus;
     rejection_reason: string | null;
@@ -448,11 +447,10 @@ export class StudentsService {
       id: profile.id,
       user: {
         id: profile.user.id,
-        username: profile.user.username,
+        name: profile.user.name,
         email: profile.user.email,
-        first_name: profile.user.first_name,
-        last_name: profile.user.last_name,
         phone: profile.user.phone,
+        parent_phone: profile.user.parent_phone,
         profile_picture_url: profile.user.profile_picture_url,
         status: profile.user.status,
         rejection_reason: profile.user.rejection_reason,

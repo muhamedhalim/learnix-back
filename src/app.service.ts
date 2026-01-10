@@ -98,11 +98,10 @@ export class AppService {
     const hashedPassword = await bcrypt.hash(adminPassword, 12);
 
     const admin = this.userRepository.create({
-      username: 'admin',
+      name: 'Admin User',
       email: adminEmail,
+      phone: '01000000000', // Default admin phone
       password_hash: hashedPassword,
-      first_name: 'Admin',
-      last_name: 'User',
       role: UserRole.ADMIN,
       is_active: true,
     });

@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+import { UserStatus } from '../users/entities/user-status.enum';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -30,11 +31,11 @@ export class AuthService {
   }
 
   async register(registerDto: RegisterDto) {
-    const { email, password, username, first_name, last_name } = registerDto;
+    const { email, password, phone, name, parentPhone } = registerDto;
 
-    // Use generic error to prevent username/email enumeration
+    // Use generic error to prevent email/phone enumeration
     const existingUser = await this.userRepository.findOne({
-      where: [{ email }, { username }],
+      where: [{ email }, { phone }],
     });
 
     if (existingUser) {
@@ -46,41 +47,25 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
 
     const newUser = this.userRepository.create({
-      username,
+      name: name.trim(),
       email,
+      phone,
+      parent_phone: parentPhone || null,
       password_hash: hashedPassword,
-      first_name: first_name.trim(),
-      last_name: last_name.trim(),
       role: UserRole.STUDENT, // Default role for registration
       is_active: true,
+      status: UserStatus.PENDING, // Pending approval
     });
 
     const savedUser = await this.userRepository.save(newUser);
 
-    const payload = {
-      sub: savedUser.id,
-      email: savedUser.email,
-      username: savedUser.username,
-      role: savedUser.role,
-    };
+    // Generate user ID in format: u_randomstring based on actual ID
+    const userId = `u_${savedUser.id.toString(36)}${Math.random().toString(36).substr(2, 6)}`;
 
-    const access_token = this.jwtService.sign(payload);
-
-    // Generate and store refresh token
-    const refresh_token = this.generateRefreshToken();
-    await this.storeRefreshToken(savedUser.id, refresh_token);
-
+    // Return pending approval message instead of tokens
     return {
-      access_token,
-      refresh_token,
-      user: {
-        id: savedUser.id,
-        username: savedUser.username,
-        email: savedUser.email,
-        full_name: `${savedUser.first_name} ${savedUser.last_name}`.trim(),
-        role: savedUser.role,
-        isActive: savedUser.is_active,
-      },
+      message: 'Registration request received. Pending approval',
+      userId: userId,
     };
   }
 
@@ -118,7 +103,7 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
-      username: user.username,
+      name: user.name,
       role: user.role,
     };
 
@@ -133,9 +118,9 @@ export class AuthService {
       refresh_token,
       user: {
         id: user.id,
-        username: user.username,
+        name: user.name,
         email: user.email,
-        full_name: `${user.first_name} ${user.last_name}`.trim(),
+        phone: user.phone,
         role: user.role,
         isActive: user.is_active,
       },
@@ -145,7 +130,7 @@ export class AuthService {
   async validateUser(payload: { sub: number; email: string }): Promise<{
     userId: number;
     email: string;
-    username: string;
+    name: string;
     role: UserRole;
   } | null> {
     const user = await this.userRepository.findOne({
@@ -156,7 +141,7 @@ export class AuthService {
       return {
         userId: user.id,
         email: user.email,
-        username: user.username,
+        name: user.name,
         role: user.role,
       };
     }
@@ -308,7 +293,7 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
-      username: user.username,
+      name: user.name,
       role: user.role,
     };
 
@@ -325,9 +310,9 @@ export class AuthService {
       refresh_token: newRefreshToken,
       user: {
         id: user.id,
-        username: user.username,
+        name: user.name,
         email: user.email,
-        full_name: `${user.first_name} ${user.last_name}`.trim(),
+        phone: user.phone,
         role: user.role,
         isActive: user.is_active,
       },

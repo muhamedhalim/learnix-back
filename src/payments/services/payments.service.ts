@@ -65,6 +65,40 @@ interface RevenueRawResult {
   total_discounts: string | null;
 }
 
+// Type interfaces for teacher revenue raw query results
+interface TeacherRevenueTotalRaw {
+  total: string | null;
+}
+
+interface TeacherRevenuePeriodRaw {
+  period: string;
+  revenue: string;
+  sales: string;
+}
+
+interface TeacherTopLessonsRaw {
+  lesson_id: number;
+  lesson_title: string;
+  revenue: string;
+  sales: string;
+}
+
+interface TeacherRevenueByLessonRaw {
+  lesson_id: number;
+  lesson_title: string;
+  purchase_count: string;
+  total_revenue: string;
+  avg_price: string;
+}
+
+interface TeacherRevenueByPackageRaw {
+  package_id: number;
+  package_title: string;
+  purchase_count: string;
+  total_revenue: string;
+  avg_price: string;
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -877,6 +911,217 @@ export class PaymentsService {
       total_revenue: parseFloat(result?.total_revenue ?? '0') || 0,
       total_payments: parseInt(result?.total_payments ?? '0', 10) || 0,
       total_discounts: parseFloat(result?.total_discounts ?? '0') || 0,
+    };
+  }
+
+  /**
+   * Get teacher revenue with date range filtering and grouping
+   */
+  async getTeacherRevenue(
+    teacherId: number,
+    fromDate?: string,
+    toDate?: string,
+    groupBy: 'day' | 'week' | 'month' = 'month',
+  ): Promise<{
+    total_revenue: number;
+    revenue_by_period: Array<{
+      period: string;
+      revenue: number;
+      sales: number;
+    }>;
+    top_lessons: Array<{
+      lesson_id: number;
+      lesson_title: string;
+      revenue: number;
+      sales: number;
+    }>;
+    date_range: { from: string | undefined; to: string | undefined };
+  }> {
+    // Get total revenue for this teacher
+    const totalQuery = this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .innerJoin('lp.lesson', 'lesson')
+      .innerJoin('lp.payment', 'payment')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('payment.status = :status', {
+        status: PaymentStatus.COMPLETED,
+      });
+
+    if (fromDate) {
+      totalQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      totalQuery.andWhere('payment.paid_at <= :toDate', { toDate });
+    }
+
+    const totalResult = await totalQuery
+      .select('SUM(lp.price_paid)', 'total')
+      .getRawOne<TeacherRevenueTotalRaw>();
+
+    // Get revenue grouped by period
+    let dateFormat: string;
+    switch (groupBy) {
+      case 'day':
+        dateFormat = 'YYYY-MM-DD';
+        break;
+      case 'week':
+        dateFormat = 'IYYY-IW';
+        break;
+      case 'month':
+      default:
+        dateFormat = 'YYYY-MM';
+        break;
+    }
+
+    const periodQuery = this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .innerJoin('lp.lesson', 'lesson')
+      .innerJoin('lp.payment', 'payment')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('payment.status = :status', {
+        status: PaymentStatus.COMPLETED,
+      });
+
+    if (fromDate) {
+      periodQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      periodQuery.andWhere('payment.paid_at <= :toDate', { toDate });
+    }
+
+    const periodResults = await periodQuery
+      .select(`TO_CHAR(payment.paid_at, '${dateFormat}')`, 'period')
+      .addSelect('SUM(lp.price_paid)', 'revenue')
+      .addSelect('COUNT(lp.id)', 'sales')
+      .groupBy('period')
+      .orderBy('period', 'DESC')
+      .getRawMany<TeacherRevenuePeriodRaw>();
+
+    // Get top performing lessons
+    const topLessonsQuery = this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .innerJoin('lp.lesson', 'lesson')
+      .innerJoin('lp.payment', 'payment')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('payment.status = :status', {
+        status: PaymentStatus.COMPLETED,
+      });
+
+    if (fromDate) {
+      topLessonsQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      topLessonsQuery.andWhere('payment.paid_at <= :toDate', { toDate });
+    }
+
+    const topLessons = await topLessonsQuery
+      .select('lesson.id', 'lesson_id')
+      .addSelect('lesson.title', 'lesson_title')
+      .addSelect('SUM(lp.price_paid)', 'revenue')
+      .addSelect('COUNT(lp.id)', 'sales')
+      .groupBy('lesson.id, lesson.title')
+      .orderBy('revenue', 'DESC')
+      .limit(5)
+      .getRawMany<TeacherTopLessonsRaw>();
+
+    return {
+      total_revenue: Number(totalResult?.total) || 0,
+      revenue_by_period: periodResults.map((r) => ({
+        period: r.period,
+        revenue: Number(r.revenue) || 0,
+        sales: Number(r.sales) || 0,
+      })),
+      top_lessons: topLessons.map((l) => ({
+        lesson_id: l.lesson_id,
+        lesson_title: l.lesson_title,
+        revenue: Number(l.revenue) || 0,
+        sales: Number(l.sales) || 0,
+      })),
+      date_range: { from: fromDate, to: toDate },
+    };
+  }
+
+  /**
+   * Get revenue breakdown by lesson for a teacher
+   */
+  async getTeacherRevenueByLesson(teacherId: number): Promise<{
+    lessons: Array<{
+      lesson_id: number;
+      lesson_title: string;
+      purchase_count: number;
+      total_revenue: number;
+      avg_price: number;
+    }>;
+  }> {
+    const results = await this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .innerJoin('lp.lesson', 'lesson')
+      .innerJoin('lp.payment', 'payment')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('payment.status = :status', { status: PaymentStatus.COMPLETED })
+      .select([
+        'lesson.id AS lesson_id',
+        'lesson.title AS lesson_title',
+        'COUNT(lp.id) AS purchase_count',
+        'SUM(lp.price_paid) AS total_revenue',
+        'AVG(lp.price_paid) AS avg_price',
+      ])
+      .groupBy('lesson.id, lesson.title')
+      .orderBy('total_revenue', 'DESC')
+      .getRawMany<TeacherRevenueByLessonRaw>();
+
+    return {
+      lessons: results.map((l) => ({
+        lesson_id: l.lesson_id,
+        lesson_title: l.lesson_title,
+        purchase_count: Number(l.purchase_count),
+        total_revenue: Number(l.total_revenue),
+        avg_price: Number(l.avg_price),
+      })),
+    };
+  }
+
+  /**
+   * Get revenue breakdown by package for a teacher
+   */
+  async getTeacherRevenueByPackage(teacherId: number): Promise<{
+    packages: Array<{
+      package_id: number;
+      package_title: string;
+      purchase_count: number;
+      total_revenue: number;
+      avg_price: number;
+    }>;
+  }> {
+    // Package purchases are linked to lesson_packages
+    // We need to check if any lesson in the package belongs to this teacher
+    const results = await this.packagePurchasesRepository
+      .createQueryBuilder('pp')
+      .innerJoin('pp.package', 'package')
+      .innerJoin('pp.payment', 'payment')
+      .innerJoin('package.items', 'item')
+      .innerJoin('item.lesson', 'lesson')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('payment.status = :status', { status: PaymentStatus.COMPLETED })
+      .select([
+        'package.id AS package_id',
+        'package.title AS package_title',
+        'COUNT(DISTINCT pp.id) AS purchase_count',
+        'SUM(pp.price_paid) AS total_revenue',
+        'AVG(pp.price_paid) AS avg_price',
+      ])
+      .groupBy('package.id, package.title')
+      .orderBy('total_revenue', 'DESC')
+      .getRawMany<TeacherRevenueByPackageRaw>();
+
+    return {
+      packages: results.map((p) => ({
+        package_id: p.package_id,
+        package_title: p.package_title,
+        purchase_count: Number(p.purchase_count),
+        total_revenue: Number(p.total_revenue),
+        avg_price: Number(p.avg_price),
+      })),
     };
   }
 }

@@ -22,11 +22,11 @@ describe('AuthService', () => {
 
   const mockUser: Partial<User> = {
     id: 1,
-    username: 'testuser',
+    name: 'Test User',
     email: 'test@example.com',
+    phone: '01000000000',
+    parent_phone: '01011111111',
     password_hash: 'hashedpassword',
-    first_name: 'Test',
-    last_name: 'User',
     is_active: true,
     role: UserRole.STUDENT,
   };
@@ -84,36 +84,36 @@ describe('AuthService', () => {
 
   describe('register', () => {
     const registerDto: RegisterDto = {
-      email: 'newuser@example.com',
-      password: 'password123',
-      username: 'newuser',
-      full_name: 'New User',
+      name: 'Ahmed Ali',
+      password: '123456',
+      phone: '01000000000',
+      email: 'test@test.com',
+      parentPhone: '01011111111',
     };
 
-    it('should successfully register a new user', async () => {
-      userRepository.findOne.mockResolvedValueOnce(null);
+    it('should successfully register a new user with pending approval', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
 
       const newUser = {
         ...mockUser,
         id: 2,
+        name: registerDto.name,
         email: registerDto.email,
-        username: registerDto.username,
+        phone: registerDto.phone,
       } as User;
 
       userRepository.create.mockReturnValue(newUser);
       userRepository.save.mockResolvedValue(newUser);
-      jwtService.sign.mockReturnValue('access_token');
       jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed_password' as never);
 
       const result = await service.register(registerDto);
 
-      expect(result).toHaveProperty('access_token');
-      expect(result).toHaveProperty('refresh_token');
-      expect(result).toHaveProperty('user');
-      expect(result.user.email).toBe(registerDto.email);
-      expect(result.user.username).toBe(registerDto.username);
-      expect(result.user.role).toBe(UserRole.STUDENT);
+      expect(result).toHaveProperty('message');
+      expect(result).toHaveProperty('userId');
+      expect(result.message).toBe(
+        'Registration request received. Pending approval',
+      );
+      expect(result.userId).toContain('u_');
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {
@@ -369,7 +369,7 @@ describe('AuthService', () => {
       expect(result).toEqual({
         userId: mockUser.id,
         email: mockUser.email,
-        username: mockUser.username,
+        name: mockUser.name,
         role: UserRole.STUDENT,
       });
     });

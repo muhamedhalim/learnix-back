@@ -4,9 +4,9 @@ import { Type } from 'class-transformer';
 
 export class SubjectFilterDto {
   @ApiProperty({
-    description: 'Search by title (English or Arabic)',
+    description: 'Search by subject name',
     required: false,
-    example: 'Physics',
+    example: 'الفيزياء',
   })
   @IsString()
   @IsOptional()

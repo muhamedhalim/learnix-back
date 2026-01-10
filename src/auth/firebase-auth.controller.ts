@@ -19,8 +19,8 @@ export class FirebaseAuthController {
       user: {
         id: req.user.id,
         email: req.user.email,
-        username: req.user.username,
-        full_name: `${req.user.first_name} ${req.user.last_name}`.trim(),
+        name: req.user.name,
+        phone: req.user.phone,
         role: req.user.role,
         isActive: req.user.is_active,
       },
@@ -36,8 +36,8 @@ export class FirebaseAuthController {
       user: {
         id: req.user.id,
         email: req.user.email,
-        username: req.user.username,
-        full_name: `${req.user.first_name} ${req.user.last_name}`.trim(),
+        name: req.user.name,
+        phone: req.user.phone,
         role: req.user.role,
         isActive: req.user.is_active,
         firebase_uid: req.user.firebase_uid,

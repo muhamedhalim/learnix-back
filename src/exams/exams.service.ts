@@ -42,14 +42,13 @@ export interface ExamWithDetails {
   description_ar: string | null;
   teacher: {
     id: number;
-    username: string;
-    first_name: string | null;
-    last_name: string | null;
+    name: string;
+    email: string;
   };
   subject: {
     id: number;
-    title: string;
-    title_ar: string;
+    name: string;
+    grade_level: string;
   };
   questions_count: number;
   total_marks: number;
@@ -138,9 +137,8 @@ export interface ExamResult {
 export interface ExamSubmission {
   student: {
     id: number;
-    username: string;
-    first_name: string | null;
-    last_name: string | null;
+    name: string;
+    email: string;
   };
   score_mcq: number;
   score_essay: number | null;
@@ -438,9 +436,8 @@ export class ExamsService {
     const submissions: ExamSubmission[] = attempts.map((attempt) => ({
       student: {
         id: attempt.student.id,
-        username: attempt.student.username,
-        first_name: attempt.student.first_name,
-        last_name: attempt.student.last_name,
+        name: attempt.student.name,
+        email: attempt.student.email,
       },
       score_mcq: Number(attempt.score_mcq) || 0,
       score_essay:
@@ -1092,14 +1089,13 @@ export class ExamsService {
       description_ar: exam.description_ar,
       teacher: {
         id: exam.teacher.id,
-        username: exam.teacher.username,
-        first_name: exam.teacher.first_name,
-        last_name: exam.teacher.last_name,
+        name: exam.teacher.name,
+        email: exam.teacher.email,
       },
       subject: {
         id: exam.subject.id,
-        title: exam.subject.title,
-        title_ar: exam.subject.title_ar,
+        name: exam.subject.name,
+        grade_level: exam.subject.grade_level,
       },
       questions_count: exam.questions.length,
       total_marks: exam.total_marks,

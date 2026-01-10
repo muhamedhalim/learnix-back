@@ -24,33 +24,27 @@ export class SubjectsService {
    * Create a new subject
    */
   async create(createSubjectDto: CreateSubjectDto): Promise<Subject> {
-    // Check for duplicate title
-    const existingByTitle = await this.subjectsRepository.findOne({
-      where: { title: createSubjectDto.title },
+    // Check for duplicate name
+    const existingByName = await this.subjectsRepository.findOne({
+      where: { name: createSubjectDto.name },
     });
 
-    if (existingByTitle) {
+    if (existingByName) {
       throw new ConflictException(
-        `Subject with title "${createSubjectDto.title}" already exists`,
+        `Subject with name "${createSubjectDto.name}" already exists`,
       );
     }
 
-    // Check for duplicate Arabic title
-    const existingByTitleAr = await this.subjectsRepository.findOne({
-      where: { title_ar: createSubjectDto.title_ar },
+    const subject = this.subjectsRepository.create({
+      name: createSubjectDto.name,
+      description: createSubjectDto.description || null,
+      grade_level: createSubjectDto.gradeLevel,
+      thumbnail: createSubjectDto.thumbnail || null,
     });
-
-    if (existingByTitleAr) {
-      throw new ConflictException(
-        `Subject with Arabic title "${createSubjectDto.title_ar}" already exists`,
-      );
-    }
-
-    const subject = this.subjectsRepository.create(createSubjectDto);
     const savedSubject = await this.subjectsRepository.save(subject);
 
     this.logger.log(
-      `Created subject: ${savedSubject.title} (ID: ${savedSubject.id})`,
+      `Created subject: ${savedSubject.name} (ID: ${savedSubject.id})`,
     );
 
     return savedSubject;
@@ -69,10 +63,10 @@ export class SubjectsService {
       .createQueryBuilder('subject')
       .select([
         'subject.id',
-        'subject.title',
-        'subject.title_ar',
+        'subject.name',
         'subject.description',
-        'subject.description_ar',
+        'subject.grade_level',
+        'subject.thumbnail',
         'subject.created_at',
         'subject.updated_at',
       ])
@@ -80,10 +74,9 @@ export class SubjectsService {
 
     // Add search filter
     if (search) {
-      queryBuilder.andWhere(
-        '(subject.title ILIKE :search OR subject.title_ar ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      queryBuilder.andWhere('subject.name ILIKE :search', {
+        search: `%${search}%`,
+      });
     }
 
     // Get total count
@@ -142,40 +135,31 @@ export class SubjectsService {
   ): Promise<Subject> {
     const subject = await this.findOne(id);
 
-    // Check for duplicate title if being updated
-    if (updateSubjectDto.title && updateSubjectDto.title !== subject.title) {
-      const existingByTitle = await this.subjectsRepository.findOne({
-        where: { title: updateSubjectDto.title },
+    // Check for duplicate name if being updated
+    if (updateSubjectDto.name && updateSubjectDto.name !== subject.name) {
+      const existingByName = await this.subjectsRepository.findOne({
+        where: { name: updateSubjectDto.name },
       });
 
-      if (existingByTitle) {
+      if (existingByName) {
         throw new ConflictException(
-          `Subject with title "${updateSubjectDto.title}" already exists`,
+          `Subject with name "${updateSubjectDto.name}" already exists`,
         );
       }
     }
 
-    // Check for duplicate Arabic title if being updated
-    if (
-      updateSubjectDto.title_ar &&
-      updateSubjectDto.title_ar !== subject.title_ar
-    ) {
-      const existingByTitleAr = await this.subjectsRepository.findOne({
-        where: { title_ar: updateSubjectDto.title_ar },
-      });
+    // Update subject with new field names
+    if (updateSubjectDto.name) subject.name = updateSubjectDto.name;
+    if (updateSubjectDto.description !== undefined)
+      subject.description = updateSubjectDto.description;
+    if (updateSubjectDto.gradeLevel)
+      subject.grade_level = updateSubjectDto.gradeLevel;
+    if (updateSubjectDto.thumbnail !== undefined)
+      subject.thumbnail = updateSubjectDto.thumbnail;
 
-      if (existingByTitleAr) {
-        throw new ConflictException(
-          `Subject with Arabic title "${updateSubjectDto.title_ar}" already exists`,
-        );
-      }
-    }
-
-    // Update subject
-    Object.assign(subject, updateSubjectDto);
     const updatedSubject = await this.subjectsRepository.save(subject);
 
-    this.logger.log(`Updated subject: ${updatedSubject.title} (ID: ${id})`);
+    this.logger.log(`Updated subject: ${updatedSubject.name} (ID: ${id})`);
 
     return updatedSubject;
   }
@@ -194,7 +178,7 @@ export class SubjectsService {
 
     await this.subjectsRepository.softRemove(subject);
 
-    this.logger.log(`Deleted subject: ${subject.title} (ID: ${id})`);
+    this.logger.log(`Deleted subject: ${subject.name} (ID: ${id})`);
   }
 
   /**
@@ -233,7 +217,7 @@ export class SubjectsService {
    */
   async getSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
     const subjects = await this.subjectsRepository.find({
-      order: { title: 'ASC' },
+      order: { name: 'ASC' },
     });
 
     // TODO: Add actual counts when relations are established

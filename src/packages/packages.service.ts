@@ -32,9 +32,8 @@ export interface PackageWithDetails {
   description_ar: string | null;
   teacher: {
     id: number;
-    username: string;
-    first_name: string | null;
-    last_name: string | null;
+    name: string;
+    email: string;
     profile_picture_url: string | null;
   };
   price: number;
@@ -513,9 +512,8 @@ export class PackagesService {
       description_ar: pkg.description_ar,
       teacher: {
         id: pkg.teacher.id,
-        username: pkg.teacher.username,
-        first_name: pkg.teacher.first_name,
-        last_name: pkg.teacher.last_name,
+        name: pkg.teacher.name,
+        email: pkg.teacher.email,
         profile_picture_url: pkg.teacher.profile_picture_url,
       },
       price,

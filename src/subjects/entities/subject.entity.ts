@@ -14,18 +14,24 @@ export class Subject {
   id!: number;
 
   @Column({ type: 'varchar', length: 255, nullable: false })
-  @Index('IDX_subjects_title')
-  title!: string;
-
-  @Column({ type: 'varchar', length: 255, nullable: false, name: 'title_ar' })
-  @Index('IDX_subjects_title_ar')
-  title_ar!: string;
+  @Index('IDX_subjects_name')
+  name!: string;
 
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
-  @Column({ type: 'text', nullable: true, name: 'description_ar' })
-  description_ar!: string | null;
+  @Column({
+    type: 'varchar',
+    length: 50,
+    nullable: false,
+    name: 'grade_level',
+    default: 'grade_12',
+  })
+  @Index('IDX_subjects_grade_level')
+  grade_level!: string;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  thumbnail!: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

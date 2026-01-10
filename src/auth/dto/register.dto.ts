@@ -4,50 +4,52 @@ import {
   IsString,
   MinLength,
   MaxLength,
+  IsOptional,
   Matches,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RegisterDto {
-  @ApiProperty({ example: 'testuser', description: 'Username for the account' })
+  @ApiProperty({ example: 'Ahmed Ali', description: 'Full name of the user' })
   @IsString()
   @IsNotEmpty()
-  @MinLength(3)
-  @MaxLength(20)
-  username!: string;
+  @MaxLength(100)
+  name!: string;
 
-  @ApiProperty({ example: 'test@example.com', description: 'Email address' })
+  @ApiProperty({ example: '123456', description: 'Password (min 6 chars)' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  @MaxLength(128)
+  password!: string;
+
+  @ApiProperty({
+    example: '01000000000',
+    description: 'Egyptian phone number (11 digits starting with 01)',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+    message:
+      'Phone must be a valid Egyptian phone number (11 digits starting with 01)',
+  })
+  phone!: string;
+
+  @ApiProperty({ example: 'test@test.com', description: 'Email address' })
   @IsEmail()
   @IsNotEmpty()
   email!: string;
 
   @ApiProperty({
-    example: 'TestPassword123!',
-    description:
-      'Password (min 8 chars, must include uppercase, lowercase, number, and special char)',
+    example: '01011111111',
+    description: 'Parent phone number (optional, 11 digits starting with 01)',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  @MinLength(8)
-  @MaxLength(128)
-  @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
-    {
-      message:
-        'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
-    },
-  )
-  password!: string;
-
-  @ApiProperty({ example: 'John', description: 'First name of the user' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  first_name!: string;
-
-  @ApiProperty({ example: 'Doe', description: 'Last name of the user' })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
-  last_name!: string;
+  @IsOptional()
+  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+    message:
+      'Parent phone must be a valid Egyptian phone number (11 digits starting with 01)',
+  })
+  parentPhone?: string;
 }

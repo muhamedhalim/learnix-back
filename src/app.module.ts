@@ -40,6 +40,10 @@ import { DiscountCodesModule } from './discount-codes/discount-codes.module';
 import { PurchaseCodesModule } from './purchase-codes/purchase-codes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
+// Phase 5: Books & Attendance
+import { BooksModule } from './books/books.module';
+import { AttendanceModule } from './attendance/attendance.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -177,6 +181,10 @@ import { NotificationsModule } from './notifications/notifications.module';
     DiscountCodesModule,
     PurchaseCodesModule,
     NotificationsModule,
+
+    // Phase 5: Books & Attendance
+    BooksModule,
+    AttendanceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

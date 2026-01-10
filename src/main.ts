@@ -179,9 +179,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   const config = new DocumentBuilder()
-    .setTitle('E-Learning Platform API')
+    .setTitle('backend center')
     .setDescription(
-      'Comprehensive backend API for data analysis e-learning platform',
+      'Comprehensive backend API for backend center e-learning platform',
     )
     .setVersion('1.0')
     .addBearerAuth(
@@ -199,7 +199,7 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document, {
-    customSiteTitle: 'E-Learning API Documentation',
+    customSiteTitle: 'backend center API Documentation',
     customfavIcon: '/favicon.ico',
     customCss: '.swagger-ui .topbar { display: none }',
   });

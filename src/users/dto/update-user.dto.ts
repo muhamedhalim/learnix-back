@@ -5,6 +5,7 @@ import {
   IsUrl,
   MinLength,
   MaxLength,
+  Matches,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -12,9 +13,9 @@ export class UpdateUserDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  @MinLength(3)
-  @MaxLength(20)
-  username?: string;
+  @MinLength(2)
+  @MaxLength(100)
+  name?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -24,14 +25,18 @@ export class UpdateUserDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  first_name?: string;
+  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+    message: 'Phone must be a valid Egyptian phone number',
+  })
+  phone?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  last_name?: string;
+  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+    message: 'Parent phone must be a valid Egyptian phone number',
+  })
+  parentPhone?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

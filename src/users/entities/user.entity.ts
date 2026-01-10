@@ -15,9 +15,8 @@ export class User {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ unique: true, nullable: false })
-  @Index('IDX_users_username')
-  username!: string;
+  @Column({ type: 'varchar', nullable: false })
+  name!: string;
 
   @Column({ unique: true, nullable: false })
   @Index('IDX_users_email')
@@ -26,14 +25,13 @@ export class User {
   @Column({ type: 'varchar', nullable: true, select: false })
   password_hash!: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
-  first_name!: string | null;
+  @Column({ type: 'varchar', unique: true, nullable: false })
+  @Index('IDX_users_phone')
+  phone!: string;
 
   @Column({ type: 'varchar', nullable: true })
-  last_name!: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  phone!: string | null;
+  @Index('IDX_users_parent_phone')
+  parent_phone!: string | null;
 
   @Column({
     type: 'enum',

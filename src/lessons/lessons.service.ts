@@ -33,15 +33,14 @@ export interface LessonWithDetails {
   description_ar: string | null;
   teacher: {
     id: number;
-    username: string;
-    first_name: string | null;
-    last_name: string | null;
+    name: string;
+    email: string;
     profile_picture_url: string | null;
   };
   subject: {
     id: number;
-    title: string;
-    title_ar: string;
+    name: string;
+    grade_level: string;
   };
   thumbnail: string | null;
   // Primary video fields (Bunny.net)
@@ -632,15 +631,14 @@ export class LessonsService {
       description_ar: lesson.description_ar,
       teacher: {
         id: lesson.teacher.id,
-        username: lesson.teacher.username,
-        first_name: lesson.teacher.first_name,
-        last_name: lesson.teacher.last_name,
+        name: lesson.teacher.name,
+        email: lesson.teacher.email,
         profile_picture_url: lesson.teacher.profile_picture_url,
       },
       subject: {
         id: lesson.subject.id,
-        title: lesson.subject.title,
-        title_ar: lesson.subject.title_ar,
+        name: lesson.subject.name,
+        grade_level: lesson.subject.grade_level,
       },
       thumbnail: lesson.thumbnail,
       // Primary video fields (Bunny.net)
