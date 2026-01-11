@@ -65,6 +65,13 @@ export class AppController {
     return this.appService.getRoles();
   }
 
+  @Get('favicon.ico')
+  @ApiOperation({ summary: 'Favicon handler to silence 404s' })
+  @ApiResponse({ status: 204, description: 'No content' })
+  getFavicon() {
+    return;
+  }
+
   @Post('init-admin')
   @SkipCsrf()
   @UseGuards(InitAdminGuard)

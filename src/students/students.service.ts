@@ -12,7 +12,7 @@ import { UserStatus } from '../users/entities/user-status.enum';
 import { UserRole } from '../users/entities/user-role.enum';
 import {
   UpdateStudentProfileDto,
-  UpdateNotificationSettingsDto,
+  UpdateStudentNotificationSettingsDto,
   RejectStudentDto,
   StudentFilterDto,
 } from './dto';
@@ -121,7 +121,7 @@ export class StudentsService {
    */
   async updateNotificationSettings(
     userId: string,
-    dto: UpdateNotificationSettingsDto,
+    dto: UpdateStudentNotificationSettingsDto,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
       where: { user_id: userId },

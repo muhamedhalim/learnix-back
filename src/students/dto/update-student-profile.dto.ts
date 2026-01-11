@@ -33,7 +33,7 @@ export class UpdateStudentProfileDto {
   grade_level?: string;
 }
 
-export class UpdateNotificationSettingsDto {
+export class UpdateStudentNotificationSettingsDto {
   @ApiProperty({
     description: 'Notification settings as key-value pairs',
     example: {

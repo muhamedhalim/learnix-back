@@ -11,7 +11,7 @@ const fileExtension = isCompiled ? 'js' : 'ts';
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: [`${baseDir}/entities/**/*.entity.${fileExtension}`],
+  entities: [`${baseDir}/**/entities/*.entity.${fileExtension}`],
   migrations: [`${baseDir}/migrations/**/*.${fileExtension}`],
   synchronize: false, // Always false for migrations
   logging: true,

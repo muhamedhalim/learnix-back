@@ -23,11 +23,22 @@ export class FirebaseService {
     try {
       // Check if Firebase app is already initialized (important for tests)
       if (admin.apps.length === 0) {
+        // Handle private key formatting issues
+        let formattedKey = privateKey;
+
+        // Remove wrapping quotes if present
+        if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
+          formattedKey = formattedKey.slice(1, -1);
+        }
+
+        // Replace escaped newlines (\\n) with actual newlines (\n)
+        formattedKey = formattedKey.replace(/\\n/g, '\n');
+
         this.firebaseApp = admin.initializeApp({
           credential: admin.credential.cert({
             projectId,
             clientEmail,
-            privateKey: privateKey.replace(/\\n/g, '\n'),
+            privateKey: formattedKey,
           }),
         });
       } else {

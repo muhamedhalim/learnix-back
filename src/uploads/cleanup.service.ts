@@ -173,6 +173,8 @@ export class CleanupService {
 
       // Check each file
       for (const file of files) {
+        if (file === '.gitkeep') continue;
+
         if (!referencedFilenames.has(file)) {
           orphanedCount++;
           this.logger.warn(`Orphaned file detected: profiles/${file}`);

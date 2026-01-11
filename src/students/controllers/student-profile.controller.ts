@@ -13,7 +13,10 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { StudentsService } from '../students.service';
-import { UpdateStudentProfileDto, UpdateNotificationSettingsDto } from '../dto';
+import {
+  UpdateStudentProfileDto,
+  UpdateStudentNotificationSettingsDto,
+} from '../dto';
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -156,7 +159,7 @@ export class StudentProfileController {
   })
   async updateNotifications(
     @GetUser() user: JwtPayload,
-    @Body() updateDto: UpdateNotificationSettingsDto,
+    @Body() updateDto: UpdateStudentNotificationSettingsDto,
   ) {
     const profile = await this.studentsService.updateNotificationSettings(
       user.userId,
