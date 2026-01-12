@@ -26,13 +26,23 @@ export class FirebaseService {
         // Handle private key formatting issues
         let formattedKey = privateKey;
 
-        // Remove wrapping quotes if present
-        if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
+        // Remove wrapping quotes if present (both single and double)
+        if (
+          (formattedKey.startsWith('"') && formattedKey.endsWith('"')) ||
+          (formattedKey.startsWith("'") && formattedKey.endsWith("'"))
+        ) {
           formattedKey = formattedKey.slice(1, -1);
         }
 
         // Replace escaped newlines (\\n) with actual newlines (\n)
         formattedKey = formattedKey.replace(/\\n/g, '\n');
+
+        // Basic validation logging (redacted)
+        if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
+          this.logger.error(
+            'Firebase Private Key seems to be missing the standard header.',
+          );
+        }
 
         this.firebaseApp = admin.initializeApp({
           credential: admin.credential.cert({
