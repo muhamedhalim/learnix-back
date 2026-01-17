@@ -9,26 +9,42 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
       ALTER TABLE purchase_codes RENAME TO attendance_codes;
     `);
 
-    // Rename all indexes
-    await queryRunner.query(`
-      ALTER INDEX "IDX_purchase_codes_code"
-        RENAME TO "IDX_attendance_codes_code";
-    `);
+    // Rename all indexes (wrapped in try-catch - indexes may not exist in all environments)
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_purchase_codes_code"
+          RENAME TO "IDX_attendance_codes_code";
+      `);
+    } catch {
+      console.log('IDX_purchase_codes_code not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_purchase_codes_used"
-        RENAME TO "IDX_attendance_codes_used";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_purchase_codes_used"
+          RENAME TO "IDX_attendance_codes_used";
+      `);
+    } catch {
+      console.log('IDX_purchase_codes_used not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_purchase_codes_expires"
-        RENAME TO "IDX_attendance_codes_expires";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_purchase_codes_expires"
+          RENAME TO "IDX_attendance_codes_expires";
+      `);
+    } catch {
+      console.log('IDX_purchase_codes_expires not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_purchase_codes_type_item"
-        RENAME TO "IDX_attendance_codes_type_item";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_purchase_codes_type_item"
+          RENAME TO "IDX_attendance_codes_type_item";
+      `);
+    } catch {
+      console.log('IDX_purchase_codes_type_item not found, skipping...');
+    }
 
     // Rename foreign key constraints (if they exist with explicit names)
     // Note: TypeORM auto-generated FK names might vary, so we'll handle errors gracefully
@@ -73,26 +89,42 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
       console.log('FK_attendance_codes_used_by not found, skipping...');
     }
 
-    // Reverse: Rename all indexes back
-    await queryRunner.query(`
-      ALTER INDEX "IDX_attendance_codes_type_item"
-        RENAME TO "IDX_purchase_codes_type_item";
-    `);
+    // Reverse: Rename all indexes back (wrapped in try-catch)
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_attendance_codes_type_item"
+          RENAME TO "IDX_purchase_codes_type_item";
+      `);
+    } catch {
+      console.log('IDX_attendance_codes_type_item not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_attendance_codes_expires"
-        RENAME TO "IDX_purchase_codes_expires";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_attendance_codes_expires"
+          RENAME TO "IDX_purchase_codes_expires";
+      `);
+    } catch {
+      console.log('IDX_attendance_codes_expires not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_attendance_codes_used"
-        RENAME TO "IDX_purchase_codes_used";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_attendance_codes_used"
+          RENAME TO "IDX_purchase_codes_used";
+      `);
+    } catch {
+      console.log('IDX_attendance_codes_used not found, skipping...');
+    }
 
-    await queryRunner.query(`
-      ALTER INDEX "IDX_attendance_codes_code"
-        RENAME TO "IDX_purchase_codes_code";
-    `);
+    try {
+      await queryRunner.query(`
+        ALTER INDEX "IDX_attendance_codes_code"
+          RENAME TO "IDX_purchase_codes_code";
+      `);
+    } catch {
+      console.log('IDX_attendance_codes_code not found, skipping...');
+    }
 
     // Reverse: Rename the table back
     await queryRunner.query(`
