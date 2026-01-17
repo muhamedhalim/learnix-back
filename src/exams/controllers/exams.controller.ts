@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   ParseUUIDPipe,
   HttpStatus,
   UseGuards,
@@ -13,10 +14,11 @@ import {
   ApiOperation,
   ApiResponse,
   ApiParam,
+  ApiQuery,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { ExamsService } from '../exams.service';
-import { SubmitExamDto } from '../dto';
+import { SubmitExamDto, ExamFilterDto } from '../dto';
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -27,6 +29,63 @@ import { JwtPayload } from '../../common/interfaces/user-request.interface';
 @Controller('exams')
 export class ExamsController {
   constructor(private readonly examsService: ExamsService) {}
+
+  /**
+   * Get all available exams with search and filters (public)
+   */
+  @Get()
+  @ApiOperation({
+    summary: 'Get all exams (public)',
+    description:
+      'Returns a paginated list of active exams. Supports search by title, filter by subject, and sorting.',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by exam title (English or Arabic)',
+  })
+  @ApiQuery({
+    name: 'subject_id',
+    required: false,
+    description: 'Filter by subject ID',
+  })
+  @ApiQuery({
+    name: 'is_active',
+    required: false,
+    type: Boolean,
+    description: 'Filter by active status (default: true)',
+  })
+  @ApiQuery({
+    name: 'sort_by',
+    required: false,
+    enum: ['created_at', 'title', 'total_marks'],
+    description: 'Sort by field (default: created_at)',
+  })
+  @ApiQuery({
+    name: 'sort_order',
+    required: false,
+    enum: ['ASC', 'DESC'],
+    description: 'Sort order (default: DESC)',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number (default: 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page (default: 20, max: 100)',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'List of exams with pagination meta',
+  })
+  async findAll(@Query() filter: ExamFilterDto) {
+    return this.examsService.findAll(filter);
+  }
 
   /**
    * Get exam for taking (student only)

@@ -98,6 +98,28 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Check user status (BREAKING CHANGE: new response format)
+    if (user.status === UserStatus.PENDING) {
+      this.logger.log(
+        `Login attempt with pending account: ${email} (ID: ${user.id})`,
+      );
+      return {
+        status: 'pending',
+        message:
+          'Your account is under review. Please wait for admin approval.',
+      };
+    }
+
+    if (user.status === UserStatus.REJECTED) {
+      this.logger.warn(
+        `Login attempt with rejected account: ${email} (ID: ${user.id})`,
+      );
+      throw new UnauthorizedException(
+        `Account rejected: ${user.rejection_reason || 'Please contact support for more information.'}`,
+      );
+    }
+
+    // User is approved - generate tokens
     const payload = {
       sub: user.id,
       email: user.email,
@@ -111,17 +133,13 @@ export class AuthService {
     const refresh_token = this.generateRefreshToken();
     await this.storeRefreshToken(user.id, refresh_token);
 
+    // Return new response format with status
     return {
-      access_token,
-      refresh_token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        isActive: user.is_active,
-      },
+      status: 'approved',
+      token: access_token,
+      refreshToken: refresh_token,
+      role: user.role,
+      userId: user.id,
     };
   }
 
@@ -287,6 +305,25 @@ export class AuthService {
       throw new UnauthorizedException('User account is inactive');
     }
 
+    // Check user status (BREAKING CHANGE: new response format)
+    if (user.status === UserStatus.PENDING) {
+      this.logger.warn(
+        `Pending user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
+      );
+      throw new UnauthorizedException(
+        'Your account is under review. Please wait for admin approval.',
+      );
+    }
+
+    if (user.status === UserStatus.REJECTED) {
+      this.logger.warn(
+        `Rejected user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
+      );
+      throw new UnauthorizedException(
+        `Account rejected: ${user.rejection_reason || 'Please contact support for more information.'}`,
+      );
+    }
+
     // Generate new access token
     const payload = {
       sub: user.id,
@@ -303,17 +340,13 @@ export class AuthService {
 
     this.logger.log(`Token refreshed - User: ${user.email} (ID: ${user.id})`);
 
+    // Return new response format with status
     return {
-      access_token,
-      refresh_token: newRefreshToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        isActive: user.is_active,
-      },
+      status: 'approved',
+      token: access_token,
+      refreshToken: newRefreshToken,
+      role: user.role,
+      userId: user.id,
     };
   }
 

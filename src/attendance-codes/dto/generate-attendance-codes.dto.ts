@@ -8,16 +8,16 @@ import {
   Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PurchaseCodeType } from '../entities/purchase-code-type.enum';
+import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 
-export class GeneratePurchaseCodesDto {
+export class GenerateAttendanceCodesDto {
   @ApiProperty({
     description: 'Type of item the codes will unlock',
-    enum: PurchaseCodeType,
-    example: PurchaseCodeType.LESSON,
+    enum: AttendanceCodeType,
+    example: AttendanceCodeType.LESSON,
   })
-  @IsEnum(PurchaseCodeType)
-  type!: PurchaseCodeType;
+  @IsEnum(AttendanceCodeType)
+  type!: AttendanceCodeType;
 
   @ApiProperty({
     description: 'ID of the item (lesson_id, package_id, or book_id)',

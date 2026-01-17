@@ -2,9 +2,9 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional, IsBoolean, IsEnum, IsNumber } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
-import { PurchaseCodeType } from '../entities/purchase-code-type.enum';
+import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 
-export class PurchaseCodeFilterDto extends PaginationDto {
+export class AttendanceCodeFilterDto extends PaginationDto {
   @ApiProperty({
     description: 'Filter by used status',
     required: false,
@@ -16,12 +16,12 @@ export class PurchaseCodeFilterDto extends PaginationDto {
 
   @ApiProperty({
     description: 'Filter by type',
-    enum: PurchaseCodeType,
+    enum: AttendanceCodeType,
     required: false,
   })
   @IsOptional()
-  @IsEnum(PurchaseCodeType)
-  type?: PurchaseCodeType;
+  @IsEnum(AttendanceCodeType)
+  type?: AttendanceCodeType;
 
   @ApiProperty({
     description: 'Filter by item ID',

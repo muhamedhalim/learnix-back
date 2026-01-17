@@ -20,7 +20,10 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { AuthResponseDto } from './dto/auth-response.dto';
+import {
+  PendingAuthResponseDto,
+  ApprovedAuthResponseDto,
+} from './dto/auth-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Authentication')
@@ -41,13 +44,26 @@ export class AuthController {
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'User login' })
+  @ApiOperation({
+    summary: 'User login',
+    description:
+      'Authenticate user and return tokens. Response varies by account status: ' +
+      'PENDING users receive status message, APPROVED users receive tokens, REJECTED users get 401 error.',
+  })
   @ApiResponse({
     status: 200,
-    description: 'Login successful',
-    type: AuthResponseDto,
+    description: 'Login successful - Account approved',
+    type: ApprovedAuthResponseDto,
   })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  @ApiResponse({
+    status: 200,
+    description: 'Account pending approval',
+    type: PendingAuthResponseDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials or account rejected',
+  })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
@@ -59,14 +75,19 @@ export class AuthController {
   @ApiOperation({
     summary: 'Refresh access token',
     description:
-      'Use refresh token to obtain a new access token. Returns new access token and rotated refresh token.',
+      'Use refresh token to obtain a new access token. Returns new access token and rotated refresh token. ' +
+      'Only works for APPROVED users - PENDING/REJECTED users will receive 401 error.',
   })
   @ApiResponse({
     status: 200,
     description: 'Token refreshed successfully',
-    type: AuthResponseDto,
+    type: ApprovedAuthResponseDto,
   })
-  @ApiResponse({ status: 401, description: 'Invalid or expired refresh token' })
+  @ApiResponse({
+    status: 401,
+    description:
+      'Invalid/expired refresh token, account pending approval, or account rejected',
+  })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refresh(refreshTokenDto.refresh_token);

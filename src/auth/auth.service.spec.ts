@@ -11,6 +11,7 @@ import * as bcrypt from 'bcryptjs';
 import { AuthService } from './auth.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+import { UserStatus } from '../users/entities/user-status.enum';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -21,7 +22,7 @@ describe('AuthService', () => {
   let configService: jest.Mocked<ConfigService>;
 
   const mockUser: Partial<User> = {
-    id: 1,
+    id: 'stu_123456',
     name: 'Test User',
     email: 'test@example.com',
     phone: '01000000000',
@@ -96,7 +97,7 @@ describe('AuthService', () => {
 
       const newUser = {
         ...mockUser,
-        id: 2,
+        id: 'stu_789012',
         name: registerDto.name,
         email: registerDto.email,
         phone: registerDto.phone,
@@ -149,11 +150,12 @@ describe('AuthService', () => {
 
       const result = await service.login(loginDto);
 
-      expect(result).toHaveProperty('access_token');
-      expect(result).toHaveProperty('refresh_token');
-      expect(result).toHaveProperty('user');
-      expect(result.user.email).toBe(loginDto.email);
-      expect(result.access_token).toBe('access_token');
+      // New response format with status
+      expect(result).toHaveProperty('status', 'approved');
+      expect(result).toHaveProperty('token', 'access_token');
+      expect(result).toHaveProperty('refreshToken');
+      expect(result).toHaveProperty('role', mockUser.role);
+      expect(result).toHaveProperty('userId', mockUser.id);
     });
 
     it('should throw UnauthorizedException if user not found', async () => {
@@ -212,6 +214,53 @@ describe('AuthService', () => {
         'This account uses Firebase authentication',
       );
     });
+
+    it('should return pending status for pending users', async () => {
+      const pendingUser = {
+        ...mockUser,
+        status: UserStatus.PENDING,
+      };
+
+      const queryBuilder = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(pendingUser),
+      };
+
+      userRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(queryBuilder);
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      const result = await service.login(loginDto);
+
+      expect(result).toHaveProperty('status', 'pending');
+      expect(result).toHaveProperty('message');
+      expect(result).not.toHaveProperty('token');
+    });
+
+    it('should throw UnauthorizedException for rejected users', async () => {
+      const rejectedUser = {
+        ...mockUser,
+        status: UserStatus.REJECTED,
+        rejection_reason: 'Invalid documents',
+      };
+
+      const queryBuilder = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(rejectedUser),
+      };
+
+      userRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(queryBuilder);
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      await expect(service.login(loginDto)).rejects.toThrow(
+        new UnauthorizedException('Account rejected: Invalid documents'),
+      );
+    });
   });
 
   describe('refresh', () => {
@@ -241,10 +290,12 @@ describe('AuthService', () => {
 
       const result = await service.refresh(refreshToken);
 
-      expect(result).toHaveProperty('access_token', 'new_access_token');
-      expect(result).toHaveProperty('refresh_token');
-      expect(result).toHaveProperty('user');
-      expect(result.user.email).toBe(mockUser.email);
+      // New response format with status
+      expect(result).toHaveProperty('status', 'approved');
+      expect(result).toHaveProperty('token', 'new_access_token');
+      expect(result).toHaveProperty('refreshToken');
+      expect(result).toHaveProperty('role', mockUser.role);
+      expect(result).toHaveProperty('userId', mockUser.id);
       expect(userRepository.update).toHaveBeenCalled();
     });
 
@@ -329,8 +380,9 @@ describe('AuthService', () => {
 
       const result = await service.refresh(refreshToken);
 
-      expect(result.refresh_token).toBeDefined();
-      expect(result.refresh_token).not.toBe(refreshToken);
+      // Updated to use new response format
+      expect(result.refreshToken).toBeDefined();
+      expect(result.refreshToken).not.toBe(refreshToken);
       expect(userRepository.update).toHaveBeenCalledWith(
         mockUser.id,
         expect.objectContaining({
@@ -340,11 +392,60 @@ describe('AuthService', () => {
         }),
       );
     });
+
+    it('should throw UnauthorizedException for pending user on refresh', async () => {
+      const pendingUser = {
+        ...userWithRefreshToken,
+        status: UserStatus.PENDING,
+      } as User;
+
+      const queryBuilder = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(pendingUser),
+      };
+
+      userRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(queryBuilder);
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      await expect(service.refresh(refreshToken)).rejects.toThrow(
+        new UnauthorizedException(
+          'Your account is under review. Please wait for admin approval.',
+        ),
+      );
+    });
+
+    it('should throw UnauthorizedException for rejected user on refresh', async () => {
+      const rejectedUser = {
+        ...userWithRefreshToken,
+        status: UserStatus.REJECTED,
+        rejection_reason: 'Invalid documents',
+      } as User;
+
+      const queryBuilder = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(rejectedUser),
+      };
+
+      userRepository.createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(queryBuilder);
+      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+
+      await expect(service.refresh(refreshToken)).rejects.toThrow(
+        new UnauthorizedException('Account rejected: Invalid documents'),
+      );
+    });
   });
 
   describe('logout', () => {
     it('should successfully logout and clear refresh token and token_id', async () => {
-      const userId = 1;
+      const userId = 'stu_123456';
       userRepository.update.mockResolvedValue({} as never);
 
       await service.logout(userId);
@@ -362,7 +463,7 @@ describe('AuthService', () => {
       userRepository.findOne.mockResolvedValue(mockUser as User);
 
       const result = await service.validateUser({
-        sub: 1,
+        sub: 'stu_123456',
         email: 'test@example.com',
       });
 
@@ -379,7 +480,7 @@ describe('AuthService', () => {
       userRepository.findOne.mockResolvedValue(inactiveUser);
 
       const result = await service.validateUser({
-        sub: 1,
+        sub: 'stu_123456',
         email: 'test@example.com',
       });
 
@@ -390,7 +491,7 @@ describe('AuthService', () => {
       userRepository.findOne.mockResolvedValue(null);
 
       const result = await service.validateUser({
-        sub: 999,
+        sub: 'stu_999999',
         email: 'nonexistent@example.com',
       });
 

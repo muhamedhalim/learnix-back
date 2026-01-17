@@ -3,13 +3,18 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { StudentProfile } from './entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserStatus } from '../users/entities/user-status.enum';
 import { UserRole } from '../users/entities/user-role.enum';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import {
   UpdateStudentProfileDto,
   UpdateStudentNotificationSettingsDto,
@@ -42,6 +47,23 @@ export interface StudentProfileWithDetails {
   notification_settings: Record<string, boolean>;
   created_at: Date;
   updated_at: Date;
+  purchasedLessons?: Array<{
+    lessonId: string;
+    title: string;
+    attended: boolean;
+    purchasedAt: Date;
+    expiresAt: Date;
+    pricePaid: number;
+    isExpired: boolean;
+  }>;
+  exams?: Array<{
+    examId: string;
+    title: string;
+    score: number | null;
+    totalMarks: number;
+    status: string;
+    submittedAt: Date | null;
+  }>;
 }
 
 /**
@@ -61,13 +83,29 @@ export class StudentsService {
     private readonly studentProfilesRepository: Repository<StudentProfile>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(LessonPurchase)
+    private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
+    @InjectRepository(ExamAttempt)
+    private readonly examAttemptsRepository: Repository<ExamAttempt>,
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager: Cache,
   ) {}
 
   /**
-   * Get a student's own profile by user ID
+   * Get a student's own profile by user ID with aggregated data
    * Used by students to view their profile
+   * Includes purchased lessons and exam attempts with caching (5-min TTL)
    */
   async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
+    // Check cache first
+    const cacheKey = `student:profile:${userId}`;
+    const cached =
+      await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Fetch basic profile
     const profile = await this.studentProfilesRepository.findOne({
       where: { user_id: userId },
       relations: ['user'],
@@ -77,7 +115,54 @@ export class StudentsService {
       throw new NotFoundException('Student profile not found');
     }
 
-    return this.mapToProfileWithDetails(profile);
+    // Fetch purchased lessons with lesson details
+    const lessonPurchases = await this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .leftJoinAndSelect('lp.lesson', 'lesson')
+      .where('lp.student_id = :userId', { userId })
+      .orderBy('lp.created_at', 'DESC')
+      .getMany();
+
+    // Fetch exam attempts with exam details
+    const examAttempts = await this.examAttemptsRepository
+      .createQueryBuilder('ea')
+      .leftJoinAndSelect('ea.exam', 'exam')
+      .where('ea.student_id = :userId', { userId })
+      .orderBy('ea.created_at', 'DESC')
+      .getMany();
+
+    // Map to response format
+    const now = new Date();
+    const purchasedLessons = lessonPurchases.map((lp) => ({
+      lessonId: lp.lesson_id,
+      title: lp.lesson?.title || 'Unknown Lesson',
+      attended: lp.access_granted_at !== null,
+      purchasedAt: lp.created_at,
+      expiresAt: lp.access_expires_at,
+      pricePaid: Number(lp.price_paid),
+      isExpired: lp.access_expires_at < now,
+    }));
+
+    const exams = examAttempts.map((ea) => ({
+      examId: ea.exam_id,
+      title: ea.exam?.title || 'Unknown Exam',
+      score: ea.total_score !== null ? Number(ea.total_score) : null,
+      totalMarks: ea.exam?.total_marks || 0,
+      status: ea.status,
+      submittedAt: ea.submitted_at,
+    }));
+
+    // Build complete profile
+    const profileWithDetails: StudentProfileWithDetails = {
+      ...this.mapToProfileWithDetails(profile),
+      purchasedLessons,
+      exams,
+    };
+
+    // Cache for 5 minutes (300 seconds)
+    await this.cacheManager.set(cacheKey, profileWithDetails, 300000);
+
+    return profileWithDetails;
   }
 
   /**

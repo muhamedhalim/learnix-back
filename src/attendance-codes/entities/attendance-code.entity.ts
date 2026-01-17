@@ -8,22 +8,22 @@ import {
   Index,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
-import { PurchaseCodeType } from './purchase-code-type.enum';
+import { AttendanceCodeType } from './attendance-code-type.enum';
 
-@Entity('purchase_codes')
-@Index('IDX_purchase_codes_code', ['code'], { unique: true })
-@Index('IDX_purchase_codes_used', ['is_used'])
-@Index('IDX_purchase_codes_expires', ['expires_at'])
-@Index('IDX_purchase_codes_type_item', ['type', 'item_id'])
-export class PurchaseCode {
+@Entity('attendance_codes')
+@Index('IDX_attendance_codes_code', ['code'], { unique: true })
+@Index('IDX_attendance_codes_used', ['is_used'])
+@Index('IDX_attendance_codes_expires', ['expires_at'])
+@Index('IDX_attendance_codes_type_item', ['type', 'item_id'])
+export class AttendanceCode {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ type: 'varchar', length: 16, unique: true })
   code!: string;
 
-  @Column({ type: 'enum', enum: PurchaseCodeType })
-  type!: PurchaseCodeType;
+  @Column({ type: 'enum', enum: AttendanceCodeType })
+  type!: AttendanceCodeType;
 
   @Column({ type: 'uuid', name: 'item_id' })
   item_id!: string;

@@ -21,22 +21,24 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { PurchaseCodesService } from '../purchase-codes.service';
-import { GeneratePurchaseCodesDto, PurchaseCodeFilterDto } from '../dto';
+import { AttendanceCodesService } from '../attendance-codes.service';
+import { GenerateAttendanceCodesDto, AttendanceCodeFilterDto } from '../dto';
 
-@ApiTags('Admin - Purchase Codes')
-@Controller('admin/purchase-codes')
+@ApiTags('Admin - Attendance Codes')
+@Controller('admin/attendance-codes')
 @UseGuards(HybridAuthGuard, RolesGuard)
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
-export class AdminPurchaseCodesController {
-  constructor(private readonly purchaseCodesService: PurchaseCodesService) {}
+export class AdminAttendanceCodesController {
+  constructor(
+    private readonly attendanceCodesService: AttendanceCodesService,
+  ) {}
 
   @Post('generate')
   @ApiOperation({
-    summary: 'Generate purchase codes',
+    summary: 'Generate attendance codes',
     description:
-      'Generates a batch of purchase codes for a specific item (lesson or package).',
+      'Generates a batch of attendance codes for a specific item (lesson or package).',
   })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -44,15 +46,15 @@ export class AdminPurchaseCodesController {
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Item not found' })
   async generate(
-    @Body() dto: GeneratePurchaseCodesDto,
+    @Body() dto: GenerateAttendanceCodesDto,
     @GetUser() user: JwtPayload,
   ) {
-    const codes = await this.purchaseCodesService.generateCodes(
+    const codes = await this.attendanceCodesService.generateCodes(
       dto,
       user.userId,
     );
     return {
-      message: `Generated ${codes.length} purchase codes`,
+      message: `Generated ${codes.length} attendance codes`,
       data: codes.map((c) => ({
         code: c.code,
         type: c.type,
@@ -64,37 +66,38 @@ export class AdminPurchaseCodesController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get all purchase codes',
+    summary: 'Get all attendance codes',
     description:
-      'Returns a paginated list of purchase codes with optional filters.',
+      'Returns a paginated list of attendance codes with optional filters.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of purchase codes',
+    description: 'List of attendance codes',
   })
-  async findAll(@Query() filter: PurchaseCodeFilterDto) {
-    return await this.purchaseCodesService.findAll(filter);
+  async findAll(@Query() filter: AttendanceCodeFilterDto) {
+    return await this.attendanceCodesService.findAll(filter);
   }
 
   @Get('stats')
   @ApiOperation({
-    summary: 'Get purchase code statistics',
+    summary: 'Get attendance code statistics',
     description:
-      'Returns statistics about purchase codes (total, used, unused, expired).',
+      'Returns statistics about attendance codes (total, used, unused, expired).',
   })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Purchase code statistics',
   })
   async getStats() {
-    const stats = await this.purchaseCodesService.getStats();
+    const stats = await this.attendanceCodesService.getStats();
     return { data: stats };
   }
 
   @Get(':code')
   @ApiOperation({
-    summary: 'Get a purchase code by code string',
-    description: 'Returns detailed information about a specific purchase code.',
+    summary: 'Get a attendance code by code string',
+    description:
+      'Returns detailed information about a specific attendance code.',
   })
   @ApiParam({ name: 'code', type: String })
   @ApiResponse({
@@ -103,18 +106,18 @@ export class AdminPurchaseCodesController {
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   async findOne(@Param('code') code: string) {
-    const purchaseCode = await this.purchaseCodesService.findByCode(code);
-    if (!purchaseCode) {
+    const attendanceCode = await this.attendanceCodesService.findByCode(code);
+    if (!attendanceCode) {
       return { data: null, message: 'Purchase code not found' };
     }
-    return { data: purchaseCode };
+    return { data: attendanceCode };
   }
 
   @Delete(':code')
   @ApiOperation({
-    summary: 'Delete a purchase code',
+    summary: 'Delete a attendance code',
     description:
-      'Deletes an unused purchase code. Used codes cannot be deleted.',
+      'Deletes an unused attendance code. Used codes cannot be deleted.',
   })
   @ApiParam({ name: 'code', type: String })
   @ApiResponse({
@@ -127,7 +130,7 @@ export class AdminPurchaseCodesController {
     description: 'Cannot delete used code',
   })
   async remove(@Param('code') code: string) {
-    await this.purchaseCodesService.remove(code);
+    await this.attendanceCodesService.remove(code);
     return { message: 'Purchase code deleted successfully' };
   }
 }

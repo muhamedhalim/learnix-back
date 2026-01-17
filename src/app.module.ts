@@ -37,12 +37,14 @@ import { ExamsModule } from './exams/exams.module';
 import { PaymentsModule } from './payments/payments.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { DiscountCodesModule } from './discount-codes/discount-codes.module';
-import { PurchaseCodesModule } from './purchase-codes/purchase-codes.module';
+import { AttendanceCodesModule } from './attendance-codes/attendance-codes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 
-// Phase 5: Books & Attendance
+// Phase 5: Books & Attendance & Analytics & Cart
 import { BooksModule } from './books/books.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { CartModule } from './cart/cart.module';
 
 @Module({
   imports: [
@@ -179,12 +181,14 @@ import { AttendanceModule } from './attendance/attendance.module';
     IdempotencyModule,
     PaymentsModule,
     DiscountCodesModule,
-    PurchaseCodesModule,
+    AttendanceCodesModule,
     NotificationsModule,
 
-    // Phase 5: Books & Attendance
+    // Phase 5: Books & Attendance & Analytics & Cart
     BooksModule,
     AttendanceModule,
+    AnalyticsModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [AppService],

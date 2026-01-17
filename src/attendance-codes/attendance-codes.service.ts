@@ -7,11 +7,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, MoreThan, IsNull } from 'typeorm';
 import * as crypto from 'crypto';
-import { PurchaseCode, PurchaseCodeType } from './entities';
+import { AttendanceCode, AttendanceCodeType } from './entities';
 import {
-  GeneratePurchaseCodesDto,
-  VerifyPurchaseCodeDto,
-  PurchaseCodeFilterDto,
+  GenerateAttendanceCodesDto,
+  VerifyAttendanceCodeDto,
+  AttendanceCodeFilterDto,
 } from './dto';
 import {
   Payment,
@@ -27,12 +27,12 @@ import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 
 @Injectable()
-export class PurchaseCodesService {
-  private readonly logger = new Logger(PurchaseCodesService.name);
+export class AttendanceCodesService {
+  private readonly logger = new Logger(AttendanceCodesService.name);
 
   constructor(
-    @InjectRepository(PurchaseCode)
-    private readonly purchaseCodesRepository: Repository<PurchaseCode>,
+    @InjectRepository(AttendanceCode)
+    private readonly attendanceCodesRepository: Repository<AttendanceCode>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPackage)
@@ -44,18 +44,18 @@ export class PurchaseCodesService {
    * Generate cryptographically secure purchase codes
    */
   async generateCodes(
-    dto: GeneratePurchaseCodesDto,
+    dto: GenerateAttendanceCodesDto,
     adminId: string,
-  ): Promise<PurchaseCode[]> {
+  ): Promise<AttendanceCode[]> {
     // Validate item exists
-    if (dto.type === PurchaseCodeType.LESSON) {
+    if (dto.type === AttendanceCodeType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
       if (!lesson) {
         throw new NotFoundException('Lesson not found');
       }
-    } else if (dto.type === PurchaseCodeType.PACKAGE) {
+    } else if (dto.type === AttendanceCodeType.PACKAGE) {
       const pkg = await this.packagesRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
@@ -64,13 +64,13 @@ export class PurchaseCodesService {
       }
     }
 
-    const codes: PurchaseCode[] = [];
+    const codes: AttendanceCode[] = [];
     const expiresAt = new Date(dto.expires_at);
 
     for (let i = 0; i < dto.count; i++) {
       const code = this.generateUniqueCode();
 
-      const purchaseCode = this.purchaseCodesRepository.create({
+      const attendanceCode = this.attendanceCodesRepository.create({
         code,
         type: dto.type,
         item_id: dto.item_id,
@@ -78,10 +78,10 @@ export class PurchaseCodesService {
         created_by: adminId,
       });
 
-      codes.push(purchaseCode);
+      codes.push(attendanceCode);
     }
 
-    const savedCodes = await this.purchaseCodesRepository.save(codes);
+    const savedCodes = await this.attendanceCodesRepository.save(codes);
     this.logger.log(
       `Generated ${dto.count} purchase codes for ${dto.type} ${dto.item_id} by admin ${adminId}`,
     );
@@ -106,15 +106,77 @@ export class PurchaseCodesService {
   }
 
   /**
+   * Verify code validity without redeeming (public endpoint)
+   * Returns code details for display to user before redemption
+   */
+  async verifyCodePublic(code: string): Promise<{
+    valid: boolean;
+    itemType?: 'lesson' | 'package' | 'book';
+    itemId?: string;
+    itemTitle?: string;
+    price?: number;
+    expiresAt?: Date;
+    isExpired?: boolean;
+    isUsed?: boolean;
+  }> {
+    // Find code (no lock needed for read-only operation)
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
+      where: {
+        code: code.toUpperCase(),
+      },
+    });
+
+    if (!attendanceCode) {
+      return { valid: false };
+    }
+
+    const now = new Date();
+    const isExpired = attendanceCode.expires_at < now;
+    const isUsed = attendanceCode.is_used;
+
+    // Fetch item details
+    let itemTitle: string | undefined;
+    let price: number | undefined;
+
+    if (attendanceCode.type === AttendanceCodeType.LESSON) {
+      const lesson = await this.lessonsRepository.findOne({
+        where: { id: attendanceCode.item_id, deleted_at: IsNull() },
+      });
+      itemTitle = lesson?.title;
+      price = lesson?.price;
+    } else if (attendanceCode.type === AttendanceCodeType.PACKAGE) {
+      const pkg = await this.packagesRepository.findOne({
+        where: { id: attendanceCode.item_id, deleted_at: IsNull() },
+      });
+      itemTitle = pkg?.title;
+      price = pkg?.price;
+    }
+
+    // Code is valid if: exists, not used, not expired, and item still exists
+    const valid = !isUsed && !isExpired && !!itemTitle;
+
+    return {
+      valid,
+      itemType: attendanceCode.type,
+      itemId: attendanceCode.item_id,
+      itemTitle,
+      price,
+      expiresAt: attendanceCode.expires_at,
+      isExpired,
+      isUsed,
+    };
+  }
+
+  /**
    * Verify and redeem a purchase code (with race condition protection)
    */
   async verifyAndRedeem(
-    dto: VerifyPurchaseCodeDto,
+    dto: VerifyAttendanceCodeDto,
     userId: string,
   ): Promise<Payment> {
     return await retryTransaction(this.dataSource, async (manager) => {
       // Find unused, unexpired code with pessimistic lock
-      const code = await manager.findOne(PurchaseCode, {
+      const code = await manager.findOne(AttendanceCode, {
         where: {
           code: dto.code.toUpperCase(),
           is_used: false,
@@ -131,13 +193,13 @@ export class PurchaseCodesService {
       code.is_used = true;
       code.used_by = userId;
       code.used_at = new Date();
-      await manager.save(PurchaseCode, code);
+      await manager.save(AttendanceCode, code);
 
       // Create free payment
       const itemType =
-        code.type === PurchaseCodeType.LESSON
+        code.type === AttendanceCodeType.LESSON
           ? ItemType.LESSON
-          : code.type === PurchaseCodeType.PACKAGE
+          : code.type === AttendanceCodeType.PACKAGE
             ? ItemType.PACKAGE
             : ItemType.BOOK;
 
@@ -156,9 +218,9 @@ export class PurchaseCodesService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Grant access immediately
-      if (code.type === PurchaseCodeType.LESSON) {
+      if (code.type === AttendanceCodeType.LESSON) {
         await this.grantLessonAccess(manager, savedPayment, code.item_id);
-      } else if (code.type === PurchaseCodeType.PACKAGE) {
+      } else if (code.type === AttendanceCodeType.PACKAGE) {
         await this.grantPackageAccess(manager, savedPayment, code.item_id);
       }
 
@@ -258,13 +320,13 @@ export class PurchaseCodesService {
    * Find all purchase codes with filters (admin only)
    */
   async findAll(
-    filter: PurchaseCodeFilterDto,
-  ): Promise<{ data: PurchaseCode[]; meta: PaginationMeta }> {
+    filter: AttendanceCodeFilterDto,
+  ): Promise<{ data: AttendanceCode[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
     const limit = filter.limit || 20;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.purchaseCodesRepository
+    const queryBuilder = this.attendanceCodesRepository
       .createQueryBuilder('code')
       .leftJoinAndSelect('code.user', 'user')
       .leftJoinAndSelect('code.creator', 'creator');
@@ -314,8 +376,8 @@ export class PurchaseCodesService {
   /**
    * Find a purchase code by code string
    */
-  async findByCode(code: string): Promise<PurchaseCode | null> {
-    return await this.purchaseCodesRepository.findOne({
+  async findByCode(code: string): Promise<AttendanceCode | null> {
+    return await this.attendanceCodesRepository.findOne({
       where: { code: code.toUpperCase() },
       relations: ['user', 'creator'],
     });
@@ -325,19 +387,19 @@ export class PurchaseCodesService {
    * Delete an unused purchase code (admin only)
    */
   async remove(code: string): Promise<void> {
-    const purchaseCode = await this.purchaseCodesRepository.findOne({
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
       where: { code: code.toUpperCase() },
     });
 
-    if (!purchaseCode) {
+    if (!attendanceCode) {
       throw new NotFoundException('Purchase code not found');
     }
 
-    if (purchaseCode.is_used) {
+    if (attendanceCode.is_used) {
       throw new BadRequestException('Cannot delete a used purchase code');
     }
 
-    await this.purchaseCodesRepository.remove(purchaseCode);
+    await this.attendanceCodesRepository.remove(attendanceCode);
     this.logger.log(`Deleted purchase code: ${code}`);
   }
 
@@ -352,11 +414,11 @@ export class PurchaseCodesService {
   }> {
     const now = new Date();
 
-    const total = await this.purchaseCodesRepository.count();
-    const used = await this.purchaseCodesRepository.count({
+    const total = await this.attendanceCodesRepository.count();
+    const used = await this.attendanceCodesRepository.count({
       where: { is_used: true },
     });
-    const expired = await this.purchaseCodesRepository.count({
+    const expired = await this.attendanceCodesRepository.count({
       where: { is_used: false, expires_at: MoreThan(now) },
     });
 
