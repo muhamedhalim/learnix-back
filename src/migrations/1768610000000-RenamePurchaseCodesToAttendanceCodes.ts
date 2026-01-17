@@ -9,12 +9,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
       ALTER TABLE purchase_codes RENAME TO attendance_codes;
     `);
 
-    // Rename the primary key constraint
-    await queryRunner.query(`
-      ALTER TABLE attendance_codes
-        RENAME CONSTRAINT purchase_codes_pkey TO attendance_codes_pkey;
-    `);
-
     // Rename all indexes
     await queryRunner.query(`
       ALTER INDEX "IDX_purchase_codes_code"
@@ -98,12 +92,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
     await queryRunner.query(`
       ALTER INDEX "IDX_attendance_codes_code"
         RENAME TO "IDX_purchase_codes_code";
-    `);
-
-    // Reverse: Rename the primary key constraint back
-    await queryRunner.query(`
-      ALTER TABLE attendance_codes
-        RENAME CONSTRAINT attendance_codes_pkey TO purchase_codes_pkey;
     `);
 
     // Reverse: Rename the table back
