@@ -9,121 +9,112 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
       ALTER TABLE purchase_codes RENAME TO attendance_codes;
     `);
 
-    // Rename all indexes (wrapped in try-catch - indexes may not exist in all environments)
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_purchase_codes_code"
-          RENAME TO "IDX_attendance_codes_code";
+    // Rename indexes - check existence first to avoid transaction abortion
+    const indexes = [
+      { old: 'IDX_purchase_codes_code', new: 'IDX_attendance_codes_code' },
+      { old: 'IDX_purchase_codes_used', new: 'IDX_attendance_codes_used' },
+      {
+        old: 'IDX_purchase_codes_expires',
+        new: 'IDX_attendance_codes_expires',
+      },
+      {
+        old: 'IDX_purchase_codes_type_item',
+        new: 'IDX_attendance_codes_type_item',
+      },
+    ];
+
+    for (const { old: oldName, new: newName } of indexes) {
+      const exists = await queryRunner.query(`
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = '${oldName}'
       `);
-    } catch {
-      console.log('IDX_purchase_codes_code not found, skipping...');
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
+        );
+      } else {
+        console.log(`${oldName} not found, skipping...`);
+      }
     }
 
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_purchase_codes_used"
-          RENAME TO "IDX_attendance_codes_used";
-      `);
-    } catch {
-      console.log('IDX_purchase_codes_used not found, skipping...');
-    }
+    // Rename foreign key constraints - check existence first
+    const constraints = [
+      {
+        old: 'FK_purchase_codes_used_by',
+        new: 'FK_attendance_codes_used_by',
+      },
+      {
+        old: 'FK_purchase_codes_created_by',
+        new: 'FK_attendance_codes_created_by',
+      },
+    ];
 
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_purchase_codes_expires"
-          RENAME TO "IDX_attendance_codes_expires";
+    for (const { old: oldName, new: newName } of constraints) {
+      const exists = await queryRunner.query(`
+        SELECT 1 FROM pg_constraint WHERE conname = '${oldName}'
       `);
-    } catch {
-      console.log('IDX_purchase_codes_expires not found, skipping...');
-    }
-
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_purchase_codes_type_item"
-          RENAME TO "IDX_attendance_codes_type_item";
-      `);
-    } catch {
-      console.log('IDX_purchase_codes_type_item not found, skipping...');
-    }
-
-    // Rename foreign key constraints (if they exist with explicit names)
-    // Note: TypeORM auto-generated FK names might vary, so we'll handle errors gracefully
-    try {
-      await queryRunner.query(`
-        ALTER TABLE attendance_codes
-          RENAME CONSTRAINT "FK_purchase_codes_used_by" TO "FK_attendance_codes_used_by";
-      `);
-    } catch {
-      // FK might not have this exact name, continue anyway
-      console.log('FK_purchase_codes_used_by not found, skipping...');
-    }
-
-    try {
-      await queryRunner.query(`
-        ALTER TABLE attendance_codes
-          RENAME CONSTRAINT "FK_purchase_codes_created_by" TO "FK_attendance_codes_created_by";
-      `);
-    } catch {
-      // FK might not have this exact name, continue anyway
-      console.log('FK_purchase_codes_created_by not found, skipping...');
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
+        );
+      } else {
+        console.log(`${oldName} not found, skipping...`);
+      }
     }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Reverse: Rename foreign key constraints back
-    try {
-      await queryRunner.query(`
-        ALTER TABLE attendance_codes
-          RENAME CONSTRAINT "FK_attendance_codes_created_by" TO "FK_purchase_codes_created_by";
+    const constraints = [
+      {
+        old: 'FK_attendance_codes_created_by',
+        new: 'FK_purchase_codes_created_by',
+      },
+      {
+        old: 'FK_attendance_codes_used_by',
+        new: 'FK_purchase_codes_used_by',
+      },
+    ];
+
+    for (const { old: oldName, new: newName } of constraints) {
+      const exists = await queryRunner.query(`
+        SELECT 1 FROM pg_constraint WHERE conname = '${oldName}'
       `);
-    } catch {
-      console.log('FK_attendance_codes_created_by not found, skipping...');
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
+        );
+      } else {
+        console.log(`${oldName} not found, skipping...`);
+      }
     }
 
-    try {
-      await queryRunner.query(`
-        ALTER TABLE attendance_codes
-          RENAME CONSTRAINT "FK_attendance_codes_used_by" TO "FK_purchase_codes_used_by";
-      `);
-    } catch {
-      console.log('FK_attendance_codes_used_by not found, skipping...');
-    }
+    // Reverse: Rename indexes back
+    const indexes = [
+      {
+        old: 'IDX_attendance_codes_type_item',
+        new: 'IDX_purchase_codes_type_item',
+      },
+      {
+        old: 'IDX_attendance_codes_expires',
+        new: 'IDX_purchase_codes_expires',
+      },
+      { old: 'IDX_attendance_codes_used', new: 'IDX_purchase_codes_used' },
+      { old: 'IDX_attendance_codes_code', new: 'IDX_purchase_codes_code' },
+    ];
 
-    // Reverse: Rename all indexes back (wrapped in try-catch)
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_attendance_codes_type_item"
-          RENAME TO "IDX_purchase_codes_type_item";
+    for (const { old: oldName, new: newName } of indexes) {
+      const exists = await queryRunner.query(`
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = '${oldName}'
       `);
-    } catch {
-      console.log('IDX_attendance_codes_type_item not found, skipping...');
-    }
-
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_attendance_codes_expires"
-          RENAME TO "IDX_purchase_codes_expires";
-      `);
-    } catch {
-      console.log('IDX_attendance_codes_expires not found, skipping...');
-    }
-
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_attendance_codes_used"
-          RENAME TO "IDX_purchase_codes_used";
-      `);
-    } catch {
-      console.log('IDX_attendance_codes_used not found, skipping...');
-    }
-
-    try {
-      await queryRunner.query(`
-        ALTER INDEX "IDX_attendance_codes_code"
-          RENAME TO "IDX_purchase_codes_code";
-      `);
-    } catch {
-      console.log('IDX_attendance_codes_code not found, skipping...');
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
+        );
+      } else {
+        console.log(`${oldName} not found, skipping...`);
+      }
     }
 
     // Reverse: Rename the table back
