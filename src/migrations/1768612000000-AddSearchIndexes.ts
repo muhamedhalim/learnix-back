@@ -11,6 +11,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * GIN indexes support fast ILIKE queries and full-text search operations
  */
 export class AddSearchIndexes1768612000000 implements MigrationInterface {
+  // Disable transaction wrapping - required for CONCURRENTLY operations
+  transaction = false;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add GIN index on users.name for student/teacher search
     // Supports ILIKE queries like: WHERE name ILIKE '%search%'
