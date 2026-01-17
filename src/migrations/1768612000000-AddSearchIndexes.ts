@@ -15,6 +15,11 @@ export class AddSearchIndexes1768612000000 implements MigrationInterface {
   transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Enable pg_trgm extension for trigram-based text search
+    await queryRunner.query(`
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    `);
+
     // Add GIN index on users.name for student/teacher search
     // Supports ILIKE queries like: WHERE name ILIKE '%search%'
     await queryRunner.query(`
@@ -51,10 +56,6 @@ export class AddSearchIndexes1768612000000 implements MigrationInterface {
       CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_exams_title_ar_gin
         ON exams USING GIN (title_ar gin_trgm_ops);
     `);
-
-    // Note: Requires pg_trgm extension
-    // Extension should already be enabled from initial setup
-    // If not, run: CREATE EXTENSION IF NOT EXISTS pg_trgm;
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
