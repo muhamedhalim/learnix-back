@@ -29,6 +29,10 @@ import { LessonsModule } from './lessons/lessons.module';
 
 // Phase 2: Core Features
 import { PackagesModule } from './packages/packages.module';
+import { CommentsModule } from './comments/comments.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { ComplaintsModule } from './complaints/complaints.module';
+import { CallCenterModule } from './callcenter/callcenter.module';
 
 // Phase 3: Exams & Grading
 import { ExamsModule } from './exams/exams.module';
@@ -173,6 +177,10 @@ import { CartModule } from './cart/cart.module';
 
     // Phase 2: Core Features
     PackagesModule,
+    CommentsModule,
+    ReviewsModule,
+    ComplaintsModule,
+    CallCenterModule,
 
     // Phase 3: Exams & Grading
     ExamsModule,

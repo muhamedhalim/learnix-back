@@ -24,11 +24,11 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
     ];
 
     for (const { old: oldName, new: newName } of indexes) {
-      const exists = await queryRunner.query(`
+      const exists: unknown = await queryRunner.query(`
         SELECT 1 FROM pg_indexes
         WHERE schemaname = 'public' AND indexname = '${oldName}'
       `);
-      if (exists.length > 0) {
+      if (Array.isArray(exists) && exists.length > 0) {
         await queryRunner.query(
           `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
         );
@@ -50,10 +50,10 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
     ];
 
     for (const { old: oldName, new: newName } of constraints) {
-      const exists = await queryRunner.query(`
+      const exists: unknown = await queryRunner.query(`
         SELECT 1 FROM pg_constraint WHERE conname = '${oldName}'
       `);
-      if (exists.length > 0) {
+      if (Array.isArray(exists) && exists.length > 0) {
         await queryRunner.query(
           `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
         );
@@ -77,10 +77,10 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
     ];
 
     for (const { old: oldName, new: newName } of constraints) {
-      const exists = await queryRunner.query(`
+      const exists: unknown = await queryRunner.query(`
         SELECT 1 FROM pg_constraint WHERE conname = '${oldName}'
       `);
-      if (exists.length > 0) {
+      if (Array.isArray(exists) && exists.length > 0) {
         await queryRunner.query(
           `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
         );
@@ -104,11 +104,11 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
     ];
 
     for (const { old: oldName, new: newName } of indexes) {
-      const exists = await queryRunner.query(`
+      const exists: unknown = await queryRunner.query(`
         SELECT 1 FROM pg_indexes
         WHERE schemaname = 'public' AND indexname = '${oldName}'
       `);
-      if (exists.length > 0) {
+      if (Array.isArray(exists) && exists.length > 0) {
         await queryRunner.query(
           `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
         );

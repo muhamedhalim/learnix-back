@@ -14,7 +14,7 @@ export class UpdateSessionDto {
   @Max(100)
   @IsOptional()
   @Type(() => Number)
-  watch_percentage?: number;
+  video_progress_percent?: number;
 
   @ApiPropertyOptional({
     description: 'Total watch duration in seconds',

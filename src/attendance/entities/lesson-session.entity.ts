@@ -11,6 +11,11 @@ import { User } from '../../users/entities/user.entity';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 
 @Entity('lesson_sessions')
+@Index('IDX_lesson_sessions_student_lesson_entered', [
+  'student_id',
+  'lesson_id',
+  'entered_at',
+])
 export class LessonSession {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -40,18 +45,8 @@ export class LessonSession {
   @Column({ type: 'int', default: 0, name: 'duration_seconds' })
   duration_seconds!: number;
 
-  @Column({
-    type: 'decimal',
-    precision: 5,
-    scale: 2,
-    default: 0,
-    name: 'watch_percentage',
-  })
-  watch_percentage!: number;
-
-  @Column({ type: 'boolean', default: false, name: 'is_completed' })
-  @Index('IDX_lesson_sessions_completed')
-  is_completed!: boolean;
+  @Column({ type: 'int', default: 0, name: 'video_progress_percent' })
+  video_progress_percent!: number;
 
   @Column({ type: 'varchar', length: 45, nullable: true, name: 'ip_address' })
   ip_address!: string | null;

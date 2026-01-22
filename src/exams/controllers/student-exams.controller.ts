@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Param,
   Query,
   ParseUUIDPipe,
@@ -86,6 +87,40 @@ export class StudentExamsController {
     @Query() filter: StudentExamFilterDto,
   ) {
     return this.examsService.findAvailableExams(user.userId, filter);
+  }
+
+  /**
+   * Start an exam attempt
+   * Creates IN_PROGRESS attempt and returns questions WITHOUT correct answers
+   */
+  @Post(':id/start')
+  @ApiOperation({
+    summary: 'Start an exam attempt',
+    description:
+      'Creates a new exam attempt with IN_PROGRESS status. Returns questions without correct answers. If an IN_PROGRESS attempt already exists, resumes that attempt. Validates purchase before starting.',
+  })
+  @ApiParam({ name: 'id', description: 'Exam ID' })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Exam started successfully, returns attempt_id and questions',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Exam not found or inactive',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Student has not purchased the lesson for this exam',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'Exam already submitted',
+  })
+  async startExam(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) examId: string,
+  ) {
+    return this.examsService.startExam(user.userId, examId);
   }
 
   /**

@@ -793,6 +793,170 @@ export class ExamsService {
   }
 
   /**
+   * Get exam preview (public, metadata only)
+   * Does NOT expose questions or answers
+   */
+  async getExamPreview(examId: string): Promise<{
+    id: string;
+    title: string;
+    title_ar: string | null;
+    description: string | null;
+    duration_minutes: number;
+    questions_count: number;
+    mcq_count: number;
+    essay_count: number;
+    total_marks: number;
+    passing_marks: number;
+    teacher: { id: string; name: string };
+    subject: { id: string; name: string; grade_level: string };
+  }> {
+    const exam = await this.examsRepository.findOne({
+      where: { id: examId, is_active: true, deleted_at: IsNull() },
+      relations: ['teacher', 'subject'],
+    });
+
+    if (!exam) {
+      throw new NotFoundException('Exam not found or inactive');
+    }
+
+    const questions = exam.questions;
+    const mcqCount = questions.filter(
+      (q) => q.type === QuestionType.MCQ,
+    ).length;
+    const essayCount = questions.filter(
+      (q) => q.type === QuestionType.ESSAY,
+    ).length;
+
+    return {
+      id: exam.id,
+      title: exam.title,
+      title_ar: exam.title_ar,
+      description: exam.description,
+      duration_minutes: Math.floor(exam.duration / 60),
+      questions_count: questions.length,
+      mcq_count: mcqCount,
+      essay_count: essayCount,
+      total_marks: exam.total_marks,
+      passing_marks: exam.passing_marks,
+      teacher: {
+        id: exam.teacher.id,
+        name: exam.teacher.name,
+      },
+      subject: {
+        id: exam.subject.id,
+        name: exam.subject.name,
+        grade_level: exam.subject.grade_level,
+      },
+    };
+  }
+
+  /**
+   * Start an exam attempt
+   * Creates IN_PROGRESS attempt and returns questions WITHOUT correct_answer
+   */
+  async startExam(
+    studentId: string,
+    examId: string,
+  ): Promise<{
+    attempt_id: string;
+    questions: Array<{
+      index: number;
+      type: 'mcq' | 'essay';
+      question: string;
+      question_ar?: string;
+      choices?: string[];
+      marks: number;
+    }>;
+    expiration_time: Date;
+    started_at: Date;
+  }> {
+    // Validate exam exists and is active
+    const exam = await this.examsRepository.findOne({
+      where: { id: examId, is_active: true, deleted_at: IsNull() },
+    });
+
+    if (!exam) {
+      throw new NotFoundException('Exam not found or inactive');
+    }
+
+    // Check for existing attempts
+    const existingAttempt = await this.attemptsRepository.findOne({
+      where: {
+        student_id: studentId,
+        exam_id: examId,
+        status: ExamStatus.IN_PROGRESS,
+      },
+    });
+
+    // If IN_PROGRESS attempt exists, resume it
+    if (existingAttempt) {
+      const questions = exam.questions;
+      const formattedQuestions = questions.map((q, index) => ({
+        index,
+        type: q.type,
+        question: q.question,
+        question_ar: q.question_ar,
+        choices: q.type === QuestionType.MCQ ? q.choices : undefined,
+        marks: q.marks,
+      }));
+
+      return {
+        attempt_id: existingAttempt.id,
+        questions: formattedQuestions,
+        expiration_time: new Date(
+          existingAttempt.created_at.getTime() + exam.duration * 1000,
+        ),
+        started_at: existingAttempt.created_at,
+      };
+    }
+
+    // Check for already submitted/graded attempts
+    const completedAttempt = await this.attemptsRepository.findOne({
+      where: {
+        student_id: studentId,
+        exam_id: examId,
+      },
+    });
+
+    if (
+      completedAttempt &&
+      completedAttempt.status !== ExamStatus.IN_PROGRESS
+    ) {
+      throw new ConflictException('You have already completed this exam');
+    }
+
+    // Create new IN_PROGRESS attempt
+    const attempt = this.attemptsRepository.create({
+      student_id: studentId,
+      exam_id: examId,
+      status: ExamStatus.IN_PROGRESS,
+      submitted_at: null,
+    });
+
+    const savedAttempt = await this.attemptsRepository.save(attempt);
+
+    // Return questions WITHOUT correct_answer
+    const questions = exam.questions;
+    const formattedQuestions = questions.map((q, index) => ({
+      index,
+      type: q.type,
+      question: q.question,
+      question_ar: q.question_ar,
+      choices: q.type === QuestionType.MCQ ? q.choices : undefined,
+      marks: q.marks,
+    }));
+
+    return {
+      attempt_id: savedAttempt.id,
+      questions: formattedQuestions,
+      expiration_time: new Date(
+        savedAttempt.created_at.getTime() + exam.duration * 1000,
+      ),
+      started_at: savedAttempt.created_at,
+    };
+  }
+
+  /**
    * Submit exam answers
    * CRITICAL: Auto-grades MCQ questions immediately
    */
@@ -809,13 +973,21 @@ export class ExamsService {
       throw new NotFoundException('Exam not found or inactive');
     }
 
-    // 2. Check duplicate submission
-    const existing = await this.attemptsRepository.findOne({
+    // 2. Validate IN_PROGRESS attempt exists
+    const existingAttempt = await this.attemptsRepository.findOne({
       where: { exam_id: dto.exam_id, student_id: studentId },
     });
 
-    if (existing) {
-      throw new ConflictException('You have already submitted this exam');
+    if (!existingAttempt) {
+      throw new BadRequestException(
+        'No exam attempt found. Please start the exam first using POST /student/exams/:id/start',
+      );
+    }
+
+    if (existingAttempt.status !== ExamStatus.IN_PROGRESS) {
+      throw new ConflictException(
+        `Exam attempt already ${existingAttempt.status.toLowerCase()}. Cannot submit again.`,
+      );
     }
 
     // 3. Validate answer count
@@ -880,20 +1052,16 @@ export class ExamsService {
     const gradedAt = essayCount === 0 ? new Date() : null;
     const submittedAt = new Date();
 
-    // 7. Create and save attempt
-    const attempt = this.attemptsRepository.create({
-      exam_id: dto.exam_id,
-      student_id: studentId,
-      answers: gradedAnswers,
-      score_mcq: scoreMcq,
-      score_essay: essayCount > 0 ? null : 0,
-      total_score: totalScore,
-      status,
-      submitted_at: submittedAt,
-      graded_at: gradedAt,
-    });
+    // 7. Update existing IN_PROGRESS attempt
+    existingAttempt.answers = gradedAnswers;
+    existingAttempt.score_mcq = scoreMcq;
+    existingAttempt.score_essay = essayCount > 0 ? null : 0;
+    existingAttempt.total_score = totalScore;
+    existingAttempt.status = status;
+    existingAttempt.submitted_at = submittedAt;
+    existingAttempt.graded_at = gradedAt;
 
-    const savedAttempt = await this.attemptsRepository.save(attempt);
+    const savedAttempt = await this.attemptsRepository.save(existingAttempt);
 
     return {
       message: 'Exam submitted successfully',

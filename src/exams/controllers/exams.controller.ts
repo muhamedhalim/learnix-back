@@ -88,6 +88,29 @@ export class ExamsController {
   }
 
   /**
+   * Get exam preview (public)
+   * Returns metadata only - no questions or answers
+   */
+  @Get(':id/preview')
+  @ApiOperation({
+    summary: 'Get exam preview (public)',
+    description:
+      'Returns exam metadata including title, duration, question counts, and passing marks. Does NOT include questions or answers.',
+  })
+  @ApiParam({ name: 'id', description: 'Exam ID' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam preview with metadata only',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Exam not found or inactive',
+  })
+  async getExamPreview(@Param('id', ParseUUIDPipe) examId: string) {
+    return this.examsService.getExamPreview(examId);
+  }
+
+  /**
    * Get exam for taking (student only)
    * Returns exam without correct answers
    */

@@ -216,19 +216,19 @@ export class AttendanceService {
 
     // Update session
     session.exited_at = new Date();
-    session.watch_percentage = watchPercentage;
+    session.video_progress_percent = watchPercentage;
     session.duration_seconds = durationSeconds;
-    session.is_completed = watchPercentage >= AUTO_ATTENDANCE_THRESHOLD;
 
     await this.sessionsRepository.save(session);
 
+    const isCompleted = watchPercentage >= AUTO_ATTENDANCE_THRESHOLD;
     this.logger.log(
-      `Session ended: ${sessionId}, watch ${watchPercentage}%, completed=${session.is_completed}`,
+      `Session ended: ${sessionId}, watch ${watchPercentage}%, completed=${isCompleted}`,
     );
 
     // Check for auto-attendance
     let autoAttendance = false;
-    if (session.is_completed) {
+    if (isCompleted) {
       autoAttendance = await this.checkAndAutoMarkAttendance(session);
     }
 
@@ -244,12 +244,10 @@ export class AttendanceService {
   ): Promise<LessonSession> {
     const session = await this.findSessionById(sessionId);
 
-    session.watch_percentage = Math.max(
-      Number(session.watch_percentage),
+    session.video_progress_percent = Math.max(
+      Number(session.video_progress_percent),
       watchPercentage,
     );
-    session.is_completed =
-      session.watch_percentage >= AUTO_ATTENDANCE_THRESHOLD;
 
     await this.sessionsRepository.save(session);
 
@@ -283,7 +281,7 @@ export class AttendanceService {
           student_id: session.student_id,
           lesson_id: session.lesson_id,
           status: 'present',
-          notes: `Auto-marked: ${session.watch_percentage}% video completion`,
+          notes: `Auto-marked: ${session.video_progress_percent}% video completion`,
         },
         true,
       );

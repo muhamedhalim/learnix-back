@@ -114,7 +114,7 @@ export class SessionController {
 
     const result = await this.attendanceService.exitLesson(
       activeSession.id,
-      dto.watch_percentage || 0,
+      dto.video_progress_percent || 0,
       dto.duration_seconds || 0,
     );
 
@@ -146,7 +146,7 @@ export class SessionController {
   ) {
     const session = await this.attendanceService.updateSessionProgress(
       sessionId,
-      dto.watch_percentage || 0,
+      dto.video_progress_percent || 0,
     );
 
     return {
