@@ -16,6 +16,11 @@ import { HealthService } from './health.service';
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
+  @Get()
+  @ApiOperation({
+    summary: 'Basic application health check',
+    description: 'Returns the application status, uptime, version, and environment.',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Application is healthy',
