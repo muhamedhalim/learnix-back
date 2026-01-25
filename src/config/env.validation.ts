@@ -1,4 +1,4 @@
-import { plainToInstance } from 'class-transformer';
+import { plainToInstance, Type } from 'class-transformer';
 import {
   IsNotEmpty,
   IsNumber,
@@ -23,6 +23,7 @@ export class EnvironmentVariables {
   @Min(1000)
   @Max(65535)
   @IsOptional()
+  @Type(() => Number)
   public PORT = 3000;
 
   // Database
@@ -41,6 +42,7 @@ export class EnvironmentVariables {
 
   @IsNumber()
   @IsOptional()
+  @Type(() => Number)
   public REDIS_PORT?: number;
 
   @IsString()
@@ -132,6 +134,7 @@ export class EnvironmentVariables {
   @Min(4)
   @Max(20)
   @IsOptional()
+  @Type(() => Number)
   public BCRYPT_ROUNDS = 12;
 
   // File Uploads
@@ -142,10 +145,12 @@ export class EnvironmentVariables {
   // Lesson Access Settings
   @IsNumber()
   @IsOptional()
+  @Type(() => Number)
   public LESSON_ACCESS_DAYS?: number;
 
   @IsNumber()
   @IsOptional()
+  @Type(() => Number)
   public LESSON_EXTENSION_DAYS?: number;
 }
 
