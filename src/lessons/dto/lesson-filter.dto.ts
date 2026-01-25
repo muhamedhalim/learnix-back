@@ -1,14 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { Transform,Type } from 'class-transformer';
 import {
-  IsString,
-  IsOptional,
-  IsInt,
-  IsUUID,
-  Min,
-  Max,
   IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
 } from 'class-validator';
-import { Type, Transform } from 'class-transformer';
 
 export class LessonFilterDto {
   @ApiProperty({
@@ -18,7 +19,7 @@ export class LessonFilterDto {
   })
   @IsString()
   @IsOptional()
-  search?: string;
+  public search?: string;
 
   @ApiProperty({
     description: 'Filter by teacher ID (UUID)',
@@ -27,7 +28,7 @@ export class LessonFilterDto {
   })
   @IsUUID('4')
   @IsOptional()
-  teacher_id?: string;
+  public teacher_id?: string;
 
   @ApiProperty({
     description: 'Filter by subject ID (UUID)',
@@ -36,7 +37,7 @@ export class LessonFilterDto {
   })
   @IsUUID('4')
   @IsOptional()
-  subject_id?: string;
+  public subject_id?: string;
 
   @ApiProperty({
     description: 'Filter by group lessons',
@@ -46,7 +47,7 @@ export class LessonFilterDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   @IsOptional()
-  is_group?: boolean;
+  public is_group?: boolean;
 
   @ApiProperty({
     description: 'Minimum price filter',
@@ -57,7 +58,7 @@ export class LessonFilterDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  minPrice?: number;
+  public minPrice?: number;
 
   @ApiProperty({
     description: 'Maximum price filter',
@@ -68,7 +69,7 @@ export class LessonFilterDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  maxPrice?: number;
+  public maxPrice?: number;
 
   @ApiProperty({
     description: 'Sort by field',
@@ -78,7 +79,7 @@ export class LessonFilterDto {
   })
   @IsString()
   @IsOptional()
-  sortBy?: 'price' | 'title' | 'created_at' | 'students_count';
+  public sortBy?: 'price' | 'title' | 'created_at' | 'students_count';
 
   @ApiProperty({
     description: 'Sort order',
@@ -88,7 +89,7 @@ export class LessonFilterDto {
   })
   @IsString()
   @IsOptional()
-  order?: 'asc' | 'desc';
+  public order?: 'asc' | 'desc';
 
   @ApiProperty({
     description: 'Page number',
@@ -100,7 +101,7 @@ export class LessonFilterDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiProperty({
     description: 'Items per page',
@@ -114,5 +115,5 @@ export class LessonFilterDto {
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit?: number = 20;
+  public limit?: number = 20;
 }

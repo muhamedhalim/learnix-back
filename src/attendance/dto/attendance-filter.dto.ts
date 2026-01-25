@@ -1,13 +1,14 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import type { AttendanceStatus } from '../entities/attendance-record.entity';
+import { Type } from 'class-transformer';
 import {
-  IsOptional,
-  IsInt,
-  IsEnum,
   IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
   IsUUID,
 } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { AttendanceStatus } from '../entities/attendance-record.entity';
 
 export class AttendanceFilterDto {
   @ApiPropertyOptional({
@@ -16,7 +17,7 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsUUID()
-  student_id?: string;
+  public student_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by lesson ID (UUID)',
@@ -24,7 +25,7 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsUUID()
-  lesson_id?: string;
+  public lesson_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by attendance status',
@@ -32,7 +33,7 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsEnum(['present', 'absent', 'late', 'excused'])
-  status?: AttendanceStatus;
+  public status?: AttendanceStatus;
 
   @ApiPropertyOptional({
     description: 'Filter from date (ISO format)',
@@ -40,7 +41,7 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsDateString()
-  from_date?: string;
+  public from_date?: string;
 
   @ApiPropertyOptional({
     description: 'Filter to date (ISO format)',
@@ -48,7 +49,7 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsDateString()
-  to_date?: string;
+  public to_date?: string;
 
   @ApiPropertyOptional({
     description: 'Page number',
@@ -58,7 +59,7 @@ export class AttendanceFilterDto {
   @IsOptional()
   @IsInt()
   @Type(() => Number)
-  page?: number;
+  public page?: number;
 
   @ApiPropertyOptional({
     description: 'Items per page',
@@ -68,5 +69,5 @@ export class AttendanceFilterDto {
   @IsOptional()
   @IsInt()
   @Type(() => Number)
-  limit?: number;
+  public limit?: number;
 }

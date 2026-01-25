@@ -1,20 +1,20 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
-  ApiResponse,
-  ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { BooksService } from '../services/books.service';
+
 import { BookFilterDto } from '../dto';
+import { BooksService } from '../services/books.service';
 
 @ApiTags('Books')
 @Controller('books')
@@ -75,28 +75,18 @@ export class BooksController {
     status: HttpStatus.OK,
     description: 'List of books with pagination',
   })
-  async findAll(@Query() filter: BookFilterDto) {
+  public async findAll(@Query() filter: BookFilterDto): Promise<unknown> {
     return this.booksService.findAll(filter);
   }
 
   /**
    * Get a single book by ID (public)
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get book by ID',
-    description: 'Returns a specific book by its ID. Public endpoint.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Book retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.booksService.findOne(id);
   }
 }

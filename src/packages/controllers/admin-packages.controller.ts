@@ -1,26 +1,26 @@
 import {
   Controller,
-  Get,
   Delete,
-  Param,
-  Query,
-  ParseUUIDPipe,
+  Get,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { PackagesService } from '../packages.service';
-import { PackageFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PackageFilterDto } from '../dto';
+import { PackagesService } from '../packages.service';
 
 @ApiTags('Admin - Packages')
 @Controller('admin/packages')
@@ -97,51 +97,29 @@ export class AdminPackagesController {
     status: HttpStatus.OK,
     description: 'List of all packages',
   })
-  async findAll(@Query() filter: PackageFilterDto) {
+  public async findAll(@Query() filter: PackageFilterDto): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
     return this.packagesService.findAll(filter);
   }
 
   /**
    * Get a single package by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get package by ID',
-    description:
-      'Returns detailed information about a package including lessons. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package details retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.packagesService.findOne(id);
   }
 
   /**
    * Get package statistics
    */
-  @Get(':id/stats')
-  @ApiOperation({
-    summary: 'Get package stats',
-    description:
-      'Returns statistics for a package including purchase count and revenue. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async getStats(@Param('id', ParseUUIDPipe) id: string) {
+  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<{ stats: unknown }> {
     const stats = await this.packagesService.getPackageStats(id);
     return {
       stats,
@@ -157,16 +135,11 @@ export class AdminPackagesController {
     description:
       'Force deletes any package regardless of owner. Use with caution. Admin only.',
   })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package deleted successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async delete(@Param('id', ParseUUIDPipe) id: string) {
+  public async delete(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
     await this.packagesService.adminDelete(id);
     return {
       message: 'Package deleted successfully',

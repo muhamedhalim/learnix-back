@@ -1,25 +1,22 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { forwardRef, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
-// Entities
-import { Payment, LessonPurchase, PackagePurchase } from './entities';
+import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
+// External modules
+import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-
-// Services
-import { PaymentsService } from './services/payments.service';
-import { PaymobService } from './services/paymob.service';
-
+import { AdminPaymentsController } from './controllers/admin-payments.controller';
 // Controllers
 import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
-import { AdminPaymentsController } from './controllers/admin-payments.controller';
 import { TeacherPaymentsController } from './controllers/teacher-payments.controller';
-
-// External modules
-import { IdempotencyModule } from '../idempotency/idempotency.module';
-import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
+// Entities
+import { LessonPurchase, PackagePurchase,Payment } from './entities';
+// Services
+import { PaymentsService } from './services/payments.service';
+import { PaymobService } from './services/paymob.service';
 
 @Module({
   imports: [
@@ -43,4 +40,8 @@ import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
   providers: [PaymentsService, PaymobService],
   exports: [PaymentsService, PaymobService],
 })
-export class PaymentsModule {}
+export class PaymentsModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Payment services ready
+  }
+}

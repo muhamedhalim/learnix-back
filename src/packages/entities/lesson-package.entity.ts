@@ -1,18 +1,18 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  ManyToOne,
-  OneToMany,
-  JoinColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  DeleteDateColumn,
-  Index,
-} from 'typeorm';
+import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { User } from '../../users/entities/user.entity';
 import { LessonPackageItem } from './lesson-package-item.entity';
-import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
+import {
+  Column,
+  CreateDateColumn,
+  DeleteDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity('lesson_packages')
 @Index('IDX_lesson_packages_teacher_id', ['teacher_id'])

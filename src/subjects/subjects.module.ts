@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { UploadModule } from '../uploads/upload.module';
+import { AdminSubjectsController,SubjectsController } from './controllers';
 import { Subject } from './entities/subject.entity';
 import { SubjectsService } from './subjects.service';
-import { SubjectsController, AdminSubjectsController } from './controllers';
-import { UploadModule } from '../uploads/upload.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Subject]), UploadModule],
@@ -11,4 +12,8 @@ import { UploadModule } from '../uploads/upload.module';
   providers: [SubjectsService],
   exports: [SubjectsService, TypeOrmModule],
 })
-export class SubjectsModule {}
+export class SubjectsModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Subject services ready
+  }
+}

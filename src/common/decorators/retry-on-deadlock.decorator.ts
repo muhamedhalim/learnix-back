@@ -91,7 +91,7 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
     descriptor.value = async function (...args: any[]) {
       let lastError: any;
 
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      for(let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
           return await originalMethod.apply(this, args);
         } catch (error: any) {
@@ -100,7 +100,7 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
           // Check if this is a deadlock error
           const isDeadlock = isDeadlockError(error);
 
-          if (!isDeadlock || attempt === maxRetries) {
+          if(!isDeadlock || attempt === maxRetries) {
             // Not a deadlock or no more retries left - throw original error
             throw error;
           }
@@ -111,10 +111,10 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
           const delayMs = Math.floor(exponentialDelay + jitter);
 
           logger.warn(
-            `Deadlock detected in ${target.constructor.name}.${propertyKey}() - ` +
-              `Attempt ${attempt + 1}/${maxRetries + 1} failed. ` +
-              `Retrying in ${delayMs}ms... ` +
-              `Error: ${error.message}`,
+            `Deadlock detected in ${String(target.constructor.name)}.${propertyKey}() - ` +
+              `Attempt ${String(attempt + 1)}/${String(maxRetries + 1)} failed. ` +
+              `Retrying in ${String(delayMs)}ms... ` +
+              `Error: ${String(error.message)}`,
           );
 
           // Wait before retrying
@@ -152,10 +152,10 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
  * - Non-deadlock errors should fail fast for debugging
  */
 function isDeadlockError(error: any): boolean {
-  if (!error) return false;
+  if(!error) {return false;}
 
   // Check for PostgreSQL deadlock error code in various error structures
-  const errorCode = error.code || error.driverError?.code;
+  const errorCode = error.code ?? error.driverError?.code;
 
   // PostgreSQL deadlock error code
   const POSTGRES_DEADLOCK_ERROR_CODE = '40P01';

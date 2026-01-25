@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
+
 import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Max,Min } from 'class-validator';
 
 export class SubjectFilterDto {
   @ApiProperty({
@@ -10,7 +11,7 @@ export class SubjectFilterDto {
   })
   @IsString()
   @IsOptional()
-  search?: string;
+  public search?: string;
 
   @ApiProperty({
     description: 'Page number',
@@ -22,7 +23,7 @@ export class SubjectFilterDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiProperty({
     description: 'Items per page',
@@ -36,5 +37,5 @@ export class SubjectFilterDto {
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit?: number = 20;
+  public limit?: number = 20;
 }

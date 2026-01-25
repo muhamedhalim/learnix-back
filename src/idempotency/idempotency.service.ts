@@ -1,13 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+ 
 
 import {
   Injectable,
   Logger,
-  OnModuleInit,
   OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { createClient, RedisClientType } from 'redis';
 
 /**
@@ -85,17 +86,17 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
   /**
    * Initializes Redis connection on module startup.
    */
-  async onModuleInit() {
+  public async onModuleInit(): Promise<void> {
     const redisUrl = this.configService.get<string>('REDIS_URL');
 
-    if (!redisUrl) {
+    if(!redisUrl) {
       this.logger.error('REDIS_URL not configured - idempotency disabled');
       return;
     }
 
     this.redisClient = createClient({ url: redisUrl });
 
-    this.redisClient.on('error', (err) => {
+    this.redisClient.on('error', (err: Error) => {
       this.logger.error(`Redis connection error: ${err.message}`);
     });
 
@@ -115,8 +116,8 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
   /**
    * Disconnects Redis on module shutdown.
    */
-  async onModuleDestroy() {
-    if (this.redisClient) {
+  public async onModuleDestroy(): Promise<void> {
+    if(this.redisClient) {
       await this.redisClient.quit();
       this.logger.log('Redis disconnected');
     }
@@ -143,11 +144,11 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * - Duplicate subscription activations
    * - Duplicate coupon usage records
    */
-  async checkWebhook<T = any>(
+  public async checkWebhook(
     paymentId: string,
     externalOrderId: string,
-  ): Promise<IdempotencyCheckResult<T>> {
-    if (!this.redisClient || !this.redisClient.isReady) {
+  ): Promise<IdempotencyCheckResult> {
+    if(!this.redisClient || !this.redisClient.isReady) {
       this.logger.warn('Redis not ready - skipping idempotency check');
       return { isProcessed: false };
     }
@@ -157,13 +158,13 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       const cachedData = await this.redisClient.get(key);
 
-      if (cachedData) {
+      if(cachedData) {
         this.logger.log(
           `Webhook idempotency hit - Payment: ${paymentId}, Order: ${externalOrderId}`,
         );
         return {
           isProcessed: true,
-          cachedResult: JSON.parse(cachedData) as T,
+          cachedResult: JSON.parse(cachedData) as unknown,
         };
       }
 
@@ -196,12 +197,12 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * If Redis fails, logs error but doesn't throw (graceful degradation).
    * System will work without idempotency protection if Redis is down.
    */
-  async storeWebhookResult<T = any>(
+  public async storeWebhookResult(
     paymentId: string,
     externalOrderId: string,
-    result: T,
+    result: unknown,
   ): Promise<void> {
-    if (!this.redisClient || !this.redisClient.isReady) {
+    if(!this.redisClient || !this.redisClient.isReady) {
       this.logger.warn('Redis not ready - skipping result storage');
       return;
     }
@@ -246,11 +247,11 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * Frontend should generate UUID and include in payment request.
    * Same key should be used for retries of the same logical operation.
    */
-  async checkPaymentRequest<T = any>(
+  public async checkPaymentRequest(
     userId: string,
     idempotencyKey: string,
-  ): Promise<IdempotencyCheckResult<T>> {
-    if (!this.redisClient || !this.redisClient.isReady) {
+  ): Promise<IdempotencyCheckResult> {
+    if(!this.redisClient || !this.redisClient.isReady) {
       this.logger.warn('Redis not ready - skipping idempotency check');
       return { isProcessed: false };
     }
@@ -260,13 +261,13 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       const cachedData = await this.redisClient.get(key);
 
-      if (cachedData) {
+      if(cachedData) {
         this.logger.log(
           `Payment idempotency hit - User: ${userId}, Key: ${idempotencyKey}`,
         );
         return {
           isProcessed: true,
-          cachedResult: JSON.parse(cachedData) as T,
+          cachedResult: JSON.parse(cachedData) as unknown,
         };
       }
 
@@ -290,12 +291,12 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * Should be called AFTER payment initiation succeeds.
    * If payment fails, don't store result (allow retry with same key).
    */
-  async storePaymentResult<T = any>(
+  public async storePaymentResult(
     userId: string,
     idempotencyKey: string,
-    result: T,
+    result: unknown,
   ): Promise<void> {
-    if (!this.redisClient || !this.redisClient.isReady) {
+    if(!this.redisClient || !this.redisClient.isReady) {
       this.logger.warn('Redis not ready - skipping result storage');
       return;
     }
@@ -332,8 +333,8 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    *
    * **Warning:** Use carefully - clearing key allows duplicate processing.
    */
-  async clearKey(key: string): Promise<void> {
-    if (!this.redisClient || !this.redisClient.isReady) {
+  public async clearKey(key: string): Promise<void> {
+    if(!this.redisClient || !this.redisClient.isReady) {
       throw new Error('Redis not ready');
     }
 

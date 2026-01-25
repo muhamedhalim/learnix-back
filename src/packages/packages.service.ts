@@ -1,28 +1,29 @@
 import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
-import { LessonPackage } from './entities/lesson-package.entity';
-import { LessonPackageItem } from './entities/lesson-package-item.entity';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { User } from '../users/entities/user.entity';
-import {
-  CreatePackageDto,
-  UpdatePackageDto,
-  AddLessonsDto,
-  RemoveLessonsDto,
-  PackageFilterDto,
-  PackageSortBy,
-} from './dto';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { User } from '../users/entities/user.entity';
+import {
+  AddLessonsDto,
+  CreatePackageDto,
+  PackageFilterDto,
+  PackageSortBy,
+  RemoveLessonsDto,
+  UpdatePackageDto,
+} from './dto';
+import { LessonPackage } from './entities/lesson-package.entity';
+import { LessonPackageItem } from './entities/lesson-package-item.entity';
+import { DataSource, IsNull,Repository } from 'typeorm';
 
 export interface PackageWithDetails {
   id: string;
@@ -42,14 +43,14 @@ export interface PackageWithDetails {
   is_active: boolean;
   thumbnail: string | null;
   lessons_count: number;
-  lessons: Array<{
+  lessons: {
     id: string;
     title: string;
     title_ar: string;
     price: number;
     duration: number | null;
     order_index: number;
-  }>;
+  }[];
   created_at: Date;
   updated_at: Date;
 }
@@ -77,7 +78,7 @@ export class PackagesService {
   /**
    * Create a new lesson package
    */
-  async create(
+  public async create(
     teacherId: string,
     dto: CreatePackageDto,
   ): Promise<PackageWithDetails> {
@@ -85,16 +86,17 @@ export class PackagesService {
       where: { id: teacherId },
     });
 
-    if (!teacher) {
+    if(!teacher) {
       throw new NotFoundException('Teacher not found');
     }
 
-    const pkg = this.packagesRepository.create({
-      ...dto,
-      teacher_id: teacherId,
-      is_active: true,
-      original_price: null,
-    });
+    const pkg = this.packagesRepository.create(
+      Object.assign({}, dto, {
+        teacher_id: teacherId,
+        is_active: true,
+        original_price: null,
+      })
+    );
 
     const savedPackage = await this.packagesRepository.save(pkg);
     return this.findOne(savedPackage.id);
@@ -103,7 +105,7 @@ export class PackagesService {
   /**
    * Find all packages with filtering and pagination
    */
-  async findAll(
+  public async findAll(
     filter: PackageFilterDto,
   ): Promise<PaginatedResponse<PackageWithDetails>> {
     const {
@@ -125,26 +127,26 @@ export class PackagesService {
       .leftJoinAndSelect('items.lesson', 'lesson')
       .where('package.deleted_at IS NULL');
 
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         '(package.title ILIKE :search OR package.title_ar ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    if (teacher_id) {
+    if(teacher_id) {
       queryBuilder.andWhere('package.teacher_id = :teacher_id', { teacher_id });
     }
 
-    if (minPrice !== undefined) {
+    if(minPrice !== undefined) {
       queryBuilder.andWhere('package.price >= :minPrice', { minPrice });
     }
 
-    if (maxPrice !== undefined) {
+    if(maxPrice !== undefined) {
       queryBuilder.andWhere('package.price <= :maxPrice', { maxPrice });
     }
 
-    if (is_active !== undefined) {
+    if(is_active !== undefined) {
       queryBuilder.andWhere('package.is_active = :is_active', { is_active });
     }
 
@@ -178,7 +180,7 @@ export class PackagesService {
   /**
    * Find packages by teacher
    */
-  async findByTeacher(
+  public async findByTeacher(
     teacherId: string,
     filter: Omit<PackageFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<PackageWithDetails>> {
@@ -188,7 +190,7 @@ export class PackagesService {
   /**
    * Find a single package by ID
    */
-  async findOne(id: string): Promise<PackageWithDetails> {
+  public async findOne(id: string): Promise<PackageWithDetails> {
     const pkg = await this.packagesRepository
       .createQueryBuilder('package')
       .leftJoinAndSelect('package.teacher', 'teacher')
@@ -199,7 +201,7 @@ export class PackagesService {
       .orderBy('items.order_index', 'ASC')
       .getOne();
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${id} not found`);
     }
 
@@ -209,7 +211,7 @@ export class PackagesService {
   /**
    * Update a package (ownership check)
    */
-  async update(
+  public async update(
     packageId: string,
     teacherId: string,
     dto: UpdatePackageDto,
@@ -218,11 +220,11 @@ export class PackagesService {
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own packages');
     }
 
@@ -235,16 +237,16 @@ export class PackagesService {
   /**
    * Delete a package (ownership check)
    */
-  async delete(packageId: string, teacherId: string): Promise<void> {
+  public async delete(packageId: string, teacherId: string): Promise<void> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only delete your own packages');
     }
 
@@ -254,12 +256,12 @@ export class PackagesService {
   /**
    * Admin delete (no ownership check)
    */
-  async adminDelete(packageId: string): Promise<void> {
+  public async adminDelete(packageId: string): Promise<void> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
@@ -269,7 +271,7 @@ export class PackagesService {
   /**
    * Find teacher's own packages
    */
-  async findMyPackages(
+  public async findMyPackages(
     teacherId: string,
     filter: Omit<PackageFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<PackageWithDetails>> {
@@ -279,7 +281,7 @@ export class PackagesService {
   /**
    * Add lessons to a package (with transaction)
    */
-  async addLessons(
+  public async addLessons(
     packageId: string,
     teacherId: string,
     dto: AddLessonsDto,
@@ -289,11 +291,11 @@ export class PackagesService {
       relations: ['items'],
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only modify your own packages');
     }
 
@@ -302,14 +304,14 @@ export class PackagesService {
 
     const existingLessonIds = pkg.items.map((item) => item.lesson_id);
     const duplicates = lessonIds.filter((id) => existingLessonIds.includes(id));
-    if (duplicates.length > 0) {
+    if(duplicates.length > 0) {
       throw new ConflictException(
         `Lessons already in package: ${duplicates.join(', ')}`,
       );
     }
 
     const totalAfter = pkg.items.length + dto.lessons.length;
-    if (totalAfter > 20) {
+    if(totalAfter > 20) {
       throw new BadRequestException('Maximum 20 lessons per package');
     }
 
@@ -332,7 +334,7 @@ export class PackagesService {
   /**
    * Remove lessons from a package
    */
-  async removeLessons(
+  public async removeLessons(
     packageId: string,
     teacherId: string,
     dto: RemoveLessonsDto,
@@ -342,11 +344,11 @@ export class PackagesService {
       relations: ['items'],
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only modify your own packages');
     }
 
@@ -366,7 +368,7 @@ export class PackagesService {
   /**
    * Calculate and update original price (sum of lesson prices)
    */
-  async calculateOriginalPrice(packageId: string): Promise<number> {
+  public async calculateOriginalPrice(packageId: string): Promise<number> {
     const result: { total: string | null } | undefined =
       await this.packageItemsRepository
         .createQueryBuilder('item')
@@ -387,7 +389,7 @@ export class PackagesService {
   /**
    * Reorder lessons in a package
    */
-  async reorderLessons(
+  public async reorderLessons(
     packageId: string,
     teacherId: string,
     orderMap: Record<number, number>,
@@ -396,16 +398,16 @@ export class PackagesService {
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only modify your own packages');
     }
 
     await this.dataSource.transaction(async (manager) => {
-      for (const [lessonId, orderIndex] of Object.entries(orderMap)) {
+      for(const [lessonId, orderIndex] of Object.entries(orderMap)) {
         await manager.update(
           LessonPackageItem,
           { package_id: packageId, lesson_id: parseInt(lessonId) },
@@ -420,7 +422,7 @@ export class PackagesService {
   /**
    * Toggle package active status
    */
-  async toggleActive(
+  public async toggleActive(
     packageId: string,
     teacherId: string,
     isActive: boolean,
@@ -429,11 +431,11 @@ export class PackagesService {
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
-    if (pkg.teacher_id !== teacherId) {
+    if(pkg.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only modify your own packages');
     }
 
@@ -446,12 +448,12 @@ export class PackagesService {
   /**
    * Get package statistics (placeholder for Purchases module)
    */
-  async getPackageStats(packageId: string): Promise<PackageStats> {
+  public async getPackageStats(packageId: string): Promise<PackageStats> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException(`Package with ID ${packageId} not found`);
     }
 
@@ -465,7 +467,7 @@ export class PackagesService {
   /**
    * Validate that all lessons belong to the teacher
    */
-  async validateLessonsOwnership(
+  public async validateLessonsOwnership(
     lessonIds: string[],
     teacherId: string,
   ): Promise<void> {
@@ -475,14 +477,14 @@ export class PackagesService {
       .andWhere('lesson.deleted_at IS NULL')
       .getMany();
 
-    if (lessons.length !== lessonIds.length) {
+    if(lessons.length !== lessonIds.length) {
       const foundIds = lessons.map((l) => l.id);
       const missing = lessonIds.filter((id) => !foundIds.includes(id));
       throw new NotFoundException(`Lessons not found: ${missing.join(', ')}`);
     }
 
     const notOwned = lessons.filter((l) => l.teacher_id !== teacherId);
-    if (notOwned.length > 0) {
+    if(notOwned.length > 0) {
       throw new ForbiddenException(
         'All lessons in a package must belong to you',
       );
@@ -500,9 +502,7 @@ export class PackagesService {
     const savings =
       originalPrice !== null ? Math.max(0, originalPrice - price) : null;
 
-    const sortedItems = pkg.items
-      ? [...pkg.items].sort((a, b) => a.order_index - b.order_index)
-      : [];
+    const sortedItems = [...pkg.items].sort((a, b) => a.order_index - b.order_index);
 
     return {
       id: pkg.id,

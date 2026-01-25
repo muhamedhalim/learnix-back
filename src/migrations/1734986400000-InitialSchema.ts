@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class InitialSchema1734986400000 implements MigrationInterface {
-  name = 'InitialSchema1734986400000';
+  public name = 'InitialSchema1734986400000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Enable UUID extension first

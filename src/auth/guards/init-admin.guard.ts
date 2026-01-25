@@ -1,17 +1,18 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Request } from 'express';
-import { timingSafeEqual } from 'crypto';
+
 import { User } from '../../users/entities/user.entity';
 import { UserRole } from '../../users/entities/user-role.enum';
+import { timingSafeEqual } from 'crypto';
+import { Request } from 'express';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class InitAdminGuard implements CanActivate {
@@ -21,12 +22,12 @@ export class InitAdminGuard implements CanActivate {
     private userRepository: Repository<User>,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
 
     // Layer 1: Check if any admin user already exists
     const adminExists = await this.checkAdminExists();
-    if (adminExists) {
+    if(adminExists) {
       throw new ForbiddenException(
         'Admin initialization has already been completed. This endpoint is now disabled.',
       );
@@ -34,7 +35,7 @@ export class InitAdminGuard implements CanActivate {
 
     // Layer 2: Validate secret token from header
     const initSecret = this.configService.get<string>('INIT_SECRET');
-    if (!initSecret) {
+    if(!initSecret) {
       throw new ForbiddenException(
         'Admin initialization is not configured. INIT_SECRET environment variable is missing.',
       );
@@ -43,7 +44,7 @@ export class InitAdminGuard implements CanActivate {
     const providedSecret = request.headers['x-init-secret'] as
       | string
       | undefined;
-    if (!providedSecret) {
+    if(!providedSecret) {
       throw new UnauthorizedException(
         'Admin initialization requires X-Init-Secret header.',
       );
@@ -64,7 +65,7 @@ export class InitAdminGuard implements CanActivate {
       Buffer.alloc(maxLen - expectedBuffer.length),
     ]);
 
-    if (!timingSafeEqual(paddedProvided, paddedExpected)) {
+    if(!timingSafeEqual(paddedProvided, paddedExpected)) {
       throw new UnauthorizedException('Invalid initialization secret.');
     }
 

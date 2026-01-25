@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class UpdateSubjectsEntity1736445602000 implements MigrationInterface {
-  name = 'UpdateSubjectsEntity1736445602000';
+  public name = 'UpdateSubjectsEntity1736445602000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add new name column

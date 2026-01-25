@@ -1,17 +1,18 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
-  UnauthorizedException,
+  Injectable,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Request } from 'express';
+
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
-import * as jwt from 'jsonwebtoken';
+import { Request } from 'express';
 import type { JwtPayload } from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class HybridAuthGuard implements CanActivate {
@@ -29,7 +30,7 @@ export class HybridAuthGuard implements CanActivate {
       const part = token.split('.')[0];
 
       // FIX 2: Check for 'part' in case of strict TS rules (noUncheckedIndexedAccess)
-      if (!part) {
+      if(!part) {
         this.logger.debug('Failed to get first part of JWT.');
         return null;
       }
@@ -46,22 +47,20 @@ export class HybridAuthGuard implements CanActivate {
     }
   }
 
-  private async tryJwtVerify(
-    token: string,
-    request: Request,
-  ): Promise<boolean> {
+  private verifyJwtSecret(): string {
     const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    if (!jwtSecret) {
+    if(!jwtSecret) {
       this.logger.error('JWT_SECRET not configured');
       throw new Error('JWT_SECRET not configured');
     }
+    return jwtSecret;
+  }
 
+  private extractJwtPayload(token: string, jwtSecret: string): JwtPayload {
     let verified: JwtPayload | string;
     try {
-      // jwt.verify returns string | JwtPayload
       verified = jwt.verify(token, jwtSecret);
     } catch (verifyErr) {
-      // use the error in the log so it's not "defined but never used"
       this.logger.warn(
         `JWT verification threw an error: ${
           verifyErr instanceof Error ? verifyErr.message : String(verifyErr)
@@ -70,37 +69,49 @@ export class HybridAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid authentication token');
     }
 
-    // Normalize payload into a typed object we can safely read
-    const payloadObj: JwtPayload | undefined =
-      typeof verified === 'object' && verified !== null ? verified : undefined;
+    const payloadObj: JwtPayload | null =
+      typeof verified === 'object' ? verified : null;
 
-    // sub is now a UUID string
+    if(!payloadObj) {
+      this.logger.warn('JWT payload is not an object');
+      throw new UnauthorizedException('Invalid token payload');
+    }
+
+    return payloadObj;
+  }
+
+  private validatePayloadClaims(payloadObj: JwtPayload): { sub: string; email: string } {
     const sub =
-      payloadObj && 'sub' in payloadObj && typeof payloadObj.sub === 'string'
+      'sub' in payloadObj && typeof payloadObj.sub === 'string'
         ? payloadObj.sub
         : undefined;
 
     const email =
-      payloadObj && typeof payloadObj.email === 'string'
+      typeof payloadObj.email === 'string'
         ? payloadObj.email
         : undefined;
 
-    // Check if we have the required params BEFORE building the object.
-    // validateUser requires BOTH sub (string UUID) and email.
-    if (!sub || !email) {
+    if(!sub || !email) {
       this.logger.warn(
         'JWT payload is missing required "sub" or "email" claims.',
       );
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    // Now TS knows 'sub' is a string and 'email' is a string
-    const validateParams = { sub: sub, email: email };
+    return { sub, email };
+  }
+
+  private async tryJwtVerify(
+    token: string,
+    request: Request,
+  ): Promise<boolean> {
+    const jwtSecret = this.verifyJwtSecret();
+    const payloadObj = this.extractJwtPayload(token, jwtSecret);
+    const validateParams = this.validatePayloadClaims(payloadObj);
 
     try {
-      // This call is now valid as validateParams matches { sub: string, email: string }
       const user = await this.authService.validateUser(validateParams);
-      if (!user) {
+      if(!user) {
         this.logger.warn('JWT verified but user not found or inactive');
         throw new UnauthorizedException('User not found or inactive');
       }
@@ -118,30 +129,30 @@ export class HybridAuthGuard implements CanActivate {
     }
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const authHeader = request.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if(!authHeader?.startsWith('Bearer ')) {
       throw new UnauthorizedException('No authentication token provided');
     }
 
     const token = authHeader.split(' ')[1];
 
-    if (!token) {
+    if(!token) {
       throw new UnauthorizedException('Malformed authorization header');
     }
 
     // Inspect token header
     const header = this.decodeJwtHeader(token);
-    if (header) {
+    if(header) {
       this.logger.debug(`Auth token header: ${JSON.stringify(header)}`);
     } else {
       this.logger.debug('Unable to decode auth token header');
     }
 
     // If token header exists but has no `kid`, treat it as non-Firebase ID token
-    if (header && !('kid' in header)) {
+    if(header && !('kid' in header)) {
       this.logger.warn(
         'Auth token header has no "kid" claim — skipping Firebase verification and trying JWT.',
       );

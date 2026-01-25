@@ -1,17 +1,18 @@
-import { Controller, Get, Query, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { PaymentsService } from '../services/payments.service';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { PaymentsService } from '../services/payments.service';
 
 @ApiTags('Teacher Revenue')
 @Controller('teacher/revenue')
@@ -65,12 +66,12 @@ export class TeacherPaymentsController {
       },
     },
   })
-  async getRevenue(
+  public async getRevenue(
     @GetUser() user: JwtPayload,
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
     @Query('group_by') groupBy: 'day' | 'week' | 'month' = 'month',
-  ) {
+  ): Promise<unknown> {
     return this.paymentsService.getTeacherRevenue(
       user.userId,
       fromDate,
@@ -82,11 +83,6 @@ export class TeacherPaymentsController {
   /**
    * Get revenue by lesson
    */
-  @Get('by-lesson')
-  @ApiOperation({
-    summary: 'Get revenue by lesson',
-    description: 'Returns revenue breakdown by individual lessons.',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by lesson retrieved',
@@ -104,23 +100,18 @@ export class TeacherPaymentsController {
       },
     },
   })
-  async getRevenueByLesson(@GetUser() user: JwtPayload) {
+  public async getRevenueByLesson(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.paymentsService.getTeacherRevenueByLesson(user.userId);
   }
 
   /**
    * Get revenue by package
    */
-  @Get('by-package')
-  @ApiOperation({
-    summary: 'Get revenue by package',
-    description: 'Returns revenue breakdown by lesson packages.',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by package retrieved',
   })
-  async getRevenueByPackage(@GetUser() user: JwtPayload) {
+  public async getRevenueByPackage(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.paymentsService.getTeacherRevenueByPackage(user.userId);
   }
 }

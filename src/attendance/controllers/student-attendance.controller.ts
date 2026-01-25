@@ -1,18 +1,19 @@
-import { Controller, Get, Query, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { AttendanceService } from '../attendance.service';
-import { AttendanceFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { AttendanceService } from '../attendance.service';
+import { AttendanceFilterDto } from '../dto';
 
 @ApiTags('Student Attendance')
 @Controller('student/attendance')
@@ -71,10 +72,10 @@ export class StudentAttendanceController {
     status: HttpStatus.OK,
     description: 'Attendance history retrieved',
   })
-  async getMyAttendance(
+  public async getMyAttendance(
     @GetUser() user: JwtPayload,
     @Query() filter: AttendanceFilterDto,
-  ) {
+  ): Promise<unknown> {
     return this.attendanceService.getStudentAttendance(user.userId, filter);
   }
 
@@ -91,7 +92,7 @@ export class StudentAttendanceController {
     status: HttpStatus.OK,
     description: 'Attendance statistics retrieved',
   })
-  async getMyStats(@GetUser() user: JwtPayload) {
+  public async getMyStats(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.attendanceService.getStudentAttendanceStats(user.userId);
   }
 }

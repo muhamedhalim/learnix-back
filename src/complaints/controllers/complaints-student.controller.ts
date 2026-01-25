@@ -1,23 +1,24 @@
 import {
-  Controller,
-  Post,
-  Get,
   Body,
+  Controller,
+  Get,
+  Post,
   Query,
-  UseGuards,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ComplaintsService } from '../complaints.service';
-import { CreateComplaintDto, ComplaintFilterDto } from '../dto';
+import { ComplaintFilterDto,CreateComplaintDto } from '../dto';
 
 interface AuthRequest extends Request {
   user: {
@@ -38,10 +39,10 @@ export class ComplaintsStudentController {
   @Post()
   @ApiOperation({ summary: 'Submit a complaint (student)' })
   @ApiResponse({ status: 201, description: 'Complaint created successfully' })
-  async createComplaint(
+  public async createComplaint(
     @Body() dto: CreateComplaintDto,
     @Request() req: AuthRequest,
-  ) {
+  ): Promise<unknown> {
     return this.complaintsService.createComplaint(req.user.id, dto);
   }
 
@@ -51,10 +52,10 @@ export class ComplaintsStudentController {
     status: 200,
     description: 'Complaints retrieved successfully',
   })
-  async getOwnComplaints(
+  public async getOwnComplaints(
     @Query() filter: ComplaintFilterDto,
     @Request() req: AuthRequest,
-  ) {
+  ): Promise<unknown> {
     return this.complaintsService.getStudentComplaints(
       req.user.id,
       filter.page,

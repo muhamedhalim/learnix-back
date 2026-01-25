@@ -1,19 +1,20 @@
-/* eslint-disable @typescript-eslint/unbound-method */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-import { Test, TestingModule } from '@nestjs/testing';
+ 
+ 
+ 
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import * as bcrypt from 'bcryptjs';
-import { AuthService } from './auth.service';
+
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-import { RegisterDto } from './dto/register.dto';
+import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import * as bcrypt from 'bcryptjs';
+import { Repository } from 'typeorm';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -73,8 +74,8 @@ describe('AuthService', () => {
     configService = module.get(ConfigService);
 
     configService.get.mockImplementation((key: string) => {
-      if (key === 'BCRYPT_ROUNDS') return 12;
-      if (key === 'JWT_REFRESH_EXPIRATION') return '7d';
+      if (key === 'BCRYPT_ROUNDS') {return 12;}
+      if (key === 'JWT_REFRESH_EXPIRATION') {return '7d';}
       return undefined;
     });
   });
@@ -207,7 +208,7 @@ describe('AuthService', () => {
         .fn()
         .mockReturnValue(queryBuilder);
 
-      const error = await service.login(loginDto).catch((err) => err);
+      const error = await service.login(loginDto).catch((err: unknown) => err);
 
       expect(error).toBeInstanceOf(UnauthorizedException);
       expect((error as UnauthorizedException).message).toContain(
@@ -318,10 +319,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for expired refresh token', async () => {
-      const expiredUser = {
-        ...userWithRefreshToken,
+      const expiredUser = Object.assign(new User(), userWithRefreshToken, {
         refresh_token_expires_at: new Date(Date.now() - 1000),
-      } as User;
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -341,10 +341,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      const inactiveUser = {
-        ...userWithRefreshToken,
+      const inactiveUser = Object.assign(new User(), userWithRefreshToken, {
         is_active: false,
-      } as User;
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -394,10 +393,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for pending user on refresh', async () => {
-      const pendingUser = {
-        ...userWithRefreshToken,
+      const pendingUser = Object.assign(new User(), userWithRefreshToken, {
         status: UserStatus.PENDING,
-      } as User;
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -419,11 +417,10 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for rejected user on refresh', async () => {
-      const rejectedUser = {
-        ...userWithRefreshToken,
+      const rejectedUser = Object.assign(new User(), userWithRefreshToken, {
         status: UserStatus.REJECTED,
         rejection_reason: 'Invalid documents',
-      } as User;
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),

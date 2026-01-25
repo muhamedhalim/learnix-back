@@ -1,10 +1,11 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+
 import { User } from './users/entities/user.entity';
 import { UserRole } from './users/entities/user-role.enum';
 import * as bcrypt from 'bcryptjs';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class AppService {
@@ -13,37 +14,32 @@ export class AppService {
 
   constructor(
     private configService: ConfigService,
-    private dataSource: DataSource,
     @InjectRepository(User)
     private userRepository: Repository<User>,
   ) {
     this.startTime = Date.now();
   }
 
-  getHello(): string {
+  public getHello(): string {
     return 'Educational Platform API';
   }
 
-  async getHealth() {
+  public getHealth(): {
+    status: string;
+    timestamp: string;
+    uptime: number;
+    environment: string;
+    version: string;
+  } {
     const now = Date.now();
     const uptimeMs = now - this.startTime;
     const uptimeSeconds = Math.floor(uptimeMs / 1000);
-
-    let databaseStatus = 'disconnected';
-    try {
-      if (this.dataSource.isInitialized) {
-        await this.dataSource.query('SELECT 1');
-        databaseStatus = 'connected';
-      }
-    } catch {
-      databaseStatus = 'error';
-    }
 
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: uptimeSeconds,
-      database: databaseStatus,
+      environment: this.configService.get<string>('NODE_ENV') ?? 'development',
       version: '1.0.0',
     };
   }
@@ -52,14 +48,19 @@ export class AppService {
    * Initialize admin user (one-time setup)
    * Requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables
    */
-  async initAdmin() {
+  public async initAdmin(): Promise<{
+    success: boolean;
+    message: string;
+    adminEmail?: string;
+    results: string[];
+  }> {
     const results: string[] = [];
 
     // Validate required environment variables
     const adminEmail = this.configService.get<string>('ADMIN_INIT_EMAIL');
     const adminPassword = this.configService.get<string>('ADMIN_INIT_PASSWORD');
 
-    if (!adminEmail || !adminPassword) {
+    if(!adminEmail || !adminPassword) {
       throw new BadRequestException(
         'Admin initialization requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables to be set.',
       );
@@ -70,7 +71,7 @@ export class AppService {
       where: { email: adminEmail },
     });
 
-    if (existingAdmin) {
+    if(existingAdmin) {
       results.push(`Admin user already exists: ${adminEmail}`);
       return {
         success: true,
@@ -85,7 +86,7 @@ export class AppService {
       where: { role: UserRole.ADMIN },
     });
 
-    if (anyAdmin) {
+    if(anyAdmin) {
       results.push('An admin user already exists in the system');
       return {
         success: false,
@@ -122,7 +123,10 @@ export class AppService {
   /**
    * Get available user roles (for documentation/API reference)
    */
-  getRoles() {
+  public getRoles(): {
+    roles: string[];
+    descriptions: Record<string, string>;
+  } {
     return {
       roles: Object.values(UserRole),
       descriptions: {

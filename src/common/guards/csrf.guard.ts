@@ -1,13 +1,14 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Injectable,
   Logger,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
-import * as crypto from 'crypto';
 import { Reflector } from '@nestjs/core';
+
+import * as crypto from 'crypto';
+import { Request, Response } from 'express';
 
 /**
  * CSRF Guard implementing Double Submit Cookie pattern
@@ -42,7 +43,7 @@ export class CsrfGuard implements CanActivate {
   /**
    * Validates CSRF token for state-changing requests
    */
-  canActivate(context: ExecutionContext): boolean {
+  public canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
     const method = request.method.toUpperCase();
@@ -53,34 +54,34 @@ export class CsrfGuard implements CanActivate {
       context.getHandler(),
     );
 
-    if (skipCsrf) {
+    if(skipCsrf) {
       this.logger.debug(`CSRF check skipped for ${method} ${request.url}`);
       return true;
     }
 
     // GET, HEAD, OPTIONS are safe methods - no CSRF check needed
     // But we still generate and set the cookie for future requests
-    if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    if(['GET', 'HEAD', 'OPTIONS'].includes(method)) {
       this.ensureCsrfCookie(request, response);
       return true;
     }
 
     // For state-changing methods (POST, PUT, DELETE, PATCH), validate token
     // Read from signedCookies (cookies signed with COOKIE_SECRET)
-    const cookieToken = request.signedCookies?.[this.CSRF_COOKIE_NAME] as
+    const cookieToken = (request.signedCookies[this.CSRF_COOKIE_NAME]) as
       | string
       | undefined;
     const headerToken = request.headers[this.CSRF_HEADER_NAME] as string;
 
     // Log for debugging (remove in production)
     this.logger.debug(
-      `CSRF validation for ${method} ${request.url}: cookie=${!!cookieToken}, header=${!!headerToken}`,
+      `CSRF validation for ${method} ${request.url}: cookie=${String(!!cookieToken)}, header=${String(!!headerToken)}`,
     );
 
     // Both tokens must be present
-    if (!cookieToken || !headerToken) {
+    if(!cookieToken || !headerToken) {
       this.logger.warn(
-        `CSRF token missing for ${method} ${request.url} from ${request.ip}`,
+        `CSRF token missing for ${method} ${request.url} from ${String(request.ip)}`,
       );
       throw new ForbiddenException({
         message: 'CSRF token missing',
@@ -90,9 +91,9 @@ export class CsrfGuard implements CanActivate {
     }
 
     // Tokens must match (Double Submit Cookie pattern)
-    if (cookieToken !== headerToken) {
+    if(cookieToken !== headerToken) {
       this.logger.warn(
-        `CSRF token mismatch for ${method} ${request.url} from ${request.ip}`,
+        `CSRF token mismatch for ${method} ${request.url} from ${String(request.ip)}`,
       );
       throw new ForbiddenException({
         message: 'CSRF token invalid',
@@ -112,11 +113,11 @@ export class CsrfGuard implements CanActivate {
    */
   private ensureCsrfCookie(request: Request, response: Response): string {
     // Check for existing token in signedCookies
-    const existingToken = request.signedCookies?.[this.CSRF_COOKIE_NAME] as
+    const existingToken = (request.signedCookies[this.CSRF_COOKIE_NAME]) as
       | string
       | undefined;
 
-    if (existingToken) {
+    if(existingToken) {
       // Attach existing token to request for controller access
       (request as Request & { csrfToken?: string }).csrfToken = existingToken;
       return existingToken;
@@ -139,7 +140,7 @@ export class CsrfGuard implements CanActivate {
     // Attach new token to request for controller access
     (request as Request & { csrfToken?: string }).csrfToken = newToken;
 
-    this.logger.debug(`Generated new signed CSRF token for ${request.ip}`);
+    this.logger.debug(`Generated new signed CSRF token for ${String(request.ip)}`);
     return newToken;
   }
 }
@@ -154,7 +155,7 @@ export class CsrfGuard implements CanActivate {
  * async handleWebhook() {}
  */
 export const SkipCsrf = () => {
-  return (
+  return(
     _target: object,
     _propertyKey: string,
     descriptor: PropertyDescriptor,

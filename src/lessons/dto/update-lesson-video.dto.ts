@@ -1,14 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsUrl, IsOptional, IsInt, Min } from 'class-validator';
+
+import { IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
 export class UpdateLessonVideoDto {
-  @ApiProperty({
-    description: 'Bunny.net Stream video URL',
-    example: 'https://iframe.mediadelivery.net/embed/123456/abc-def-ghi',
-  })
-  @IsString()
   @IsUrl()
-  video_url!: string;
+  public video_url!: string;
 
   @ApiPropertyOptional({
     description: 'Video duration in seconds (optional)',
@@ -18,7 +14,7 @@ export class UpdateLessonVideoDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  duration?: number;
+  public duration?: number;
 }
 
 export class UpdateVimeoUrlDto {
@@ -27,9 +23,8 @@ export class UpdateVimeoUrlDto {
     example: 'https://vimeo.com/123456789',
     deprecated: true,
   })
-  @IsString()
   @IsUrl()
-  video_url!: string;
+  public video_url!: string;
 
   @ApiPropertyOptional({
     description: 'Legacy Vimeo URL field (deprecated)',
@@ -39,7 +34,7 @@ export class UpdateVimeoUrlDto {
   @IsString()
   @IsUrl()
   @IsOptional()
-  vimeo_url?: string;
+  public vimeo_url?: string;
 
   @ApiPropertyOptional({
     description: 'Video duration in seconds (optional)',
@@ -49,5 +44,5 @@ export class UpdateVimeoUrlDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  duration?: number;
+  public duration?: number;
 }

@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class UpdateLessonPackagesSchema1767909768104
   implements MigrationInterface
 {
-  name = 'UpdateLessonPackagesSchema1767909768104';
+  public name = 'UpdateLessonPackagesSchema1767909768104';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. Rename is_published to is_active

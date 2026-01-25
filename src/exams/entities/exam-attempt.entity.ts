@@ -1,18 +1,18 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
-  Index,
-  Unique,
-} from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { Exam } from './exam.entity';
 import { ExamStatus } from './exam-status.enum';
 import { Answer } from './question.interface';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  Unique,
+  UpdateDateColumn,
+} from 'typeorm';
 
 /**
  * ExamAttempt tracks student submissions and grading progress

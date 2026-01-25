@@ -1,10 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
-  IsOptional,
-  MaxLength,
-  Matches,
   IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class UpdateStudentProfileDto {
@@ -19,7 +20,7 @@ export class UpdateStudentProfileDto {
     message:
       'Parent phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
-  parent_phone?: string;
+  public parent_phone?: string;
 
   @ApiProperty({
     description: 'Student grade level',
@@ -30,21 +31,10 @@ export class UpdateStudentProfileDto {
   @IsString()
   @IsOptional()
   @MaxLength(50)
-  grade_level?: string;
+  public grade_level?: string;
 }
 
 export class UpdateStudentNotificationSettingsDto {
-  @ApiProperty({
-    description: 'Notification settings as key-value pairs',
-    example: {
-      sms_enabled: true,
-      email_enabled: true,
-      lesson_reminders: true,
-      exam_results: true,
-      payment_notifications: true,
-    },
-    required: true,
-  })
   @IsObject()
-  notification_settings!: Record<string, boolean>;
+  public notification_settings!: Record<string, boolean>;
 }

@@ -1,17 +1,18 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CommentsService } from './comments.service';
-import { Comment } from './entities/comment.entity';
-import { CommentReply } from './entities/comment-reply.entity';
+
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
-import {
-  NotFoundException,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { CommentsService } from './comments.service';
+import { Comment } from './entities/comment.entity';
+import { CommentReply } from './entities/comment-reply.entity';
+import { Repository } from 'typeorm';
 
 describe('CommentsService', () => {
   let service: CommentsService;
@@ -356,10 +357,11 @@ describe('CommentsService', () => {
 
       jest.spyOn(commentsRepository, 'findOne').mockResolvedValue(mockComment);
 
-      jest.spyOn(commentsRepository, 'save').mockResolvedValue({
-        ...mockComment,
-        deleted_at: new Date(),
-      } as Comment);
+      jest.spyOn(commentsRepository, 'save').mockResolvedValue(
+        Object.assign(new Comment(), mockComment, {
+          deleted_at: new Date(),
+        }),
+      );
 
       await service.deleteComment(mockCommentId);
 

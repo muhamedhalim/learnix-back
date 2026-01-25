@@ -1,10 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
   IsOptional,
+  IsString,
   MaxLength,
-  MinLength,
-  IsNotEmpty,
 } from 'class-validator';
 
 export class ApproveStudentDto {
@@ -17,7 +16,7 @@ export class ApproveStudentDto {
   @IsString()
   @IsOptional()
   @MaxLength(500)
-  notes?: string;
+  public notes?: string;
 }
 
 export class RejectStudentDto {
@@ -26,21 +25,11 @@ export class RejectStudentDto {
     example: 'Invalid parent contact information or incomplete registration',
     maxLength: 1000,
   })
-  @IsString()
-  @IsNotEmpty({ message: 'Rejection reason is required' })
-  @MinLength(10, { message: 'Rejection reason must be at least 10 characters' })
   @MaxLength(1000)
-  reason!: string;
+  public reason!: string;
 }
 
 export class UpdateGradeLevelDto {
-  @ApiProperty({
-    description: 'New grade level for the student',
-    example: 'Grade 11',
-    maxLength: 50,
-  })
-  @IsString()
-  @IsNotEmpty({ message: 'Grade level is required' })
   @MaxLength(50)
-  grade_level!: string;
+  public grade_level!: string;
 }

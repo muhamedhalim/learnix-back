@@ -1,19 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Complaint } from './entities/complaint.entity';
-import {
-  CreateComplaintDto,
-  RespondComplaintDto,
-  ComplaintFilterDto,
-} from './dto';
-import { ComplaintStatus } from './enums/complaint-status.enum';
-import { NotificationsService } from '../notifications/services/notifications.service';
-import { NotificationType } from '../notifications/entities/notification-type.enum';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { NotificationType } from '../notifications/entities/notification-type.enum';
+import { NotificationsService } from '../notifications/services/notifications.service';
+import {
+  ComplaintFilterDto,
+  CreateComplaintDto,
+  RespondComplaintDto,
+} from './dto';
+import { Complaint } from './entities/complaint.entity';
+import { ComplaintStatus } from './enums/complaint-status.enum';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class ComplaintsService {
@@ -23,14 +24,14 @@ export class ComplaintsService {
     private notificationsService: NotificationsService,
   ) {}
 
-  async createComplaint(
+  public async createComplaint(
     studentId: string,
     dto: CreateComplaintDto,
   ): Promise<Complaint> {
     const complaint = this.complaintsRepository.create({
       student_id: studentId,
       type: dto.type,
-      target_id: dto.target_id || null,
+      target_id: dto.target_id ?? null,
       subject: dto.subject,
       description: dto.description,
       status: ComplaintStatus.PENDING,
@@ -39,10 +40,10 @@ export class ComplaintsService {
     return this.complaintsRepository.save(complaint);
   }
 
-  async getStudentComplaints(
+  public async getStudentComplaints(
     studentId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<Complaint>> {
     const [complaints, total] = await this.complaintsRepository.findAndCount({
       where: { student_id: studentId },
@@ -65,7 +66,7 @@ export class ComplaintsService {
     return { data: complaints, meta };
   }
 
-  async getAllComplaints(
+  public async getAllComplaints(
     filter: ComplaintFilterDto,
   ): Promise<PaginatedResponse<Complaint>> {
     const queryBuilder = this.complaintsRepository
@@ -73,13 +74,13 @@ export class ComplaintsService {
       .leftJoinAndSelect('complaint.student', 'student')
       .leftJoinAndSelect('complaint.admin', 'admin');
 
-    if (filter.status) {
+    if(filter.status) {
       queryBuilder.andWhere('complaint.status = :status', {
         status: filter.status,
       });
     }
 
-    if (filter.type) {
+    if(filter.type) {
       queryBuilder.andWhere('complaint.type = :type', { type: filter.type });
     }
 
@@ -102,7 +103,7 @@ export class ComplaintsService {
     return { data: complaints, meta };
   }
 
-  async respondToComplaint(
+  public async respondToComplaint(
     complaintId: string,
     adminId: string,
     dto: RespondComplaintDto,
@@ -112,7 +113,7 @@ export class ComplaintsService {
       relations: ['student'],
     });
 
-    if (!complaint) {
+    if(!complaint) {
       throw new NotFoundException('Complaint not found');
     }
 

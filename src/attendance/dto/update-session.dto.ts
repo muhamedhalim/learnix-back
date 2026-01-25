@@ -1,6 +1,7 @@
-import { IsNumber, IsInt, IsOptional, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
 import { Type } from 'class-transformer';
+import { IsInt, IsNumber, IsOptional, Max,Min } from 'class-validator';
 
 export class UpdateSessionDto {
   @ApiPropertyOptional({
@@ -14,7 +15,7 @@ export class UpdateSessionDto {
   @Max(100)
   @IsOptional()
   @Type(() => Number)
-  video_progress_percent?: number;
+  public video_progress_percent?: number;
 
   @ApiPropertyOptional({
     description: 'Total watch duration in seconds',
@@ -25,5 +26,5 @@ export class UpdateSessionDto {
   @Min(0)
   @IsOptional()
   @Type(() => Number)
-  duration_seconds?: number;
+  public duration_seconds?: number;
 }

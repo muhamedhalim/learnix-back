@@ -1,12 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
-  IsOptional,
-  MaxLength,
-  MinLength,
   IsInt,
-  Min,
+  IsOptional,
+  IsString,
   Matches,
+  MaxLength,
+  Min,
+  MinLength,
 } from 'class-validator';
 
 export class UpdateTeacherProfileDto {
@@ -20,7 +21,7 @@ export class UpdateTeacherProfileDto {
   @IsOptional()
   @MinLength(10)
   @MaxLength(2000)
-  qualifications?: string;
+  public qualifications?: string;
 
   @ApiProperty({
     description: 'Years of teaching experience',
@@ -31,7 +32,7 @@ export class UpdateTeacherProfileDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  years_of_experience?: number;
+  public years_of_experience?: number;
 
   @ApiProperty({
     description: 'Teacher biography',
@@ -43,7 +44,7 @@ export class UpdateTeacherProfileDto {
   @IsString()
   @IsOptional()
   @MaxLength(2000)
-  bio?: string;
+  public bio?: string;
 
   @ApiProperty({
     description: 'Phone number',
@@ -55,5 +56,5 @@ export class UpdateTeacherProfileDto {
   @Matches(/^01[0125][0-9]{8}$/, {
     message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
-  phone?: string;
+  public phone?: string;
 }

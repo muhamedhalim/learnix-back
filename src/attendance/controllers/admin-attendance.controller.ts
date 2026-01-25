@@ -1,16 +1,17 @@
-import { Controller, Get, Query, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { AttendanceService } from '../attendance.service';
-import { AttendanceFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { AttendanceService } from '../attendance.service';
+import { AttendanceFilterDto } from '../dto';
 
 @ApiTags('Admin Attendance')
 @Controller('admin/attendance')
@@ -74,7 +75,7 @@ export class AdminAttendanceController {
     status: HttpStatus.OK,
     description: 'All attendance records retrieved',
   })
-  async getAllAttendance(@Query() filter: AttendanceFilterDto) {
+  public async getAllAttendance(@Query() filter: AttendanceFilterDto): Promise<unknown> {
     return this.attendanceService.getAllAttendance(filter);
   }
 }

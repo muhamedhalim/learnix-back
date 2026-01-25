@@ -1,13 +1,14 @@
+import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
   IsEmail,
   IsOptional,
+  IsString,
   IsUrl,
-  MinLength,
-  MaxLength,
   Matches,
+  MaxLength,
+  MinLength,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateUserDto {
   @ApiProperty({ required: false })
@@ -15,12 +16,12 @@ export class UpdateUserDto {
   @IsString()
   @MinLength(2)
   @MaxLength(100)
-  name?: string;
+  public name?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsEmail()
-  email?: string;
+  public email?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -28,7 +29,7 @@ export class UpdateUserDto {
   @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
     message: 'Phone must be a valid Egyptian phone number',
   })
-  phone?: string;
+  public phone?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -36,33 +37,33 @@ export class UpdateUserDto {
   @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
     message: 'Parent phone must be a valid Egyptian phone number',
   })
-  parentPhone?: string;
+  public parentPhone?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   @MaxLength(500)
-  profile_picture_url?: string;
+  public profile_picture_url?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  headline?: string;
+  public headline?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
-  bio?: string;
+  public bio?: string;
 
-  password_hash?: never;
-  points?: never;
-  firebase_uid?: never;
-  roles?: never;
-  is_active?: never;
-  id?: never;
-  created_at?: never;
-  updated_at?: never;
-  deleted_at?: never;
+  public password_hash?: never;
+  public points?: never;
+  public firebase_uid?: never;
+  public roles?: never;
+  public is_active?: never;
+  public id?: never;
+  public created_at?: never;
+  public updated_at?: never;
+  public deleted_at?: never;
 }

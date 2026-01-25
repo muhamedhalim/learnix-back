@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationsService } from './notifications.service';
-import { NotificationType } from '../entities';
-import { Payment, ItemType } from '../../payments/entities';
+
 import { ExamAttempt } from '../../exams/entities';
+import { ItemType,Payment } from '../../payments/entities';
 import { LessonPurchase } from '../../payments/entities';
+import { NotificationType } from '../entities';
+import { NotificationsService } from './notifications.service';
 
 /**
  * Service for triggering notifications on business events
@@ -18,7 +19,7 @@ export class NotificationTriggersService {
   /**
    * Notify when a purchase is completed
    */
-  async notifyPurchaseCompleted(payment: Payment): Promise<void> {
+  public async notifyPurchaseCompleted(payment: Payment): Promise<void> {
     try {
       const message = this.generatePurchaseMessage(payment);
 
@@ -58,28 +59,35 @@ export class NotificationTriggersService {
           ? 'الباقة'
           : 'الكتاب';
 
-    if (Number(payment.final_amount) === 0) {
+    const finalAmount = typeof payment.final_amount === 'string'
+      ? parseFloat(payment.final_amount)
+      : payment.final_amount;
+
+    if(finalAmount === 0) {
       // Free purchase (purchase code)
       return `تم الحصول على ${itemType} بنجاح باستخدام كود الشراء. مدة الوصول: 7 أيام.`;
     }
 
-    return `تم شراء ${itemType} بنجاح. المبلغ: ${payment.final_amount} جنيه. مدة الوصول: 7 أيام.`;
+    return `تم شراء ${itemType} بنجاح. المبلغ: ${finalAmount.toString()} جنيه. مدة الوصول: 7 أيام.`;
   }
 
   /**
    * Notify when an exam is graded
    * Note: attempt must have the exam relation loaded to access total_marks
    */
-  async notifyExamGraded(
+  public async notifyExamGraded(
     attempt: ExamAttempt & { exam?: { total_marks: number } },
     totalMarks?: number,
   ): Promise<void> {
     try {
-      const marks = totalMarks || attempt.exam?.total_marks || 100;
-      const score = Number(attempt.total_score) || 0;
+      const marks = totalMarks ?? attempt.exam.total_marks;
+      const totalScore = typeof attempt.total_score === 'string'
+        ? parseFloat(attempt.total_score)
+        : attempt.total_score;
+      const score = totalScore ?? 0;
       const percentage = Math.round((score / marks) * 100);
 
-      const message = `تم تصحيح الامتحان. الدرجة: ${score}/${marks} (${percentage}%)`;
+      const message = `تم تصحيح الامتحان. الدرجة: ${score.toString()}/${marks.toString()} (${percentage.toString()}%)`;
 
       await this.notificationsService.create({
         user_id: attempt.student_id,
@@ -110,7 +118,7 @@ export class NotificationTriggersService {
   /**
    * Notify when lesson access is about to expire (1 day before)
    */
-  async notifyLessonExpiring(purchase: LessonPurchase): Promise<void> {
+  public async notifyLessonExpiring(purchase: LessonPurchase): Promise<void> {
     try {
       const message = `تنبيه: صلاحية الوصول للدرس ستنتهي غداً. يمكنك تجديد الوصول بنصف السعر.`;
 
@@ -141,7 +149,7 @@ export class NotificationTriggersService {
   /**
    * Notify for attendance (when student is marked present)
    */
-  async notifyAttendance(
+  public async notifyAttendance(
     userId: string,
     lessonName: string,
     attendedAt: Date,
@@ -181,11 +189,11 @@ export class NotificationTriggersService {
   /**
    * Send custom notification (admin triggered)
    */
-  async sendCustomNotification(
+  public async sendCustomNotification(
     userId: string,
     title: string,
     message: string,
-    sendSms: boolean = false,
+    sendSms = false,
   ): Promise<void> {
     try {
       await this.notificationsService.create(

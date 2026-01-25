@@ -1,33 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsNotEmpty,
   IsNumber,
   IsOptional,
-  Min,
-  MaxLength,
+  IsString,
   IsUrl,
+  MaxLength,
+  Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class CreatePackageDto {
-  @ApiProperty({
-    description: 'Package title in English',
-    example: 'Complete Math Package',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(255)
-  title!: string;
+  public title!: string;
 
-  @ApiProperty({
-    description: 'Package title in Arabic',
-    example: 'حزمة الرياضيات الكاملة',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(255)
-  title_ar!: string;
+  public title_ar!: string;
 
   @ApiPropertyOptional({
     description: 'Package description in English',
@@ -35,7 +23,7 @@ export class CreatePackageDto {
   })
   @IsOptional()
   @IsString()
-  description?: string;
+  public description?: string;
 
   @ApiPropertyOptional({
     description: 'Package description in Arabic',
@@ -43,7 +31,7 @@ export class CreatePackageDto {
   })
   @IsOptional()
   @IsString()
-  description_ar?: string;
+  public description_ar?: string;
 
   @ApiProperty({
     description: 'Package price (must be less than or equal to original_price)',
@@ -53,7 +41,7 @@ export class CreatePackageDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Type(() => Number)
-  price!: number;
+  public price!: number;
 
   @ApiPropertyOptional({
     description: 'Thumbnail image URL for the package',
@@ -62,5 +50,5 @@ export class CreatePackageDto {
   @IsOptional()
   @IsUrl()
   @MaxLength(500)
-  thumbnail?: string;
+  public thumbnail?: string;
 }

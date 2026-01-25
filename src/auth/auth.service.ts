@@ -1,20 +1,21 @@
 import {
-  Injectable,
   ConflictException,
-  UnauthorizedException,
+  Injectable,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
+import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class AuthService {
@@ -27,10 +28,10 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {
-    this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') || 12;
+    this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
 
-  async register(registerDto: RegisterDto) {
+  public async register(registerDto: RegisterDto): Promise<unknown> {
     const { email, password, phone, name, parentPhone } = registerDto;
 
     // Use generic error to prevent email/phone enumeration
@@ -38,7 +39,7 @@ export class AuthService {
       where: [{ email }, { phone }],
     });
 
-    if (existingUser) {
+    if(existingUser) {
       throw new ConflictException(
         'Registration failed. Please try different credentials.',
       );
@@ -50,7 +51,7 @@ export class AuthService {
       name: name.trim(),
       email,
       phone,
-      parent_phone: parentPhone || null,
+      parent_phone: parentPhone ?? null,
       password_hash: hashedPassword,
       role: UserRole.STUDENT, // Default role for registration
       is_active: true,
@@ -67,7 +68,7 @@ export class AuthService {
     };
   }
 
-  async login(loginDto: LoginDto) {
+  public async login(loginDto: LoginDto): Promise<unknown> {
     const { email, password } = loginDto;
 
     const user = await this.userRepository
@@ -76,12 +77,12 @@ export class AuthService {
       .where('user.email = :email', { email })
       .getOne();
 
-    if (!user) {
+    if(!user) {
       this.logger.warn(`Failed login attempt for non-existent user: ${email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (!user.password_hash) {
+    if(!user.password_hash) {
       this.logger.warn(
         `Failed login attempt for Firebase-only account: ${email}`,
       );
@@ -91,7 +92,7 @@ export class AuthService {
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if (!isPasswordValid) {
+    if(!isPasswordValid) {
       this.logger.warn(
         `Failed login attempt - invalid password for user: ${email} (ID: ${user.id})`,
       );
@@ -99,7 +100,7 @@ export class AuthService {
     }
 
     // Check user status (BREAKING CHANGE: new response format)
-    if (user.status === UserStatus.PENDING) {
+    if(user.status === UserStatus.PENDING) {
       this.logger.log(
         `Login attempt with pending account: ${email} (ID: ${user.id})`,
       );
@@ -110,12 +111,12 @@ export class AuthService {
       };
     }
 
-    if (user.status === UserStatus.REJECTED) {
+    if(user.status === UserStatus.REJECTED) {
       this.logger.warn(
         `Login attempt with rejected account: ${email} (ID: ${user.id})`,
       );
       throw new UnauthorizedException(
-        `Account rejected: ${user.rejection_reason || 'Please contact support for more information.'}`,
+        `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
       );
     }
 
@@ -143,7 +144,7 @@ export class AuthService {
     };
   }
 
-  async validateUser(payload: { sub: string; email: string }): Promise<{
+  public async validateUser(payload: { sub: string; email: string }): Promise<{
     userId: string;
     email: string;
     name: string;
@@ -153,7 +154,7 @@ export class AuthService {
       where: { id: payload.sub },
     });
 
-    if (user && user.is_active) {
+    if(user?.is_active) {
       return {
         userId: user.id,
         email: user.email,
@@ -206,7 +207,7 @@ export class AuthService {
     const hashedToken = await this.hashRefreshToken(refreshToken);
     const tokenId = this.generateTokenId(refreshToken);
     const refreshExpiresIn =
-      this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d';
+      this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d';
 
     // Calculate expiration date based on duration string (e.g., "7d", "30d")
     const expiresAt = this.calculateTokenExpiration(refreshExpiresIn);
@@ -224,8 +225,8 @@ export class AuthService {
    * Calculate token expiration date from duration string
    */
   private calculateTokenExpiration(duration: string): Date {
-    const match = duration.match(/^(\d+)([dhms])$/);
-    if (!match || !match[1] || !match[2]) {
+    const match = /^(\d+)([dhms])$/.exec(duration);
+    if(!match?.[1] || !match[2]) {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
@@ -233,7 +234,7 @@ export class AuthService {
     const unit = match[2];
     const now = new Date();
 
-    switch (unit) {
+    switch(unit) {
       case 'd': // days
         now.setDate(now.getDate() + value);
         break;
@@ -255,7 +256,7 @@ export class AuthService {
    * Refresh access token using refresh token
    * Optimized: O(1) database lookup via indexed token_id
    */
-  async refresh(refreshToken: string) {
+  public async refresh(refreshToken: string): Promise<unknown> {
     // Generate token ID for O(1) indexed lookup
     const tokenId = this.generateTokenId(refreshToken);
 
@@ -268,7 +269,7 @@ export class AuthService {
       .andWhere('user.refresh_token IS NOT NULL')
       .getOne();
 
-    if (!user || !user.refresh_token) {
+    if(!user?.refresh_token) {
       this.logger.warn('Invalid refresh token attempt');
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -279,7 +280,7 @@ export class AuthService {
       user.refresh_token,
     );
 
-    if (!isValid) {
+    if(!isValid) {
       this.logger.warn(
         `Refresh token verification failed - User: ${user.email} (ID: ${user.id})`,
       );
@@ -287,7 +288,7 @@ export class AuthService {
     }
 
     // Check if token is expired
-    if (
+    if(
       !user.refresh_token_expires_at ||
       user.refresh_token_expires_at < new Date()
     ) {
@@ -298,7 +299,7 @@ export class AuthService {
     }
 
     // Check if user is active
-    if (!user.is_active) {
+    if(!user.is_active) {
       this.logger.warn(
         `Inactive user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
@@ -306,7 +307,7 @@ export class AuthService {
     }
 
     // Check user status (BREAKING CHANGE: new response format)
-    if (user.status === UserStatus.PENDING) {
+    if(user.status === UserStatus.PENDING) {
       this.logger.warn(
         `Pending user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
@@ -315,12 +316,12 @@ export class AuthService {
       );
     }
 
-    if (user.status === UserStatus.REJECTED) {
+    if(user.status === UserStatus.REJECTED) {
       this.logger.warn(
         `Rejected user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
       throw new UnauthorizedException(
-        `Account rejected: ${user.rejection_reason || 'Please contact support for more information.'}`,
+        `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
       );
     }
 
@@ -353,7 +354,7 @@ export class AuthService {
   /**
    * Logout user by clearing refresh token and token_id
    */
-  async logout(userId: string): Promise<void> {
+  public async logout(userId: string): Promise<void> {
     await this.userRepository.update(userId, {
       refresh_token: null,
       refresh_token_id: null,

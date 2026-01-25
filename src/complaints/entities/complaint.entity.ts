@@ -1,17 +1,17 @@
+import { User } from '../../users/entities/user.entity';
+import { ComplaintStatus } from '../enums/complaint-status.enum';
+import { ComplaintType } from '../enums/complaint-type.enum';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
   DeleteDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { User } from '../../users/entities/user.entity';
-import { ComplaintType } from '../enums/complaint-type.enum';
-import { ComplaintStatus } from '../enums/complaint-status.enum';
 
 @Entity('complaints')
 @Index('IDX_complaints_student_id', ['student_id'])

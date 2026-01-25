@@ -1,22 +1,23 @@
 import {
-  Controller,
-  Post,
-  Param,
   Body,
-  UseGuards,
+  Controller,
+  Param,
+  Post,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ReviewsService } from '../reviews.service';
 import { CreateReviewDto } from '../dto';
+import { ReviewsService } from '../reviews.service';
 
 interface AuthRequest extends Request {
   user: {
@@ -36,41 +37,23 @@ export class ReviewsStudentController {
 
   @Post('teachers/:teacherId/reviews')
   @ApiOperation({ summary: 'Create a teacher review (student)' })
-  @ApiResponse({ status: 201, description: 'Review created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Student must purchase from teacher before reviewing',
-  })
-  @ApiResponse({
-    status: 409,
-    description: 'Student has already reviewed this teacher',
-  })
   @ApiResponse({ status: 404, description: 'Teacher not found' })
-  async createTeacherReview(
+  public async createTeacherReview(
     @Param('teacherId') teacherId: string,
     @Body() dto: CreateReviewDto,
     @Request() req: AuthRequest,
-  ) {
+  ): Promise<unknown> {
     return this.reviewsService.createTeacherReview(teacherId, req.user.id, dto);
   }
 
   @Post('lessons/:lessonId/reviews')
   @ApiOperation({ summary: 'Create a lesson review (student)' })
-  @ApiResponse({ status: 201, description: 'Review created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Student must purchase lesson before reviewing',
-  })
-  @ApiResponse({
-    status: 409,
-    description: 'Student has already reviewed this lesson',
-  })
   @ApiResponse({ status: 404, description: 'Lesson not found' })
-  async createLessonReview(
+  public async createLessonReview(
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateReviewDto,
     @Request() req: AuthRequest,
-  ) {
+  ): Promise<unknown> {
     return this.reviewsService.createLessonReview(lessonId, req.user.id, dto);
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as twilio from 'twilio';
+
+import twilio from 'twilio';
 
 export interface SmsResult {
   success: boolean;
@@ -18,9 +19,9 @@ export class SmsSenderService {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
     this.fromNumber =
-      this.configService.get<string>('TWILIO_PHONE_NUMBER') || '';
+      this.configService.get<string>('TWILIO_PHONE_NUMBER') ?? '';
 
-    if (accountSid && authToken) {
+    if(accountSid && authToken) {
       this.twilioClient = twilio(accountSid, authToken);
       this.logger.log('Twilio client initialized successfully');
     } else {
@@ -40,22 +41,22 @@ export class SmsSenderService {
     const cleaned = phone.replace(/[\s\-()]/g, '');
 
     // Already in international format
-    if (cleaned.startsWith('+20')) {
+    if(cleaned.startsWith('+20')) {
       return cleaned;
     }
 
     // Has country code but no plus
-    if (cleaned.startsWith('20') && cleaned.length === 12) {
+    if(cleaned.startsWith('20') && cleaned.length === 12) {
       return `+${cleaned}`;
     }
 
     // Local Egyptian number (starts with 0)
-    if (cleaned.startsWith('0') && cleaned.length === 11) {
+    if(cleaned.startsWith('0') && cleaned.length === 11) {
       return `+2${cleaned}`;
     }
 
     // Assume local number without leading zero
-    if (cleaned.length === 10) {
+    if(cleaned.length === 10) {
       return `+20${cleaned}`;
     }
 
@@ -66,8 +67,8 @@ export class SmsSenderService {
   /**
    * Send SMS to a single recipient
    */
-  async sendSms(to: string, message: string): Promise<SmsResult> {
-    if (!this.twilioClient) {
+  public async sendSms(to: string, message: string): Promise<SmsResult> {
+    if(!this.twilioClient) {
       this.logger.warn('SMS not sent - Twilio client not configured');
       return {
         success: false,
@@ -110,12 +111,12 @@ export class SmsSenderService {
    * Send SMS to multiple recipients
    * Returns array of results in same order as recipients
    */
-  async sendBulkSms(
+  public async sendBulkSms(
     recipients: { phone: string; message: string }[],
   ): Promise<SmsResult[]> {
     const results = await Promise.all(
       recipients.map(({ phone, message }) =>
-        this.sendSms(phone, message).catch((err) => ({
+        this.sendSms(phone, message).catch((err: unknown) => ({
           success: false,
           error: err instanceof Error ? err.message : 'Unknown error',
         })),
@@ -124,7 +125,7 @@ export class SmsSenderService {
 
     const successCount = results.filter((r) => r.success).length;
     this.logger.log(
-      `Bulk SMS: ${successCount}/${recipients.length} sent successfully`,
+      `Bulk SMS: ${successCount.toString()}/${recipients.length.toString()} sent successfully`,
     );
 
     return results;
@@ -133,7 +134,7 @@ export class SmsSenderService {
   /**
    * Check if SMS service is available
    */
-  isConfigured(): boolean {
+  public isConfigured(): boolean {
     return this.twilioClient !== null;
   }
 }

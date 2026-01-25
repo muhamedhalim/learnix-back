@@ -1,17 +1,18 @@
 import {
-  Injectable,
-  NotFoundException,
   ConflictException,
   ForbiddenException,
+  Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { BookPurchase } from '../entities/book-purchase.entity';
-import { Book } from '../entities/book.entity';
-import { BooksService } from './books.service';
+
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { BookFilterDto } from '../dto';
+import { Book } from '../entities/book.entity';
+import { BookPurchase } from '../entities/book-purchase.entity';
+import { BooksService } from './books.service';
+import { Repository } from 'typeorm';
 
 // Type interfaces for raw query results
 interface BookPurchaseStatsRaw {
@@ -41,7 +42,7 @@ export class BookPurchasesService {
    * Create a book purchase record
    * Called after successful payment
    */
-  async purchaseBook(
+  public async purchaseBook(
     studentId: string,
     bookId: string,
     paymentId: string,
@@ -49,7 +50,7 @@ export class BookPurchasesService {
   ): Promise<BookPurchase> {
     // Check if already purchased
     const existing = await this.checkAlreadyPurchased(studentId, bookId);
-    if (existing) {
+    if(existing) {
       throw new ConflictException('You have already purchased this book');
     }
 
@@ -79,7 +80,7 @@ export class BookPurchasesService {
   /**
    * Check if student already purchased a book
    */
-  async checkAlreadyPurchased(
+  public async checkAlreadyPurchased(
     studentId: string,
     bookId: string,
   ): Promise<BookPurchase | null> {
@@ -94,12 +95,12 @@ export class BookPurchasesService {
   /**
    * Get student's purchased books
    */
-  async getMyBooks(
+  public async getMyBooks(
     studentId: string,
     filter: BookFilterDto,
   ): Promise<{ data: BookPurchase[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const query = this.purchasesRepository
@@ -111,7 +112,7 @@ export class BookPurchasesService {
       .andWhere('book.deleted_at IS NULL');
 
     // Apply search filter
-    if (filter.search) {
+    if(filter.search) {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
@@ -119,7 +120,7 @@ export class BookPurchasesService {
     }
 
     // Apply subject filter
-    if (filter.subject_id) {
+    if(filter.subject_id) {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
@@ -153,14 +154,14 @@ export class BookPurchasesService {
    * Get download URL for a purchased book
    * Validates the student has purchased the book
    */
-  async getDownloadUrl(
+  public async getDownloadUrl(
     studentId: string,
     bookId: string,
   ): Promise<{ download_url: string; book: Book }> {
     // Check if student purchased this book
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
 
-    if (!purchase) {
+    if(!purchase) {
       throw new ForbiddenException('You have not purchased this book');
     }
 
@@ -176,13 +177,13 @@ export class BookPurchasesService {
   /**
    * Find purchase by ID
    */
-  async findPurchaseById(id: string): Promise<BookPurchase> {
+  public async findPurchaseById(id: string): Promise<BookPurchase> {
     const purchase = await this.purchasesRepository.findOne({
       where: { id },
       relations: ['book', 'book.teacher', 'book.subject', 'student', 'payment'],
     });
 
-    if (!purchase) {
+    if(!purchase) {
       throw new NotFoundException(`Purchase with ID ${id} not found`);
     }
 
@@ -192,12 +193,12 @@ export class BookPurchasesService {
   /**
    * Get all purchases (admin view)
    */
-  async getAllPurchases(filter: BookFilterDto): Promise<{
+  public async getAllPurchases(filter: BookFilterDto): Promise<{
     data: BookPurchase[];
     meta: PaginationMeta;
   }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const query = this.purchasesRepository
@@ -209,7 +210,7 @@ export class BookPurchasesService {
       .leftJoinAndSelect('purchase.payment', 'payment');
 
     // Apply search filter
-    if (filter.search) {
+    if(filter.search) {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
@@ -217,14 +218,14 @@ export class BookPurchasesService {
     }
 
     // Apply subject filter
-    if (filter.subject_id) {
+    if(filter.subject_id) {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
     // Apply teacher filter
-    if (filter.teacher_id) {
+    if(filter.teacher_id) {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });
@@ -257,7 +258,7 @@ export class BookPurchasesService {
   /**
    * Get purchase statistics for a book
    */
-  async getBookPurchaseStats(bookId: string): Promise<{
+  public async getBookPurchaseStats(bookId: string): Promise<{
     total_purchases: number;
     total_revenue: number;
     avg_price: number;
@@ -282,15 +283,15 @@ export class BookPurchasesService {
   /**
    * Get teacher's book revenue
    */
-  async getTeacherBookRevenue(teacherId: string): Promise<{
+  public async getTeacherBookRevenue(teacherId: string): Promise<{
     total_revenue: number;
     total_sales: number;
-    books: Array<{
+    books: {
       book_id: string;
       book_title: string;
       sales: number;
       revenue: number;
-    }>;
+    }[];
   }> {
     const results = await this.purchasesRepository
       .createQueryBuilder('purchase')

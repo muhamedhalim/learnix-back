@@ -1,15 +1,15 @@
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonPackage } from './lesson-package.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
-  ManyToOne,
-  JoinColumn,
   CreateDateColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
   Unique,
 } from 'typeorm';
-import { LessonPackage } from './lesson-package.entity';
-import { Lesson } from '../../lessons/entities/lesson.entity';
 
 @Entity('lesson_package_items')
 @Index('IDX_lesson_package_items_package_id', ['package_id'])

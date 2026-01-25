@@ -1,7 +1,7 @@
 import {
   registerDecorator,
-  ValidationOptions,
   ValidationArguments,
+  ValidationOptions,
 } from 'class-validator';
 
 export function IsSecureUrl(validationOptions?: ValidationOptions) {
@@ -13,7 +13,7 @@ export function IsSecureUrl(validationOptions?: ValidationOptions) {
       options: validationOptions,
       validator: {
         validate(value: unknown) {
-          if (typeof value !== 'string') {
+          if(typeof value !== 'string') {
             return false;
           }
 
@@ -21,7 +21,7 @@ export function IsSecureUrl(validationOptions?: ValidationOptions) {
             const url = new URL(value);
 
             // Only allow HTTP/HTTPS protocols
-            if (!['http:', 'https:'].includes(url.protocol)) {
+            if(!['http:', 'https:'].includes(url.protocol)) {
               return false;
             }
 
@@ -29,7 +29,7 @@ export function IsSecureUrl(validationOptions?: ValidationOptions) {
             const hostname = url.hostname.toLowerCase();
 
             // Block localhost variations
-            if (
+            if(
               hostname === 'localhost' ||
               hostname === '127.0.0.1' ||
               hostname === '::1' ||
@@ -39,7 +39,7 @@ export function IsSecureUrl(validationOptions?: ValidationOptions) {
             }
 
             // Block private IP ranges (RFC 1918)
-            if (
+            if(
               hostname.startsWith('10.') ||
               hostname.startsWith('192.168.') ||
               /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
@@ -48,12 +48,12 @@ export function IsSecureUrl(validationOptions?: ValidationOptions) {
             }
 
             // Block link-local addresses
-            if (hostname.startsWith('169.254.')) {
+            if(hostname.startsWith('169.254.')) {
               return false;
             }
 
             // Block IPv6 private addresses
-            if (
+            if(
               hostname.startsWith('fc00:') ||
               hostname.startsWith('fd00:') ||
               hostname.startsWith('fe80:')

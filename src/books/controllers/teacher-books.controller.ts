@@ -1,32 +1,29 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { BooksService } from '../services/books.service';
-import { BookPurchasesService } from '../services/book-purchases.service';
-import { CreateBookDto, UpdateBookDto, BookFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { BookFilterDto,CreateBookDto, UpdateBookDto } from '../dto';
+import { BookPurchasesService } from '../services/book-purchases.service';
+import { BooksService } from '../services/books.service';
 
 @ApiTags('Teacher Books')
 @Controller('teacher/books')
@@ -87,38 +84,21 @@ export class TeacherBooksController {
     status: HttpStatus.OK,
     description: "List of teacher's books",
   })
-  async findMyBooks(
+  public async findMyBooks(
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<BookFilterDto, 'teacher_id'>,
-  ) {
+  ): Promise<unknown> {
     return this.booksService.findMyBooks(user.userId, filter);
   }
 
   /**
    * Create a new book
    */
-  @Post()
-  @ApiOperation({
-    summary: 'Create a book',
-    description: 'Creates a new book for the authenticated teacher.',
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Book created successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid input data',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Subject not found',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Book with this title already exists',
   })
-  async create(@GetUser() user: JwtPayload, @Body() dto: CreateBookDto) {
+  public async create(@GetUser() user: JwtPayload, @Body() dto: CreateBookDto): Promise<{ message: string; data: unknown }> {
     const book = await this.booksService.create(user.userId, dto);
     return {
       message: 'Book created successfully',
@@ -129,24 +109,14 @@ export class TeacherBooksController {
   /**
    * Get a single book by ID (must be owner)
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get my book by ID',
-    description: 'Returns a specific book owned by the authenticated teacher.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Book retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async findOne(
+  public async findOne(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<unknown> {
     // Validate teacher owns this book
     await this.booksService.checkOwnership(id, user.userId);
 
@@ -154,7 +124,7 @@ export class TeacherBooksController {
     const stats = await this.bookPurchasesService.getBookPurchaseStats(id);
 
     return {
-      ...book,
+      book,
       stats,
     };
   }
@@ -162,29 +132,15 @@ export class TeacherBooksController {
   /**
    * Update a book
    */
-  @Put(':id')
-  @ApiOperation({
-    summary: 'Update my book',
-    description: 'Updates a book owned by the authenticated teacher.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Book updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Book not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own books',
   })
-  async update(
+  public async update(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateBookDto,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     const book = await this.booksService.update(id, user.userId, dto);
     return {
       message: 'Book updated successfully',
@@ -195,28 +151,14 @@ export class TeacherBooksController {
   /**
    * Delete a book (soft delete)
    */
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete my book',
-    description: 'Soft deletes a book owned by the authenticated teacher.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Book deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Book not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own books',
   })
-  async delete(
+  public async delete(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<{ message: string }> {
     await this.booksService.delete(id, user.userId);
     return {
       message: 'Book deleted successfully',
@@ -226,16 +168,11 @@ export class TeacherBooksController {
   /**
    * Get my book revenue
    */
-  @Get('revenue/summary')
-  @ApiOperation({
-    summary: 'Get my book revenue',
-    description: "Returns the authenticated teacher's book revenue summary.",
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue summary retrieved',
   })
-  async getRevenue(@GetUser() user: JwtPayload) {
+  public async getRevenue(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.bookPurchasesService.getTeacherBookRevenue(user.userId);
   }
 }

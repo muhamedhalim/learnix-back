@@ -1,54 +1,49 @@
-import { Module, Logger } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
-import { ScheduleModule } from '@nestjs/schedule';
 import { CacheModule } from '@nestjs/cache-manager';
-import { redisStore } from 'cache-manager-redis-yet';
-import { validate } from './config/env.validation';
-import { THROTTLE } from './common/constants';
+import { Logger,Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-
+import { AttendanceModule } from './attendance/attendance.module';
+import { AttendanceCodesModule } from './attendance-codes/attendance-codes.module';
 // Core modules (keeping these)
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { FirebaseModule } from './firebase/firebase.module';
-import { UploadModule } from './uploads/upload.module';
-import { HealthModule } from './health/health.module';
+// Phase 5: Books & Attendance & Analytics & Cart
+import { BooksModule } from './books/books.module';
+import { CallCenterModule } from './callcenter/callcenter.module';
+import { CartModule } from './cart/cart.module';
+import { CommentsModule } from './comments/comments.module';
+import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
-// TEMPORARILY DISABLED: Redis not available for development
-// import { QueuesModule } from './queues/queues.module';
-import { User } from './users/entities/user.entity';
-
+import { ComplaintsModule } from './complaints/complaints.module';
+import { validate } from './config/env.validation';
+import { DiscountCodesModule } from './discount-codes/discount-codes.module';
+// Phase 3: Exams & Grading
+import { ExamsModule } from './exams/exams.module';
+import { FirebaseModule } from './firebase/firebase.module';
+import { HealthModule } from './health/health.module';
+import { IdempotencyModule } from './idempotency/idempotency.module';
+import { LessonsModule } from './lessons/lessons.module';
+import { NotificationsModule } from './notifications/notifications.module';
+// Phase 2: Core Features
+import { PackagesModule } from './packages/packages.module';
+// Phase 4: Payments & Notifications
+import { PaymentsModule } from './payments/payments.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { StudentsModule } from './students/students.module';
 // Phase 1 Foundation: Core educational platform modules
 import { SubjectsModule } from './subjects/subjects.module';
 import { TeachersModule } from './teachers/teachers.module';
-import { StudentsModule } from './students/students.module';
-import { LessonsModule } from './lessons/lessons.module';
-
-// Phase 2: Core Features
-import { PackagesModule } from './packages/packages.module';
-import { CommentsModule } from './comments/comments.module';
-import { ReviewsModule } from './reviews/reviews.module';
-import { ComplaintsModule } from './complaints/complaints.module';
-import { CallCenterModule } from './callcenter/callcenter.module';
-
-// Phase 3: Exams & Grading
-import { ExamsModule } from './exams/exams.module';
-
-// Phase 4: Payments & Notifications
-import { PaymentsModule } from './payments/payments.module';
-import { IdempotencyModule } from './idempotency/idempotency.module';
-import { DiscountCodesModule } from './discount-codes/discount-codes.module';
-import { AttendanceCodesModule } from './attendance-codes/attendance-codes.module';
-import { NotificationsModule } from './notifications/notifications.module';
-
-// Phase 5: Books & Attendance & Analytics & Cart
-import { BooksModule } from './books/books.module';
-import { AttendanceModule } from './attendance/attendance.module';
-import { AnalyticsModule } from './analytics/analytics.module';
-import { CartModule } from './cart/cart.module';
+import { UploadModule } from './uploads/upload.module';
+// TEMPORARILY DISABLED: Redis not available for development
+// import { QueuesModule } from './queues/queues.module';
+import { User } from './users/entities/user.entity';
+import { UsersModule } from './users/users.module';
+import { redisStore } from 'cache-manager-redis-yet';
 
 @Module({
   imports: [
@@ -69,7 +64,7 @@ import { CartModule } from './cart/cart.module';
         const logger = new Logger('CacheModule');
 
         // If no Redis host, use in-memory cache (development fallback)
-        if (!redisHost) {
+        if(!redisHost) {
           logger.warn(
             'WARNING: REDIS_HOST not set - Using in-memory cache (not recommended for production)',
           );
@@ -78,11 +73,12 @@ import { CartModule } from './cart/cart.module';
           };
         }
 
+        const port = redisPort ?? 6379;
         const redisUrl = redisPassword
-          ? `redis://:${redisPassword}@${redisHost}:${redisPort}`
-          : `redis://${redisHost}:${redisPort}`;
+          ? `redis://:${redisPassword}@${redisHost}:${port.toString()}`
+          : `redis://${redisHost}:${port.toString()}`;
 
-        logger.log(`Connecting to Redis at ${redisHost}:${redisPort}`);
+        logger.log(`Connecting to Redis at ${redisHost}:${port.toString()}`);
 
         try {
           const store = await redisStore({
@@ -128,7 +124,7 @@ import { CartModule } from './cart/cart.module';
         const synchronize =
           configService.get<string>('TYPEORM_SYNCHRONIZE') === 'true';
 
-        if (isProduction && synchronize) {
+        if(isProduction && synchronize) {
           throw new Error(
             'CRITICAL: Cannot enable TypeORM synchronize in production! This could cause catastrophic data loss.',
           );
@@ -137,7 +133,7 @@ import { CartModule } from './cart/cart.module';
         const shouldSynchronize = !isProduction && synchronize;
         const logger = new Logger('TypeORM');
 
-        if (shouldSynchronize) {
+        if(shouldSynchronize) {
           logger.warn(
             'WARNING: TypeORM synchronize is ENABLED. This should only be used in development.',
           );

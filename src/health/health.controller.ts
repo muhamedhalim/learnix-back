@@ -5,6 +5,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -15,12 +16,6 @@ import { HealthService } from './health.service';
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
-  @Get()
-  @ApiOperation({
-    summary: 'Basic health check',
-    description:
-      'Returns basic health status of the application. Use this for monitoring tools and load balancers.',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Application is healthy',
@@ -34,7 +29,7 @@ export class HealthController {
       },
     },
   })
-  getHealth() {
+  public getHealth(): unknown {
     return this.healthService.getBasicHealth();
   }
 
@@ -46,22 +41,6 @@ export class HealthController {
     summary: 'Database health check (Admin only)',
     description:
       'Tests database connection and response time. Returns detailed database status. Requires admin authentication.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Database connection is healthy',
-    schema: {
-      example: {
-        status: 'healthy',
-        timestamp: '2025-01-19T12:00:00.000Z',
-        uptime: 3600,
-        database: {
-          connected: true,
-          type: 'postgres',
-          responseTime: 15,
-        },
-      },
-    },
   })
   @ApiResponse({
     status: HttpStatus.SERVICE_UNAVAILABLE,
@@ -80,7 +59,7 @@ export class HealthController {
       },
     },
   })
-  async getDatabaseHealth() {
+  public async getDatabaseHealth(): Promise<unknown> {
     const result = await this.healthService.getDatabaseHealth();
     return result;
   }
@@ -132,7 +111,7 @@ export class HealthController {
       },
     },
   })
-  async getStorageHealth() {
+  public async getStorageHealth(): Promise<unknown> {
     const result = await this.healthService.getStorageHealth();
     return result;
   }
@@ -150,7 +129,7 @@ export class HealthController {
     status: HttpStatus.OK,
     description: 'All systems are healthy',
   })
-  async getComprehensiveHealth() {
+  public async getComprehensiveHealth(): Promise<unknown> {
     return this.healthService.getComprehensiveHealth();
   }
 }

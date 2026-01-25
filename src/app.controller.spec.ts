@@ -1,12 +1,13 @@
-/* eslint-disable @typescript-eslint/unbound-method */
+ 
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { User } from './users/entities/user.entity';
-import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
+import { User } from './users/entities/user.entity';
+import { DataSource } from 'typeorm';
 
 describe('AppController', () => {
   let appController: AppController;

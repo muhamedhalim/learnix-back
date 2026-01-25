@@ -1,15 +1,15 @@
+import { User } from '../../users/entities/user.entity';
+import { Comment } from './comment.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { Comment } from './comment.entity';
-import { User } from '../../users/entities/user.entity';
 
 @Entity('comment_replies')
 @Index('IDX_comment_replies_comment_id', ['comment_id'])

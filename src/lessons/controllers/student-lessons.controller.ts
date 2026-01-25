@@ -1,27 +1,25 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { LessonsService } from '../lessons.service';
-import { LessonFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { LessonFilterDto } from '../dto';
+import { LessonsService } from '../lessons.service';
 
 @ApiTags('Student Lessons')
 @Controller('student/lessons')
@@ -98,7 +96,7 @@ export class StudentLessonsController {
     status: HttpStatus.OK,
     description: 'List of available lessons',
   })
-  async browseLessons(@Query() filter: LessonFilterDto) {
+  public async browseLessons(@Query() filter: LessonFilterDto): Promise<unknown> {
     return this.lessonsService.findAll(filter);
   }
 
@@ -106,30 +104,15 @@ export class StudentLessonsController {
    * Get lesson details with access check
    * Returns lesson details and whether the student has access
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get lesson details',
-    description:
-      'Returns lesson details and access status for the authenticated student. Student only.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson details with access status',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async getLessonWithAccess(
-    @GetUser() user: JwtPayload,
+  public async getLessonWithAccess(
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<unknown> {
     const lesson = await this.lessonsService.findOne(id);
-    const accessInfo = await this.lessonsService.validateAccess(
-      id,
-      user.userId,
-    );
+    const accessInfo = await this.lessonsService.validateAccess(id);
 
     return {
       lesson,

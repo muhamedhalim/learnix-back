@@ -1,35 +1,36 @@
 import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
-  BadRequestException,
-  ForbiddenException,
-  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
-import {
-  Exam,
-  ExamAttempt,
-  ExamStatus,
-  QuestionType,
-  Question,
-  Answer,
-} from './entities';
-import { User } from '../users/entities/user.entity';
-import { Subject } from '../subjects/entities/subject.entity';
-import { UserRole } from '../users/entities/user-role.enum';
-import {
-  CreateExamDto,
-  UpdateExamDto,
-  SubmitExamDto,
-  GradeEssayDto,
-  ExamFilterDto,
-  StudentExamFilterDto,
-} from './dto';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Subject } from '../subjects/entities/subject.entity';
+import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
+import {
+  CreateExamDto,
+  ExamFilterDto,
+  GradeEssayDto,
+  StudentExamFilterDto,
+  SubmitExamDto,
+  UpdateExamDto,
+} from './dto';
+import {
+  Answer,
+  Exam,
+  ExamAttempt,
+  ExamStatus,
+  Question,
+  QuestionType,
+} from './entities';
+import { IsNull,Repository } from 'typeorm';
 
 /**
  * Response type for exam with teacher and subject details
@@ -175,7 +176,7 @@ export class ExamsService {
    * Create a new exam
    * Only teachers can create exams
    */
-  async create(
+  public async create(
     teacherId: string,
     dto: CreateExamDto,
   ): Promise<ExamWithDetails> {
@@ -184,11 +185,11 @@ export class ExamsService {
       where: { id: teacherId },
     });
 
-    if (!teacher) {
+    if(!teacher) {
       throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
     }
 
-    if (teacher.role !== UserRole.TEACHER) {
+    if(teacher.role !== UserRole.TEACHER) {
       throw new BadRequestException('Only teachers can create exams');
     }
 
@@ -197,70 +198,19 @@ export class ExamsService {
       where: { id: dto.subject_id },
     });
 
-    if (!subject) {
+    if(!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
     }
 
     // Validate questions and calculate total marks
-    const questions: Question[] = [];
-    let totalMarks = 0;
-
-    for (let i = 0; i < dto.questions.length; i++) {
-      const q = dto.questions[i];
-      if (!q) continue; // TypeScript guard
-
-      // Validate MCQ questions
-      if (q.type === QuestionType.MCQ) {
-        if (!q.choices || q.choices.length < 2) {
-          throw new BadRequestException(
-            `Question ${i + 1}: MCQ must have at least 2 choices`,
-          );
-        }
-        if (!q.correct_answer) {
-          throw new BadRequestException(
-            `Question ${i + 1}: MCQ must have a correct answer`,
-          );
-        }
-        if (!q.choices.includes(q.correct_answer)) {
-          throw new BadRequestException(
-            `Question ${i + 1}: Correct answer must be one of the choices`,
-          );
-        }
-      }
-
-      // Validate Essay questions (should not have choices)
-      if (q.type === QuestionType.ESSAY) {
-        if (q.choices && q.choices.length > 0) {
-          throw new BadRequestException(
-            `Question ${i + 1}: Essay questions should not have choices`,
-          );
-        }
-        if (q.correct_answer) {
-          throw new BadRequestException(
-            `Question ${i + 1}: Essay questions should not have a correct answer`,
-          );
-        }
-      }
-
-      questions.push({
-        type: q.type,
-        question: q.question,
-        question_ar: q.question_ar,
-        choices: q.type === QuestionType.MCQ ? q.choices : undefined,
-        correct_answer:
-          q.type === QuestionType.MCQ ? q.correct_answer : undefined,
-        marks: q.marks,
-      });
-
-      totalMarks += q.marks;
-    }
+    const { questions, totalMarks } = this.validateAndProcessQuestions(dto.questions);
 
     // Validate passing marks
-    if (dto.passing_marks > totalMarks) {
+    if(dto.passing_marks > totalMarks) {
       throw new BadRequestException(
-        `Passing marks (${dto.passing_marks}) cannot exceed total marks (${totalMarks})`,
+        `Passing marks (${String(dto.passing_marks)}) cannot exceed total marks (${String(totalMarks)})`,
       );
     }
 
@@ -268,8 +218,8 @@ export class ExamsService {
     const exam = this.examsRepository.create({
       title: dto.title,
       title_ar: dto.title_ar,
-      description: dto.description || null,
-      description_ar: dto.description_ar || null,
+      description: dto.description ?? null,
+      description_ar: dto.description_ar ?? null,
       teacher_id: teacherId,
       subject_id: dto.subject_id,
       questions,
@@ -287,13 +237,17 @@ export class ExamsService {
       relations: ['teacher', 'subject'],
     });
 
-    return this.mapToExamWithDetails(fullExam!);
+    if (!fullExam) {
+      throw new NotFoundException('Failed to load created exam');
+    }
+
+    return this.mapToExamWithDetails(fullExam);
   }
 
   /**
    * Find teacher's own exams with stats
    */
-  async findMyExams(
+  public async findMyExams(
     teacherId: string,
     filter: ExamFilterDto,
   ): Promise<PaginatedResponse<ExamListItem>> {
@@ -316,18 +270,18 @@ export class ExamsService {
       .andWhere('exam.teacher_id = :teacherId', { teacherId });
 
     // Filters
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
 
-    if (subject_id) {
+    if(subject_id) {
       queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
     }
 
-    if (is_active !== undefined) {
+    if(is_active !== undefined) {
       queryBuilder.andWhere('exam.is_active = :is_active', { is_active });
     }
 
@@ -343,8 +297,8 @@ export class ExamsService {
       .addGroupBy('subject.id');
 
     // Sorting
-    const sortColumn = `exam.${sort_by || 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order || 'DESC');
+    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
 
     // Get total count (need separate query due to grouping)
     const countQuery = this.examsRepository
@@ -352,16 +306,16 @@ export class ExamsService {
       .where('exam.deleted_at IS NULL')
       .andWhere('exam.teacher_id = :teacherId', { teacherId });
 
-    if (search) {
+    if(search) {
       countQuery.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
-    if (subject_id) {
+    if(subject_id) {
       countQuery.andWhere('exam.subject_id = :subject_id', { subject_id });
     }
-    if (is_active !== undefined) {
+    if(is_active !== undefined) {
       countQuery.andWhere('exam.is_active = :is_active', { is_active });
     }
 
@@ -408,11 +362,11 @@ export class ExamsService {
   /**
    * Get exam submissions for grading
    */
-  async getSubmissions(
+  public async getSubmissions(
     examId: string,
     teacherId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<ExamSubmission>> {
     // Verify exam ownership
     const exam = await this.validateTeacherOwnership(examId, teacherId);
@@ -439,11 +393,9 @@ export class ExamsService {
         name: attempt.student.name,
         email: attempt.student.email,
       },
-      score_mcq: Number(attempt.score_mcq) || 0,
-      score_essay:
-        attempt.score_essay !== null ? Number(attempt.score_essay) : null,
-      total_score:
-        attempt.total_score !== null ? Number(attempt.total_score) : null,
+      score_mcq: attempt.score_mcq ?? 0,
+      score_essay: attempt.score_essay ?? null,
+      total_score: attempt.total_score ?? null,
       status: attempt.status,
       essay_answers: attempt.answers
         .filter((_, i) => exam.questions[i]?.type === QuestionType.ESSAY)
@@ -456,10 +408,10 @@ export class ExamsService {
             answer: ans.answer,
             marks: q?.marks ?? 0,
             score: ans.score !== undefined ? ans.score : null,
-            feedback: ans.feedback || null,
+            feedback: ans.feedback ?? null,
           };
         }),
-      submitted_at: attempt.submitted_at!,
+      submitted_at: attempt.submitted_at ?? new Date(),
     }));
 
     // Calculate pagination meta
@@ -480,7 +432,7 @@ export class ExamsService {
    * Grade an essay question
    * CRITICAL: Recalculates total score and updates status when all essays are graded
    */
-  async gradeEssay(
+  public async gradeEssay(
     teacherId: string,
     examId: string,
     dto: GradeEssayDto,
@@ -494,21 +446,21 @@ export class ExamsService {
 
     // 2. Validate question is essay type
     const question = exam.questions[dto.question_index];
-    if (!question) {
+    if(!question) {
       throw new BadRequestException(
-        `Invalid question index: ${dto.question_index}`,
+        `Invalid question index: ${String(dto.question_index)}`,
       );
     }
-    if (question.type !== QuestionType.ESSAY) {
+    if(question.type !== QuestionType.ESSAY) {
       throw new BadRequestException(
-        `Question ${dto.question_index} is not an essay question`,
+        `Question ${String(dto.question_index)} is not an essay question`,
       );
     }
 
     // 3. Validate score <= max marks
-    if (dto.score > question.marks) {
+    if(dto.score > question.marks) {
       throw new BadRequestException(
-        `Score (${dto.score}) exceeds maximum marks (${question.marks}) for this question`,
+        `Score (${String(dto.score)}) exceeds maximum marks (${String(question.marks)}) for this question`,
       );
     }
 
@@ -517,7 +469,7 @@ export class ExamsService {
       where: { exam_id: examId, student_id: dto.student_id },
     });
 
-    if (!attempt) {
+    if(!attempt) {
       throw new NotFoundException(
         `Student ${dto.student_id} has not submitted this exam`,
       );
@@ -525,11 +477,11 @@ export class ExamsService {
 
     // 5. Update answer with score and feedback
     const updatedAnswers: Answer[] = attempt.answers.map((ans: Answer) => {
-      if (ans.question_index === dto.question_index) {
+      if(ans.question_index === dto.question_index) {
         return {
           ...ans,
           score: dto.score,
-          feedback: dto.feedback || null,
+          feedback: dto.feedback ?? null,
         };
       }
       return ans;
@@ -537,9 +489,9 @@ export class ExamsService {
 
     // 6. Recalculate score_essay
     let scoreEssay = 0;
-    for (const ans of updatedAnswers) {
+    for(const ans of updatedAnswers) {
       const q = exam.questions[ans.question_index];
-      if (
+      if(
         q?.type === QuestionType.ESSAY &&
         ans.score !== null &&
         ans.score !== undefined
@@ -551,7 +503,7 @@ export class ExamsService {
     // 7. Check if all essays are graded
     const allEssaysGraded = updatedAnswers.every((ans: Answer) => {
       const q = exam.questions[ans.question_index];
-      return (
+      return(
         q?.type === QuestionType.MCQ ||
         (ans.score !== null && ans.score !== undefined)
       );
@@ -588,7 +540,7 @@ export class ExamsService {
    * Update an exam
    * Only allowed if no submissions exist
    */
-  async update(
+  public async update(
     examId: string,
     teacherId: string,
     dto: UpdateExamDto,
@@ -600,69 +552,37 @@ export class ExamsService {
       where: { exam_id: examId },
     });
 
-    if (submissionCount > 0) {
+    if(submissionCount > 0) {
       throw new BadRequestException(
-        `Cannot update exam with existing submissions (${submissionCount} found). Create a new exam instead.`,
+        `Cannot update exam with existing submissions (${String(submissionCount)} found). Create a new exam instead.`,
       );
     }
 
     // If questions are being updated, recalculate total marks
-    if (dto.questions) {
-      const questions: Question[] = [];
-      let totalMarks = 0;
-
-      for (let i = 0; i < dto.questions.length; i++) {
-        const q = dto.questions[i];
-        if (!q) continue; // TypeScript guard
-
-        // Validate MCQ/Essay (same as create)
-        if (q.type === QuestionType.MCQ) {
-          if (!q.choices || q.choices.length < 2) {
-            throw new BadRequestException(
-              `Question ${i + 1}: MCQ must have at least 2 choices`,
-            );
-          }
-          if (!q.correct_answer || !q.choices.includes(q.correct_answer)) {
-            throw new BadRequestException(
-              `Question ${i + 1}: Correct answer must be in choices`,
-            );
-          }
-        }
-
-        questions.push({
-          type: q.type,
-          question: q.question,
-          question_ar: q.question_ar,
-          choices: q.type === QuestionType.MCQ ? q.choices : undefined,
-          correct_answer:
-            q.type === QuestionType.MCQ ? q.correct_answer : undefined,
-          marks: q.marks,
-        });
-
-        totalMarks += q.marks;
-      }
+    if(dto.questions) {
+      const { questions, totalMarks } = this.validateAndProcessQuestions(dto.questions);
 
       exam.questions = questions;
       exam.total_marks = totalMarks;
 
       // Validate passing marks against new total
       const passingMarks = dto.passing_marks ?? exam.passing_marks;
-      if (passingMarks > totalMarks) {
+      if(passingMarks > totalMarks) {
         throw new BadRequestException(
-          `Passing marks (${passingMarks}) cannot exceed total marks (${totalMarks})`,
+          `Passing marks (${String(passingMarks)}) cannot exceed total marks (${String(totalMarks)})`,
         );
       }
     }
 
     // Update fields
-    if (dto.title !== undefined) exam.title = dto.title;
-    if (dto.title_ar !== undefined) exam.title_ar = dto.title_ar;
-    if (dto.description !== undefined) exam.description = dto.description;
-    if (dto.description_ar !== undefined)
-      exam.description_ar = dto.description_ar;
-    if (dto.subject_id !== undefined) exam.subject_id = dto.subject_id;
-    if (dto.duration !== undefined) exam.duration = dto.duration;
-    if (dto.passing_marks !== undefined) exam.passing_marks = dto.passing_marks;
+    if(dto.title !== undefined) {exam.title = dto.title;}
+    if(dto.title_ar !== undefined) {exam.title_ar = dto.title_ar;}
+    if(dto.description !== undefined) {exam.description = dto.description;}
+    if(dto.description_ar !== undefined)
+      {exam.description_ar = dto.description_ar;}
+    if(dto.subject_id !== undefined) {exam.subject_id = dto.subject_id;}
+    if(dto.duration !== undefined) {exam.duration = dto.duration;}
+    if(dto.passing_marks !== undefined) {exam.passing_marks = dto.passing_marks;}
 
     const savedExam = await this.examsRepository.save(exam);
 
@@ -672,13 +592,17 @@ export class ExamsService {
       relations: ['teacher', 'subject'],
     });
 
-    return this.mapToExamWithDetails(fullExam!);
+    if (!fullExam) {
+      throw new NotFoundException('Failed to load created exam');
+    }
+
+    return this.mapToExamWithDetails(fullExam);
   }
 
   /**
    * Delete an exam (soft delete)
    */
-  async delete(examId: string, teacherId: string): Promise<void> {
+  public async delete(examId: string, teacherId: string): Promise<void> {
     await this.validateTeacherOwnership(examId, teacherId);
     await this.examsRepository.softDelete(examId);
   }
@@ -689,7 +613,7 @@ export class ExamsService {
    * Find available exams for a student
    * Returns active exams that the student has not attempted
    */
-  async findAvailableExams(
+  public async findAvailableExams(
     studentId: string,
     filter: StudentExamFilterDto,
   ): Promise<PaginatedResponse<ExamWithDetails>> {
@@ -714,14 +638,14 @@ export class ExamsService {
       .andWhere('exam.is_active = true');
 
     // Filter by attempted/not attempted
-    if (attempted === false) {
+    if(attempted === false) {
       queryBuilder.andWhere('attempt.id IS NULL');
     } else if (attempted === true) {
       queryBuilder.andWhere('attempt.id IS NOT NULL');
     }
 
     // Search
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
@@ -729,13 +653,13 @@ export class ExamsService {
     }
 
     // Filter by subject
-    if (subject_id) {
+    if(subject_id) {
       queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
     }
 
     // Sorting
-    const sortColumn = `exam.${sort_by || 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order || 'DESC');
+    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -766,7 +690,7 @@ export class ExamsService {
   /**
    * Get exam for taking (strips correct answers)
    */
-  async findOneForTaking(
+  public async findOneForTaking(
     examId: string,
     studentId: string,
   ): Promise<ExamForTaking> {
@@ -774,7 +698,7 @@ export class ExamsService {
       where: { id: examId, is_active: true, deleted_at: IsNull() },
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException(
         `Exam with ID ${examId} not found or inactive`,
       );
@@ -785,7 +709,7 @@ export class ExamsService {
       where: { exam_id: examId, student_id: studentId },
     });
 
-    if (existing) {
+    if(existing) {
       throw new ConflictException('You have already submitted this exam');
     }
 
@@ -796,7 +720,7 @@ export class ExamsService {
    * Get exam preview (public, metadata only)
    * Does NOT expose questions or answers
    */
-  async getExamPreview(examId: string): Promise<{
+  public async getExamPreview(examId: string): Promise<{
     id: string;
     title: string;
     title_ar: string | null;
@@ -815,7 +739,7 @@ export class ExamsService {
       relations: ['teacher', 'subject'],
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
@@ -854,19 +778,19 @@ export class ExamsService {
    * Start an exam attempt
    * Creates IN_PROGRESS attempt and returns questions WITHOUT correct_answer
    */
-  async startExam(
+  public async startExam(
     studentId: string,
     examId: string,
   ): Promise<{
     attempt_id: string;
-    questions: Array<{
+    questions: {
       index: number;
       type: 'mcq' | 'essay';
       question: string;
       question_ar?: string;
       choices?: string[];
       marks: number;
-    }>;
+    }[];
     expiration_time: Date;
     started_at: Date;
   }> {
@@ -875,7 +799,7 @@ export class ExamsService {
       where: { id: examId, is_active: true, deleted_at: IsNull() },
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
@@ -889,7 +813,7 @@ export class ExamsService {
     });
 
     // If IN_PROGRESS attempt exists, resume it
-    if (existingAttempt) {
+    if(existingAttempt) {
       const questions = exam.questions;
       const formattedQuestions = questions.map((q, index) => ({
         index,
@@ -918,7 +842,7 @@ export class ExamsService {
       },
     });
 
-    if (
+    if(
       completedAttempt &&
       completedAttempt.status !== ExamStatus.IN_PROGRESS
     ) {
@@ -960,7 +884,7 @@ export class ExamsService {
    * Submit exam answers
    * CRITICAL: Auto-grades MCQ questions immediately
    */
-  async submitExam(
+  public async submitExam(
     studentId: string,
     dto: SubmitExamDto,
   ): Promise<SubmissionResult> {
@@ -969,7 +893,7 @@ export class ExamsService {
       where: { id: dto.exam_id, is_active: true, deleted_at: IsNull() },
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
@@ -978,22 +902,22 @@ export class ExamsService {
       where: { exam_id: dto.exam_id, student_id: studentId },
     });
 
-    if (!existingAttempt) {
+    if(!existingAttempt) {
       throw new BadRequestException(
         'No exam attempt found. Please start the exam first using POST /student/exams/:id/start',
       );
     }
 
-    if (existingAttempt.status !== ExamStatus.IN_PROGRESS) {
+    if(existingAttempt.status !== ExamStatus.IN_PROGRESS) {
       throw new ConflictException(
         `Exam attempt already ${existingAttempt.status.toLowerCase()}. Cannot submit again.`,
       );
     }
 
     // 3. Validate answer count
-    if (dto.answers.length !== exam.questions.length) {
+    if(dto.answers.length !== exam.questions.length) {
       throw new BadRequestException(
-        `Expected ${exam.questions.length} answers, got ${dto.answers.length}`,
+        `Expected ${String(exam.questions.length)} answers, got ${String(dto.answers.length)}`,
       );
     }
 
@@ -1001,11 +925,11 @@ export class ExamsService {
     const sortedAnswers = [...dto.answers].sort(
       (a, b) => a.question_index - b.question_index,
     );
-    for (let i = 0; i < sortedAnswers.length; i++) {
+    for(let i = 0; i < sortedAnswers.length; i++) {
       const ans = sortedAnswers[i];
-      if (!ans || ans.question_index !== i) {
+      if(!ans || ans.question_index !== i) {
         throw new BadRequestException(
-          `Missing or invalid question index. Expected sequential indices 0 to ${exam.questions.length - 1}`,
+          `Missing or invalid question index. Expected sequential indices 0 to ${String(exam.questions.length - 1)}`,
         );
       }
     }
@@ -1024,11 +948,11 @@ export class ExamsService {
       };
 
       // question is guaranteed to exist due to validation above, but TypeScript needs a guard
-      if (!question) {
+      if(!question) {
         return answer;
       }
 
-      if (question.type === QuestionType.MCQ) {
+      if(question.type === QuestionType.MCQ) {
         // Auto-grade MCQ
         mcqCount++;
         const isCorrect = studentAnswer.answer === question.correct_answer;
@@ -1078,17 +1002,17 @@ export class ExamsService {
   /**
    * Get exam result (only if fully graded)
    */
-  async getExamResult(studentId: string, examId: string): Promise<ExamResult> {
+  public async getExamResult(studentId: string, examId: string): Promise<ExamResult> {
     const attempt = await this.attemptsRepository.findOne({
       where: { exam_id: examId, student_id: studentId },
       relations: ['exam'],
     });
 
-    if (!attempt) {
+    if(!attempt) {
       throw new NotFoundException('You have not submitted this exam');
     }
 
-    if (attempt.status !== ExamStatus.GRADED) {
+    if(attempt.status !== ExamStatus.GRADED) {
       throw new BadRequestException(
         'Results are not available yet. Some questions are still being graded.',
       );
@@ -1123,16 +1047,15 @@ export class ExamsService {
       exam_id: examId,
       exam_title: exam.title,
       exam_title_ar: exam.title_ar,
-      score_mcq: Number(attempt.score_mcq) || 0,
-      score_essay:
-        attempt.score_essay !== null ? Number(attempt.score_essay) : null,
+      score_mcq: attempt.score_mcq ?? 0,
+      score_essay: attempt.score_essay ?? null,
       total_score: totalScore,
       max_score: exam.total_marks,
       percentage: Math.round(percentage * 100) / 100,
       passed,
       answers,
-      submitted_at: attempt.submitted_at!,
-      graded_at: attempt.graded_at!,
+      submitted_at: attempt.submitted_at ?? new Date(),
+      graded_at: attempt.graded_at ?? new Date(),
     };
   }
 
@@ -1141,7 +1064,7 @@ export class ExamsService {
   /**
    * Find all exams (admin view)
    */
-  async findAll(
+  public async findAll(
     filter: ExamFilterDto,
   ): Promise<PaginatedResponse<ExamWithDetails>> {
     const {
@@ -1160,24 +1083,24 @@ export class ExamsService {
       .leftJoinAndSelect('exam.subject', 'subject')
       .where('exam.deleted_at IS NULL');
 
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
 
-    if (subject_id) {
+    if(subject_id) {
       queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
     }
 
-    if (is_active !== undefined) {
+    if(is_active !== undefined) {
       queryBuilder.andWhere('exam.is_active = :is_active', { is_active });
     }
 
     // Sorting
-    const sortColumn = `exam.${sort_by || 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order || 'DESC');
+    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -1208,13 +1131,13 @@ export class ExamsService {
   /**
    * Find a single exam by ID
    */
-  async findOne(examId: string): Promise<ExamWithDetails> {
+  public async findOne(examId: string): Promise<ExamWithDetails> {
     const exam = await this.examsRepository.findOne({
       where: { id: examId },
       relations: ['teacher', 'subject'],
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException(`Exam with ID ${examId} not found`);
     }
 
@@ -1234,11 +1157,11 @@ export class ExamsService {
       where: { id: examId, deleted_at: IsNull() },
     });
 
-    if (!exam) {
+    if(!exam) {
       throw new NotFoundException(`Exam with ID ${examId} not found`);
     }
 
-    if (exam.teacher_id !== teacherId) {
+    if(exam.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only manage your own exams');
     }
 
@@ -1297,5 +1220,95 @@ export class ExamsService {
         // CRITICAL: correct_answer is NOT included
       })),
     };
+  }
+
+  /**
+   * Validate questions and calculate total marks
+   * Extracted helper method to reduce cyclomatic complexity
+   */
+  private validateAndProcessQuestions(
+    dtoQuestions: {
+      type: QuestionType;
+      question: string;
+      question_ar: string;
+      choices?: string[];
+      correct_answer?: string;
+      marks: number;
+    }[],
+  ): { questions: Question[]; totalMarks: number } {
+    const questions: Question[] = [];
+    let totalMarks = 0;
+
+    for(let i = 0; i < dtoQuestions.length; i++) {
+      const q = dtoQuestions[i];
+      if(!q) {continue;} // TypeScript guard
+
+      // Validate MCQ questions
+      if(q.type === QuestionType.MCQ) {
+        this.validateMcqQuestion(q, i);
+      }
+
+      // Validate Essay questions
+      if(q.type === QuestionType.ESSAY) {
+        this.validateEssayQuestion(q, i);
+      }
+
+      questions.push({
+        type: q.type,
+        question: q.question,
+        question_ar: q.question_ar,
+        choices: q.type === QuestionType.MCQ ? q.choices : undefined,
+        correct_answer:
+          q.type === QuestionType.MCQ ? q.correct_answer : undefined,
+        marks: q.marks,
+      });
+
+      totalMarks += q.marks;
+    }
+
+    return { questions, totalMarks };
+  }
+
+  /**
+   * Validate MCQ question structure
+   */
+  private validateMcqQuestion(
+    q: { choices?: string[]; correct_answer?: string },
+    index: number,
+  ): void {
+    if(!q.choices || q.choices.length < 2) {
+      throw new BadRequestException(
+        `Question ${String(index + 1)}: MCQ must have at least 2 choices`,
+      );
+    }
+    if(!q.correct_answer) {
+      throw new BadRequestException(
+        `Question ${String(index + 1)}: MCQ must have a correct answer`,
+      );
+    }
+    if(!q.choices.includes(q.correct_answer)) {
+      throw new BadRequestException(
+        `Question ${String(index + 1)}: Correct answer must be one of the choices`,
+      );
+    }
+  }
+
+  /**
+   * Validate Essay question structure
+   */
+  private validateEssayQuestion(
+    q: { choices?: string[]; correct_answer?: string },
+    index: number,
+  ): void {
+    if(q.choices && q.choices.length > 0) {
+      throw new BadRequestException(
+        `Question ${String(index + 1)}: Essay questions should not have choices`,
+      );
+    }
+    if(q.correct_answer) {
+      throw new BadRequestException(
+        `Question ${String(index + 1)}: Essay questions should not have a correct answer`,
+      );
+    }
   }
 }

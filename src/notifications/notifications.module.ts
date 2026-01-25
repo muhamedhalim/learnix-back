@@ -1,19 +1,20 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { Notification, NotificationSettings } from './entities';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { StudentProfile } from '../students/entities/student-profile.entity';
+import { User } from '../users/entities/user.entity';
 import {
-  SmsSenderService,
-  NotificationsService,
-  NotificationTriggersService,
-} from './services';
-import {
+  AdminNotificationsController,
   NotificationsController,
   NotificationSettingsController,
-  AdminNotificationsController,
 } from './controllers';
-import { User } from '../users/entities/user.entity';
-import { StudentProfile } from '../students/entities/student-profile.entity';
+import { Notification, NotificationSettings } from './entities';
+import {
+  NotificationsService,
+  NotificationTriggersService,
+  SmsSenderService,
+} from './services';
 
 @Module({
   imports: [
@@ -41,4 +42,8 @@ import { StudentProfile } from '../students/entities/student-profile.entity';
     SmsSenderService,
   ],
 })
-export class NotificationsModule {}
+export class NotificationsModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Notification services ready
+  }
+}

@@ -1,18 +1,19 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Logger,NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+
+import { StudentProfile } from '../../students/entities/student-profile.entity';
+import {
+  NotificationFilterDto,
+  SendNotificationDto,
+  UpdateNotificationSettingsDto,
+} from '../dto';
 import {
   Notification,
   NotificationSettings,
   NotificationType,
 } from '../entities';
-import {
-  SendNotificationDto,
-  UpdateNotificationSettingsDto,
-  NotificationFilterDto,
-} from '../dto';
 import { SmsSenderService } from './sms-sender.service';
-import { StudentProfile } from '../../students/entities/student-profile.entity';
+import { Repository } from 'typeorm';
 
 export interface PaginatedNotifications {
   data: Notification[];
@@ -43,9 +44,9 @@ export class NotificationsService {
   /**
    * Create and send a notification
    */
-  async create(
+  public async create(
     dto: SendNotificationDto,
-    sendSms: boolean = true,
+    sendSms = true,
   ): Promise<Notification> {
     const now = new Date();
 
@@ -55,7 +56,7 @@ export class NotificationsService {
       type: dto.type,
       title: dto.title,
       message: dto.message,
-      data: dto.data || null,
+      data: dto.data ?? null,
       is_read: false,
       sent_at: now,
       sms_sent: false,
@@ -65,7 +66,7 @@ export class NotificationsService {
     const saved = await this.notificationsRepository.save(notification);
 
     // Send SMS if requested
-    if (sendSms && dto.send_sms !== false) {
+    if(sendSms && dto.send_sms !== false) {
       await this.trySendSms(saved);
     }
 
@@ -80,12 +81,12 @@ export class NotificationsService {
     const settings = await this.getOrCreateSettings(notification.user_id);
 
     // Check if SMS is enabled and if this notification type should trigger SMS
-    if (!settings.sms_enabled) {
+    if(!settings.sms_enabled) {
       this.logger.debug(`SMS disabled for user ${notification.user_id}`);
       return;
     }
 
-    if (!this.shouldSendSmsForType(notification.type, settings)) {
+    if(!this.shouldSendSmsForType(notification.type, settings)) {
       this.logger.debug(
         `SMS not enabled for type ${notification.type} for user ${notification.user_id}`,
       );
@@ -98,7 +99,7 @@ export class NotificationsService {
       settings,
     );
 
-    if (!parentPhone) {
+    if(!parentPhone) {
       this.logger.warn(
         `No parent phone for user ${notification.user_id}, skipping SMS`,
       );
@@ -111,7 +112,7 @@ export class NotificationsService {
       notification.message,
     );
 
-    if (result.success) {
+    if(result.success) {
       notification.sms_sent = true;
       notification.sms_to = parentPhone;
       await this.notificationsRepository.save(notification);
@@ -125,7 +126,7 @@ export class NotificationsService {
     type: NotificationType,
     settings: NotificationSettings,
   ): boolean {
-    switch (type) {
+    switch(type) {
       case NotificationType.ATTENDANCE:
         return settings.notify_parent_on_attendance;
       case NotificationType.EXAM_RESULT:
@@ -149,7 +150,7 @@ export class NotificationsService {
     settings: NotificationSettings,
   ): Promise<string | null> {
     // Check for override in settings
-    if (settings.parent_phone_override) {
+    if(settings.parent_phone_override) {
       return settings.parent_phone_override;
     }
 
@@ -158,18 +159,18 @@ export class NotificationsService {
       where: { user_id: userId },
     });
 
-    return profile?.parent_phone || null;
+    return profile?.parent_phone ?? null;
   }
 
   /**
    * Get paginated notifications for a user
    */
-  async findAllForUser(
+  public async findAllForUser(
     userId: string,
     filter: NotificationFilterDto,
   ): Promise<PaginatedNotifications> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.notificationsRepository
@@ -177,29 +178,29 @@ export class NotificationsService {
       .where('notification.user_id = :userId', { userId });
 
     // Apply filters
-    if (filter.type) {
+    if(filter.type) {
       queryBuilder.andWhere('notification.type = :type', { type: filter.type });
     }
 
-    if (filter.is_read !== undefined) {
+    if(filter.is_read !== undefined) {
       queryBuilder.andWhere('notification.is_read = :isRead', {
         isRead: filter.is_read,
       });
     }
 
-    if (filter.sms_sent !== undefined) {
+    if(filter.sms_sent !== undefined) {
       queryBuilder.andWhere('notification.sms_sent = :smsSent', {
         smsSent: filter.sms_sent,
       });
     }
 
-    if (filter.sent_after) {
+    if(filter.sent_after) {
       queryBuilder.andWhere('notification.sent_at >= :sentAfter', {
         sentAfter: new Date(filter.sent_after),
       });
     }
 
-    if (filter.sent_before) {
+    if(filter.sent_before) {
       queryBuilder.andWhere('notification.sent_at <= :sentBefore', {
         sentBefore: new Date(filter.sent_before),
       });
@@ -232,7 +233,7 @@ export class NotificationsService {
   /**
    * Get unread notification count for a user
    */
-  async getUnreadCount(userId: string): Promise<number> {
+  public async getUnreadCount(userId: string): Promise<number> {
     return this.notificationsRepository.count({
       where: { user_id: userId, is_read: false },
     });
@@ -241,7 +242,7 @@ export class NotificationsService {
   /**
    * Mark a notification as read
    */
-  async markAsRead(
+  public async markAsRead(
     notificationId: string,
     userId: string,
   ): Promise<Notification> {
@@ -249,11 +250,11 @@ export class NotificationsService {
       where: { id: notificationId, user_id: userId },
     });
 
-    if (!notification) {
+    if(!notification) {
       throw new NotFoundException('Notification not found');
     }
 
-    if (!notification.is_read) {
+    if(!notification.is_read) {
       notification.is_read = true;
       notification.read_at = new Date();
       return this.notificationsRepository.save(notification);
@@ -265,24 +266,24 @@ export class NotificationsService {
   /**
    * Mark all notifications as read for a user
    */
-  async markAllAsRead(userId: string): Promise<{ count: number }> {
+  public async markAllAsRead(userId: string): Promise<{ count: number }> {
     const result = await this.notificationsRepository.update(
       { user_id: userId, is_read: false },
       { is_read: true, read_at: new Date() },
     );
 
-    return { count: result.affected || 0 };
+    return { count: result.affected ?? 0 };
   }
 
   /**
    * Get or create notification settings for a user
    */
-  async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
+  public async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
     let settings = await this.settingsRepository.findOne({
       where: { user_id: userId },
     });
 
-    if (!settings) {
+    if(!settings) {
       settings = this.settingsRepository.create({
         user_id: userId,
         sms_enabled: true,
@@ -302,36 +303,36 @@ export class NotificationsService {
   /**
    * Update notification settings for a user
    */
-  async updateSettings(
+  public async updateSettings(
     userId: string,
     dto: UpdateNotificationSettingsDto,
   ): Promise<NotificationSettings> {
     const settings = await this.getOrCreateSettings(userId);
 
     // Update only provided fields
-    if (dto.sms_enabled !== undefined) {
+    if(dto.sms_enabled !== undefined) {
       settings.sms_enabled = dto.sms_enabled;
     }
-    if (dto.email_enabled !== undefined) {
+    if(dto.email_enabled !== undefined) {
       settings.email_enabled = dto.email_enabled;
     }
-    if (dto.push_enabled !== undefined) {
+    if(dto.push_enabled !== undefined) {
       settings.push_enabled = dto.push_enabled;
     }
-    if (dto.parent_phone_override !== undefined) {
+    if(dto.parent_phone_override !== undefined) {
       settings.parent_phone_override = dto.parent_phone_override || null;
     }
-    if (dto.notify_parent_on_attendance !== undefined) {
+    if(dto.notify_parent_on_attendance !== undefined) {
       settings.notify_parent_on_attendance = dto.notify_parent_on_attendance;
     }
-    if (dto.notify_parent_on_exam_grade !== undefined) {
+    if(dto.notify_parent_on_exam_grade !== undefined) {
       settings.notify_parent_on_exam_grade = dto.notify_parent_on_exam_grade;
     }
-    if (dto.notify_parent_on_lesson_expiry !== undefined) {
+    if(dto.notify_parent_on_lesson_expiry !== undefined) {
       settings.notify_parent_on_lesson_expiry =
         dto.notify_parent_on_lesson_expiry;
     }
-    if (dto.notify_on_purchase !== undefined) {
+    if(dto.notify_on_purchase !== undefined) {
       settings.notify_on_purchase = dto.notify_on_purchase;
     }
 

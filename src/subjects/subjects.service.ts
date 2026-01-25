@@ -1,15 +1,16 @@
 import {
-  Injectable,
-  NotFoundException,
   ConflictException,
+  Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Subject } from './entities/subject.entity';
-import { CreateSubjectDto, UpdateSubjectDto, SubjectFilterDto } from './dto';
+
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { CreateSubjectDto, SubjectFilterDto,UpdateSubjectDto } from './dto';
+import { Subject } from './entities/subject.entity';
 import { SubjectWithCounts } from './interfaces';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class SubjectsService {
@@ -23,13 +24,13 @@ export class SubjectsService {
   /**
    * Create a new subject
    */
-  async create(createSubjectDto: CreateSubjectDto): Promise<Subject> {
+  public async create(createSubjectDto: CreateSubjectDto): Promise<Subject> {
     // Check for duplicate name
     const existingByName = await this.subjectsRepository.findOne({
       where: { name: createSubjectDto.name },
     });
 
-    if (existingByName) {
+    if(existingByName) {
       throw new ConflictException(
         `Subject with name "${createSubjectDto.name}" already exists`,
       );
@@ -37,9 +38,9 @@ export class SubjectsService {
 
     const subject = this.subjectsRepository.create({
       name: createSubjectDto.name,
-      description: createSubjectDto.description || null,
+      description: createSubjectDto.description ?? null,
       grade_level: createSubjectDto.gradeLevel,
-      thumbnail: createSubjectDto.thumbnail || null,
+      thumbnail: createSubjectDto.thumbnail ?? null,
     });
     const savedSubject = await this.subjectsRepository.save(subject);
 
@@ -53,7 +54,7 @@ export class SubjectsService {
   /**
    * Find all subjects with pagination and optional search
    */
-  async findAll(
+  public async findAll(
     filter: SubjectFilterDto,
   ): Promise<PaginatedResponse<SubjectWithCounts>> {
     const { search, page = 1, limit = 20 } = filter;
@@ -73,7 +74,7 @@ export class SubjectsService {
       .where('subject.deleted_at IS NULL');
 
     // Add search filter
-    if (search) {
+    if(search) {
       queryBuilder.andWhere('subject.name ILIKE :search', {
         search: `%${search}%`,
       });
@@ -90,11 +91,12 @@ export class SubjectsService {
       .getMany();
 
     // Add counts (TODO: optimize with subqueries when teachers/lessons tables are populated)
-    const subjectsWithCounts: SubjectWithCounts[] = subjects.map((subject) => ({
-      ...subject,
-      teachersCount: 0, // Will be populated when teacher_subjects has data
-      lessonsCount: 0, // Will be populated when lessons table has data
-    }));
+    const subjectsWithCounts: SubjectWithCounts[] = subjects.map((subject) =>
+      Object.assign({}, subject, {
+        teachersCount: 0, // Will be populated when teacher_subjects has data
+        lessonsCount: 0, // Will be populated when lessons table has data
+      }),
+    );
 
     const totalPages = Math.ceil(total / limit);
 
@@ -114,12 +116,12 @@ export class SubjectsService {
   /**
    * Find a single subject by ID
    */
-  async findOne(id: string): Promise<Subject> {
+  public async findOne(id: string): Promise<Subject> {
     const subject = await this.subjectsRepository.findOne({
       where: { id },
     });
 
-    if (!subject) {
+    if(!subject) {
       throw new NotFoundException(`Subject with ID ${id} not found`);
     }
 
@@ -129,19 +131,19 @@ export class SubjectsService {
   /**
    * Update a subject
    */
-  async update(
+  public async update(
     id: string,
     updateSubjectDto: UpdateSubjectDto,
   ): Promise<Subject> {
     const subject = await this.findOne(id);
 
     // Check for duplicate name if being updated
-    if (updateSubjectDto.name && updateSubjectDto.name !== subject.name) {
+    if(updateSubjectDto.name && updateSubjectDto.name !== subject.name) {
       const existingByName = await this.subjectsRepository.findOne({
         where: { name: updateSubjectDto.name },
       });
 
-      if (existingByName) {
+      if(existingByName) {
         throw new ConflictException(
           `Subject with name "${updateSubjectDto.name}" already exists`,
         );
@@ -149,13 +151,13 @@ export class SubjectsService {
     }
 
     // Update subject with new field names
-    if (updateSubjectDto.name) subject.name = updateSubjectDto.name;
-    if (updateSubjectDto.description !== undefined)
-      subject.description = updateSubjectDto.description;
-    if (updateSubjectDto.gradeLevel)
-      subject.grade_level = updateSubjectDto.gradeLevel;
-    if (updateSubjectDto.thumbnail !== undefined)
-      subject.thumbnail = updateSubjectDto.thumbnail;
+    if(updateSubjectDto.name) {subject.name = updateSubjectDto.name;}
+    if(updateSubjectDto.description !== undefined)
+      {subject.description = updateSubjectDto.description;}
+    if(updateSubjectDto.gradeLevel)
+      {subject.grade_level = updateSubjectDto.gradeLevel;}
+    if(updateSubjectDto.thumbnail !== undefined)
+      {subject.thumbnail = updateSubjectDto.thumbnail;}
 
     const updatedSubject = await this.subjectsRepository.save(subject);
 
@@ -167,7 +169,7 @@ export class SubjectsService {
   /**
    * Soft delete a subject
    */
-  async remove(id: string): Promise<void> {
+  public async remove(id: string): Promise<void> {
     const subject = await this.findOne(id);
 
     // TODO: Check if subject has lessons (prevent deletion if used)
@@ -185,10 +187,10 @@ export class SubjectsService {
    * Find teachers by subject ID
    * Returns teachers who teach this subject with their stats
    */
-  async findTeachersBySubject(
+  public async findTeachersBySubject(
     subjectId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<Record<string, unknown>>> {
     // First verify subject exists
     await this.findOne(subjectId);
@@ -215,16 +217,17 @@ export class SubjectsService {
    * Get subjects with teacher and lesson counts
    * Used for admin dashboard
    */
-  async getSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
+  public async getSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
     const subjects = await this.subjectsRepository.find({
       order: { name: 'ASC' },
     });
 
     // TODO: Add actual counts when relations are established
-    return subjects.map((subject) => ({
-      ...subject,
-      teachersCount: 0,
-      lessonsCount: 0,
-    }));
+    return subjects.map((subject) =>
+      Object.assign({}, subject, {
+        teachersCount: 0,
+        lessonsCount: 0,
+      }),
+    );
   }
 }

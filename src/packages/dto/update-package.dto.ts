@@ -1,14 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { Type } from 'class-transformer';
 import {
-  IsString,
+  IsBoolean,
   IsNumber,
   IsOptional,
-  IsBoolean,
-  Min,
-  MaxLength,
+  IsString,
   IsUrl,
+  MaxLength,
+  Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class UpdatePackageDto {
   @ApiPropertyOptional({
@@ -18,7 +19,7 @@ export class UpdatePackageDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  title?: string;
+  public title?: string;
 
   @ApiPropertyOptional({
     description: 'Package title in Arabic',
@@ -27,7 +28,7 @@ export class UpdatePackageDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  title_ar?: string;
+  public title_ar?: string;
 
   @ApiPropertyOptional({
     description: 'Package description in English',
@@ -35,7 +36,7 @@ export class UpdatePackageDto {
   })
   @IsOptional()
   @IsString()
-  description?: string;
+  public description?: string;
 
   @ApiPropertyOptional({
     description: 'Package description in Arabic',
@@ -43,7 +44,7 @@ export class UpdatePackageDto {
   })
   @IsOptional()
   @IsString()
-  description_ar?: string;
+  public description_ar?: string;
 
   @ApiPropertyOptional({
     description: 'Package price',
@@ -54,7 +55,7 @@ export class UpdatePackageDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Type(() => Number)
-  price?: number;
+  public price?: number;
 
   @ApiPropertyOptional({
     description: 'Whether the package is active and available for purchase',
@@ -63,7 +64,7 @@ export class UpdatePackageDto {
   @IsOptional()
   @IsBoolean()
   @Type(() => Boolean)
-  is_active?: boolean;
+  public is_active?: boolean;
 
   @ApiPropertyOptional({
     description: 'Thumbnail image URL',
@@ -72,5 +73,5 @@ export class UpdatePackageDto {
   @IsOptional()
   @IsUrl()
   @MaxLength(500)
-  thumbnail?: string;
+  public thumbnail?: string;
 }

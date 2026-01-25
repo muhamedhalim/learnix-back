@@ -1,17 +1,15 @@
 import {
-  Controller,
-  Post,
   Body,
+  Controller,
   Logger,
   UnauthorizedException,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { PaymobWebhookDto } from '../dto/paymob-webhook.dto';
-import { PaymobService } from '../services/paymob.service';
-import { PaymentsService } from '../services/payments.service';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
 import { IdempotencyService } from '../../idempotency/idempotency.service';
+import { PaymobWebhookDto } from '../dto/paymob-webhook.dto';
+import { PaymentsService } from '../services/payments.service';
+import { PaymobService } from '../services/paymob.service';
 
 interface WebhookResponse {
   status: 'success' | 'pending' | 'failed' | 'error' | 'already_processed';
@@ -31,35 +29,27 @@ export class PaymentsWebhookController {
     private readonly idempotencyService: IdempotencyService,
   ) {}
 
-  @Post()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Paymob payment callback webhook',
-    description:
-      'Handles payment status updates from Paymob. HMAC signature verification is required.',
-  })
-  @ApiResponse({ status: 200, description: 'Webhook processed successfully' })
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
-  async handlePaymobWebhook(
+  public async handlePaymobWebhook(
     @Body() dto: PaymobWebhookDto,
   ): Promise<WebhookResponse> {
     this.logger.log(
-      `Received Paymob webhook: type=${dto.type}, transaction_id=${dto.obj?.id}`,
+      `Received Paymob webhook: type=${dto.type}, transaction_id=${String(dto.obj.id)}`,
     );
 
     // Step 1: Verify HMAC signature (CRITICAL SECURITY)
     const isValidHmac = this.paymobService.verifyHmac(dto, dto.hmac);
-    if (!isValidHmac) {
+    if(!isValidHmac) {
       this.logger.warn(
-        `HMAC verification failed for transaction ${dto.obj?.id}`,
+        `HMAC verification failed for transaction ${String(dto.obj.id)}`,
       );
       throw new UnauthorizedException('Invalid HMAC signature');
     }
 
-    const merchantOrderId = dto.obj.order?.merchant_order_id;
+    const merchantOrderId = dto.obj.order.merchant_order_id;
     const transactionId = dto.obj.id;
 
-    if (!merchantOrderId) {
+    if(!merchantOrderId) {
       this.logger.warn('Webhook missing merchant_order_id');
       return { status: 'error', message: 'Missing merchant_order_id' };
     }
@@ -70,22 +60,18 @@ export class PaymentsWebhookController {
       transactionId.toString(),
     );
 
-    if (idempotencyCheck.isProcessed) {
+    if(idempotencyCheck.isProcessed) {
       this.logger.log(
-        `Webhook already processed for payment ${merchantOrderId}, transaction ${transactionId}`,
+        `Webhook already processed for payment ${merchantOrderId}, transaction ${String(transactionId)}`,
       );
-      return (
-        (idempotencyCheck.cachedResult as WebhookResponse) || {
-          status: 'already_processed',
-        }
-      );
+      return idempotencyCheck.cachedResult as WebhookResponse;
     }
 
     // Step 3: Find payment by merchant order ID
     const payment =
       await this.paymentsService.getPaymentByMerchantOrderId(merchantOrderId);
 
-    if (!payment) {
+    if(!payment) {
       this.logger.warn(
         `Payment not found for merchant_order_id: ${merchantOrderId}`,
       );
@@ -95,7 +81,7 @@ export class PaymentsWebhookController {
     // Step 4: Process based on transaction success
     let result: WebhookResponse;
 
-    if (dto.obj.success && !dto.obj.pending) {
+    if(dto.obj.success && !dto.obj.pending) {
       // Payment successful
       this.logger.log(
         `Payment ${merchantOrderId} successful, granting access...`,
@@ -131,7 +117,7 @@ export class PaymentsWebhookController {
       };
     } else {
       // Payment failed
-      const failureReason = dto.obj.data_message || 'Payment declined';
+      const failureReason = dto.obj.data_message ?? 'Payment declined';
       this.logger.log(`Payment ${merchantOrderId} failed: ${failureReason}`);
 
       await this.paymentsService.processFailedPayment(
@@ -156,14 +142,12 @@ export class PaymentsWebhookController {
     return result;
   }
 
-  @Post('callback')
-  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Alternative Paymob callback URL',
     description:
       'Alternative endpoint for Paymob callbacks. Same processing as /webhook.',
   })
-  async handlePaymobCallback(
+  public async handlePaymobCallback(
     @Body() dto: PaymobWebhookDto,
   ): Promise<WebhookResponse> {
     return this.handlePaymobWebhook(dto);

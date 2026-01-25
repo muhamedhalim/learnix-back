@@ -1,15 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AttendanceRecord, LessonSession } from './entities';
+
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { AttendanceService } from './attendance.service';
 import {
+  AdminAttendanceController,
   SessionController,
   StudentAttendanceController,
   TeacherAttendanceController,
-  AdminAttendanceController,
 } from './controllers';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { NotificationsModule } from '../notifications/notifications.module';
+import { AttendanceRecord, LessonSession } from './entities';
 
 @Module({
   imports: [

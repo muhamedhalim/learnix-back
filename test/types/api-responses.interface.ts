@@ -1,6 +1,6 @@
 import { PaymentStatus } from '../../src/payments/enums/payment-status.enum';
-import { ResourceType } from '../../src/resources/enums/resource-type.enum';
 import { FileType } from '../../src/resources/enums/file-type.enum';
+import { ResourceType } from '../../src/resources/enums/resource-type.enum';
 
 export interface ChapterResponse {
   id: number;

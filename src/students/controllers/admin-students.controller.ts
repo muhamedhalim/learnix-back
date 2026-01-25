@@ -1,34 +1,31 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Put,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
-  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { StudentsService } from '../students.service';
-import {
-  ApproveStudentDto,
-  RejectStudentDto,
-  UpdateGradeLevelDto,
-  StudentFilterDto,
-} from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import {
+  ApproveStudentDto,
+  RejectStudentDto,
+  StudentFilterDto,
+  UpdateGradeLevelDto,
+} from '../dto';
+import { StudentsService } from '../students.service';
 
 @ApiTags('Admin - Students')
 @Controller('admin/students')
@@ -100,7 +97,7 @@ export class AdminStudentsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  async findAll(@Query() filter: StudentFilterDto) {
+  public async findAll(@Query() filter: StudentFilterDto): Promise<unknown> {
     return this.studentsService.findAllStudents(filter);
   }
 
@@ -129,54 +126,32 @@ export class AdminStudentsController {
     status: HttpStatus.OK,
     description: 'List of pending students',
   })
-  async findPending(
+  public async findPending(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
-    return this.studentsService.findPendingStudents(page || 1, limit || 20);
+  ): Promise<unknown> {
+    return this.studentsService.findPendingStudents(page ?? 1, limit ?? 20);
   }
 
   /**
    * Get a single student by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get student by ID',
-    description:
-      'Returns detailed information about a student including user details and notification settings. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Student details retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.studentsService.findStudentById(id);
   }
 
   /**
    * Get student statistics
    */
-  @Get(':id/stats')
-  @ApiOperation({
-    summary: 'Get student stats',
-    description:
-      'Returns statistics for a student including lessons completed, exams taken, and average score. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Student stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  async getStats(@Param('id', ParseUUIDPipe) id: string) {
+  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<{ stats: unknown }> {
     const stats = await this.studentsService.getStudentStats(id);
     return {
       stats,
@@ -186,30 +161,14 @@ export class AdminStudentsController {
   /**
    * Approve a pending student
    */
-  @Post(':id/approve')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Approve a student',
-    description:
-      'Approves a pending student, allowing them to purchase lessons and take exams. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Student approved successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Student not found',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Student is already approved',
   })
-  async approve(
+  public async approve(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveStudentDto,
-  ) {
+  ): Promise<{ message: string; student: unknown }> {
     const student = await this.studentsService.approveStudent(
       id,
       approveDto.notes,
@@ -223,34 +182,14 @@ export class AdminStudentsController {
   /**
    * Reject a pending student
    */
-  @Post(':id/reject')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Reject a student',
-    description:
-      'Rejects a pending or approved student with a reason. Rejected students cannot purchase lessons or take exams. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Student rejected successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Student not found',
-  })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Student is already rejected',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Rejection reason is required',
   })
-  async reject(
+  public async reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectStudentDto,
-  ) {
+  ): Promise<{ message: string; student: unknown }> {
     const student = await this.studentsService.rejectStudent(id, rejectDto);
     return {
       message: 'Student rejected successfully',
@@ -261,29 +200,14 @@ export class AdminStudentsController {
   /**
    * Update student's grade level
    */
-  @Put(':id/grade-level')
-  @ApiOperation({
-    summary: 'Update student grade level',
-    description:
-      "Updates a student's grade level. Useful for advancing students to the next grade. Admin only.",
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Grade level updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Student not found',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid grade level',
   })
-  async updateGradeLevel(
+  public async updateGradeLevel(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateGradeLevelDto,
-  ) {
+  ): Promise<{ message: string; student: unknown }> {
     const student = await this.studentsService.updateGradeLevel(
       id,
       updateDto.grade_level,

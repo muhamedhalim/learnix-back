@@ -1,47 +1,29 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+import { NotificationType } from '../entities/notification-type.enum';
 import {
   IsNotEmpty,
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsUUID,
   IsObject,
+  IsOptional,
   MaxLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { NotificationType } from '../entities/notification-type.enum';
 
 export class SendNotificationDto {
   @ApiProperty({
     description: 'User ID (UUID) to send notification to',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsUUID('4')
   @IsNotEmpty()
-  user_id!: string;
+  public user_id!: string;
 
-  @ApiProperty({
-    enum: NotificationType,
-    description: 'Type of notification',
-  })
-  @IsEnum(NotificationType)
   @IsNotEmpty()
-  type!: NotificationType;
+  public type!: NotificationType;
 
-  @ApiProperty({
-    description: 'Notification title',
-    maxLength: 200,
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(200)
-  title!: string;
+  public title!: string;
 
-  @ApiProperty({
-    description: 'Notification message body',
-  })
-  @IsString()
   @IsNotEmpty()
-  message!: string;
+  public message!: string;
 
   @ApiPropertyOptional({
     description: 'Additional data as JSON (lesson_id, exam_id, etc.)',
@@ -49,12 +31,12 @@ export class SendNotificationDto {
   })
   @IsObject()
   @IsOptional()
-  data?: Record<string, unknown>;
+  public data?: Record<string, unknown>;
 
   @ApiPropertyOptional({
     description: 'Whether to send SMS to parent phone',
     default: true,
   })
   @IsOptional()
-  send_sms?: boolean;
+  public send_sms?: boolean;
 }

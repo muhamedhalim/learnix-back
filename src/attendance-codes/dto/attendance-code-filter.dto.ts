@@ -1,8 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsBoolean, IsEnum, IsNumber } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsNumber,IsOptional } from 'class-validator';
 
 export class AttendanceCodeFilterDto extends PaginationDto {
   @ApiProperty({
@@ -12,7 +13,7 @@ export class AttendanceCodeFilterDto extends PaginationDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  is_used?: boolean;
+  public is_used?: boolean;
 
   @ApiProperty({
     description: 'Filter by type',
@@ -21,7 +22,7 @@ export class AttendanceCodeFilterDto extends PaginationDto {
   })
   @IsOptional()
   @IsEnum(AttendanceCodeType)
-  type?: AttendanceCodeType;
+  public type?: AttendanceCodeType;
 
   @ApiProperty({
     description: 'Filter by item ID',
@@ -30,7 +31,7 @@ export class AttendanceCodeFilterDto extends PaginationDto {
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
-  item_id?: string;
+  public item_id?: string;
 
   @ApiProperty({
     description: 'Include expired codes',
@@ -40,5 +41,5 @@ export class AttendanceCodeFilterDto extends PaginationDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  include_expired?: boolean;
+  public include_expired?: boolean;
 }

@@ -1,41 +1,42 @@
 import {
+  BadRequestException,
+  ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
-  ConflictException,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
+import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
+import { IdempotencyService } from '../../idempotency/idempotency.service';
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonPackage } from '../../packages/entities/lesson-package.entity';
+import { BillingDataDto } from '../dto/billing-data.dto';
+import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
+import { PurchasePackageDto } from '../dto/purchase-package.dto';
 import {
-  Repository,
+  ItemType,
+  LessonPurchase,
+  PackagePurchase,
+  Payment,
+  PaymentMethod,
+  PaymentStatus,
+} from '../entities';
+import { PaymobService } from './paymob.service';
+import {
   DataSource,
   EntityManager,
   IsNull,
   LessThanOrEqual,
   MoreThan,
+  Repository,
 } from 'typeorm';
-import {
-  Payment,
-  PaymentStatus,
-  PaymentMethod,
-  ItemType,
-  LessonPurchase,
-  PackagePurchase,
-} from '../entities';
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { LessonPackage } from '../../packages/entities/lesson-package.entity';
-import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
-import { PurchasePackageDto } from '../dto/purchase-package.dto';
-import { PaymentFilterDto } from '../dto/payment-filter.dto';
-import { BillingDataDto } from '../dto/billing-data.dto';
-import { PaymobService } from './paymob.service';
-import { IdempotencyService } from '../../idempotency/idempotency.service';
-import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
-import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
-import { retryTransaction } from '../../common/utils/transaction-retry.util';
-import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 
 export interface PaymentResponse {
   payment_id: string;
@@ -124,23 +125,23 @@ export class PaymentsService {
   /**
    * Purchase a lesson - initiates payment with Paymob
    */
-  async purchaseLesson(
+  public async purchaseLesson(
     dto: PurchaseLessonDto,
     userId: string,
   ): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
-      dto.idempotency_key || `lesson-${userId}-${dto.lesson_id}-${Date.now()}`;
+      dto.idempotency_key ?? `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
 
     // Check idempotency
     const idempotencyCheck =
-      await this.idempotencyService.checkPaymentRequest<PaymentResponse>(
+      await this.idempotencyService.checkPaymentRequest(
         userId,
         idempotencyKey,
       );
-    if (idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
+    if(idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
       this.logger.log(`Returning cached payment response for user ${userId}`);
-      return idempotencyCheck.cachedResult;
+      return idempotencyCheck.cachedResult as PaymentResponse;
     }
 
     // Get lesson
@@ -148,15 +149,15 @@ export class PaymentsService {
       where: { id: dto.lesson_id, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
     // Check if student already has active access
     const existingAccess = await this.checkLessonAccess(userId, dto.lesson_id);
-    if (existingAccess.has_access) {
+    if(existingAccess.has_access) {
       throw new ConflictException(
-        `You already have access to this lesson until ${existingAccess.expires_at?.toISOString()}`,
+        `You already have access to this lesson until ${existingAccess.expires_at?.toISOString() ?? 'unlimited'}`,
       );
     }
 
@@ -164,26 +165,26 @@ export class PaymentsService {
     let discountAmount = 0;
     let discountCodeId: string | null = null;
 
-    if (dto.discount_code) {
+    if(dto.discount_code) {
       const verification = await this.discountCodesService.verifyCode(
         {
           code: dto.discount_code,
           item_type: ApplicableItem.LESSON,
           item_id: dto.lesson_id,
-          amount: Number(lesson.price),
+          amount: lesson.price,
         },
         userId,
       );
 
-      if (!verification.valid) {
+      if(!verification.valid) {
         throw new BadRequestException(verification.error);
       }
 
-      discountAmount = verification.discount_amount!;
-      discountCodeId = verification.discount_code_id!;
+      discountAmount = verification.discount_amount ?? 0;
+      discountCodeId = verification.discount_code_id ?? null;
     }
 
-    const finalAmount = Number(lesson.price) - discountAmount;
+    const finalAmount = lesson.price - discountAmount;
 
     // Create payment using transaction
     return await retryTransaction(this.dataSource, async (manager) => {
@@ -203,7 +204,7 @@ export class PaymentsService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Apply discount code if used (within transaction for atomicity)
-      if (discountCodeId) {
+      if(discountCodeId) {
         await this.discountCodesService.applyDiscount(
           discountCodeId,
           userId,
@@ -216,7 +217,7 @@ export class PaymentsService {
       // Initiate Paymob payment
       const paymobResult = await this.paymobService.initiatePayment(
         finalAmount,
-        savedPayment.id.toString(),
+        savedPayment.id,
         dto.billing_data,
       );
 
@@ -229,7 +230,7 @@ export class PaymentsService {
         payment_id: savedPayment.id,
         payment_key: paymobResult.paymentKey,
         paymob_order_id: paymobResult.paymobOrderId,
-        amount: Number(lesson.price),
+        amount: lesson.price,
         discount_amount: discountAmount,
         final_amount: finalAmount,
         iframe_url: paymobResult.iframeUrl,
@@ -253,24 +254,24 @@ export class PaymentsService {
   /**
    * Purchase a package - initiates payment with Paymob
    */
-  async purchasePackage(
+  public async purchasePackage(
     dto: PurchasePackageDto,
     userId: string,
   ): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
-      dto.idempotency_key ||
-      `package-${userId}-${dto.package_id}-${Date.now()}`;
+      dto.idempotency_key ??
+      `package-${userId}-${dto.package_id}-${Date.now().toString()}`;
 
     // Check idempotency
     const idempotencyCheck =
-      await this.idempotencyService.checkPaymentRequest<PaymentResponse>(
+      await this.idempotencyService.checkPaymentRequest(
         userId,
         idempotencyKey,
       );
-    if (idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
+    if(idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
       this.logger.log(`Returning cached payment response for user ${userId}`);
-      return idempotencyCheck.cachedResult;
+      return idempotencyCheck.cachedResult as PaymentResponse;
     }
 
     // Get package
@@ -279,7 +280,7 @@ export class PaymentsService {
       relations: ['items', 'items.lesson'],
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException('Package not found or not active');
     }
 
@@ -287,26 +288,26 @@ export class PaymentsService {
     let discountAmount = 0;
     let discountCodeId: string | null = null;
 
-    if (dto.discount_code) {
+    if(dto.discount_code) {
       const verification = await this.discountCodesService.verifyCode(
         {
           code: dto.discount_code,
           item_type: ApplicableItem.PACKAGE,
           item_id: dto.package_id,
-          amount: Number(pkg.price),
+          amount: pkg.price,
         },
         userId,
       );
 
-      if (!verification.valid) {
+      if(!verification.valid) {
         throw new BadRequestException(verification.error);
       }
 
-      discountAmount = verification.discount_amount!;
-      discountCodeId = verification.discount_code_id!;
+      discountAmount = verification.discount_amount ?? 0;
+      discountCodeId = verification.discount_code_id ?? null;
     }
 
-    const finalAmount = Number(pkg.price) - discountAmount;
+    const finalAmount = pkg.price - discountAmount;
 
     // Create payment using transaction
     return await retryTransaction(this.dataSource, async (manager) => {
@@ -326,7 +327,7 @@ export class PaymentsService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Apply discount code if used (within transaction for atomicity)
-      if (discountCodeId) {
+      if(discountCodeId) {
         await this.discountCodesService.applyDiscount(
           discountCodeId,
           userId,
@@ -339,7 +340,7 @@ export class PaymentsService {
       // Initiate Paymob payment
       const paymobResult = await this.paymobService.initiatePayment(
         finalAmount,
-        savedPayment.id.toString(),
+        savedPayment.id,
         dto.billing_data,
       );
 
@@ -352,7 +353,7 @@ export class PaymentsService {
         payment_id: savedPayment.id,
         payment_key: paymobResult.paymentKey,
         paymob_order_id: paymobResult.paymobOrderId,
-        amount: Number(pkg.price),
+        amount: pkg.price,
         discount_amount: discountAmount,
         final_amount: finalAmount,
         iframe_url: paymobResult.iframeUrl,
@@ -376,7 +377,7 @@ export class PaymentsService {
   /**
    * Reopen an expired lesson at 50% price
    */
-  async reopenLesson(
+  public async reopenLesson(
     lessonId: string,
     userId: string,
     billingData: BillingDataDto,
@@ -391,7 +392,7 @@ export class PaymentsService {
       relations: ['lesson'],
     });
 
-    if (!expiredPurchase) {
+    if(!expiredPurchase) {
       throw new BadRequestException(
         'You have not previously purchased this lesson or access is still active',
       );
@@ -402,13 +403,13 @@ export class PaymentsService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
     // Calculate 50% reopen price
-    const reopenPrice = Number(lesson.price) * 0.5;
-    const idempotencyKey = `reopen-${userId}-${lessonId}-${Date.now()}`;
+    const reopenPrice = lesson.price * 0.5;
+    const idempotencyKey = `reopen-${userId}-${lessonId}-${Date.now().toString()}`;
 
     // Create payment using transaction
     return await retryTransaction(this.dataSource, async (manager) => {
@@ -429,7 +430,7 @@ export class PaymentsService {
       // Initiate Paymob payment
       const paymobResult = await this.paymobService.initiatePayment(
         reopenPrice,
-        savedPayment.id.toString(),
+        savedPayment.id,
         billingData,
       );
 
@@ -456,18 +457,18 @@ export class PaymentsService {
   /**
    * Process successful payment - grant access
    */
-  async processSuccessfulPayment(paymentId: string): Promise<void> {
+  public async processSuccessfulPayment(paymentId: string): Promise<void> {
     await retryTransaction(this.dataSource, async (manager) => {
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
         lock: { mode: 'pessimistic_write' },
       });
 
-      if (!payment) {
+      if(!payment) {
         throw new NotFoundException('Payment not found');
       }
 
-      if (payment.status === PaymentStatus.COMPLETED) {
+      if(payment.status === PaymentStatus.COMPLETED) {
         this.logger.log(`Payment ${paymentId} already completed, skipping`);
         return;
       }
@@ -477,7 +478,7 @@ export class PaymentsService {
       await manager.save(Payment, payment);
 
       // Grant access based on item type
-      if (payment.item_type === ItemType.LESSON) {
+      if(payment.item_type === ItemType.LESSON) {
         await this.grantLessonAccess(manager, payment);
       } else if (payment.item_type === ItemType.PACKAGE) {
         await this.grantPackageAccess(manager, payment);
@@ -501,7 +502,7 @@ export class PaymentsService {
       where: { id: payment.item_id },
     });
 
-    const accessDays = lesson?.available_for_days || 7;
+    const accessDays = lesson?.available_for_days ?? 7;
     const accessGrantedAt = new Date();
     const accessExpiresAt = new Date(accessGrantedAt);
     accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
@@ -545,7 +546,7 @@ export class PaymentsService {
       relations: ['items', 'items.lesson'],
     });
 
-    if (!pkg) {
+    if(!pkg) {
       throw new NotFoundException('Package not found');
     }
 
@@ -561,11 +562,10 @@ export class PaymentsService {
     await manager.save(PackagePurchase, packagePurchase);
 
     // Grant access to each lesson in the package
-    for (const item of pkg.items) {
+    for(const item of pkg.items) {
       const lesson = item.lesson;
-      if (!lesson) continue;
 
-      const accessDays = lesson.available_for_days || 7;
+      const accessDays = lesson.available_for_days;
       const accessGrantedAt = new Date();
       const accessExpiresAt = new Date(accessGrantedAt);
       accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
@@ -586,29 +586,30 @@ export class PaymentsService {
 
     this.logger.log(
       `Package access granted: user ${payment.user_id}, package ${payment.item_id}, ` +
-        `${pkg.items.length} lessons`,
+        `${pkg.items.length.toString()} lessons`,
     );
   }
 
   /**
    * Process failed payment
    */
-  async processFailedPayment(
+  public async processFailedPayment(
     paymentId: string,
     failureReason?: string,
   ): Promise<void> {
+    const reason = failureReason ?? 'Payment declined';
     await this.paymentsRepository.update(paymentId, {
       status: PaymentStatus.FAILED,
-      failure_reason: failureReason || 'Payment declined',
+      failure_reason: reason,
     });
 
-    this.logger.log(`Payment ${paymentId} marked as failed: ${failureReason}`);
+    this.logger.log(`Payment ${paymentId} marked as failed: ${reason}`);
   }
 
   /**
    * Check if student has active access to a lesson
    */
-  async checkLessonAccess(
+  public async checkLessonAccess(
     userId: string,
     lessonId: string,
   ): Promise<AccessCheckResult> {
@@ -620,7 +621,7 @@ export class PaymentsService {
       },
     });
 
-    if (!purchase) {
+    if(!purchase) {
       return { has_access: false };
     }
 
@@ -640,12 +641,12 @@ export class PaymentsService {
   /**
    * Extend lesson access by 1 day (admin only)
    */
-  async extendLessonAccess(purchaseId: string): Promise<LessonPurchase> {
+  public async extendLessonAccess(purchaseId: string): Promise<LessonPurchase> {
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: { id: purchaseId },
     });
 
-    if (!purchase) {
+    if(!purchase) {
       throw new NotFoundException('Purchase not found');
     }
 
@@ -668,7 +669,7 @@ export class PaymentsService {
   /**
    * Get student's purchased lessons (active access)
    */
-  async getMyLessons(userId: string): Promise<LessonPurchase[]> {
+  public async getMyLessons(userId: string): Promise<LessonPurchase[]> {
     return await this.lessonPurchasesRepository.find({
       where: {
         student_id: userId,
@@ -682,7 +683,7 @@ export class PaymentsService {
   /**
    * Get student's purchased packages
    */
-  async getMyPackages(userId: string): Promise<PackagePurchase[]> {
+  public async getMyPackages(userId: string): Promise<PackagePurchase[]> {
     return await this.packagePurchasesRepository.find({
       where: { student_id: userId },
       relations: [
@@ -698,43 +699,43 @@ export class PaymentsService {
   /**
    * Get student's purchase history
    */
-  async getMyPurchases(
+  public async getMyPurchases(
     userId: string,
     filter: PaymentFilterDto,
   ): Promise<{ data: Payment[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.paymentsRepository
       .createQueryBuilder('payment')
       .where('payment.user_id = :userId', { userId });
 
-    if (filter.status) {
+    if(filter.status) {
       queryBuilder.andWhere('payment.status = :status', {
         status: filter.status,
       });
     }
 
-    if (filter.item_type) {
+    if(filter.item_type) {
       queryBuilder.andWhere('payment.item_type = :itemType', {
         itemType: filter.item_type,
       });
     }
 
-    if (filter.from_date) {
+    if(filter.from_date) {
       queryBuilder.andWhere('payment.created_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if (filter.to_date) {
+    if(filter.to_date) {
       queryBuilder.andWhere('payment.created_at <= :toDate', {
         toDate: filter.to_date,
       });
     }
 
-    const sortBy = filter.sortBy || 'created_at';
+    const sortBy = filter.sortBy ?? 'created_at';
     const order = filter.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     queryBuilder.orderBy(`payment.${sortBy}`, order);
 
@@ -761,46 +762,46 @@ export class PaymentsService {
   /**
    * Get all payments (admin)
    */
-  async getAllPayments(
+  public async getAllPayments(
     filter: PaymentFilterDto,
   ): Promise<{ data: Payment[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.paymentsRepository.createQueryBuilder('payment');
 
-    if (filter.user_id) {
+    if(filter.user_id) {
       queryBuilder.andWhere('payment.user_id = :userId', {
         userId: filter.user_id,
       });
     }
 
-    if (filter.status) {
+    if(filter.status) {
       queryBuilder.andWhere('payment.status = :status', {
         status: filter.status,
       });
     }
 
-    if (filter.item_type) {
+    if(filter.item_type) {
       queryBuilder.andWhere('payment.item_type = :itemType', {
         itemType: filter.item_type,
       });
     }
 
-    if (filter.from_date) {
+    if(filter.from_date) {
       queryBuilder.andWhere('payment.created_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if (filter.to_date) {
+    if(filter.to_date) {
       queryBuilder.andWhere('payment.created_at <= :toDate', {
         toDate: filter.to_date,
       });
     }
 
-    const sortBy = filter.sortBy || 'created_at';
+    const sortBy = filter.sortBy ?? 'created_at';
     const order = filter.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     queryBuilder.orderBy(`payment.${sortBy}`, order);
 
@@ -829,7 +830,7 @@ export class PaymentsService {
   /**
    * Get payment by ID
    */
-  async getPaymentById(paymentId: string): Promise<Payment | null> {
+  public async getPaymentById(paymentId: string): Promise<Payment | null> {
     return await this.paymentsRepository.findOne({
       where: { id: paymentId },
       relations: ['user'],
@@ -839,13 +840,13 @@ export class PaymentsService {
   /**
    * Get payment by merchant order ID (our payment.id - UUID)
    */
-  async getPaymentByMerchantOrderId(
+  public async getPaymentByMerchantOrderId(
     merchantOrderId: string,
   ): Promise<Payment | null> {
     // Validate UUID format
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(merchantOrderId)) {
+    if(!uuidRegex.test(merchantOrderId)) {
       return null;
     }
     return await this.paymentsRepository.findOne({
@@ -856,9 +857,9 @@ export class PaymentsService {
   /**
    * Get all lesson purchases (admin)
    */
-  async getAllLessonPurchases(
-    page: number = 1,
-    limit: number = 20,
+  public async getAllLessonPurchases(
+    page = 1,
+    limit = 20,
   ): Promise<{ data: LessonPurchase[]; meta: PaginationMeta }> {
     const skip = (page - 1) * limit;
 
@@ -887,7 +888,7 @@ export class PaymentsService {
   /**
    * Get revenue statistics (admin)
    */
-  async getRevenueStatistics(
+  public async getRevenueStatistics(
     fromDate?: Date,
     toDate?: Date,
   ): Promise<RevenueStatistics> {
@@ -898,45 +899,44 @@ export class PaymentsService {
       .addSelect('SUM(payment.discount_amount)', 'total_discounts')
       .where('payment.status = :status', { status: PaymentStatus.COMPLETED });
 
-    if (fromDate) {
+    if(fromDate) {
       queryBuilder.andWhere('payment.created_at >= :fromDate', { fromDate });
     }
 
-    if (toDate) {
+    if(toDate) {
       queryBuilder.andWhere('payment.created_at <= :toDate', { toDate });
     }
 
-    const result =
-      (await queryBuilder.getRawOne<RevenueRawResult>()) as RevenueRawResult;
+    const result = await queryBuilder.getRawOne<RevenueRawResult>();
 
     return {
-      total_revenue: parseFloat(result?.total_revenue ?? '0') || 0,
-      total_payments: parseInt(result?.total_payments ?? '0', 10) || 0,
-      total_discounts: parseFloat(result?.total_discounts ?? '0') || 0,
+      total_revenue: result?.total_revenue ? parseFloat(result.total_revenue) : 0,
+      total_payments: result?.total_payments ? parseInt(result.total_payments, 10) : 0,
+      total_discounts: result?.total_discounts ? parseFloat(result.total_discounts) : 0,
     };
   }
 
   /**
    * Get teacher revenue with date range filtering and grouping
    */
-  async getTeacherRevenue(
+  public async getTeacherRevenue(
     teacherId: string,
     fromDate?: string,
     toDate?: string,
     groupBy: 'day' | 'week' | 'month' = 'month',
   ): Promise<{
     total_revenue: number;
-    revenue_by_period: Array<{
+    revenue_by_period: {
       period: string;
       revenue: number;
       sales: number;
-    }>;
-    top_lessons: Array<{
+    }[];
+    top_lessons: {
       lesson_id: string;
       lesson_title: string;
       revenue: number;
       sales: number;
-    }>;
+    }[];
     date_range: { from: string | undefined; to: string | undefined };
   }> {
     // Get total revenue for this teacher
@@ -949,10 +949,10 @@ export class PaymentsService {
         status: PaymentStatus.COMPLETED,
       });
 
-    if (fromDate) {
+    if(fromDate) {
       totalQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
     }
-    if (toDate) {
+    if(toDate) {
       totalQuery.andWhere('payment.paid_at <= :toDate', { toDate });
     }
 
@@ -962,7 +962,7 @@ export class PaymentsService {
 
     // Get revenue grouped by period
     let dateFormat: string;
-    switch (groupBy) {
+    switch(groupBy) {
       case 'day':
         dateFormat = 'YYYY-MM-DD';
         break;
@@ -984,10 +984,10 @@ export class PaymentsService {
         status: PaymentStatus.COMPLETED,
       });
 
-    if (fromDate) {
+    if(fromDate) {
       periodQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
     }
-    if (toDate) {
+    if(toDate) {
       periodQuery.andWhere('payment.paid_at <= :toDate', { toDate });
     }
 
@@ -1009,10 +1009,10 @@ export class PaymentsService {
         status: PaymentStatus.COMPLETED,
       });
 
-    if (fromDate) {
+    if(fromDate) {
       topLessonsQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
     }
-    if (toDate) {
+    if(toDate) {
       topLessonsQuery.andWhere('payment.paid_at <= :toDate', { toDate });
     }
 
@@ -1046,14 +1046,14 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by lesson for a teacher
    */
-  async getTeacherRevenueByLesson(teacherId: string): Promise<{
-    lessons: Array<{
+  public async getTeacherRevenueByLesson(teacherId: string): Promise<{
+    lessons: {
       lesson_id: string;
       lesson_title: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
-    }>;
+    }[];
   }> {
     const results = await this.lessonPurchasesRepository
       .createQueryBuilder('lp')
@@ -1086,14 +1086,14 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by package for a teacher
    */
-  async getTeacherRevenueByPackage(teacherId: string): Promise<{
-    packages: Array<{
+  public async getTeacherRevenueByPackage(teacherId: string): Promise<{
+    packages: {
       package_id: string;
       package_title: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
-    }>;
+    }[];
   }> {
     // Package purchases are linked to lesson_packages
     // We need to check if any lesson in the package belongs to this teacher

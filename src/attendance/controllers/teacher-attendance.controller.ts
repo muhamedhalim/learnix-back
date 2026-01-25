@@ -1,36 +1,34 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
   Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
-  HttpStatus,
-  UseGuards,
+  Controller,
   ForbiddenException,
+  Get,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
-  ApiBearerAuth,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { AttendanceService } from '../attendance.service';
-import { MarkAttendanceDto, AttendanceFilterDto } from '../dto';
+import { InjectRepository } from '@nestjs/typeorm';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { Lesson } from '../../lessons/entities/lesson.entity';
-import { AttendanceStatus } from '../entities';
+import { AttendanceService } from '../attendance.service';
+import { AttendanceFilterDto,MarkAttendanceDto } from '../dto';
+import type { AttendanceStatus } from '../entities';
+import { IsNull,Repository } from 'typeorm';
 
 @ApiTags('Teacher Attendance')
 @Controller('teacher/lessons')
@@ -55,11 +53,11 @@ export class TeacherAttendanceController {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new ForbiddenException(`Lesson with ID ${lessonId} not found`);
     }
 
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
         'You can only manage attendance for your own lessons',
       );
@@ -71,37 +69,22 @@ export class TeacherAttendanceController {
   /**
    * Mark attendance for a student in a lesson
    */
-  @Post(':lessonId/attendance')
-  @ApiOperation({
-    summary: 'Mark attendance',
-    description:
-      'Mark attendance for a student in a lesson. Teacher must own the lesson.',
-  })
-  @ApiParam({ name: 'lessonId', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Attendance marked successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Attendance already marked',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
   })
-  async markAttendance(
+  public async markAttendance(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Body() dto: MarkAttendanceDto,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
     // Override lesson_id from path
     const attendance = await this.attendanceService.markAttendance(
       user.userId,
-      { ...dto, lesson_id: lessonId },
+      Object.assign({}, dto, { lesson_id: lessonId }),
       false,
     );
 
@@ -114,33 +97,17 @@ export class TeacherAttendanceController {
   /**
    * Update attendance record
    */
-  @Put(':lessonId/attendance/:id')
-  @ApiOperation({
-    summary: 'Update attendance',
-    description:
-      'Update an existing attendance record. Teacher must own the lesson.',
-  })
-  @ApiParam({ name: 'lessonId', description: 'Lesson ID' })
-  @ApiParam({ name: 'id', description: 'Attendance record ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Attendance updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Attendance record not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
   })
-  async updateAttendance(
+  public async updateAttendance(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: AttendanceStatus,
     @Body('notes') notes?: string,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
@@ -160,30 +127,15 @@ export class TeacherAttendanceController {
   /**
    * Delete attendance record
    */
-  @Delete(':lessonId/attendance/:id')
-  @ApiOperation({
-    summary: 'Delete attendance',
-    description: 'Delete an attendance record. Teacher must own the lesson.',
-  })
-  @ApiParam({ name: 'lessonId', description: 'Lesson ID' })
-  @ApiParam({ name: 'id', description: 'Attendance record ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Attendance deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Attendance record not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
   })
-  async deleteAttendance(
+  public async deleteAttendance(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<{ message: string }> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
@@ -235,18 +187,14 @@ export class TeacherAttendanceController {
     description: 'Items per page (default: 50)',
   })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson attendance retrieved',
-  })
-  @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only view attendance for your own lessons',
   })
-  async getLessonAttendance(
+  public async getLessonAttendance(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Query() filter: AttendanceFilterDto,
-  ) {
+  ): Promise<unknown> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
@@ -256,25 +204,14 @@ export class TeacherAttendanceController {
   /**
    * Get attendance statistics for a lesson
    */
-  @Get(':lessonId/attendance/stats')
-  @ApiOperation({
-    summary: 'Get lesson attendance stats',
-    description:
-      'Get attendance statistics for a lesson. Teacher must own the lesson.',
-  })
-  @ApiParam({ name: 'lessonId', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson attendance statistics retrieved',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only view stats for your own lessons',
   })
-  async getLessonStats(
+  public async getLessonStats(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
-  ) {
+  ): Promise<unknown> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 

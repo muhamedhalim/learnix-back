@@ -1,21 +1,22 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
-  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager, IsNull } from 'typeorm';
-import { DiscountCode, DiscountCodeUsage, DiscountType } from './entities';
+
+import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import {
   CreateDiscountCodeDto,
-  UpdateDiscountCodeDto,
-  VerifyDiscountCodeDto,
-  VerificationResult,
   DiscountFilterDto,
+  UpdateDiscountCodeDto,
+  VerificationResult,
+  VerifyDiscountCodeDto,
 } from './dto';
-import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { DiscountCode, DiscountCodeUsage, DiscountType } from './entities';
+import { EntityManager, IsNull,Repository } from 'typeorm';
 
 @Injectable()
 export class DiscountCodesService {
@@ -31,14 +32,14 @@ export class DiscountCodesService {
   /**
    * Create a new discount code (admin only)
    */
-  async create(dto: CreateDiscountCodeDto): Promise<DiscountCode> {
+  public async create(dto: CreateDiscountCodeDto): Promise<DiscountCode> {
     // Check for duplicate code
     const existing = await this.discountCodesRepository.findOne({
       where: { code: dto.code.toUpperCase() },
       withDeleted: true,
     });
 
-    if (existing) {
+    if(existing) {
       throw new ConflictException('Discount code already exists');
     }
 
@@ -46,7 +47,7 @@ export class DiscountCodesService {
     const validFrom = new Date(dto.valid_from);
     const validUntil = new Date(dto.valid_until);
 
-    if (validUntil <= validFrom) {
+    if(validUntil <= validFrom) {
       throw new BadRequestException('valid_until must be after valid_from');
     }
 
@@ -55,13 +56,13 @@ export class DiscountCodesService {
       discount_type: dto.discount_type,
       discount_value: dto.discount_value,
       applicable_to: dto.applicable_to,
-      item_ids: dto.item_ids || null,
-      max_uses: dto.max_uses || 1,
-      min_purchase_amount: dto.min_purchase_amount || 0,
+      item_ids: dto.item_ids ?? null,
+      max_uses: dto.max_uses ?? 1,
+      min_purchase_amount: dto.min_purchase_amount ?? 0,
       valid_from: validFrom,
       valid_until: validUntil,
       is_active: dto.is_active ?? true,
-      description: dto.description || null,
+      description: dto.description ?? null,
     });
 
     const saved = await this.discountCodesRepository.save(discountCode);
@@ -72,34 +73,20 @@ export class DiscountCodesService {
   /**
    * Update a discount code (admin only)
    */
-  async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
+  public async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
     });
 
-    if (!discountCode) {
+    if(!discountCode) {
       throw new NotFoundException('Discount code not found');
     }
 
     // Validate dates if provided
-    if (dto.valid_from || dto.valid_until) {
-      const validFrom = dto.valid_from
-        ? new Date(dto.valid_from)
-        : discountCode.valid_from;
-      const validUntil = dto.valid_until
-        ? new Date(dto.valid_until)
-        : discountCode.valid_until;
+    this.validateDateRange(dto, discountCode);
 
-      if (validUntil <= validFrom) {
-        throw new BadRequestException('valid_until must be after valid_from');
-      }
-    }
-
-    Object.assign(discountCode, {
-      ...dto,
-      valid_from: dto.valid_from ? new Date(dto.valid_from) : undefined,
-      valid_until: dto.valid_until ? new Date(dto.valid_until) : undefined,
-    });
+    // Apply updates
+    this.applyDiscountCodeUpdates(discountCode, dto);
 
     const updated = await this.discountCodesRepository.save(discountCode);
     this.logger.log(`Updated discount code: ${updated.code}`);
@@ -107,14 +94,74 @@ export class DiscountCodesService {
   }
 
   /**
+   * Validate date range for discount code updates
+   */
+  private validateDateRange(
+    dto: UpdateDiscountCodeDto,
+    discountCode: DiscountCode,
+  ): void {
+    if(dto.valid_from || dto.valid_until) {
+      const validFrom = dto.valid_from
+        ? new Date(dto.valid_from)
+        : discountCode.valid_from;
+      const validUntil = dto.valid_until
+        ? new Date(dto.valid_until)
+        : discountCode.valid_until;
+
+      if(validUntil <= validFrom) {
+        throw new BadRequestException('valid_until must be after valid_from');
+      }
+    }
+  }
+
+  /**
+   * Apply DTO updates to discount code entity
+   */
+  private applyDiscountCodeUpdates(
+    discountCode: DiscountCode,
+    dto: UpdateDiscountCodeDto,
+  ): void {
+    if (dto.discount_type !== undefined) {
+      discountCode.discount_type = dto.discount_type;
+    }
+    if (dto.discount_value !== undefined) {
+      discountCode.discount_value = dto.discount_value;
+    }
+    if (dto.applicable_to !== undefined) {
+      discountCode.applicable_to = dto.applicable_to;
+    }
+    if (dto.item_ids !== undefined) {
+      discountCode.item_ids = dto.item_ids;
+    }
+    if (dto.max_uses !== undefined) {
+      discountCode.max_uses = dto.max_uses;
+    }
+    if (dto.min_purchase_amount !== undefined) {
+      discountCode.min_purchase_amount = dto.min_purchase_amount;
+    }
+    if (dto.valid_from) {
+      discountCode.valid_from = new Date(dto.valid_from);
+    }
+    if (dto.valid_until) {
+      discountCode.valid_until = new Date(dto.valid_until);
+    }
+    if (dto.is_active !== undefined) {
+      discountCode.is_active = dto.is_active;
+    }
+    if (dto.description !== undefined) {
+      discountCode.description = dto.description;
+    }
+  }
+
+  /**
    * Soft delete a discount code (admin only)
    */
-  async remove(id: string): Promise<void> {
+  public async remove(id: string): Promise<void> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
     });
 
-    if (!discountCode) {
+    if(!discountCode) {
       throw new NotFoundException('Discount code not found');
     }
 
@@ -125,7 +172,7 @@ export class DiscountCodesService {
   /**
    * Find all discount codes with filters (admin only)
    */
-  async findAll(
+  public async findAll(
     filter: DiscountFilterDto,
   ): Promise<{ data: DiscountCode[]; meta: PaginationMeta }> {
     const page = filter.page || 1;
@@ -136,29 +183,29 @@ export class DiscountCodesService {
       .createQueryBuilder('code')
       .where('code.deleted_at IS NULL');
 
-    if (filter.is_active !== undefined) {
+    if(filter.is_active !== undefined) {
       queryBuilder.andWhere('code.is_active = :isActive', {
         isActive: filter.is_active,
       });
     }
 
-    if (filter.discount_type) {
+    if(filter.discount_type) {
       queryBuilder.andWhere('code.discount_type = :type', {
         type: filter.discount_type,
       });
     }
 
-    if (!filter.include_expired) {
+    if(!filter.include_expired) {
       queryBuilder.andWhere('code.valid_until >= :now', { now: new Date() });
     }
 
-    if (filter.valid_from) {
+    if(filter.valid_from) {
       queryBuilder.andWhere('code.valid_from >= :validFrom', {
         validFrom: new Date(filter.valid_from),
       });
     }
 
-    if (filter.valid_until) {
+    if(filter.valid_until) {
       queryBuilder.andWhere('code.valid_until <= :validUntil', {
         validUntil: new Date(filter.valid_until),
       });
@@ -189,13 +236,13 @@ export class DiscountCodesService {
   /**
    * Find one discount code by ID (admin only)
    */
-  async findOne(id: string): Promise<DiscountCode> {
+  public async findOne(id: string): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
       relations: ['usages', 'usages.user'],
     });
 
-    if (!discountCode) {
+    if(!discountCode) {
       throw new NotFoundException('Discount code not found');
     }
 
@@ -205,7 +252,7 @@ export class DiscountCodesService {
   /**
    * Find discount code by code string
    */
-  async findByCode(code: string): Promise<DiscountCode | null> {
+  public async findByCode(code: string): Promise<DiscountCode | null> {
     return await this.discountCodesRepository.findOne({
       where: { code: code.toUpperCase(), deleted_at: IsNull() },
     });
@@ -215,7 +262,7 @@ export class DiscountCodesService {
    * Verify a discount code (public endpoint)
    * Checks validity, usage limits, and applicability
    */
-  async verifyCode(
+  public async verifyCode(
     dto: VerifyDiscountCodeDto,
     userId: string,
   ): Promise<VerificationResult> {
@@ -227,21 +274,21 @@ export class DiscountCodesService {
       },
     });
 
-    if (!code) {
+    if(!code) {
       return { valid: false, error: 'Discount code not found or inactive' };
     }
 
     // Check validity dates
     const now = new Date();
-    if (now < code.valid_from) {
+    if(now < code.valid_from) {
       return { valid: false, error: 'Discount code is not yet valid' };
     }
-    if (now > code.valid_until) {
+    if(now > code.valid_until) {
       return { valid: false, error: 'Discount code has expired' };
     }
 
     // Check usage limits
-    if (code.used_count >= code.max_uses) {
+    if(code.used_count >= code.max_uses) {
       return { valid: false, error: 'Discount code usage limit reached' };
     }
 
@@ -253,7 +300,7 @@ export class DiscountCodesService {
       },
     });
 
-    if (existingUsage) {
+    if(existingUsage) {
       return {
         valid: false,
         error: 'You have already used this discount code',
@@ -261,7 +308,7 @@ export class DiscountCodesService {
     }
 
     // Check applicable items
-    if (!code.applicable_to.includes(dto.item_type)) {
+    if(!code.applicable_to.includes(dto.item_type)) {
       return {
         valid: false,
         error: `Discount code not applicable to ${dto.item_type}s`,
@@ -269,8 +316,8 @@ export class DiscountCodesService {
     }
 
     // Check specific items (if set)
-    if (code.item_ids && code.item_ids.length > 0) {
-      if (!code.item_ids.includes(dto.item_id)) {
+    if(code.item_ids && code.item_ids.length > 0) {
+      if(!code.item_ids.includes(dto.item_id)) {
         return {
           valid: false,
           error: 'Discount code not applicable to this item',
@@ -279,19 +326,25 @@ export class DiscountCodesService {
     }
 
     // Check minimum purchase amount
-    if (dto.amount < Number(code.min_purchase_amount)) {
+    const minAmount = typeof code.min_purchase_amount === 'string'
+      ? parseFloat(code.min_purchase_amount)
+      : code.min_purchase_amount;
+    if(dto.amount < minAmount) {
       return {
         valid: false,
-        error: `Minimum purchase amount is ${code.min_purchase_amount} EGP`,
+        error: `Minimum purchase amount is ${String(minAmount)} EGP`,
       };
     }
 
     // Calculate discount
     let discountAmount = 0;
-    if (code.discount_type === DiscountType.PERCENTAGE) {
-      discountAmount = (dto.amount * Number(code.discount_value)) / 100;
+    const discountValue = typeof code.discount_value === 'string'
+      ? parseFloat(code.discount_value)
+      : code.discount_value;
+    if(code.discount_type === DiscountType.PERCENTAGE) {
+      discountAmount = (dto.amount * discountValue) / 100;
     } else {
-      discountAmount = Number(code.discount_value);
+      discountAmount = discountValue;
     }
 
     // Ensure discount doesn't exceed item price
@@ -301,7 +354,7 @@ export class DiscountCodesService {
       valid: true,
       discount_code_id: code.id,
       discount_type: code.discount_type,
-      discount_value: Number(code.discount_value),
+      discount_value: discountValue,
       discount_amount: discountAmount,
       final_amount: dto.amount - discountAmount,
     };
@@ -311,7 +364,7 @@ export class DiscountCodesService {
    * Apply discount code to a payment (with race condition protection)
    * Uses pessimistic locking to prevent double redemption
    */
-  async applyDiscount(
+  public async applyDiscount(
     discountCodeId: string,
     userId: string,
     paymentId: string,
@@ -324,12 +377,12 @@ export class DiscountCodesService {
       lock: { mode: 'pessimistic_write' },
     });
 
-    if (!code) {
+    if(!code) {
       throw new NotFoundException('Discount code not found');
     }
 
     // Double-check usage limit with lock held
-    if (code.used_count >= code.max_uses) {
+    if(code.used_count >= code.max_uses) {
       throw new BadRequestException('Discount code usage limit reached');
     }
 
@@ -348,7 +401,7 @@ export class DiscountCodesService {
       await manager.save(DiscountCodeUsage, usage);
     } catch (error: unknown) {
       // Handle unique constraint violation
-      if (
+      if(
         error instanceof Error &&
         error.message.includes('duplicate key value')
       ) {
@@ -365,7 +418,7 @@ export class DiscountCodesService {
   /**
    * Get usage statistics for a discount code
    */
-  async getUsageStats(id: string): Promise<{
+  public async getUsageStats(id: string): Promise<{
     total_uses: number;
     remaining_uses: number;
     total_discount_given: number;
@@ -375,7 +428,7 @@ export class DiscountCodesService {
       where: { id, deleted_at: IsNull() },
     });
 
-    if (!code) {
+    if(!code) {
       throw new NotFoundException('Discount code not found');
     }
 
@@ -386,7 +439,12 @@ export class DiscountCodesService {
     });
 
     const totalDiscountGiven = usages.reduce(
-      (sum, u) => sum + Number(u.discount_amount),
+      (sum, u) => {
+        const amount = typeof u.discount_amount === 'string'
+          ? parseFloat(u.discount_amount)
+          : u.discount_amount;
+        return sum + amount;
+      },
       0,
     );
 
@@ -394,11 +452,16 @@ export class DiscountCodesService {
       total_uses: code.used_count,
       remaining_uses: code.max_uses - code.used_count,
       total_discount_given: totalDiscountGiven,
-      users: usages.map((u) => ({
-        user_id: u.user_id,
-        used_at: u.used_at,
-        discount_amount: Number(u.discount_amount),
-      })),
+      users: usages.map((u) => {
+        const amount = typeof u.discount_amount === 'string'
+          ? parseFloat(u.discount_amount)
+          : u.discount_amount;
+        return {
+          user_id: u.user_id,
+          used_at: u.used_at,
+          discount_amount: amount,
+        };
+      }),
     };
   }
 }

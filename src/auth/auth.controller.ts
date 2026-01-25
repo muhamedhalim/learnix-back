@@ -1,109 +1,45 @@
 import {
-  Controller,
-  Post,
-  Get,
   Body,
+  Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
-import { Request } from 'express';
+
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import {
-  PendingAuthResponseDto,
-  ApprovedAuthResponseDto,
-} from './dto/auth-response.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RegisterDto } from './dto/register.dto';
+import type { Request } from 'express';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Post('register')
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
-  @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: 201, description: 'User successfully registered' })
-  @ApiResponse({ status: 409, description: 'User already exists' })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  async register(@Body() registerDto: RegisterDto) {
+  public async register(@Body() registerDto: RegisterDto): Promise<unknown> {
     return this.authService.register(registerDto);
   }
 
-  @Post('login')
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'User login',
-    description:
-      'Authenticate user and return tokens. Response varies by account status: ' +
-      'PENDING users receive status message, APPROVED users receive tokens, REJECTED users get 401 error.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Login successful - Account approved',
-    type: ApprovedAuthResponseDto,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Account pending approval',
-    type: PendingAuthResponseDto,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid credentials or account rejected',
-  })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  async login(@Body() loginDto: LoginDto) {
+  public async login(@Body() loginDto: LoginDto): Promise<unknown> {
     return this.authService.login(loginDto);
   }
 
-  @Post('refresh')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Refresh access token',
-    description:
-      'Use refresh token to obtain a new access token. Returns new access token and rotated refresh token. ' +
-      'Only works for APPROVED users - PENDING/REJECTED users will receive 401 error.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Token refreshed successfully',
-    type: ApprovedAuthResponseDto,
-  })
-  @ApiResponse({
-    status: 401,
-    description:
-      'Invalid/expired refresh token, account pending approval, or account rejected',
-  })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  async refresh(@Body() refreshTokenDto: RefreshTokenDto) {
+  public async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<unknown> {
     return this.authService.refresh(refreshTokenDto.refresh_token);
   }
 
-  @Post('logout')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Logout user',
-    description: 'Clears refresh token and invalidates user session.',
-  })
-  @ApiResponse({ status: 200, description: 'Logged out successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async logout(@Req() request: Request) {
+  public async logout(@Req() request: Request): Promise<{ message: string }> {
     const userId = (request.user as { userId: string }).userId;
     await this.authService.logout(userId);
     return { message: 'Logged out successfully' };
@@ -127,7 +63,7 @@ export class AuthController {
       },
     },
   })
-  getCsrfToken(@Req() request: Request) {
+  public getCsrfToken(@Req() request: Request): { token: string | undefined; message: string } {
     // Token is attached to request by CsrfGuard (handles both existing and new tokens)
     // This ensures the token is available even on the first request when cookie hasn't been set yet
     const token = (request as Request & { csrfToken?: string }).csrfToken;

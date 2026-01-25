@@ -1,22 +1,23 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
-  ConflictException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
-import { Cart } from './entities/cart.entity';
-import { CartItem, CartItemType } from './entities/cart-item.entity';
+
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import {
   AddToCartDto,
-  CartResponseDto,
   CartItemResponseDto,
+  CartResponseDto,
   CheckoutCartDto,
   PaymentMethod,
 } from './dto';
+import { Cart } from './entities/cart.entity';
+import { CartItem, CartItemType } from './entities/cart-item.entity';
+import { IsNull,Repository } from 'typeorm';
 
 @Injectable()
 export class CartService {
@@ -35,14 +36,14 @@ export class CartService {
    * Add item to cart
    * Creates cart if doesn't exist, checks for duplicates, fetches price
    */
-  async addToCart(userId: string, dto: AddToCartDto): Promise<CartResponseDto> {
+  public async addToCart(userId: string, dto: AddToCartDto): Promise<CartResponseDto> {
     // Find or create cart
     let cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
       relations: ['items'],
     });
 
-    if (!cart) {
+    if(!cart) {
       cart = this.cartsRepository.create({ user_id: userId });
       cart = await this.cartsRepository.save(cart);
       cart.items = [];
@@ -53,7 +54,7 @@ export class CartService {
       (item) => item.item_type === dto.itemType && item.item_id === dto.itemId,
     );
 
-    if (existingItem) {
+    if(existingItem) {
       throw new ConflictException('Item already in cart');
     }
 
@@ -77,13 +78,13 @@ export class CartService {
   /**
    * Get cart for user with calculated totals
    */
-  async findCart(userId: string): Promise<CartResponseDto> {
+  public async findCart(userId: string): Promise<CartResponseDto> {
     const cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
       relations: ['items'],
     });
 
-    if (!cart) {
+    if(!cart) {
       // Return empty cart
       return {
         id: '',
@@ -98,7 +99,7 @@ export class CartService {
     // Fetch item details and build response
     const items: CartItemResponseDto[] = [];
 
-    for (const item of cart.items) {
+    for(const item of cart.items) {
       const itemTitle = await this.getItemTitle(item.item_type, item.item_id);
 
       items.push({
@@ -106,12 +107,12 @@ export class CartService {
         itemType: item.item_type,
         itemId: item.item_id,
         itemTitle,
-        price: Number(item.price),
+        price: item.price,
       });
     }
 
     const subtotal = items.reduce((sum, item) => sum + item.price, 0);
-    const discountAmount = Number(cart.discount_amount);
+    const discountAmount = cart.discount_amount;
     const total = Math.max(0, subtotal - discountAmount);
 
     return {
@@ -127,19 +128,19 @@ export class CartService {
   /**
    * Remove item from cart
    */
-  async removeItem(userId: string, itemId: string): Promise<CartResponseDto> {
+  public async removeItem(userId: string, itemId: string): Promise<CartResponseDto> {
     const cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
       relations: ['items'],
     });
 
-    if (!cart) {
+    if(!cart) {
       throw new NotFoundException('Cart not found');
     }
 
     const item = cart.items.find((i) => i.id === itemId);
 
-    if (!item) {
+    if(!item) {
       throw new NotFoundException('Item not found in cart');
     }
 
@@ -154,7 +155,7 @@ export class CartService {
    * Note: This is a placeholder - actual payment integration with Paymob
    * and attendance codes should be done via existing PaymentsService
    */
-  async checkout(
+  public async checkout(
     userId: string,
     dto: CheckoutCartDto,
   ): Promise<{ message: string; data: unknown }> {
@@ -163,7 +164,7 @@ export class CartService {
       relations: ['items'],
     });
 
-    if (!cart || cart.items.length === 0) {
+    if(!cart || cart.items.length === 0) {
       throw new BadRequestException('Cart is empty');
     }
 
@@ -174,13 +175,13 @@ export class CartService {
     // 4. Create payment transaction via PaymentsService or redeem attendance code
 
     // Apply discount code if provided (placeholder for now)
-    if (dto.discountCode) {
+    if(dto.discountCode) {
       cart.discount_code = dto.discountCode;
       // TODO: Validate and apply discount code
     }
 
     // Process payment based on method
-    if (dto.paymentMethod === PaymentMethod.PAYMOB) {
+    if(dto.paymentMethod === PaymentMethod.PAYMOB) {
       // TODO: Create Paymob payment intent via PaymentsService
       // const transaction = await this.paymentsService.createCartCheckout(userId, cart.items, total, discountAmount);
       // Return payment URL for redirect
@@ -192,10 +193,9 @@ export class CartService {
           transactionId: 'placeholder-transaction-id',
         },
       };
-    }
-
-    if (dto.paymentMethod === PaymentMethod.ATTENDANCE_CODE) {
-      if (!dto.attendanceCode) {
+    } else {
+      // PaymentMethod.ATTENDANCE_CODE
+      if(!dto.attendanceCode) {
         throw new BadRequestException(
           'Attendance code required for this payment method',
         );
@@ -217,19 +217,17 @@ export class CartService {
         },
       };
     }
-
-    throw new BadRequestException('Invalid payment method');
   }
 
   /**
    * Clear cart (called after successful checkout)
    */
-  async clearCart(userId: string): Promise<void> {
+  public async clearCart(userId: string): Promise<void> {
     const cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
     });
 
-    if (cart) {
+    if(cart) {
       // Cascade delete will remove all cart items
       await this.cartsRepository.remove(cart);
     }
@@ -242,31 +240,28 @@ export class CartService {
     itemType: CartItemType,
     itemId: string,
   ): Promise<number> {
-    if (itemType === CartItemType.LESSON) {
+    if(itemType === CartItemType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
 
-      if (!lesson) {
+      if(!lesson) {
         throw new NotFoundException(`Lesson with ID ${itemId} not found`);
       }
 
-      return Number(lesson.price);
-    }
-
-    if (itemType === CartItemType.PACKAGE) {
+      return lesson.price;
+    } else {
+      // CartItemType.PACKAGE
       const pkg = await this.packagesRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
 
-      if (!pkg) {
+      if(!pkg) {
         throw new NotFoundException(`Package with ID ${itemId} not found`);
       }
 
-      return Number(pkg.price);
+      return pkg.price;
     }
-
-    throw new BadRequestException('Invalid item type');
   }
 
   /**
@@ -276,22 +271,19 @@ export class CartService {
     itemType: CartItemType,
     itemId: string,
   ): Promise<string> {
-    if (itemType === CartItemType.LESSON) {
+    if(itemType === CartItemType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
 
-      return lesson?.title || 'Unknown Lesson';
-    }
-
-    if (itemType === CartItemType.PACKAGE) {
+      return lesson?.title ?? 'Unknown Lesson';
+    } else {
+      // CartItemType.PACKAGE
       const pkg = await this.packagesRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
 
-      return pkg?.title || 'Unknown Package';
+      return pkg?.title ?? 'Unknown Package';
     }
-
-    return 'Unknown Item';
   }
 }

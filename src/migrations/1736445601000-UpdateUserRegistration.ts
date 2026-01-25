@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class UpdateUserRegistration1736445601000 implements MigrationInterface {
-  name = 'UpdateUserRegistration1736445601000';
+  public name = 'UpdateUserRegistration1736445601000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add "name" column if missing, fill values, then set NOT NULL

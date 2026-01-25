@@ -1,21 +1,21 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Body, Controller, UseGuards } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { User } from '../../users/entities/user.entity';
 import { UserRole } from '../../users/entities/user-role.enum';
+import { ManualNotificationDto, ManualNotificationResponseDto } from '../dto';
+import { Notification } from '../entities';
 import { NotificationTriggersService } from '../services/notification-triggers.service';
 import { SmsSenderService } from '../services/sms-sender.service';
-import { Notification } from '../entities';
-import { ManualNotificationDto, ManualNotificationResponseDto } from '../dto';
+import { Repository } from 'typeorm';
 
 @ApiTags('Admin - Notifications')
 @ApiBearerAuth('JWT-auth')
@@ -32,19 +32,17 @@ export class AdminNotificationsController {
     private readonly notificationsRepository: Repository<Notification>,
   ) {}
 
-  @Post('send')
-  @ApiOperation({ summary: 'Send manual notification to users' })
   @ApiResponse({
     status: 201,
     description: 'Notifications sent',
     type: ManualNotificationResponseDto,
   })
-  async sendManualNotification(
+  public async sendManualNotification(
     @Body() dto: ManualNotificationDto,
   ): Promise<{ message: string; data: ManualNotificationResponseDto }> {
     let userIds: string[];
 
-    if (dto.user_ids && dto.user_ids.length > 0) {
+    if(dto.user_ids && dto.user_ids.length > 0) {
       // Send to specific users
       userIds = dto.user_ids;
     } else {
@@ -64,28 +62,28 @@ export class AdminNotificationsController {
     let smsFailedCount = 0;
 
     // Send notifications to each user
-    for (const userId of userIds) {
+    for(const userId of userIds) {
       try {
         await this.notificationTriggersService.sendCustomNotification(
           userId,
           dto.title,
           dto.message,
-          dto.send_sms || false,
+          dto.send_sms ?? false,
         );
         sentCount++;
 
-        if (dto.send_sms) {
+        if(dto.send_sms) {
           smsSentCount++;
         }
       } catch {
-        if (dto.send_sms) {
+        if(dto.send_sms) {
           smsFailedCount++;
         }
       }
     }
 
     return {
-      message: `Notification sent to ${sentCount} users`,
+      message: `Notification sent to ${sentCount.toString()} users`,
       data: {
         sent_count: sentCount,
         sms_sent_count: smsSentCount,
@@ -94,13 +92,11 @@ export class AdminNotificationsController {
     };
   }
 
-  @Get('statistics')
-  @ApiOperation({ summary: 'Get notification statistics' })
   @ApiResponse({
     status: 200,
     description: 'Returns notification statistics',
   })
-  async getStatistics() {
+  public async getStatistics(): Promise<{ message: string; data: unknown }> {
     const totalNotifications = await this.notificationsRepository.count();
     const readNotifications = await this.notificationsRepository.count({
       where: { is_read: true },
@@ -151,12 +147,12 @@ export class AdminNotificationsController {
             : 0,
         sms_sent: smsSent,
         sms_enabled: this.smsSenderService.isConfigured(),
-        by_type: typeStats.reduce(
+        by_type: typeStats.reduce<Record<string, number>>(
           (acc, item) => {
             acc[item.type] = parseInt(item.count);
             return acc;
           },
-          {} as Record<string, number>,
+          {},
         ),
         last_24_hours: last24Hours,
         last_7_days: last7Days,

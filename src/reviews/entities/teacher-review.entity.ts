@@ -1,16 +1,16 @@
+import { User } from '../../users/entities/user.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
+  Check,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
   Unique,
-  Check,
+  UpdateDateColumn,
 } from 'typeorm';
-import { User } from '../../users/entities/user.entity';
 
 @Entity('teacher_reviews')
 @Unique('UQ_teacher_review_teacher_student', ['teacher_id', 'student_id'])

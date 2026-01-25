@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import { CartItemType } from '../entities/cart-item.entity';
 
 /**
@@ -6,22 +7,22 @@ import { CartItemType } from '../entities/cart-item.entity';
  */
 export class CartItemResponseDto {
   @ApiProperty({ description: 'Cart item ID' })
-  id!: string;
+  public id!: string;
 
   @ApiProperty({
     description: 'Item type',
     enum: CartItemType,
   })
-  itemType!: CartItemType;
+  public itemType!: CartItemType;
 
   @ApiProperty({ description: 'Item ID' })
-  itemId!: string;
+  public itemId!: string;
 
   @ApiProperty({ description: 'Item title' })
-  itemTitle!: string;
+  public itemTitle!: string;
 
   @ApiProperty({ description: 'Item price' })
-  price!: number;
+  public price!: number;
 }
 
 /**
@@ -29,26 +30,26 @@ export class CartItemResponseDto {
  */
 export class CartResponseDto {
   @ApiProperty({ description: 'Cart ID' })
-  id!: string;
+  public id!: string;
 
   @ApiProperty({
     description: 'Cart items',
     type: [CartItemResponseDto],
   })
-  items!: CartItemResponseDto[];
+  public items!: CartItemResponseDto[];
 
   @ApiProperty({ description: 'Subtotal (sum of item prices)' })
-  subtotal!: number;
+  public subtotal!: number;
 
   @ApiProperty({
     description: 'Applied discount code',
     nullable: true,
   })
-  discountCode!: string | null;
+  public discountCode!: string | null;
 
   @ApiProperty({ description: 'Discount amount' })
-  discountAmount!: number;
+  public discountAmount!: number;
 
   @ApiProperty({ description: 'Total after discount' })
-  total!: number;
+  public total!: number;
 }

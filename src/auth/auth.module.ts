@@ -1,19 +1,19 @@
-import { Module, Global } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { PassportModule } from '@nestjs/passport';
-import { JwtModule } from '@nestjs/jwt';
+import { Global,Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { FirebaseModule } from '../firebase/firebase.module';
+import { User } from '../users/entities/user.entity';
+import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { JwtStrategy } from './jwt.strategy';
-import { User } from '../users/entities/user.entity';
 import { FirebaseAuthController } from './firebase-auth.controller';
 import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 import { HybridAuthGuard } from './guards/hybrid-auth.guard';
 import { OptionalHybridAuthGuard } from './guards/optional-hybrid-auth.guard';
-import { UsersModule } from '../users/users.module';
-import { FirebaseModule } from '../firebase/firebase.module';
+import { JwtStrategy } from './jwt.strategy';
 
 @Global()
 @Module({
@@ -25,7 +25,7 @@ import { FirebaseModule } from '../firebase/firebase.module';
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRATION') || '15m',
+          expiresIn: configService.get<string>('JWT_EXPIRATION') ?? '15m',
         },
       }),
       inject: [ConfigService],

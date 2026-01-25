@@ -1,39 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 import {
-  IsString,
   IsNotEmpty,
   IsOptional,
-  IsEmail,
-  MaxLength,
+  IsString,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class BillingDataDto {
-  @ApiProperty({
-    description: 'Customer first name',
-    example: 'Ahmed',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  first_name!: string;
+  public first_name!: string;
 
-  @ApiProperty({
-    description: 'Customer last name',
-    example: 'Mohamed',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  last_name!: string;
+  public last_name!: string;
 
-  @ApiProperty({
-    description: 'Customer email',
-    example: 'ahmed@example.com',
-  })
-  @IsEmail()
   @IsNotEmpty()
-  email!: string;
+  public email!: string;
 
   @ApiProperty({
     description: 'Customer phone number (Egyptian format)',
@@ -44,7 +27,7 @@ export class BillingDataDto {
   @Matches(/^01[0-2,5][0-9]{8}$/, {
     message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
-  phone_number!: string;
+  public phone_number!: string;
 
   @ApiPropertyOptional({
     description: 'Building number or name',
@@ -53,7 +36,7 @@ export class BillingDataDto {
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  building?: string;
+  public building?: string;
 
   @ApiPropertyOptional({
     description: 'Street name',
@@ -62,7 +45,7 @@ export class BillingDataDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  street?: string;
+  public street?: string;
 
   @ApiPropertyOptional({
     description: 'Floor number',
@@ -71,7 +54,7 @@ export class BillingDataDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  floor?: string;
+  public floor?: string;
 
   @ApiPropertyOptional({
     description: 'Apartment number',
@@ -80,37 +63,21 @@ export class BillingDataDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  apartment?: string;
+  public apartment?: string;
 
-  @ApiProperty({
-    description: 'City',
-    example: 'Cairo',
-    default: 'Cairo',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  city!: string;
+  public city!: string;
 
-  @ApiProperty({
-    description: 'State or governorate',
-    example: 'Cairo',
-    default: 'Cairo',
-  })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  state!: string;
+  public state!: string;
 
   @ApiProperty({
     description: 'Country (ISO code)',
     example: 'EG',
     default: 'EG',
   })
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(3)
-  country!: string;
+  public country!: string;
 
   @ApiPropertyOptional({
     description: 'Postal code',
@@ -119,5 +86,5 @@ export class BillingDataDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  postal_code?: string;
+  public postal_code?: string;
 }

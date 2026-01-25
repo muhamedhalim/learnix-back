@@ -1,20 +1,21 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
-  Injectable,
-  NotFoundException,
   ConflictException,
   ForbiddenException,
-  Logger,
   Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
+
+import { UploadService } from '../uploads/upload.service';
+import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.enum';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UploadService } from '../uploads/upload.service';
+import type { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class UsersService {
@@ -37,13 +38,13 @@ export class UsersService {
   /**
    * Invalidate user profile cache
    */
-  private async invalidateUserCache(userId: string) {
+  private async invalidateUserCache(userId: string): Promise<void> {
     const cacheKey = this.getUserCacheKey(userId);
     await this.cacheManager.del(cacheKey);
     this.logger.debug(`Invalidated cache for user ${userId}`);
   }
 
-  async findAll(page: number = 1, limit: number = 10) {
+  public async findAll(page = 1, limit = 10): Promise<unknown> {
     const [users, total] = await this.userRepository.findAndCount({
       select: [
         'id',
@@ -80,11 +81,11 @@ export class UsersService {
     };
   }
 
-  async findOne(id: string) {
+  public async findOne(id: string): Promise<unknown> {
     // Try to get from cache first
     const cacheKey = this.getUserCacheKey(id);
     const cached = await this.cacheManager.get(cacheKey);
-    if (cached) {
+    if(cached) {
       this.logger.debug(`Cache HIT for user ${id}`);
       return cached;
     }
@@ -107,7 +108,7 @@ export class UsersService {
       ],
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
@@ -131,13 +132,13 @@ export class UsersService {
     return userProfile;
   }
 
-  async findByEmail(email: string): Promise<User | null> {
+  public async findByEmail(email: string): Promise<User | null> {
     return this.userRepository.findOne({
       where: { email },
     });
   }
 
-  async findByRole(role: UserRole, page: number = 1, limit: number = 10) {
+  public async findByRole(role: UserRole, page = 1, limit = 10): Promise<unknown> {
     const [users, total] = await this.userRepository.findAndCount({
       where: { role },
       select: [
@@ -166,7 +167,7 @@ export class UsersService {
     };
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
+  public async update(id: string, updateUserDto: UpdateUserDto): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -182,36 +183,36 @@ export class UsersService {
       ],
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    if (updateUserDto.email && updateUserDto.email !== user.email) {
+    if(updateUserDto.email && updateUserDto.email !== user.email) {
       const emailExists = await this.userRepository.findOne({
         where: { email: updateUserDto.email },
       });
-      if (emailExists) {
+      if(emailExists) {
         throw new ConflictException('Email already in use');
       }
     }
 
-    if (updateUserDto.phone && updateUserDto.phone !== user.phone) {
+    if(updateUserDto.phone && updateUserDto.phone !== user.phone) {
       const phoneExists = await this.userRepository.findOne({
         where: { phone: updateUserDto.phone },
       });
-      if (phoneExists) {
+      if(phoneExists) {
         throw new ConflictException('Phone number already in use');
       }
     }
 
     // Use explicit field assignment to prevent mass assignment vulnerability
-    if (updateUserDto.name !== undefined) {
+    if(updateUserDto.name !== undefined) {
       user.name = updateUserDto.name;
     }
-    if (updateUserDto.phone !== undefined) {
+    if(updateUserDto.phone !== undefined) {
       user.phone = updateUserDto.phone;
     }
-    if (updateUserDto.parentPhone !== undefined) {
+    if(updateUserDto.parentPhone !== undefined) {
       user.parent_phone = updateUserDto.parentPhone;
     }
 
@@ -236,23 +237,23 @@ export class UsersService {
     };
   }
 
-  async remove(id: string) {
+  public async remove(id: string): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id },
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
     // Check if user is an admin
-    if (user.role === UserRole.ADMIN) {
+    if(user.role === UserRole.ADMIN) {
       // Count total active admins
       const adminCount = await this.userRepository.count({
         where: { role: UserRole.ADMIN, is_active: true },
       });
 
-      if (adminCount <= 1) {
+      if(adminCount <= 1) {
         throw new ForbiddenException(
           'Cannot delete the last admin account. Please create another admin first.',
         );
@@ -274,7 +275,7 @@ export class UsersService {
     };
   }
 
-  async syncFirebaseUser(
+  public async syncFirebaseUser(
     firebaseToken: admin.auth.DecodedIdToken,
   ): Promise<User> {
     const { uid, email, name } = firebaseToken;
@@ -283,12 +284,12 @@ export class UsersService {
       where: { firebase_uid: uid },
     });
 
-    if (!user) {
+    if(!user) {
       const safeName: string = (name as string) || 'Firebase User';
 
       user = this.userRepository.create({
         firebase_uid: uid,
-        email: email || '',
+        email: email ?? '',
         name: safeName,
         phone: '', // Firebase users don't have phone by default
         role: UserRole.STUDENT, // Default role for Firebase users
@@ -298,25 +299,25 @@ export class UsersService {
 
       user = await this.userRepository.save(user);
       this.logger.log(
-        `New Firebase user created - ID: ${user.id}, Email: ${email}`,
+        `New Firebase user created - ID: ${user.id}, Email: ${String(email)}`,
       );
     }
 
     return user;
   }
 
-  async uploadProfilePicture(userId: string, file: Express.Multer.File) {
+  public async uploadProfilePicture(userId: string, file: Express.Multer.File): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if (user.profile_picture_url) {
+    if(user.profile_picture_url) {
       const filename = user.profile_picture_url.split('/').pop();
-      if (filename) {
+      if(filename) {
         await this.uploadService.deleteFile('profiles', filename);
       }
     }
@@ -338,22 +339,22 @@ export class UsersService {
   /**
    * Update user role (admin only)
    */
-  async updateRole(userId: string, newRole: UserRole) {
+  public async updateRole(userId: string, newRole: UserRole): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
     // Prevent removing the last admin
-    if (user.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+    if(user.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
       const adminCount = await this.userRepository.count({
         where: { role: UserRole.ADMIN, is_active: true },
       });
 
-      if (adminCount <= 1) {
+      if(adminCount <= 1) {
         throw new ForbiddenException(
           'Cannot remove admin role from the last admin account.',
         );

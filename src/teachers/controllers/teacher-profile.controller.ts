@@ -1,24 +1,25 @@
 import {
+  Body,
   Controller,
   Get,
-  Put,
-  Body,
   HttpStatus,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
-import { TeachersService } from '../teachers.service';
-import { UpdateTeacherProfileDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { UpdateTeacherProfileDto } from '../dto';
+import { TeachersService } from '../teachers.service';
 
 @ApiTags('Teacher Profile')
 @Controller('teacher/profile')
@@ -54,7 +55,7 @@ export class TeacherProfileController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (teacher only)',
   })
-  async getProfile(@GetUser() user: JwtPayload) {
+  public async getProfile(@GetUser() user: JwtPayload): Promise<unknown> {
     const profile = await this.teachersService.findTeacherProfile(user.userId);
     return {
       profile,
@@ -91,10 +92,10 @@ export class TeacherProfileController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (teacher only)',
   })
-  async updateProfile(
+  public async updateProfile(
     @GetUser() user: JwtPayload,
     @Body() updateDto: UpdateTeacherProfileDto,
-  ) {
+  ): Promise<unknown> {
     const profile = await this.teachersService.updateProfile(
       user.userId,
       updateDto,
@@ -109,21 +110,11 @@ export class TeacherProfileController {
    * Get current teacher's stats
    * Returns lesson count, student count, earnings, etc.
    */
-  @Get('stats')
-  @ApiOperation({
-    summary: 'Get my stats',
-    description:
-      "Returns the authenticated teacher's statistics including lesson count, student count, and average rating. Teacher only.",
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher profile not found',
   })
-  async getStats(@GetUser() user: JwtPayload) {
+  public async getStats(@GetUser() user: JwtPayload): Promise<unknown> {
     // First get the teacher profile to get the teacherId
     const profile = await this.teachersService.findTeacherProfile(user.userId);
     const stats = await this.teachersService.getTeacherStats(profile.id);

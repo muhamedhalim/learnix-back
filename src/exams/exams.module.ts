@@ -1,15 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Exam } from './entities/exam.entity';
-import { ExamAttempt } from './entities/exam-attempt.entity';
-import { User } from '../users/entities/user.entity';
+
 import { Subject } from '../subjects/entities/subject.entity';
-import { ExamsService } from './exams.service';
+import { User } from '../users/entities/user.entity';
 import {
   ExamsController,
-  TeacherExamsController,
   StudentExamsController,
+  TeacherExamsController,
 } from './controllers';
+import { Exam } from './entities/exam.entity';
+import { ExamAttempt } from './entities/exam-attempt.entity';
+import { ExamsService } from './exams.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Exam, ExamAttempt, User, Subject])],

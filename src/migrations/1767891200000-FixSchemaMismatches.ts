@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class FixSchemaMismatches1767891200000 implements MigrationInterface {
-  name = 'FixSchemaMismatches1767891200000';
+  public name = 'FixSchemaMismatches1767891200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Fix Users table schema

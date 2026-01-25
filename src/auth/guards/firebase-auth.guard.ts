@@ -1,12 +1,13 @@
 import {
-  Injectable,
   CanActivate,
   ExecutionContext,
+  Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Request } from 'express';
+
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
+import { Request } from 'express';
 
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
@@ -15,17 +16,17 @@ export class FirebaseAuthGuard implements CanActivate {
     private usersService: UsersService,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const authHeader = request.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if(!authHeader?.startsWith('Bearer ')) {
       throw new UnauthorizedException('No Firebase token provided');
     }
 
     const firebaseToken = authHeader.split(' ')[1];
 
-    if (!firebaseToken) {
+    if(!firebaseToken) {
       throw new UnauthorizedException('Malformed authorization header');
     }
 

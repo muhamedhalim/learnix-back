@@ -1,15 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { Transform,Type } from 'class-transformer';
 import {
-  IsInt,
-  IsUUID,
-  Min,
-  Max,
-  IsOptional,
-  IsString,
   IsBoolean,
   IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
 } from 'class-validator';
-import { Type, Transform } from 'class-transformer';
 
 export enum ExamSortField {
   CREATED_AT = 'created_at',
@@ -37,7 +38,7 @@ export class ExamFilterDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiProperty({
     description: 'Items per page (max 100)',
@@ -50,7 +51,7 @@ export class ExamFilterDto {
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit?: number = 20;
+  public limit?: number = 20;
 
   @ApiProperty({
     description: 'Search term for title (English or Arabic)',
@@ -59,7 +60,7 @@ export class ExamFilterDto {
   })
   @IsString()
   @IsOptional()
-  search?: string;
+  public search?: string;
 
   @ApiProperty({
     description: 'Filter by subject ID (UUID)',
@@ -68,7 +69,7 @@ export class ExamFilterDto {
   })
   @IsUUID('4')
   @IsOptional()
-  subject_id?: string;
+  public subject_id?: string;
 
   @ApiProperty({
     description: 'Filter by active status',
@@ -76,13 +77,13 @@ export class ExamFilterDto {
     required: false,
   })
   @Transform(({ value }): boolean | undefined => {
-    if (value === 'true') return true;
-    if (value === 'false') return false;
+    if(value === 'true') {return true;}
+    if(value === 'false') {return false;}
     return undefined;
   })
   @IsBoolean()
   @IsOptional()
-  is_active?: boolean;
+  public is_active?: boolean;
 
   @ApiProperty({
     description: 'Sort field',
@@ -93,7 +94,7 @@ export class ExamFilterDto {
   })
   @IsEnum(ExamSortField)
   @IsOptional()
-  sort_by?: ExamSortField = ExamSortField.CREATED_AT;
+  public sort_by?: ExamSortField = ExamSortField.CREATED_AT;
 
   @ApiProperty({
     description: 'Sort order',
@@ -104,7 +105,7 @@ export class ExamFilterDto {
   })
   @IsEnum(SortOrder)
   @IsOptional()
-  sort_order?: SortOrder = SortOrder.DESC;
+  public sort_order?: SortOrder = SortOrder.DESC;
 }
 
 /**
@@ -117,11 +118,11 @@ export class StudentExamFilterDto extends ExamFilterDto {
     required: false,
   })
   @Transform(({ value }): boolean | undefined => {
-    if (value === 'true') return true;
-    if (value === 'false') return false;
+    if(value === 'true') {return true;}
+    if(value === 'false') {return false;}
     return undefined;
   })
   @IsBoolean()
   @IsOptional()
-  attempted?: boolean;
+  public attempted?: boolean;
 }

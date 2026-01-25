@@ -1,16 +1,16 @@
+import { Payment } from '../../payments/entities/payment.entity';
+import { User } from '../../users/entities/user.entity';
+import { DiscountCode } from './discount-code.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
   Unique,
 } from 'typeorm';
-import { DiscountCode } from './discount-code.entity';
-import { User } from '../../users/entities/user.entity';
-import { Payment } from '../../payments/entities/payment.entity';
 
 @Entity('discount_code_usage')
 @Index('IDX_discount_usage_code', ['discount_code_id'])

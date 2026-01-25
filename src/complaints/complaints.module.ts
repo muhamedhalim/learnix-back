@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ComplaintsService } from './complaints.service';
-import { Complaint } from './entities/complaint.entity';
+
 import { NotificationsModule } from '../notifications/notifications.module';
-import { ComplaintsStudentController } from './controllers/complaints-student.controller';
+import { ComplaintsService } from './complaints.service';
 import { ComplaintsAdminController } from './controllers/complaints-admin.controller';
+import { ComplaintsStudentController } from './controllers/complaints-student.controller';
+import { Complaint } from './entities/complaint.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Complaint]), NotificationsModule],

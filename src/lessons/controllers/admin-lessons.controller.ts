@@ -1,26 +1,26 @@
 import {
   Controller,
-  Get,
   Delete,
-  Param,
-  Query,
-  ParseUUIDPipe,
+  Get,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { LessonsService } from '../lessons.service';
-import { LessonFilterDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { LessonFilterDto } from '../dto';
+import { LessonsService } from '../lessons.service';
 
 @ApiTags('Admin - Lessons')
 @Controller('admin/lessons')
@@ -103,51 +103,29 @@ export class AdminLessonsController {
     status: HttpStatus.OK,
     description: 'List of all lessons',
   })
-  async findAll(@Query() filter: LessonFilterDto) {
+  public async findAll(@Query() filter: LessonFilterDto): Promise<unknown> {
     return this.lessonsService.findAll(filter);
   }
 
   /**
    * Get a single lesson by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get lesson by ID',
-    description:
-      'Returns detailed information about a lesson including teacher and subject. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson details retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.lessonsService.findOne(id);
   }
 
   /**
    * Get lesson statistics
    */
-  @Get(':id/stats')
-  @ApiOperation({
-    summary: 'Get lesson stats',
-    description:
-      'Returns statistics for a lesson including purchase count and revenue. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async getStats(@Param('id', ParseUUIDPipe) id: string) {
+  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     const stats = await this.lessonsService.getLessonStats(id);
     return {
       stats,
@@ -163,16 +141,11 @@ export class AdminLessonsController {
     description:
       'Force deletes any lesson regardless of owner. Use with caution. Admin only.',
   })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson deleted successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async delete(@Param('id', ParseUUIDPipe) id: string) {
+  public async delete(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     await this.lessonsService.adminDelete(id);
     return {
       message: 'Lesson deleted successfully',

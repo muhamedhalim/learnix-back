@@ -1,37 +1,34 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { PackagesService } from '../packages.service';
-import {
-  CreatePackageDto,
-  UpdatePackageDto,
-  AddLessonsDto,
-  RemoveLessonsDto,
-  PackageFilterDto,
-} from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import {
+  AddLessonsDto,
+  CreatePackageDto,
+  PackageFilterDto,
+  RemoveLessonsDto,
+  UpdatePackageDto,
+} from '../dto';
+import { PackagesService } from '../packages.service';
 
 @ApiTags('Teacher Packages')
 @Controller('teacher/packages')
@@ -90,34 +87,24 @@ export class TeacherPackagesController {
     status: HttpStatus.OK,
     description: "List of teacher's packages",
   })
-  async findMyPackages(
+  public async findMyPackages(
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ) {
+  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
     return this.packagesService.findMyPackages(user.userId, filter);
   }
 
   /**
    * Create a new package
    */
-  @Post()
-  @ApiOperation({
-    summary: 'Create a package',
-    description:
-      'Creates a new lesson package for the authenticated teacher. Teacher only.',
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Package created successfully',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid input data',
   })
-  async create(
+  public async create(
     @GetUser() user: JwtPayload,
     @Body() createDto: CreatePackageDto,
-  ) {
+  ): Promise<{ message: string; package: unknown }> {
     const pkg = await this.packagesService.create(user.userId, createDto);
     return {
       message: 'Package created successfully',
@@ -128,22 +115,11 @@ export class TeacherPackagesController {
   /**
    * Get a single package by ID (must be owner)
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get my package by ID',
-    description:
-      'Returns a specific package owned by the authenticated teacher.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     const pkg = await this.packagesService.findOne(id);
     return pkg;
   }
@@ -151,30 +127,15 @@ export class TeacherPackagesController {
   /**
    * Update a package
    */
-  @Put(':id')
-  @ApiOperation({
-    summary: 'Update my package',
-    description:
-      'Updates a package owned by the authenticated teacher. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Package not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own packages',
   })
-  async update(
+  public async update(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdatePackageDto,
-  ) {
+  ): Promise<{ message: string; package: unknown }> {
     const pkg = await this.packagesService.update(id, user.userId, updateDto);
     return {
       message: 'Package updated successfully',
@@ -185,29 +146,14 @@ export class TeacherPackagesController {
   /**
    * Delete a package
    */
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete my package',
-    description:
-      'Deletes a package owned by the authenticated teacher. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Package not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own packages',
   })
-  async delete(
+  public async delete(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<{ message: string }> {
     await this.packagesService.delete(id, user.userId);
     return {
       message: 'Package deleted successfully',
@@ -217,34 +163,15 @@ export class TeacherPackagesController {
   /**
    * Add lessons to a package
    */
-  @Post(':id/lessons')
-  @ApiOperation({
-    summary: 'Add lessons to package',
-    description:
-      'Adds lessons to a package. All lessons must belong to the teacher. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lessons added successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Package or lessons not found',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only modify your own packages',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Lessons already in package',
   })
-  async addLessons(
+  public async addLessons(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() addLessonsDto: AddLessonsDto,
-  ) {
+  ): Promise<{ message: string; package: unknown }> {
     const pkg = await this.packagesService.addLessons(
       id,
       user.userId,
@@ -259,29 +186,15 @@ export class TeacherPackagesController {
   /**
    * Remove lessons from a package
    */
-  @Delete(':id/lessons')
-  @ApiOperation({
-    summary: 'Remove lessons from package',
-    description: 'Removes lessons from a package. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lessons removed successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Package not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only modify your own packages',
   })
-  async removeLessons(
+  public async removeLessons(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() removeLessonsDto: RemoveLessonsDto,
-  ) {
+  ): Promise<{ message: string; package: unknown }> {
     const pkg = await this.packagesService.removeLessons(
       id,
       user.userId,
@@ -296,25 +209,15 @@ export class TeacherPackagesController {
   /**
    * Toggle package active status
    */
-  @Put(':id/toggle-active')
-  @ApiOperation({
-    summary: 'Toggle package active status',
-    description: 'Activates or deactivates a package. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package status toggled successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async toggleActive(
+  public async toggleActive(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body('is_active') isActive: boolean,
-  ) {
+  ): Promise<{ message: string; package: unknown }> {
     const pkg = await this.packagesService.toggleActive(
       id,
       user.userId,

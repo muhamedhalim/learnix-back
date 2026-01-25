@@ -1,6 +1,7 @@
-import { IsOptional, IsString, IsInt, IsEnum, IsUUID } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
 import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class BookFilterDto {
   @ApiPropertyOptional({
@@ -9,7 +10,7 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsString()
-  search?: string;
+  public search?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by subject ID (UUID)',
@@ -17,7 +18,7 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsUUID()
-  subject_id?: string;
+  public subject_id?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by teacher ID (UUID)',
@@ -25,7 +26,7 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsUUID()
-  teacher_id?: string;
+  public teacher_id?: string;
 
   @ApiPropertyOptional({
     description: 'Sort by field',
@@ -34,7 +35,7 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsEnum(['price', 'title', 'created_at', 'purchase_count'])
-  sortBy?: 'price' | 'title' | 'created_at' | 'purchase_count';
+  public sortBy?: 'price' | 'title' | 'created_at' | 'purchase_count';
 
   @ApiPropertyOptional({
     description: 'Sort order',
@@ -43,7 +44,7 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsEnum(['asc', 'desc'])
-  order?: 'asc' | 'desc';
+  public order?: 'asc' | 'desc';
 
   @ApiPropertyOptional({
     description: 'Page number',
@@ -53,7 +54,7 @@ export class BookFilterDto {
   @IsOptional()
   @IsInt()
   @Type(() => Number)
-  page?: number;
+  public page?: number;
 
   @ApiPropertyOptional({
     description: 'Items per page',
@@ -63,5 +64,5 @@ export class BookFilterDto {
   @IsOptional()
   @IsInt()
   @Type(() => Number)
-  limit?: number;
+  public limit?: number;
 }

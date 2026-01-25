@@ -1,5 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
+
+import { NextFunction,Request, Response } from 'express';
 
 export interface DeprecationOptions {
   version: string;
@@ -11,12 +12,12 @@ export interface DeprecationOptions {
 export class DeprecationMiddleware implements NestMiddleware {
   constructor(private readonly options: DeprecationOptions) {}
 
-  use(_req: Request, res: Response, next: NextFunction) {
+  public use(_req: Request, res: Response, next: NextFunction): void {
     res.setHeader('X-API-Deprecated', 'true');
     res.setHeader('X-API-Sunset-Date', this.options.sunsetDate);
     res.setHeader('X-API-Deprecated-Version', this.options.version);
 
-    if (this.options.successorPath) {
+    if(this.options.successorPath) {
       res.setHeader(
         'Link',
         `<${this.options.successorPath}>; rel="successor-version"`,
@@ -32,12 +33,12 @@ export function deprecationWarning(
   sunsetDate: string,
   successorPath?: string,
 ) {
-  return (_req: Request, res: Response, next: NextFunction) => {
+  return(_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-API-Deprecated', 'true');
     res.setHeader('X-API-Sunset-Date', sunsetDate);
     res.setHeader('X-API-Deprecated-Version', version);
 
-    if (successorPath) {
+    if(successorPath) {
       res.setHeader('Link', `<${successorPath}>; rel="successor-version"`);
     }
 

@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
-import { statfs } from 'fs/promises';
+import { InjectDataSource } from '@nestjs/typeorm';
+
 import { existsSync } from 'fs';
+import { statfs } from 'fs/promises';
+import { DataSource } from 'typeorm';
 
 export interface HealthCheckResult {
   status: 'healthy' | 'unhealthy';
@@ -45,26 +46,26 @@ export class HealthService {
     private configService: ConfigService,
   ) {
     this.uploadDir =
-      this.configService.get<string>('UPLOAD_DIR') || '/app/uploads';
+      this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
   }
 
   /**
    * Basic health check - just confirms app is running
    */
-  getBasicHealth(): HealthCheckResult {
+  public getBasicHealth(): HealthCheckResult {
     return {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: '1.0.0',
-      environment: this.configService.get<string>('NODE_ENV') || 'development',
+      environment: this.configService.get<string>('NODE_ENV') ?? 'development',
     };
   }
 
   /**
    * Database health check - tests connection and response time
    */
-  async getDatabaseHealth(): Promise<DatabaseHealthResult> {
+  public async getDatabaseHealth(): Promise<DatabaseHealthResult> {
     const startTime = Date.now();
     let dbStatus: DatabaseHealthResult;
 
@@ -85,7 +86,7 @@ export class HealthService {
       };
 
       this.logger.log(
-        `Database health check passed - Response time: ${responseTime}ms`,
+        `Database health check passed - Response time: ${String(responseTime)}ms`,
       );
     } catch (error) {
       const responseTime = Date.now() - startTime;
@@ -111,11 +112,11 @@ export class HealthService {
   /**
    * Storage health check - checks Railway volume status
    */
-  async getStorageHealth(): Promise<StorageHealthResult> {
+  public async getStorageHealth(): Promise<StorageHealthResult> {
     try {
       const pathExists = existsSync(this.uploadDir);
 
-      if (!pathExists) {
+      if(!pathExists) {
         this.logger.warn(`Upload directory does not exist: ${this.uploadDir}`);
 
         return {
@@ -144,7 +145,7 @@ export class HealthService {
       const usedPercentage = (usedSpace / totalSpace) * 100;
 
       // Convert to GB for readability
-      const toGB = (bytes: number) => (bytes / (1024 * 1024 * 1024)).toFixed(2);
+      const toGB = (bytes: number): string => (bytes / (1024 * 1024 * 1024)).toFixed(2);
 
       const storageStatus: StorageHealthResult = {
         status: usedPercentage > 90 ? 'unhealthy' : 'healthy',
@@ -160,7 +161,7 @@ export class HealthService {
         },
       };
 
-      if (usedPercentage > 90) {
+      if(usedPercentage > 90) {
         this.logger.warn(
           `Storage usage critical: ${usedPercentage.toFixed(2)}% used`,
         );
@@ -198,7 +199,7 @@ export class HealthService {
   /**
    * Comprehensive health check - combines all health checks
    */
-  async getComprehensiveHealth(): Promise<{
+  public async getComprehensiveHealth(): Promise<{
     overall: 'healthy' | 'unhealthy';
     basic: HealthCheckResult;
     database: DatabaseHealthResult;

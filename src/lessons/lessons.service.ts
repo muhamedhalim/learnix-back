@@ -1,26 +1,27 @@
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Lesson } from './entities/lesson.entity';
-import { User } from '../users/entities/user.entity';
-import { Subject } from '../subjects/entities/subject.entity';
-import { UserRole } from '../users/entities/user-role.enum';
-import {
-  CreateLessonDto,
-  UpdateLessonDto,
-  LessonFilterDto,
-  UpdateVimeoInfoDto,
-} from './dto';
+
 import { VIDEO_URL_PATTERNS } from '../common/constants';
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Subject } from '../subjects/entities/subject.entity';
+import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
+import {
+  CreateLessonDto,
+  LessonFilterDto,
+  UpdateLessonDto,
+  UpdateVimeoInfoDto,
+} from './dto';
+import { Lesson } from './entities/lesson.entity';
+import { Repository } from 'typeorm';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -84,7 +85,7 @@ export class LessonsService {
    * Create a new lesson
    * Only teachers can create lessons
    */
-  async create(
+  public async create(
     teacherId: string,
     dto: CreateLessonDto,
   ): Promise<LessonWithDetails> {
@@ -93,11 +94,11 @@ export class LessonsService {
       where: { id: teacherId },
     });
 
-    if (!teacher) {
+    if(!teacher) {
       throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
     }
 
-    if (teacher.role !== UserRole.TEACHER) {
+    if(teacher.role !== UserRole.TEACHER) {
       throw new BadRequestException('Only teachers can create lessons');
     }
 
@@ -106,7 +107,7 @@ export class LessonsService {
       where: { id: dto.subject_id },
     });
 
-    if (!subject) {
+    if(!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
@@ -114,7 +115,7 @@ export class LessonsService {
 
     // Generate Vimeo embed URL if video ID provided
     let vimeoEmbedUrl: string | null = null;
-    if (dto.vimeo_video_id) {
+    if(dto.vimeo_video_id) {
       vimeoEmbedUrl = this.generateVimeoEmbedUrl(dto.vimeo_video_id);
     }
 
@@ -122,17 +123,17 @@ export class LessonsService {
     const lesson = this.lessonsRepository.create({
       title: dto.title,
       title_ar: dto.title_ar,
-      description: dto.description || null,
-      description_ar: dto.description_ar || null,
+      description: dto.description ?? null,
+      description_ar: dto.description_ar ?? null,
       teacher_id: teacherId,
       subject_id: dto.subject_id,
-      thumbnail: dto.thumbnail || null,
-      vimeo_video_id: dto.vimeo_video_id || null,
+      thumbnail: dto.thumbnail ?? null,
+      vimeo_video_id: dto.vimeo_video_id ?? null,
       vimeo_embed_url: vimeoEmbedUrl,
       price: dto.price,
-      duration: dto.duration || null,
-      is_group: dto.is_group || false,
-      available_for_days: dto.available_for_days || 7,
+      duration: dto.duration ?? null,
+      is_group: dto.is_group ?? false,
+      available_for_days: dto.available_for_days ?? 7,
       students_count: 0,
     });
 
@@ -144,13 +145,17 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    return this.mapToLessonWithDetails(fullLesson!);
+    if (!fullLesson) {
+      throw new NotFoundException('Failed to load created lesson');
+    }
+
+    return this.mapToLessonWithDetails(fullLesson);
   }
 
   /**
    * Find all lessons with filtering, sorting, and pagination
    */
-  async findAll(
+  public async findAll(
     filter: LessonFilterDto,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
     const {
@@ -173,30 +178,30 @@ export class LessonsService {
       .where('lesson.deleted_at IS NULL');
 
     // Filter by teacher
-    if (teacher_id) {
+    if(teacher_id) {
       queryBuilder.andWhere('lesson.teacher_id = :teacher_id', { teacher_id });
     }
 
     // Filter by subject
-    if (subject_id) {
+    if(subject_id) {
       queryBuilder.andWhere('lesson.subject_id = :subject_id', { subject_id });
     }
 
     // Filter by group lessons
-    if (is_group !== undefined) {
+    if(is_group !== undefined) {
       queryBuilder.andWhere('lesson.is_group = :is_group', { is_group });
     }
 
     // Price range filters
-    if (minPrice !== undefined) {
+    if(minPrice !== undefined) {
       queryBuilder.andWhere('lesson.price >= :minPrice', { minPrice });
     }
-    if (maxPrice !== undefined) {
+    if(maxPrice !== undefined) {
       queryBuilder.andWhere('lesson.price <= :maxPrice', { maxPrice });
     }
 
     // Search by title
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)`,
         { search: `%${search}%` },
@@ -243,7 +248,7 @@ export class LessonsService {
   /**
    * Find lessons by teacher
    */
-  async findByTeacher(
+  public async findByTeacher(
     teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
@@ -256,7 +261,7 @@ export class LessonsService {
   /**
    * Find lessons by subject
    */
-  async findBySubject(
+  public async findBySubject(
     subjectId: string,
     filter: Omit<LessonFilterDto, 'subject_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
@@ -269,13 +274,13 @@ export class LessonsService {
   /**
    * Find a single lesson by ID
    */
-  async findOne(id: string): Promise<LessonWithDetails> {
+  public async findOne(id: string): Promise<LessonWithDetails> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id },
       relations: ['teacher', 'subject'],
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${id} not found`);
     }
 
@@ -286,7 +291,7 @@ export class LessonsService {
    * Update a lesson
    * Only the owner teacher can update
    */
-  async update(
+  public async update(
     lessonId: string,
     teacherId: string,
     dto: UpdateLessonDto,
@@ -296,39 +301,20 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
-    // If subject is being changed, validate it exists
-    if (dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
-      const subject = await this.subjectsRepository.findOne({
-        where: { id: dto.subject_id },
-      });
-      if (!subject) {
-        throw new NotFoundException(
-          `Subject with ID ${dto.subject_id} not found`,
-        );
-      }
-    }
+    // Validate subject change
+    await this.validateSubjectChange(dto, lesson);
 
-    // Update fields
-    if (dto.title !== undefined) lesson.title = dto.title;
-    if (dto.title_ar !== undefined) lesson.title_ar = dto.title_ar;
-    if (dto.description !== undefined) lesson.description = dto.description;
-    if (dto.description_ar !== undefined)
-      lesson.description_ar = dto.description_ar;
-    if (dto.subject_id !== undefined) lesson.subject_id = dto.subject_id;
-    if (dto.price !== undefined) lesson.price = dto.price;
-    if (dto.thumbnail !== undefined) lesson.thumbnail = dto.thumbnail;
-    if (dto.is_group !== undefined) lesson.is_group = dto.is_group;
-    if (dto.available_for_days !== undefined)
-      lesson.available_for_days = dto.available_for_days;
+    // Apply updates
+    this.applyLessonUpdates(lesson, dto);
 
     const savedLesson = await this.lessonsRepository.save(lesson);
 
@@ -338,24 +324,56 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    return this.mapToLessonWithDetails(fullLesson!);
+    if (!fullLesson) {
+      throw new NotFoundException('Failed to load updated lesson');
+    }
+
+    return this.mapToLessonWithDetails(fullLesson);
+  }
+
+  private async validateSubjectChange(
+    dto: UpdateLessonDto,
+    lesson: Lesson,
+  ): Promise<void> {
+    if(dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
+      const subject = await this.subjectsRepository.findOne({
+        where: { id: dto.subject_id },
+      });
+      if(!subject) {
+        throw new NotFoundException(
+          `Subject with ID ${dto.subject_id} not found`,
+        );
+      }
+    }
+  }
+
+  private applyLessonUpdates(lesson: Lesson, dto: UpdateLessonDto): void {
+    if(dto.title !== undefined) {lesson.title = dto.title;}
+    if(dto.title_ar !== undefined) {lesson.title_ar = dto.title_ar;}
+    if(dto.description !== undefined) {lesson.description = dto.description;}
+    if(dto.description_ar !== undefined) {lesson.description_ar = dto.description_ar;}
+    if(dto.subject_id !== undefined) {lesson.subject_id = dto.subject_id;}
+    if(dto.price !== undefined) {lesson.price = dto.price;}
+    if(dto.thumbnail !== undefined) {lesson.thumbnail = dto.thumbnail;}
+    if(dto.is_group !== undefined) {lesson.is_group = dto.is_group;}
+    if(dto.available_for_days !== undefined) {lesson.available_for_days = dto.available_for_days;}
   }
 
   /**
    * Delete a lesson (soft delete)
    * Only the owner teacher can delete
    */
-  async delete(lessonId: string, teacherId: string): Promise<void> {
+  public async delete(lessonId: string, teacherId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only delete your own lessons');
     }
 
@@ -365,12 +383,12 @@ export class LessonsService {
   /**
    * Admin force delete a lesson
    */
-  async adminDelete(lessonId: string): Promise<void> {
+  public async adminDelete(lessonId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -380,7 +398,7 @@ export class LessonsService {
   /**
    * Find teacher's own lessons
    */
-  async findMyLessons(
+  public async findMyLessons(
     teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
@@ -394,7 +412,7 @@ export class LessonsService {
    * Update Vimeo info for a lesson
    * Only the owner teacher can update
    */
-  async updateVimeoInfo(
+  public async updateVimeoInfo(
     lessonId: string,
     teacherId: string,
     dto: UpdateVimeoInfoDto,
@@ -404,20 +422,20 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
     // Update Vimeo fields
     lesson.vimeo_video_id = dto.vimeo_video_id;
     lesson.vimeo_embed_url =
-      dto.vimeo_embed_url || this.generateVimeoEmbedUrl(dto.vimeo_video_id);
-    if (dto.duration !== undefined) {
+      dto.vimeo_embed_url ?? this.generateVimeoEmbedUrl(dto.vimeo_video_id);
+    if(dto.duration !== undefined) {
       lesson.duration = dto.duration;
     }
 
@@ -429,14 +447,18 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    return this.mapToLessonWithDetails(fullLesson!);
+    if (!fullLesson) {
+      throw new NotFoundException('Failed to load updated lesson');
+    }
+
+    return this.mapToLessonWithDetails(fullLesson);
   }
 
   /**
    * Generate Vimeo embed URL from video ID
-   * @deprecated Use Bunny.net URLs instead
+   * Legacy method for backward compatibility with existing Vimeo videos
    */
-  generateVimeoEmbedUrl(vimeoVideoId: string): string {
+  public generateVimeoEmbedUrl(vimeoVideoId: string): string {
     return `https://player.vimeo.com/video/${vimeoVideoId}`;
   }
 
@@ -444,7 +466,7 @@ export class LessonsService {
    * Update lesson video URL (Bunny.net - Primary)
    * Extracts library_id and video_id from URL and stores them separately
    */
-  async updateVideoUrl(
+  public async updateVideoUrl(
     lessonId: string,
     teacherId: string,
     videoUrl: string,
@@ -460,19 +482,19 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
     // Validate Bunny.net URL format using regex from constants
     const match = videoUrl.match(VIDEO_URL_PATTERNS.BUNNY);
 
-    if (!match || !match[1] || !match[2]) {
+    if(!match?.[1] || !match[2]) {
       throw new BadRequestException(
         'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
       );
@@ -487,7 +509,7 @@ export class LessonsService {
     lesson.video_platform = 'bunny';
     lesson.bunny_video_id = videoId;
     lesson.bunny_library_id = libraryId;
-    if (duration !== undefined) {
+    if(duration !== undefined) {
       lesson.duration = duration;
     }
 
@@ -506,7 +528,7 @@ export class LessonsService {
    * Update lesson video URL (Vimeo - Legacy)
    * @deprecated Use updateVideoUrl() with Bunny.net URLs instead
    */
-  async updateVimeoUrl(
+  public async updateVimeoUrl(
     lessonId: string,
     teacherId: string,
     vimeoUrl: string,
@@ -520,17 +542,17 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
+    if(lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
     // Validate Vimeo URL format
-    if (!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
+    if(!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
       throw new BadRequestException(
         'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
       );
@@ -539,7 +561,7 @@ export class LessonsService {
     // Update lesson with Vimeo video info
     lesson.video_url = vimeoUrl;
     lesson.video_platform = 'vimeo';
-    if (duration !== undefined) {
+    if(duration !== undefined) {
       lesson.duration = duration;
     }
 
@@ -556,12 +578,12 @@ export class LessonsService {
    * Get lesson statistics
    * Returns purchase count, revenue, etc.
    */
-  async getLessonStats(lessonId: string): Promise<LessonStats> {
+  public async getLessonStats(lessonId: string): Promise<LessonStats> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -569,7 +591,7 @@ export class LessonsService {
     // For now, return placeholder stats
     return {
       purchaseCount: lesson.students_count,
-      totalRevenue: Number(lesson.price) * lesson.students_count,
+      totalRevenue: lesson.price * lesson.students_count,
       averageRating: 0,
     };
   }
@@ -578,12 +600,12 @@ export class LessonsService {
    * Increment students count when a lesson is purchased
    * Called internally by Purchases module
    */
-  async incrementStudentsCount(lessonId: string): Promise<void> {
+  public async incrementStudentsCount(lessonId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -595,24 +617,20 @@ export class LessonsService {
    * Validate if a student has access to a lesson
    * Placeholder for Purchases module integration
    */
-  async validateAccess(
+  public async validateAccess(
     lessonId: string,
-    studentId: string,
   ): Promise<{ hasAccess: boolean; expiresAt: Date | null }> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // TODO: Implement actual access check when Purchases module is ready
     // For now, return no access
     // This will be updated to check lesson_purchases table
-    console.log(
-      `Checking access for student ${studentId} to lesson ${lessonId}`,
-    );
     return {
       hasAccess: false,
       expiresAt: null,
@@ -649,7 +667,7 @@ export class LessonsService {
       // Legacy Vimeo fields (backward compatibility)
       vimeo_video_id: lesson.vimeo_video_id,
       vimeo_embed_url: lesson.vimeo_embed_url,
-      price: Number(lesson.price),
+      price: lesson.price,
       duration: lesson.duration,
       is_group: lesson.is_group,
       available_for_days: lesson.available_for_days,

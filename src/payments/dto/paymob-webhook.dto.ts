@@ -1,131 +1,110 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsNotEmpty,
-  ValidateNested,
   IsBoolean,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsString,
+  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 export class PaymobSourceDataDto {
   @ApiProperty({ description: 'Card PAN (masked)' })
   @IsString()
-  pan!: string;
+  public pan!: string;
 
-  @ApiProperty({ description: 'Payment sub type' })
   @IsString()
-  sub_type!: string;
+  public sub_type!: string;
 
-  @ApiProperty({ description: 'Payment type' })
   @IsString()
-  type!: string;
+  public type!: string;
 }
 
 export class PaymobOrderDto {
-  @ApiProperty({ description: 'Paymob order ID' })
   @IsNumber()
-  id!: number;
+  public id!: number;
 
   @ApiProperty({ description: 'Merchant order ID (our payment.id)' })
   @IsString()
-  merchant_order_id!: string;
+  public merchant_order_id!: string;
 }
 
 export class PaymobTransactionDto {
-  @ApiProperty({ description: 'Transaction ID' })
   @IsNumber()
-  id!: number;
+  public id!: number;
 
-  @ApiProperty({ description: 'Amount in cents' })
   @IsNumber()
-  amount_cents!: number;
+  public amount_cents!: number;
 
-  @ApiProperty({ description: 'Currency' })
   @IsString()
-  currency!: string;
+  public currency!: string;
 
-  @ApiProperty({ description: 'Transaction success status' })
   @IsBoolean()
-  success!: boolean;
+  public success!: boolean;
 
-  @ApiProperty({ description: 'Transaction pending status' })
   @IsBoolean()
-  pending!: boolean;
+  public pending!: boolean;
 
-  @ApiProperty({ description: 'Error occurred flag' })
   @IsBoolean()
-  error_occured!: boolean;
+  public error_occured!: boolean;
 
-  @ApiProperty({ description: 'Is 3D Secure' })
   @IsBoolean()
-  is_3d_secure!: boolean;
+  public is_3d_secure!: boolean;
 
-  @ApiProperty({ description: 'Is auth transaction' })
   @IsBoolean()
-  is_auth!: boolean;
+  public is_auth!: boolean;
 
-  @ApiProperty({ description: 'Is capture transaction' })
   @IsBoolean()
-  is_capture!: boolean;
+  public is_capture!: boolean;
 
-  @ApiProperty({ description: 'Is refunded' })
   @IsBoolean()
-  is_refunded!: boolean;
+  public is_refunded!: boolean;
 
-  @ApiProperty({ description: 'Is voided' })
   @IsBoolean()
-  is_voided!: boolean;
+  public is_voided!: boolean;
 
-  @ApiProperty({ description: 'Is standalone payment' })
   @IsBoolean()
-  is_standalone_payment!: boolean;
+  public is_standalone_payment!: boolean;
 
-  @ApiProperty({ description: 'Has parent transaction' })
   @IsBoolean()
-  has_parent_transaction!: boolean;
+  public has_parent_transaction!: boolean;
 
-  @ApiProperty({ description: 'Integration ID' })
   @IsNumber()
-  integration_id!: number;
+  public integration_id!: number;
 
-  @ApiProperty({ description: 'Owner ID' })
   @IsNumber()
-  owner!: number;
+  public owner!: number;
 
-  @ApiProperty({ description: 'Creation timestamp' })
   @IsString()
-  created_at!: string;
+  public created_at!: string;
 
   @ApiProperty({ description: 'Source data' })
   @ValidateNested()
   @Type(() => PaymobSourceDataDto)
-  source_data!: PaymobSourceDataDto;
+  public source_data!: PaymobSourceDataDto;
 
   @ApiProperty({ description: 'Order details' })
   @ValidateNested()
   @Type(() => PaymobOrderDto)
-  order!: PaymobOrderDto;
+  public order!: PaymobOrderDto;
 
   @ApiProperty({ description: 'Data message (error details)', required: false })
   @IsOptional()
   @IsString()
-  data_message?: string;
+  public data_message?: string;
 }
 
 export class PaymobWebhookDto {
   @ApiProperty({ description: 'Transaction object' })
   @ValidateNested()
   @Type(() => PaymobTransactionDto)
-  obj!: PaymobTransactionDto;
+  public obj!: PaymobTransactionDto;
 
-  @ApiProperty({ description: 'HMAC signature for verification' })
-  @IsString()
   @IsNotEmpty()
-  hmac!: string;
+  public hmac!: string;
 
-  @ApiProperty({ description: 'Webhook type' })
   @IsString()
-  type!: string;
+  public type!: string;
 }

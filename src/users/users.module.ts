@@ -1,9 +1,10 @@
-import { Module, Global } from '@nestjs/common';
+import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { UploadModule } from '../uploads/upload.module';
+import { User } from './entities/user.entity';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { User } from './entities/user.entity';
-import { UploadModule } from '../uploads/upload.module';
 
 @Global()
 @Module({
@@ -12,4 +13,8 @@ import { UploadModule } from '../uploads/upload.module';
   providers: [UsersService],
   exports: [UsersService],
 })
-export class UsersModule {}
+export class UsersModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - User services ready
+  }
+}

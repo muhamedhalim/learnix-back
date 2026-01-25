@@ -1,34 +1,30 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
   Body,
+  Controller,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
-  HttpStatus,
-  HttpCode,
+  Post,
+  UploadedFile,
   UseGuards,
   UseInterceptors,
-  UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
-  ApiTags,
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
-  ApiParam,
-  ApiBearerAuth,
-  ApiConsumes,
-  ApiBody,
+  ApiTags,
 } from '@nestjs/swagger';
-import { SubjectsService } from '../subjects.service';
-import { CreateSubjectDto, UpdateSubjectDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UploadService } from '../../uploads/upload.service';
+import { CreateSubjectDto, UpdateSubjectDto } from '../dto';
+import { SubjectsService } from '../subjects.service';
 
 @ApiTags('Admin - Subjects')
 @Controller('admin/subjects')
@@ -87,12 +83,12 @@ export class AdminSubjectsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  async create(
+  public async create(
     @Body() createSubjectDto: CreateSubjectDto,
     @UploadedFile() file?: Express.Multer.File,
-  ) {
+  ): Promise<unknown> {
     // Upload thumbnail if provided
-    if (file) {
+    if(file) {
       const uploadResult = await this.uploadService.uploadFile(
         file,
         'thumbnails',
@@ -111,28 +107,14 @@ export class AdminSubjectsController {
    * Update an existing subject
    * Admin only
    */
-  @Put(':id')
-  @ApiOperation({
-    summary: 'Update a subject',
-    description: 'Updates an existing subject. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Subject ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Subject updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Subject not found',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Subject with this title already exists',
   })
-  async update(
+  public async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateSubjectDto: UpdateSubjectDto,
-  ) {
+  ): Promise<unknown> {
     const subject = await this.subjectsService.update(id, updateSubjectDto);
     return {
       message: 'Subject updated successfully',
@@ -144,26 +126,11 @@ export class AdminSubjectsController {
    * Delete a subject (soft delete)
    * Admin only
    */
-  @Delete(':id')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Delete a subject',
-    description: 'Soft deletes a subject. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Subject ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Subject deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Subject not found',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Cannot delete subject with existing lessons',
   })
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
+  public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     await this.subjectsService.remove(id);
     return {
       message: 'Subject deleted successfully',
@@ -174,17 +141,11 @@ export class AdminSubjectsController {
    * Get all subjects with counts (admin dashboard)
    * Admin only
    */
-  @Get('with-counts')
-  @ApiOperation({
-    summary: 'Get subjects with counts',
-    description:
-      'Returns all subjects with teacher and lesson counts for admin dashboard.',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Subjects with counts retrieved successfully',
   })
-  async getSubjectsWithCounts() {
+  public async getSubjectsWithCounts(): Promise<unknown> {
     return this.subjectsService.getSubjectsWithCounts();
   }
 }

@@ -9,13 +9,13 @@ export class PendingAuthResponseDto {
     description: 'Account status',
     enum: ['pending'],
   })
-  status!: 'pending';
+  public status!: 'pending';
 
   @ApiProperty({
     example: 'Your account is under review. Please wait for admin approval.',
     description: 'Status message for the user',
   })
-  message!: string;
+  public message!: string;
 }
 
 /**
@@ -27,32 +27,32 @@ export class ApprovedAuthResponseDto {
     description: 'Account status',
     enum: ['approved'],
   })
-  status!: 'approved';
+  public status!: 'approved';
 
   @ApiProperty({
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
     description: 'JWT access token (short-lived, ~15 minutes)',
   })
-  token!: string;
+  public token!: string;
 
   @ApiProperty({
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
     description: 'JWT refresh token (long-lived, ~7 days)',
   })
-  refreshToken!: string;
+  public refreshToken!: string;
 
   @ApiProperty({
     example: 'STUDENT',
     description: 'User role',
     enum: ['ADMIN', 'CALL_CENTER', 'TEACHER', 'STUDENT'],
   })
-  role!: string;
+  public role!: string;
 
   @ApiProperty({
     example: 'stu_123456',
     description: 'User ID (role-specific prefix: stu_, t_, admin_, cc_)',
   })
-  userId!: string;
+  public userId!: string;
 }
 
 /**

@@ -1,12 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { GradeLevel } from './create-subject.dto';
 import {
+  IsEnum,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
-  IsOptional,
-  IsEnum,
 } from 'class-validator';
-import { GradeLevel } from './create-subject.dto';
 
 export class UpdateSubjectDto {
   @ApiProperty({
@@ -19,7 +20,7 @@ export class UpdateSubjectDto {
   @IsOptional()
   @MinLength(2)
   @MaxLength(255)
-  name?: string;
+  public name?: string;
 
   @ApiProperty({
     description: 'Subject description',
@@ -29,7 +30,7 @@ export class UpdateSubjectDto {
   @IsString()
   @IsOptional()
   @MaxLength(2000)
-  description?: string;
+  public description?: string;
 
   @ApiProperty({
     description: 'Grade level',
@@ -39,7 +40,7 @@ export class UpdateSubjectDto {
   })
   @IsEnum(GradeLevel)
   @IsOptional()
-  gradeLevel?: GradeLevel;
+  public gradeLevel?: GradeLevel;
 
   @ApiProperty({
     description: 'Thumbnail image URL',
@@ -49,5 +50,5 @@ export class UpdateSubjectDto {
   @IsString()
   @IsOptional()
   @MaxLength(500)
-  thumbnail?: string;
+  public thumbnail?: string;
 }

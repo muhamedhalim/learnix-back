@@ -1,26 +1,27 @@
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
   ConflictException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
-import { TeacherProfile } from './entities/teacher-profile.entity';
-import { User } from '../users/entities/user.entity';
-import { Subject } from '../subjects/entities/subject.entity';
-import { UserStatus } from '../users/entities/user-status.enum';
-import { UserRole } from '../users/entities/user-role.enum';
-import {
-  UpdateTeacherProfileDto,
-  RejectTeacherDto,
-  AssignSubjectsDto,
-  TeacherFilterDto,
-} from './dto';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Subject } from '../subjects/entities/subject.entity';
+import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
+import { UserStatus } from '../users/entities/user-status.enum';
+import {
+  AssignSubjectsDto,
+  RejectTeacherDto,
+  TeacherFilterDto,
+  UpdateTeacherProfileDto,
+} from './dto';
+import { TeacherProfile } from './entities/teacher-profile.entity';
+import { In,Repository } from 'typeorm';
 
 /**
  * Response type for teacher profile with user info and subjects
@@ -73,13 +74,13 @@ export class TeachersService {
    * Get a teacher's own profile by user ID
    * Used by teachers to view their profile
    */
-  async findTeacherProfile(userId: string): Promise<TeacherProfileWithDetails> {
+  public async findTeacherProfile(userId: string): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { user_id: userId },
       relations: ['user', 'subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException('Teacher profile not found');
     }
 
@@ -90,7 +91,7 @@ export class TeachersService {
    * Update teacher's own profile
    * Teachers can update their qualifications, bio, experience, and phone
    */
-  async updateProfile(
+  public async updateProfile(
     userId: string,
     dto: UpdateTeacherProfileDto,
   ): Promise<TeacherProfileWithDetails> {
@@ -99,23 +100,23 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException('Teacher profile not found');
     }
 
     // Update profile fields
-    if (dto.qualifications !== undefined) {
+    if(dto.qualifications !== undefined) {
       profile.qualifications = dto.qualifications;
     }
-    if (dto.years_of_experience !== undefined) {
+    if(dto.years_of_experience !== undefined) {
       profile.years_of_experience = dto.years_of_experience;
     }
-    if (dto.bio !== undefined) {
+    if(dto.bio !== undefined) {
       profile.bio = dto.bio;
     }
 
     // Update phone on user entity
-    if (dto.phone !== undefined) {
+    if(dto.phone !== undefined) {
       profile.user.phone = dto.phone;
       await this.usersRepository.save(profile.user);
     }
@@ -128,14 +129,18 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    return this.mapToProfileWithDetails(updatedProfile!);
+    if (!updatedProfile) {
+      throw new NotFoundException(`Failed to reload teacher profile ${savedProfile.id}`);
+    }
+
+    return this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
    * Find all teachers with filtering, sorting, and pagination
    * Used by public endpoints and admin
    */
-  async findAllTeachers(
+  public async findAllTeachers(
     filter: TeacherFilterDto,
   ): Promise<PaginatedResponse<TeacherProfileWithDetails>> {
     const {
@@ -156,12 +161,12 @@ export class TeachersService {
       .andWhere('user.deleted_at IS NULL');
 
     // Filter by user status
-    if (status) {
+    if(status) {
       queryBuilder.andWhere('user.status = :status', { status });
     }
 
     // Search by name or email
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
@@ -172,7 +177,7 @@ export class TeachersService {
     }
 
     // Filter by subject
-    if (subjectId) {
+    if(subjectId) {
       queryBuilder.andWhere(
         'EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher_profile_id = teacher.id AND ts.subject_id = :subjectId)',
         { subjectId },
@@ -217,9 +222,9 @@ export class TeachersService {
   /**
    * Find pending teachers (for admin approval)
    */
-  async findPendingTeachers(
-    page: number = 1,
-    limit: number = 20,
+  public async findPendingTeachers(
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<TeacherProfileWithDetails>> {
     return this.findAllTeachers({
       status: UserStatus.PENDING,
@@ -231,7 +236,7 @@ export class TeachersService {
   /**
    * Find approved teachers (public listing)
    */
-  async findApprovedTeachers(
+  public async findApprovedTeachers(
     filter: Omit<TeacherFilterDto, 'status'>,
   ): Promise<PaginatedResponse<TeacherProfileWithDetails>> {
     return this.findAllTeachers({
@@ -244,13 +249,13 @@ export class TeachersService {
    * Get a single teacher by profile ID
    * Used by admin to view any teacher's details
    */
-  async findTeacherById(id: string): Promise<TeacherProfileWithDetails> {
+  public async findTeacherById(id: string): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id },
       relations: ['user', 'subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${id} not found`);
     }
 
@@ -261,9 +266,9 @@ export class TeachersService {
    * Approve a pending teacher
    * Sets user status to APPROVED
    * @param profileId - Teacher profile ID (numeric)
-   * @param notes - Optional approval notes (stored for audit trail)
+   * @param notes - Optional approval notes (will be stored in audit_logs table)
    */
-  async approveTeacher(
+  public async approveTeacher(
     profileId: string,
     notes?: string,
   ): Promise<TeacherProfileWithDetails> {
@@ -272,11 +277,11 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
-    if (profile.user.status === UserStatus.APPROVED) {
+    if(profile.user.status === UserStatus.APPROVED) {
       throw new ConflictException('Teacher is already approved');
     }
 
@@ -286,12 +291,12 @@ export class TeachersService {
 
     await this.usersRepository.save(profile.user);
 
-    // TODO: Store approval notes in audit_logs table
+    // TODO: Store approval notes in audit_logs table when implemented
+    // Example: await this.auditLogService.log('TEACHER_APPROVED', profileId, notes);
     // TODO: Send notification to teacher about approval
-    if (notes) {
-      // For now, just log. Later: save to audit_logs table
-      console.log(`Teacher ${profileId} approved with notes: ${notes}`);
-    }
+
+    // Suppress unused variable warning until audit_logs table is implemented
+    void notes;
 
     return this.mapToProfileWithDetails(profile);
   }
@@ -300,7 +305,7 @@ export class TeachersService {
    * Reject a pending teacher
    * Sets user status to REJECTED with reason
    */
-  async rejectTeacher(
+  public async rejectTeacher(
     profileId: string,
     dto: RejectTeacherDto,
   ): Promise<TeacherProfileWithDetails> {
@@ -309,11 +314,11 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
-    if (profile.user.status === UserStatus.REJECTED) {
+    if(profile.user.status === UserStatus.REJECTED) {
       throw new ConflictException('Teacher is already rejected');
     }
 
@@ -333,7 +338,7 @@ export class TeachersService {
    * Assign subjects to a teacher
    * Replaces all existing subject assignments
    */
-  async assignSubjects(
+  public async assignSubjects(
     profileId: string,
     dto: AssignSubjectsDto,
   ): Promise<TeacherProfileWithDetails> {
@@ -342,7 +347,7 @@ export class TeachersService {
       relations: ['subjects'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
@@ -351,7 +356,7 @@ export class TeachersService {
       id: In(dto.subjectIds),
     });
 
-    if (subjects.length !== dto.subjectIds.length) {
+    if(subjects.length !== dto.subjectIds.length) {
       const foundIds = subjects.map((s) => s.id);
       const missingIds = dto.subjectIds.filter((id) => !foundIds.includes(id));
       throw new BadRequestException(
@@ -369,19 +374,23 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    return this.mapToProfileWithDetails(updatedProfile!);
+    if (!updatedProfile) {
+      throw new NotFoundException(`Failed to reload teacher profile ${profileId}`);
+    }
+
+    return this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
    * Get teacher statistics
    * Returns lesson count, student count, total earnings, etc.
    */
-  async getTeacherStats(profileId: string): Promise<TeacherStats> {
+  public async getTeacherStats(profileId: string): Promise<TeacherStats> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id: profileId },
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
@@ -391,7 +400,7 @@ export class TeachersService {
       lessonsCount: 0,
       studentsCount: 0,
       totalEarnings: 0,
-      averageRating: Number(profile.rating) || 0,
+      averageRating: profile.rating || 0,
     };
   }
 
@@ -399,7 +408,7 @@ export class TeachersService {
    * Create a teacher profile for a user
    * Called during teacher registration
    */
-  async createTeacherProfile(
+  public async createTeacherProfile(
     userId: string,
     qualifications: string,
     yearsOfExperience: number,
@@ -410,11 +419,11 @@ export class TeachersService {
       where: { id: userId },
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if (user.role !== UserRole.TEACHER) {
+    if(user.role !== UserRole.TEACHER) {
       throw new BadRequestException('User must have TEACHER role');
     }
 
@@ -423,7 +432,7 @@ export class TeachersService {
       where: { user_id: userId },
     });
 
-    if (existingProfile) {
+    if(existingProfile) {
       throw new ConflictException(
         'Teacher profile already exists for this user',
       );
@@ -434,7 +443,7 @@ export class TeachersService {
       user_id: userId,
       qualifications,
       years_of_experience: yearsOfExperience,
-      bio: bio || null,
+      bio: bio ?? null,
       rating: 0,
       total_ratings: 0,
     });
@@ -446,7 +455,7 @@ export class TeachersService {
    * Update teacher rating (called when a student rates)
    * Recalculates average rating
    */
-  async updateTeacherRating(
+  public async updateTeacherRating(
     profileId: string,
     newRating: number,
   ): Promise<void> {
@@ -454,12 +463,12 @@ export class TeachersService {
       where: { id: profileId },
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
     // Calculate new average rating
-    const currentTotal = Number(profile.rating) * profile.total_ratings;
+    const currentTotal = profile.rating * profile.total_ratings;
     const newTotalRatings = profile.total_ratings + 1;
     const newAverageRating = (currentTotal + newRating) / newTotalRatings;
 
@@ -492,9 +501,9 @@ export class TeachersService {
       qualifications: profile.qualifications,
       years_of_experience: profile.years_of_experience,
       bio: profile.bio,
-      rating: Number(profile.rating),
+      rating: profile.rating,
       total_ratings: profile.total_ratings,
-      subjects: profile.subjects || [],
+      subjects: profile.subjects,
       created_at: profile.created_at,
       updated_at: profile.updated_at,
     };

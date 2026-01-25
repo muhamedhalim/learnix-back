@@ -1,9 +1,10 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
-import type { Server } from 'http';
-import type { Request, Response, NextFunction } from 'express';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { AppModule } from './../src/app.module';
+import type { NextFunction,Request, Response } from 'express';
+import type { Server } from 'http';
+import * as request from 'supertest';
 
 describe('AppController (e2e)', () => {
   let app: INestApplication;
@@ -17,7 +18,7 @@ describe('AppController (e2e)', () => {
     app.setGlobalPrefix('api/v1');
     app.use('/', (req: Request, res: Response, next: NextFunction) => {
       if (req.url === '/') {
-        return res.redirect('/api');
+        res.redirect('/api'); return;
       }
       next();
     });
@@ -29,13 +30,13 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer() as Server)
       .get('/')
       .expect(302)
-      .expect('Location', '/api');
+      .expect('Location', '/api') as unknown;
   });
 
   it('/api/v1 (GET) should return Hello World!', () => {
     return request(app.getHttpServer() as Server)
       .get('/api/v1')
       .expect(200)
-      .expect('Hello World!');
+      .expect('Hello World!') as unknown;
   });
 });

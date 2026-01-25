@@ -1,29 +1,26 @@
 import {
-  Controller,
-  Post,
-  Put,
-  Param,
   Body,
-  Req,
-  ParseUUIDPipe,
+  Controller,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
   ApiBearerAuth,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { Request } from 'express';
-import { AttendanceService } from '../attendance.service';
-import { UpdateSessionDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { AttendanceService } from '../attendance.service';
+import { UpdateSessionDto } from '../dto';
+import type { Request } from 'express';
 
 @ApiTags('Lesson Sessions')
 @Controller('lessons')
@@ -36,37 +33,26 @@ export class SessionController {
   /**
    * Enter a lesson (start session tracking)
    */
-  @Post(':id/enter')
-  @ApiOperation({
-    summary: 'Enter lesson',
-    description:
-      'Start a lesson session. Tracks when student enters the lesson video.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Session started successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async enterLesson(
+  public async enterLesson(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) lessonId: string,
     @Req() request: Request,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     const ipAddress =
-      (request.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      request.ip ||
+      (request.headers['x-forwarded-for'] as string).split(',')[0] ??
+      request.ip ??
       null;
-    const deviceInfo = request.headers['user-agent'] || null;
+    const deviceInfo = request.headers['user-agent'] ?? null;
 
     const session = await this.attendanceService.enterLesson(
       user.userId,
       lessonId,
-      ipAddress || undefined,
-      deviceInfo || undefined,
+      ipAddress ?? undefined,
+      deviceInfo ?? undefined,
     );
 
     return {
@@ -79,33 +65,27 @@ export class SessionController {
    * Exit a lesson (end session tracking)
    * Triggers auto-attendance if 80%+ video watched
    */
-  @Post(':id/exit')
-  @ApiOperation({
-    summary: 'Exit lesson',
-    description:
-      'End a lesson session. Provide watch percentage and duration. Auto-marks attendance if 80%+ watched.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Session ended. May include auto-attendance status.',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Active session not found',
   })
-  async exitLesson(
+  public async exitLesson(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) lessonId: string,
     @Body() dto: UpdateSessionDto,
-  ) {
+  ): Promise<{
+    message: string;
+    data?: unknown;
+    session?: unknown;
+    auto_attendance?: boolean;
+  }> {
     // Find active session
     const activeSession = await this.attendanceService.findActiveSession(
       user.userId,
       lessonId,
     );
 
-    if (!activeSession) {
+    if(!activeSession) {
       return {
         message: 'No active session found',
         session: null,
@@ -114,8 +94,8 @@ export class SessionController {
 
     const result = await this.attendanceService.exitLesson(
       activeSession.id,
-      dto.video_progress_percent || 0,
-      dto.duration_seconds || 0,
+      dto.video_progress_percent ?? 0,
+      dto.duration_seconds ?? 0,
     );
 
     return {
@@ -130,23 +110,17 @@ export class SessionController {
   /**
    * Update session progress (during playback)
    */
-  @Put('sessions/:sessionId/progress')
-  @ApiOperation({
-    summary: 'Update session progress',
-    description: 'Update the watch percentage during video playback.',
-  })
-  @ApiParam({ name: 'sessionId', description: 'Session ID' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Progress updated',
   })
-  async updateProgress(
+  public async updateProgress(
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: UpdateSessionDto,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     const session = await this.attendanceService.updateSessionProgress(
       sessionId,
-      dto.video_progress_percent || 0,
+      dto.video_progress_percent ?? 0,
     );
 
     return {

@@ -1,5 +1,6 @@
-import { Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiHeader } from '@nestjs/swagger';
+import { Controller, Post, UseGuards } from '@nestjs/common';
+import { ApiHeader,ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
 import { SkipCsrf } from './common/guards/csrf.guard';
@@ -9,21 +10,14 @@ import { SkipCsrf } from './common/guards/csrf.guard';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Get()
   @ApiOperation({
     summary: 'API root endpoint',
     description: 'Returns a welcome message for the Educational Platform API',
   })
-  getHello(): string {
+  public getHello(): string {
     return this.appService.getHello();
   }
 
-  @Get('health')
-  @ApiOperation({
-    summary: 'Health check endpoint',
-    description:
-      'Returns application health status, uptime, and database connection status. No authentication required.',
-  })
   @ApiResponse({
     status: 200,
     description: 'Health check successful',
@@ -37,15 +31,16 @@ export class AppController {
       },
     },
   })
-  async getHealth() {
+  public getHealth(): {
+    status: string;
+    timestamp: string;
+    uptime: number;
+    environment: string;
+    version: string;
+  } {
     return this.appService.getHealth();
   }
 
-  @Get('roles')
-  @ApiOperation({
-    summary: 'Get available user roles',
-    description: 'Returns list of all user roles available in the system',
-  })
   @ApiResponse({
     status: 200,
     description: 'List of available roles',
@@ -61,14 +56,15 @@ export class AppController {
       },
     },
   })
-  getRoles() {
+  public getRoles(): {
+    roles: string[];
+    descriptions: Record<string, string>;
+  } {
     return this.appService.getRoles();
   }
 
-  @Get('favicon.ico')
-  @ApiOperation({ summary: 'Favicon handler to silence 404s' })
   @ApiResponse({ status: 204, description: 'No content' })
-  getFavicon() {
+  public getFavicon(): void {
     return;
   }
 
@@ -104,14 +100,15 @@ export class AppController {
       'Missing required environment variables (ADMIN_INIT_EMAIL, ADMIN_INIT_PASSWORD)',
   })
   @ApiResponse({
-    status: 401,
-    description: 'Missing or invalid X-Init-Secret header',
-  })
-  @ApiResponse({
     status: 403,
     description: 'Admin already exists - endpoint is disabled',
   })
-  async initAdmin() {
+  public async initAdmin(): Promise<{
+    success: boolean;
+    message: string;
+    adminEmail?: string;
+    results: string[];
+  }> {
     return this.appService.initAdmin();
   }
 }

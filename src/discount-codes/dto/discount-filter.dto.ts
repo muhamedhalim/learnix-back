@@ -1,8 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsBoolean, IsEnum, IsDateString } from 'class-validator';
-import { Transform } from 'class-transformer';
+
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DiscountType } from '../entities/discount-type.enum';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsDateString,IsEnum, IsOptional } from 'class-validator';
 
 export class DiscountFilterDto extends PaginationDto {
   @ApiProperty({
@@ -12,7 +13,7 @@ export class DiscountFilterDto extends PaginationDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  is_active?: boolean;
+  public is_active?: boolean;
 
   @ApiProperty({
     description: 'Filter by discount type',
@@ -21,7 +22,7 @@ export class DiscountFilterDto extends PaginationDto {
   })
   @IsOptional()
   @IsEnum(DiscountType)
-  discount_type?: DiscountType;
+  public discount_type?: DiscountType;
 
   @ApiProperty({
     description: 'Filter codes valid from this date',
@@ -29,7 +30,7 @@ export class DiscountFilterDto extends PaginationDto {
   })
   @IsOptional()
   @IsDateString()
-  valid_from?: string;
+  public valid_from?: string;
 
   @ApiProperty({
     description: 'Filter codes valid until this date',
@@ -37,7 +38,7 @@ export class DiscountFilterDto extends PaginationDto {
   })
   @IsOptional()
   @IsDateString()
-  valid_until?: string;
+  public valid_until?: string;
 
   @ApiProperty({
     description: 'Include expired codes',
@@ -47,5 +48,5 @@ export class DiscountFilterDto extends PaginationDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  include_expired?: boolean;
+  public include_expired?: boolean;
 }

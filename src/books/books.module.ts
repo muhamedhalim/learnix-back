@@ -1,15 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Book, BookPurchase } from './entities';
-import { BooksService, BookPurchasesService } from './services';
-import {
-  BooksController,
-  TeacherBooksController,
-  StudentBooksController,
-  AdminBooksController,
-} from './controllers';
-import { Subject } from '../subjects/entities/subject.entity';
+
 import { Payment } from '../payments/entities/payment.entity';
+import { Subject } from '../subjects/entities/subject.entity';
+import {
+  AdminBooksController,
+  BooksController,
+  StudentBooksController,
+  TeacherBooksController,
+} from './controllers';
+import { Book, BookPurchase } from './entities';
+import { BookPurchasesService,BooksService } from './services';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Book, BookPurchase, Subject, Payment])],

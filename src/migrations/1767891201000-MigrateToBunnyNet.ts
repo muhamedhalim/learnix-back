@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class MigrateToBunnyNet1767891201000 implements MigrationInterface {
-  name = 'MigrateToBunnyNet1767891201000';
+  public name = 'MigrateToBunnyNet1767891201000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // First, rename vimeo_embed_html to vimeo_embed_url to match entity

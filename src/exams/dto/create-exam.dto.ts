@@ -1,39 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { QuestionDto } from './question.dto';
+import { Type } from 'class-transformer';
 import {
-  IsString,
-  IsNotEmpty,
-  MaxLength,
-  IsInt,
-  IsUUID,
-  Min,
-  IsOptional,
-  IsArray,
   ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { QuestionDto } from './question.dto';
 
 export class CreateExamDto {
-  @ApiProperty({
-    description: 'Exam title in English',
-    example: 'Math Final Exam',
-    maxLength: 255,
-  })
-  @IsString()
-  @IsNotEmpty({ message: 'Title is required' })
   @MaxLength(255)
-  title!: string;
+  public title!: string;
 
-  @ApiProperty({
-    description: 'Exam title in Arabic',
-    example: 'امتحان الرياضيات النهائي',
-    maxLength: 255,
-  })
-  @IsString()
-  @IsNotEmpty({ message: 'Arabic title is required' })
   @MaxLength(255)
-  title_ar!: string;
+  public title_ar!: string;
 
   @ApiProperty({
     description: 'Exam description in English',
@@ -42,7 +28,7 @@ export class CreateExamDto {
   })
   @IsString()
   @IsOptional()
-  description?: string;
+  public description?: string;
 
   @ApiProperty({
     description: 'Exam description in Arabic',
@@ -51,14 +37,14 @@ export class CreateExamDto {
   })
   @IsString()
   @IsOptional()
-  description_ar?: string;
+  public description_ar?: string;
 
   @ApiProperty({
     description: 'Subject ID this exam belongs to (UUID)',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsUUID('4', { message: 'Subject ID must be a valid UUID' })
-  subject_id!: string;
+  public subject_id!: string;
 
   @ApiProperty({
     description: 'Exam duration in seconds',
@@ -67,16 +53,15 @@ export class CreateExamDto {
   })
   @IsInt()
   @Min(60, { message: 'Duration must be at least 60 seconds (1 minute)' })
-  duration!: number;
+  public duration!: number;
 
   @ApiProperty({
     description: 'Passing marks (must be <= total marks from questions)',
     example: 60,
     minimum: 0,
   })
-  @IsInt()
   @Min(0, { message: 'Passing marks cannot be negative' })
-  passing_marks!: number;
+  public passing_marks!: number;
 
   @ApiProperty({
     description: 'Array of questions (MCQ and/or Essay)',
@@ -102,5 +87,5 @@ export class CreateExamDto {
   @ArrayMinSize(1, { message: 'Exam must have at least 1 question' })
   @ValidateNested({ each: true })
   @Type(() => QuestionDto)
-  questions!: QuestionDto[];
+  public questions!: QuestionDto[];
 }

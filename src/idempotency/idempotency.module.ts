@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+
 import { IdempotencyService } from './idempotency.service';
 
 /**
@@ -40,4 +41,8 @@ import { IdempotencyService } from './idempotency.service';
   providers: [IdempotencyService],
   exports: [IdempotencyService],
 })
-export class IdempotencyModule {}
+export class IdempotencyModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Idempotency services ready
+  }
+}

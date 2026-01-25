@@ -2,9 +2,9 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
+  TableCheck,
   TableIndex,
   TableUnique,
-  TableCheck,
 } from 'typeorm';
 
 export class CreateReviewsSystem1768615000000 implements MigrationInterface {

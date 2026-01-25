@@ -1,32 +1,29 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
   Body,
+  Controller,
+  HttpStatus,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
-  ParseUUIDPipe,
-  HttpStatus,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
-  ApiParam,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { DiscountCodesService } from '../discount-codes.service';
 import {
   CreateDiscountCodeDto,
-  UpdateDiscountCodeDto,
   DiscountFilterDto,
+  UpdateDiscountCodeDto,
 } from '../dto';
+import { DiscountCode } from '../entities';
 
 @ApiTags('Admin - Discount Codes')
 @Controller('admin/discount-codes')
@@ -36,20 +33,11 @@ import {
 export class AdminDiscountCodesController {
   constructor(private readonly discountCodesService: DiscountCodesService) {}
 
-  @Post()
-  @ApiOperation({
-    summary: 'Create a new discount code',
-    description: 'Creates a new discount code with the specified parameters.',
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Discount code created successfully',
-  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Code already exists',
   })
-  async create(@Body() dto: CreateDiscountCodeDto) {
+  public async create(@Body() dto: CreateDiscountCodeDto): Promise<{ message: string; data: DiscountCode }> {
     const discountCode = await this.discountCodesService.create(dto);
     return {
       message: 'Discount code created successfully',
@@ -57,69 +45,34 @@ export class AdminDiscountCodesController {
     };
   }
 
-  @Get()
-  @ApiOperation({
-    summary: 'Get all discount codes',
-    description:
-      'Returns a paginated list of discount codes with optional filters.',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of discount codes',
   })
-  async findAll(@Query() filter: DiscountFilterDto) {
+  public async findAll(@Query() filter: DiscountFilterDto): Promise<{ data: DiscountCode[]; meta: PaginationMeta }> {
     return await this.discountCodesService.findAll(filter);
   }
 
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get a discount code by ID',
-    description:
-      'Returns detailed information about a discount code including usage history.',
-  })
-  @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Discount code details',
-  })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<{ data: DiscountCode }> {
     const discountCode = await this.discountCodesService.findOne(id);
     return { data: discountCode };
   }
 
-  @Get(':id/usage')
-  @ApiOperation({
-    summary: 'Get usage statistics for a discount code',
-    description:
-      'Returns usage statistics including who used the code and when.',
-  })
-  @ApiParam({ name: 'id', type: Number })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Usage statistics',
   })
-  async getUsage(@Param('id', ParseUUIDPipe) id: string) {
+  public async getUsage(@Param('id', ParseUUIDPipe) id: string): Promise<{ data: { total_uses: number; remaining_uses: number; total_discount_given: number; users: { user_id: string; used_at: Date; discount_amount: number }[] } }> {
     const stats = await this.discountCodesService.getUsageStats(id);
     return { data: stats };
   }
 
-  @Put(':id')
-  @ApiOperation({
-    summary: 'Update a discount code',
-    description:
-      'Updates an existing discount code. Code value cannot be changed.',
-  })
-  @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Discount code updated successfully',
-  })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  async update(
+  public async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateDiscountCodeDto,
-  ) {
+  ): Promise<{ message: string; data: DiscountCode }> {
     const discountCode = await this.discountCodesService.update(id, dto);
     return {
       message: 'Discount code updated successfully',
@@ -127,18 +80,8 @@ export class AdminDiscountCodesController {
     };
   }
 
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete a discount code',
-    description: 'Soft deletes a discount code. It will no longer be usable.',
-  })
-  @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Discount code deleted successfully',
-  })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
+  public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
     await this.discountCodesService.remove(id);
     return { message: 'Discount code deleted successfully' };
   }

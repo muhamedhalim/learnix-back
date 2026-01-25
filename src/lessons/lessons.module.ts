@@ -1,15 +1,16 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Lesson } from './entities/lesson.entity';
-import { User } from '../users/entities/user.entity';
+
 import { Subject } from '../subjects/entities/subject.entity';
-import { LessonsService } from './lessons.service';
+import { User } from '../users/entities/user.entity';
 import {
-  LessonsController,
-  TeacherLessonsController,
-  StudentLessonsController,
   AdminLessonsController,
+  LessonsController,
+  StudentLessonsController,
+  TeacherLessonsController,
 } from './controllers';
+import { Lesson } from './entities/lesson.entity';
+import { LessonsService } from './lessons.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Lesson, User, Subject])],
@@ -22,4 +23,8 @@ import {
   providers: [LessonsService],
   exports: [LessonsService, TypeOrmModule],
 })
-export class LessonsModule {}
+export class LessonsModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Lesson services ready
+  }
+}

@@ -1,20 +1,20 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
-  ApiResponse,
-  ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { StudentsService } from '../students.service';
+
 import { StudentFilterDto } from '../dto';
+import { StudentsService } from '../students.service';
 
 @ApiTags('Students')
 @Controller('students')
@@ -69,7 +69,7 @@ export class StudentsController {
     status: HttpStatus.OK,
     description: 'List of approved students with pagination meta',
   })
-  async findAll(@Query() filter: Omit<StudentFilterDto, 'status'>) {
+  public async findAll(@Query() filter: Omit<StudentFilterDto, 'status'>): Promise<unknown> {
     // Public endpoint only shows approved students
     return this.studentsService.findApprovedStudents(filter);
   }
@@ -77,21 +77,11 @@ export class StudentsController {
   /**
    * Get a single approved student by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get student by ID',
-    description: 'Returns a single approved student profile.',
-  })
-  @ApiParam({ name: 'id', description: 'Student profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Student profile retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.studentsService.findStudentById(id);
   }
 }

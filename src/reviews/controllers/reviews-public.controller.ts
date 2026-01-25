@@ -1,7 +1,8 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { ReviewsService } from '../reviews.service';
+import { ApiOperation, ApiResponse,ApiTags } from '@nestjs/swagger';
+
 import { ReviewFilterDto } from '../dto';
+import { ReviewsService } from '../reviews.service';
 
 @ApiTags('Reviews')
 @Controller()
@@ -10,15 +11,11 @@ export class ReviewsPublicController {
 
   @Get('teachers/:teacherId/reviews')
   @ApiOperation({ summary: 'Get teacher reviews with aggregates (public)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Teacher reviews retrieved successfully',
-  })
   @ApiResponse({ status: 404, description: 'Teacher not found' })
-  async getTeacherReviews(
+  public async getTeacherReviews(
     @Param('teacherId') teacherId: string,
     @Query() filter: ReviewFilterDto,
-  ) {
+  ): Promise<unknown> {
     return this.reviewsService.getTeacherReviews(
       teacherId,
       filter.page,
@@ -28,15 +25,11 @@ export class ReviewsPublicController {
 
   @Get('lessons/:lessonId/reviews')
   @ApiOperation({ summary: 'Get lesson reviews with aggregates (public)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Lesson reviews retrieved successfully',
-  })
   @ApiResponse({ status: 404, description: 'Lesson not found' })
-  async getLessonReviews(
+  public async getLessonReviews(
     @Param('lessonId') lessonId: string,
     @Query() filter: ReviewFilterDto,
-  ) {
+  ): Promise<unknown> {
     return this.reviewsService.getLessonReviews(
       lessonId,
       filter.page,

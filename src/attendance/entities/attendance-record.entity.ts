@@ -1,14 +1,14 @@
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { User } from '../../users/entities/user.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
 } from 'typeorm';
-import { User } from '../../users/entities/user.entity';
-import { Lesson } from '../../lessons/entities/lesson.entity';
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 

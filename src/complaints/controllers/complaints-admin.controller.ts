@@ -1,24 +1,25 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
   Param,
-  Body,
+  Post,
   Query,
-  UseGuards,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ComplaintsService } from '../complaints.service';
-import { RespondComplaintDto, ComplaintFilterDto } from '../dto';
+import { ComplaintFilterDto,RespondComplaintDto } from '../dto';
 
 interface AuthRequest extends Request {
   user: {
@@ -42,19 +43,18 @@ export class ComplaintsAdminController {
     status: 200,
     description: 'Complaints retrieved successfully',
   })
-  async getAllComplaints(@Query() filter: ComplaintFilterDto) {
+  public async getAllComplaints(@Query() filter: ComplaintFilterDto): Promise<unknown> {
     return this.complaintsService.getAllComplaints(filter);
   }
 
   @Post(':id/respond')
   @ApiOperation({ summary: 'Respond to a complaint (admin)' })
-  @ApiResponse({ status: 200, description: 'Response sent successfully' })
   @ApiResponse({ status: 404, description: 'Complaint not found' })
-  async respondToComplaint(
+  public async respondToComplaint(
     @Param('id') id: string,
     @Body() dto: RespondComplaintDto,
     @Request() req: AuthRequest,
-  ) {
+  ): Promise<unknown> {
     return this.complaintsService.respondToComplaint(id, req.user.id, dto);
   }
 }

@@ -1,15 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { Transform,Type } from 'class-transformer';
 import {
-  IsOptional,
-  IsString,
-  IsNumber,
   IsBoolean,
   IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
   IsUUID,
-  Min,
   Max,
+  Min,
 } from 'class-validator';
-import { Type, Transform } from 'class-transformer';
 
 export enum PackageSortBy {
   PRICE = 'price',
@@ -25,7 +26,7 @@ export class PackageFilterDto {
   })
   @IsOptional()
   @IsString()
-  search?: string;
+  public search?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by teacher ID (UUID)',
@@ -33,7 +34,7 @@ export class PackageFilterDto {
   })
   @IsOptional()
   @IsUUID('4')
-  teacher_id?: string;
+  public teacher_id?: string;
 
   @ApiPropertyOptional({
     description: 'Minimum price filter',
@@ -43,7 +44,7 @@ export class PackageFilterDto {
   @IsNumber()
   @Min(0)
   @Type(() => Number)
-  minPrice?: number;
+  public minPrice?: number;
 
   @ApiPropertyOptional({
     description: 'Maximum price filter',
@@ -53,7 +54,7 @@ export class PackageFilterDto {
   @IsNumber()
   @Min(0)
   @Type(() => Number)
-  maxPrice?: number;
+  public maxPrice?: number;
 
   @ApiPropertyOptional({
     description: 'Filter by active status',
@@ -62,11 +63,11 @@ export class PackageFilterDto {
   @IsOptional()
   @IsBoolean()
   @Transform(({ value }): boolean | undefined => {
-    if (value === 'true') return true;
-    if (value === 'false') return false;
+    if(value === 'true') {return true;}
+    if(value === 'false') {return false;}
     return value as boolean | undefined;
   })
-  is_active?: boolean;
+  public is_active?: boolean;
 
   @ApiPropertyOptional({
     description: 'Sort by field',
@@ -75,7 +76,7 @@ export class PackageFilterDto {
   })
   @IsOptional()
   @IsEnum(PackageSortBy)
-  sortBy?: PackageSortBy = PackageSortBy.CREATED_AT;
+  public sortBy?: PackageSortBy = PackageSortBy.CREATED_AT;
 
   @ApiPropertyOptional({
     description: 'Sort order',
@@ -84,7 +85,7 @@ export class PackageFilterDto {
   })
   @IsOptional()
   @IsString()
-  order?: 'asc' | 'desc' = 'desc';
+  public order?: 'asc' | 'desc' = 'desc';
 
   @ApiPropertyOptional({
     description: 'Page number (1-based)',
@@ -95,7 +96,7 @@ export class PackageFilterDto {
   @IsNumber()
   @Min(1)
   @Type(() => Number)
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiPropertyOptional({
     description: 'Number of items per page',
@@ -107,5 +108,5 @@ export class PackageFilterDto {
   @Min(1)
   @Max(100)
   @Type(() => Number)
-  limit?: number = 20;
+  public limit?: number = 20;
 }

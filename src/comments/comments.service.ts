@@ -1,22 +1,23 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
-  ForbiddenException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
-import { Comment } from './entities/comment.entity';
-import { CommentReply } from './entities/comment-reply.entity';
-import { CreateCommentDto } from './dto/create-comment.dto';
-import { CreateReplyDto } from './dto/create-reply.dto';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { CreateCommentDto } from './dto/create-comment.dto';
+import { CreateReplyDto } from './dto/create-reply.dto';
+import { Comment } from './entities/comment.entity';
+import { CommentReply } from './entities/comment-reply.entity';
+import { IsNull,Repository } from 'typeorm';
 
 export interface CommentWithReplies {
   id: string;
@@ -27,7 +28,7 @@ export interface CommentWithReplies {
     id: string;
     name: string;
   };
-  replies: Array<{
+  replies: {
     id: string;
     reply_text: string;
     teacher: {
@@ -35,7 +36,7 @@ export interface CommentWithReplies {
       name: string;
     };
     created_at: Date;
-  }>;
+  }[];
   created_at: Date;
   updated_at: Date;
 }
@@ -70,7 +71,7 @@ export class CommentsService {
       },
     });
 
-    if (directPurchase) {
+    if(directPurchase) {
       return true;
     }
 
@@ -93,7 +94,7 @@ export class CommentsService {
   /**
    * Create a comment on a lesson
    */
-  async createComment(
+  public async createComment(
     lessonId: string,
     studentId: string,
     dto: CreateCommentDto,
@@ -103,7 +104,7 @@ export class CommentsService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -113,7 +114,7 @@ export class CommentsService {
       lessonId,
     );
 
-    if (!hasPurchase) {
+    if(!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase this lesson before commenting',
       );
@@ -147,17 +148,17 @@ export class CommentsService {
   /**
    * Get comments on a lesson with nested replies (paginated, public endpoint)
    */
-  async getCommentsByLesson(
+  public async getCommentsByLesson(
     lessonId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<CommentWithReplies>> {
     // Validate lesson exists
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -217,7 +218,7 @@ export class CommentsService {
   /**
    * Add a reply to a comment (teacher only)
    */
-  async addReply(
+  public async addReply(
     commentId: string,
     teacherId: string,
     dto: CreateReplyDto,
@@ -228,12 +229,12 @@ export class CommentsService {
       relations: ['lesson'],
     });
 
-    if (!comment) {
+    if(!comment) {
       throw new NotFoundException('Comment not found');
     }
 
     // Validate teacher owns the lesson
-    if (comment.lesson.teacher_id !== teacherId) {
+    if(comment.lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
         'You can only reply to comments on your own lessons',
       );
@@ -246,7 +247,7 @@ export class CommentsService {
       },
     });
 
-    if (existingReply) {
+    if(existingReply) {
       throw new BadRequestException(
         'This comment already has a reply. Only one-level replies are allowed.',
       );
@@ -265,12 +266,12 @@ export class CommentsService {
   /**
    * Soft-delete a comment (admin only)
    */
-  async deleteComment(commentId: string): Promise<void> {
+  public async deleteComment(commentId: string): Promise<void> {
     const comment = await this.commentsRepository.findOne({
       where: { id: commentId },
     });
 
-    if (!comment) {
+    if(!comment) {
       throw new NotFoundException('Comment not found');
     }
 
@@ -288,13 +289,13 @@ export class CommentsService {
   /**
    * Get comment by ID (with replies)
    */
-  async getCommentById(commentId: string): Promise<CommentWithReplies | null> {
+  public async getCommentById(commentId: string): Promise<CommentWithReplies | null> {
     const comment = await this.commentsRepository.findOne({
       where: { id: commentId, deleted_at: IsNull() },
       relations: ['student', 'replies', 'replies.teacher'],
     });
 
-    if (!comment) {
+    if(!comment) {
       return null;
     }
 

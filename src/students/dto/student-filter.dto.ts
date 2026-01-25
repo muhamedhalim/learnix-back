@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsInt, Min, Max, IsEnum } from 'class-validator';
-import { Type } from 'class-transformer';
+
 import { UserStatus } from '../../users/entities/user-status.enum';
+import { Type } from 'class-transformer';
+import { IsEnum,IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class StudentFilterDto {
   @ApiProperty({
@@ -11,7 +12,7 @@ export class StudentFilterDto {
   })
   @IsString()
   @IsOptional()
-  search?: string;
+  public search?: string;
 
   @ApiProperty({
     description: 'Filter by approval status',
@@ -21,7 +22,7 @@ export class StudentFilterDto {
   })
   @IsEnum(UserStatus)
   @IsOptional()
-  status?: UserStatus;
+  public status?: UserStatus;
 
   @ApiProperty({
     description: 'Filter by grade level',
@@ -30,7 +31,7 @@ export class StudentFilterDto {
   })
   @IsString()
   @IsOptional()
-  grade_level?: string;
+  public grade_level?: string;
 
   @ApiProperty({
     description: 'Sort by field',
@@ -40,7 +41,7 @@ export class StudentFilterDto {
   })
   @IsString()
   @IsOptional()
-  sortBy?: 'name' | 'grade' | 'created_at';
+  public sortBy?: 'name' | 'grade' | 'created_at';
 
   @ApiProperty({
     description: 'Sort order',
@@ -50,7 +51,7 @@ export class StudentFilterDto {
   })
   @IsString()
   @IsOptional()
-  order?: 'asc' | 'desc';
+  public order?: 'asc' | 'desc';
 
   @ApiProperty({
     description: 'Page number',
@@ -62,7 +63,7 @@ export class StudentFilterDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiProperty({
     description: 'Items per page',
@@ -76,5 +77,5 @@ export class StudentFilterDto {
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit?: number = 20;
+  public limit?: number = 20;
 }

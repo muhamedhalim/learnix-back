@@ -1,17 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsOptional,
-  IsInt,
-  IsUUID,
-  Min,
-  Max,
-  IsEnum,
-  IsDateString,
-} from 'class-validator';
-import { Type } from 'class-transformer';
-import { PaymentStatus } from '../entities/payment-status.enum';
+
 import { ItemType } from '../entities/item-type.enum';
+import { PaymentStatus } from '../entities/payment-status.enum';
+import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class PaymentFilterDto {
   @ApiProperty({
@@ -22,7 +23,7 @@ export class PaymentFilterDto {
   })
   @IsEnum(PaymentStatus)
   @IsOptional()
-  status?: PaymentStatus;
+  public status?: PaymentStatus;
 
   @ApiProperty({
     description: 'Filter by item type',
@@ -32,7 +33,7 @@ export class PaymentFilterDto {
   })
   @IsEnum(ItemType)
   @IsOptional()
-  item_type?: ItemType;
+  public item_type?: ItemType;
 
   @ApiProperty({
     description: 'Filter by user ID (UUID)',
@@ -41,7 +42,7 @@ export class PaymentFilterDto {
   })
   @IsUUID('4')
   @IsOptional()
-  user_id?: string;
+  public user_id?: string;
 
   @ApiProperty({
     description: 'Filter payments from this date',
@@ -50,7 +51,7 @@ export class PaymentFilterDto {
   })
   @IsDateString()
   @IsOptional()
-  from_date?: string;
+  public from_date?: string;
 
   @ApiProperty({
     description: 'Filter payments until this date',
@@ -59,7 +60,7 @@ export class PaymentFilterDto {
   })
   @IsDateString()
   @IsOptional()
-  to_date?: string;
+  public to_date?: string;
 
   @ApiProperty({
     description: 'Sort by field',
@@ -69,7 +70,7 @@ export class PaymentFilterDto {
   })
   @IsString()
   @IsOptional()
-  sortBy?: 'created_at' | 'amount' | 'final_amount' | 'status';
+  public sortBy?: 'created_at' | 'amount' | 'final_amount' | 'status';
 
   @ApiProperty({
     description: 'Sort order',
@@ -79,7 +80,7 @@ export class PaymentFilterDto {
   })
   @IsString()
   @IsOptional()
-  order?: 'asc' | 'desc';
+  public order?: 'asc' | 'desc';
 
   @ApiProperty({
     description: 'Page number',
@@ -91,7 +92,7 @@ export class PaymentFilterDto {
   @IsInt()
   @Min(1)
   @IsOptional()
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiProperty({
     description: 'Items per page',
@@ -105,5 +106,5 @@ export class PaymentFilterDto {
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit?: number = 20;
+  public limit?: number = 20;
 }

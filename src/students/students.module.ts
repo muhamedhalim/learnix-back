@@ -1,15 +1,16 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { StudentProfile } from './entities/student-profile.entity';
-import { User } from '../users/entities/user.entity';
-import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import { StudentsService } from './students.service';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { User } from '../users/entities/user.entity';
 import {
-  StudentsController,
-  StudentProfileController,
   AdminStudentsController,
+  StudentProfileController,
+  StudentsController,
 } from './controllers';
+import { StudentProfile } from './entities/student-profile.entity';
+import { StudentsService } from './students.service';
 
 @Module({
   imports: [
@@ -28,4 +29,8 @@ import {
   providers: [StudentsService],
   exports: [StudentsService, TypeOrmModule],
 })
-export class StudentsModule {}
+export class StudentsModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Student services ready
+  }
+}

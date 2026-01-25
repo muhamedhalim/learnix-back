@@ -1,12 +1,13 @@
 import {
   Injectable,
-  Logger,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
+
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymobTransactionDto } from '../dto/paymob-webhook.dto';
+import * as crypto from 'crypto';
 
 interface PaymobAuthResponse {
   token: string;
@@ -39,18 +40,18 @@ export class PaymobService {
   private readonly baseUrl = 'https://accept.paymob.com/api';
 
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('PAYMOB_API_KEY') || '';
+    this.apiKey = this.configService.get<string>('PAYMOB_API_KEY') ?? '';
     this.integrationId =
-      this.configService.get<string>('PAYMOB_INTEGRATION_ID') || '';
-    this.iframeId = this.configService.get<string>('PAYMOB_IFRAME_ID') || '';
+      this.configService.get<string>('PAYMOB_INTEGRATION_ID') ?? '';
+    this.iframeId = this.configService.get<string>('PAYMOB_IFRAME_ID') ?? '';
     this.hmacSecret =
-      this.configService.get<string>('PAYMOB_HMAC_SECRET') || '';
+      this.configService.get<string>('PAYMOB_HMAC_SECRET') ?? '';
   }
 
   /**
    * Step 1: Get authentication token from Paymob
    */
-  async getAuthToken(): Promise<string> {
+  public async getAuthToken(): Promise<string> {
     try {
       const response = await fetch(`${this.baseUrl}/auth/tokens`, {
         method: 'POST',
@@ -58,7 +59,7 @@ export class PaymobService {
         body: JSON.stringify({ api_key: this.apiKey }),
       });
 
-      if (!response.ok) {
+      if(!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob auth failed: ${error}`);
         throw new InternalServerErrorException(
@@ -77,7 +78,7 @@ export class PaymobService {
   /**
    * Step 2: Register order with Paymob
    */
-  async registerOrder(
+  public async registerOrder(
     authToken: string,
     amountCents: number,
     merchantOrderId: string,
@@ -98,7 +99,7 @@ export class PaymobService {
         }),
       });
 
-      if (!response.ok) {
+      if(!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob order registration failed: ${error}`);
         throw new InternalServerErrorException(
@@ -119,7 +120,7 @@ export class PaymobService {
   /**
    * Step 3: Generate payment key for iframe
    */
-  async getPaymentKey(
+  public async getPaymentKey(
     authToken: string,
     amountCents: number,
     orderId: number,
@@ -141,14 +142,14 @@ export class PaymobService {
             last_name: billingData.last_name,
             email: billingData.email,
             phone_number: billingData.phone_number,
-            building: billingData.building || 'NA',
-            street: billingData.street || 'NA',
-            floor: billingData.floor || 'NA',
-            apartment: billingData.apartment || 'NA',
+            building: billingData.building ?? 'NA',
+            street: billingData.street ?? 'NA',
+            floor: billingData.floor ?? 'NA',
+            apartment: billingData.apartment ?? 'NA',
             city: billingData.city,
             state: billingData.state,
             country: billingData.country,
-            postal_code: billingData.postal_code || 'NA',
+            postal_code: billingData.postal_code ?? 'NA',
             shipping_method: 'NA',
           },
           currency: 'EGP',
@@ -156,7 +157,7 @@ export class PaymobService {
         }),
       });
 
-      if (!response.ok) {
+      if(!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob payment key generation failed: ${error}`);
         throw new InternalServerErrorException(
@@ -175,7 +176,7 @@ export class PaymobService {
   /**
    * Complete payment flow: auth -> order -> payment key
    */
-  async initiatePayment(
+  public async initiatePayment(
     amount: number,
     merchantOrderId: string,
     billingData: BillingDataDto,
@@ -204,7 +205,7 @@ export class PaymobService {
     const iframeUrl = `https://accept.paymob.com/api/acceptance/iframes/${this.iframeId}?payment_token=${paymentKey}`;
 
     this.logger.log(
-      `Payment initiated for order ${merchantOrderId}, Paymob order ID: ${paymobOrderId}`,
+      `Payment initiated for order ${merchantOrderId}, Paymob order ID: ${paymobOrderId.toString()}`,
     );
 
     return { paymentKey, paymobOrderId, iframeUrl };
@@ -214,12 +215,12 @@ export class PaymobService {
    * Verify HMAC signature from webhook
    * Critical security check to ensure webhook is from Paymob
    */
-  verifyHmac(
+  public verifyHmac(
     webhookData: WebhookPayload | PaymobTransactionDto,
     receivedHmac: string,
   ): boolean {
     const obj: PaymobTransactionDto =
-      (webhookData as WebhookPayload).obj ||
+      (webhookData as WebhookPayload).obj ??
       (webhookData as PaymobTransactionDto);
 
     // Concatenate fields in the exact order Paymob specifies
@@ -237,12 +238,12 @@ export class PaymobService {
       obj.is_refunded,
       obj.is_standalone_payment,
       obj.is_voided,
-      obj.order?.id,
+      obj.order.id,
       obj.owner,
       obj.pending,
-      obj.source_data?.pan,
-      obj.source_data?.sub_type,
-      obj.source_data?.type,
+      obj.source_data.pan,
+      obj.source_data.sub_type,
+      obj.source_data.type,
       obj.success,
     ];
 
@@ -255,8 +256,8 @@ export class PaymobService {
 
     const isValid = calculatedHmac === receivedHmac;
 
-    if (!isValid) {
-      this.logger.warn(`HMAC verification failed for transaction ${obj.id}`);
+    if(!isValid) {
+      this.logger.warn(`HMAC verification failed for transaction ${obj.id.toString()}`);
       this.logger.debug(`Expected: ${calculatedHmac.substring(0, 20)}...`);
       this.logger.debug(`Received: ${receivedHmac.substring(0, 20)}...`);
     }
@@ -267,7 +268,7 @@ export class PaymobService {
   /**
    * Get iframe ID for frontend redirect
    */
-  getIframeId(): string {
+  public getIframeId(): string {
     return this.iframeId;
   }
 }

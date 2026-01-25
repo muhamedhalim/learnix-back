@@ -1,31 +1,26 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsArray,
-  ValidateNested,
-  IsString,
-  IsInt,
-  Min,
-  ArrayMinSize,
-  ArrayMaxSize,
-} from 'class-validator';
+
 import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class PackageLessonItemDto {
-  @ApiProperty({
-    description: 'Lesson ID to add to the package',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
   @IsString()
-  lessonId!: string;
+  public lessonId!: string;
 
   @ApiProperty({
     description: 'Order index for the lesson in the package (0-based)',
     example: 0,
     minimum: 0,
   })
-  @IsInt()
   @Min(0)
-  orderIndex!: number;
+  public orderIndex!: number;
 }
 
 export class AddLessonsDto {
@@ -42,5 +37,5 @@ export class AddLessonsDto {
   @ArrayMinSize(1, { message: 'At least one lesson is required' })
   @ArrayMaxSize(20, { message: 'Maximum 20 lessons per package' })
   @Type(() => PackageLessonItemDto)
-  lessons!: PackageLessonItemDto[];
+  public lessons!: PackageLessonItemDto[];
 }

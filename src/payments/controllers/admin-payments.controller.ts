@@ -1,27 +1,26 @@
 import {
   Controller,
   Get,
-  Post,
-  Param,
-  Query,
   HttpStatus,
-  UseGuards,
-  ParseUUIDPipe,
+  Param,
   ParseIntPipe,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
   ApiBearerAuth,
-  ApiParam,
+  ApiOperation,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { PaymentsService } from '../services/payments.service';
-import { PaymentFilterDto } from '../dto/payment-filter.dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { PaymentsService } from '../services/payments.service';
 
 @ApiTags('Admin - Payments')
 @Controller('admin/payments')
@@ -49,7 +48,7 @@ export class AdminPaymentsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  async getAllPayments(@Query() filter: PaymentFilterDto) {
+  public async getAllPayments(@Query() filter: PaymentFilterDto): Promise<unknown> {
     return await this.paymentsService.getAllPayments(filter);
   }
 
@@ -72,10 +71,10 @@ export class AdminPaymentsController {
     status: HttpStatus.OK,
     description: 'Revenue statistics retrieved successfully',
   })
-  async getRevenue(
+  public async getRevenue(
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
-  ) {
+  ): Promise<{ data: unknown }> {
     const from = fromDate ? new Date(fromDate) : undefined;
     const to = toDate ? new Date(toDate) : undefined;
 
@@ -85,74 +84,37 @@ export class AdminPaymentsController {
     };
   }
 
-  @Get('lesson-purchases')
-  @ApiOperation({
-    summary: 'Get all lesson purchases',
-    description: 'Returns paginated list of all lesson purchases.',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Page number',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Items per page',
-  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lesson purchases retrieved successfully',
   })
-  async getAllLessonPurchases(
+  public async getAllLessonPurchases(
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
-  ) {
+  ): Promise<unknown> {
     return await this.paymentsService.getAllLessonPurchases(
-      page || 1,
-      limit || 20,
+      page ?? 1,
+      limit ?? 20,
     );
   }
 
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get payment by ID',
-    description: 'Returns payment details by ID.',
-  })
-  @ApiParam({ name: 'id', description: 'Payment ID', type: Number })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Payment retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Payment not found',
   })
-  async getPaymentById(@Param('id', ParseUUIDPipe) id: string) {
+  public async getPaymentById(@Param('id', ParseUUIDPipe) id: string): Promise<{ error?: string; data?: unknown }> {
     const payment = await this.paymentsService.getPaymentById(id);
-    if (!payment) {
+    if(!payment) {
       return { error: 'Payment not found' };
     }
     return { data: payment };
   }
 
-  @Post('lesson-purchases/:id/extend')
-  @ApiOperation({
-    summary: 'Extend lesson access',
-    description: 'Extends lesson access by 1 day for a specific purchase.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson purchase ID', type: Number })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Access extended successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Purchase not found',
   })
-  async extendLessonAccess(@Param('id', ParseUUIDPipe) purchaseId: string) {
+  public async extendLessonAccess(@Param('id', ParseUUIDPipe) purchaseId: string): Promise<{ message: string; data: unknown }> {
     const purchase = await this.paymentsService.extendLessonAccess(purchaseId);
     return {
       message: 'Lesson access extended by 1 day',

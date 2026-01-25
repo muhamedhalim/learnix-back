@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+
+import { User } from '../users/entities/user.entity';
 import { readdir, unlink } from 'fs/promises';
 import { join } from 'path';
-import { User } from '../users/entities/user.entity';
+import { Repository } from 'typeorm';
 
 /**
  * CleanupService
@@ -33,7 +34,7 @@ export class CleanupService {
     private userRepository: Repository<User>,
   ) {
     this.uploadDir =
-      this.configService.get<string>('UPLOAD_DIR') || './uploads';
+      this.configService.get<string>('UPLOAD_DIR') ?? './uploads';
   }
 
   /**
@@ -44,7 +45,7 @@ export class CleanupService {
     name: 'file-cleanup',
     timeZone: 'UTC',
   })
-  async performWeeklyCleanup() {
+  public async performWeeklyCleanup(): Promise<void> {
     this.logger.log('Starting weekly file cleanup job...');
 
     const startTime = Date.now();
@@ -62,7 +63,7 @@ export class CleanupService {
       const duration = Date.now() - startTime;
 
       this.logger.log(
-        `Weekly cleanup completed - Duration: ${duration}ms, Orphaned: ${totalOrphaned}, Deleted: ${totalDeleted}, Errors: ${totalErrors}`,
+        `Weekly cleanup completed - Duration: ${String(duration)}ms, Orphaned: ${String(totalOrphaned)}, Deleted: ${String(totalDeleted)}, Errors: ${String(totalErrors)}`,
       );
     } catch (error) {
       this.logger.error(
@@ -75,7 +76,7 @@ export class CleanupService {
   /**
    * Manual cleanup trigger - can be called programmatically if needed
    */
-  async triggerManualCleanup(): Promise<{
+  public async triggerManualCleanup(): Promise<{
     success: boolean;
     message: string;
     stats: {
@@ -146,7 +147,7 @@ export class CleanupService {
       // Get all files in folder
       const files = await readdir(folderPath);
 
-      if (files.length === 0) {
+      if(files.length === 0) {
         this.logger.log('No files found in profiles folder');
         return { orphaned: 0, deleted: 0, errors: 0 };
       }
@@ -159,23 +160,23 @@ export class CleanupService {
 
       // Extract filenames from URLs
       users.forEach((user) => {
-        if (user.profile_picture_url) {
+        if(user.profile_picture_url) {
           const filename = user.profile_picture_url.split('/').pop();
-          if (filename) {
+          if(filename) {
             referencedFilenames.add(filename);
           }
         }
       });
 
       this.logger.log(
-        `Found ${files.length} files on disk, ${referencedFilenames.size} referenced in database`,
+        `Found ${String(files.length)} files on disk, ${String(referencedFilenames.size)} referenced in database`,
       );
 
       // Check each file
-      for (const file of files) {
-        if (file === '.gitkeep') continue;
+      for(const file of files) {
+        if(file === '.gitkeep') {continue;}
 
-        if (!referencedFilenames.has(file)) {
+        if(!referencedFilenames.has(file)) {
           orphanedCount++;
           this.logger.warn(`Orphaned file detected: profiles/${file}`);
 
@@ -195,7 +196,7 @@ export class CleanupService {
       }
 
       this.logger.log(
-        `Cleanup profiles - Orphaned: ${orphanedCount}, Deleted: ${deletedCount}, Errors: ${errorCount}`,
+        `Cleanup profiles - Orphaned: ${String(orphanedCount)}, Deleted: ${String(deletedCount)}, Errors: ${String(errorCount)}`,
       );
 
       return {

@@ -1,33 +1,21 @@
-import {
-  IsNotEmpty,
-  IsString,
-  IsOptional,
-  IsArray,
-  IsUUID,
-  IsBoolean,
-  MaxLength,
-  ArrayMinSize,
-} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class ManualNotificationDto {
-  @ApiProperty({
-    description: 'Notification title',
-    maxLength: 200,
-    example: 'Important Announcement',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
-  title!: string;
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
-  @ApiProperty({
-    description: 'Notification message body',
-    example: 'Reminder: Exams start next week. Good luck!',
-  })
-  @IsString()
+export class ManualNotificationDto {
+  @MaxLength(200)
+  public title!: string;
+
   @IsNotEmpty()
-  message!: string;
+  public message!: string;
 
   @ApiPropertyOptional({
     description:
@@ -38,7 +26,7 @@ export class ManualNotificationDto {
   @IsArray()
   @IsUUID('4', { each: true })
   @ArrayMinSize(1)
-  user_ids?: string[];
+  public user_ids?: string[];
 
   @ApiPropertyOptional({
     description: 'Send SMS along with in-app notification',
@@ -46,7 +34,7 @@ export class ManualNotificationDto {
   })
   @IsOptional()
   @IsBoolean()
-  send_sms?: boolean;
+  public send_sms?: boolean;
 }
 
 export class ManualNotificationResponseDto {
@@ -54,17 +42,17 @@ export class ManualNotificationResponseDto {
     description: 'Number of notifications sent',
     example: 50,
   })
-  sent_count!: number;
+  public sent_count!: number;
 
   @ApiProperty({
     description: 'Number of SMS messages sent',
     example: 45,
   })
-  sms_sent_count!: number;
+  public sms_sent_count!: number;
 
   @ApiProperty({
     description: 'Number of SMS failures (no phone number or disabled)',
     example: 5,
   })
-  sms_failed_count!: number;
+  public sms_failed_count!: number;
 }

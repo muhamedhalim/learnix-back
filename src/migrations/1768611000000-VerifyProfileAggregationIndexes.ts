@@ -20,7 +20,7 @@ export class VerifyProfileAggregationIndexes1768611000000
       FROM pg_indexes
       WHERE tablename = 'lesson_purchases'
         AND indexname = 'IDX_lesson_purchases_student_lesson';
-    `)) as Array<{ indexname: string }>;
+    `)) as { indexname: string }[];
 
     if (lessonPurchaseIndexes.length === 0) {
       // Index doesn't exist, create it
@@ -38,7 +38,7 @@ export class VerifyProfileAggregationIndexes1768611000000
       SELECT conname
       FROM pg_constraint
       WHERE conname = 'UQ_exam_attempts_exam_student';
-    `)) as Array<{ conname: string }>;
+    `)) as { conname: string }[];
 
     if (examAttemptsConstraints.length === 0) {
       // Constraint doesn't exist, create it
@@ -66,7 +66,7 @@ export class VerifyProfileAggregationIndexes1768611000000
       FROM pg_indexes
       WHERE tablename = 'lesson_purchases'
         AND indexname = 'IDX_lesson_purchases_student_lesson';
-    `)) as Array<{ indexname: string }>;
+    `)) as { indexname: string }[];
 
     if (lessonPurchaseIndexes.length > 0) {
       await queryRunner.query(`
@@ -79,7 +79,7 @@ export class VerifyProfileAggregationIndexes1768611000000
       SELECT conname
       FROM pg_constraint
       WHERE conname = 'UQ_exam_attempts_exam_student';
-    `)) as Array<{ conname: string }>;
+    `)) as { conname: string }[];
 
     if (examAttemptsConstraints.length > 0) {
       await queryRunner.query(`

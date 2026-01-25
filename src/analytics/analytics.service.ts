@@ -1,24 +1,25 @@
-import { Injectable, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
+import { Inject,Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+
+import { Book } from '../books/entities/book.entity';
+import { BookPurchase } from '../books/entities/book-purchase.entity';
+import { Exam } from '../exams/entities/exam.entity';
+import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { ExamStatus } from '../exams/entities/exam-status.enum';
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { Book } from '../books/entities/book.entity';
-import { Exam } from '../exams/entities/exam.entity';
-import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
-import { BookPurchase } from '../books/entities/book-purchase.entity';
-import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import { ExamStatus } from '../exams/entities/exam-status.enum';
 import {
   AdminDashboardDto,
-  TeacherDashboardDto,
   StudentDashboardDto,
+  TeacherDashboardDto,
 } from './dto';
+import type { Cache } from 'cache-manager';
+import { IsNull,Repository } from 'typeorm';
 
 /**
  * Type definitions for raw query results
@@ -61,10 +62,10 @@ export class AnalyticsService {
   /**
    * Get admin dashboard statistics with caching (5-min TTL)
    */
-  async getAdminDashboard(): Promise<AdminDashboardDto> {
+  public async getAdminDashboard(): Promise<AdminDashboardDto> {
     const cacheKey = 'dashboard:admin';
     const cached = await this.cacheManager.get<AdminDashboardDto>(cacheKey);
-    if (cached) {
+    if(cached) {
       return cached;
     }
 
@@ -155,10 +156,10 @@ export class AnalyticsService {
   /**
    * Get teacher dashboard statistics with caching (5-min TTL)
    */
-  async getTeacherDashboard(teacherId: string): Promise<TeacherDashboardDto> {
+  public async getTeacherDashboard(teacherId: string): Promise<TeacherDashboardDto> {
     const cacheKey = `dashboard:teacher:${teacherId}`;
     const cached = await this.cacheManager.get<TeacherDashboardDto>(cacheKey);
-    if (cached) {
+    if(cached) {
       return cached;
     }
 
@@ -257,10 +258,10 @@ export class AnalyticsService {
   /**
    * Get student dashboard statistics with caching (5-min TTL)
    */
-  async getStudentDashboard(studentId: string): Promise<StudentDashboardDto> {
+  public async getStudentDashboard(studentId: string): Promise<StudentDashboardDto> {
     const cacheKey = `dashboard:student:${studentId}`;
     const cached = await this.cacheManager.get<StudentDashboardDto>(cacheKey);
-    if (cached) {
+    if(cached) {
       return cached;
     }
 
@@ -351,7 +352,7 @@ export class AnalyticsService {
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    return (
+    return(
       parseFloat(lessonRevenue?.total ?? '0') +
       parseFloat(packageRevenue?.total ?? '0') +
       parseFloat(bookRevenue?.total ?? '0')
@@ -390,7 +391,7 @@ export class AnalyticsService {
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    return (
+    return(
       parseFloat(lessonRevenue?.total ?? '0') +
       parseFloat(packageRevenue?.total ?? '0') +
       parseFloat(bookRevenue?.total ?? '0')

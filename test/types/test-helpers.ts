@@ -1,15 +1,15 @@
 import {
   ChapterResponse,
+  CourseResponse,
   LessonResponse,
   ResourceResponse,
-  CourseResponse,
 } from './api-responses.interface';
 
 export function isChapterResponse(obj: unknown): obj is ChapterResponse {
   const chapter = obj as ChapterResponse;
   return (
     typeof chapter === 'object' &&
-    chapter !== null &&
+    Boolean(chapter) &&
     typeof chapter.id === 'number' &&
     typeof chapter.title === 'string' &&
     typeof chapter.course_id === 'number'
@@ -20,7 +20,7 @@ export function isLessonResponse(obj: unknown): obj is LessonResponse {
   const lesson = obj as LessonResponse;
   return (
     typeof lesson === 'object' &&
-    lesson !== null &&
+    Boolean(lesson) &&
     typeof lesson.id === 'number' &&
     typeof lesson.title === 'string' &&
     typeof lesson.chapter_id === 'number'
@@ -31,7 +31,7 @@ export function isResourceResponse(obj: unknown): obj is ResourceResponse {
   const resource = obj as ResourceResponse;
   return (
     typeof resource === 'object' &&
-    resource !== null &&
+    Boolean(resource) &&
     typeof resource.id === 'number' &&
     typeof resource.title === 'string' &&
     typeof resource.filename === 'string'
@@ -42,7 +42,7 @@ export function isCourseResponse(obj: unknown): obj is CourseResponse {
   const course = obj as CourseResponse;
   return (
     typeof course === 'object' &&
-    course !== null &&
+    Boolean(course) &&
     typeof course.id === 'number' &&
     typeof course.title === 'string' &&
     typeof course.description === 'string'
@@ -59,7 +59,7 @@ export function assertIsArray<T>(
   if (itemValidator) {
     value.forEach((item, index) => {
       if (!itemValidator(item)) {
-        throw new Error(`Array item at index ${index} failed validation`);
+        throw new Error(`Array item at index ${String(index)} failed validation`);
       }
     });
   }

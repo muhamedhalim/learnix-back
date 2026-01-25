@@ -1,20 +1,21 @@
 import {
+  BadRequestException,
   Controller,
   Get,
+  Logger,
+  NotFoundException,
   Param,
   Res,
-  NotFoundException,
-  BadRequestException,
-  Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
-import { ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
-import { join } from 'path';
-import { access } from 'fs/promises';
 import { ConfigService } from '@nestjs/config';
+import { ApiOperation, ApiParam,ApiResponse } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+
 import { THROTTLE, UPLOAD_FOLDERS } from '../common/constants';
 import { SkipCsrf } from '../common/guards/csrf.guard';
+import type { Response } from 'express';
+import { access } from 'fs/promises';
+import { join } from 'path';
 
 @Controller('uploads')
 @Throttle({ default: THROTTLE.DEFAULT })
@@ -24,7 +25,7 @@ export class UploadsController {
 
   constructor(private configService: ConfigService) {
     this.uploadDir =
-      this.configService.get<string>('UPLOAD_DIR') || '/app/uploads';
+      this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
     this.logger.log(`Uploads controller serving from: ${this.uploadDir}`);
   }
 
@@ -64,14 +65,14 @@ export class UploadsController {
     status: 429,
     description: 'Too many requests (rate limit exceeded)',
   })
-  async serveUploadedFile(
+  public async serveUploadedFile(
     @Param('folder') folder: string,
     @Param('filename') filename: string,
     @Res() res: Response,
-  ) {
+  ): Promise<void> {
     // Validation 1: Folder must be one of allowed folders
     const validFolders: readonly string[] = UPLOAD_FOLDERS;
-    if (!validFolders.includes(folder)) {
+    if(!validFolders.includes(folder)) {
       this.logger.warn(`Invalid folder requested: ${folder}`);
       throw new BadRequestException(
         `Invalid folder. Allowed: ${UPLOAD_FOLDERS.join(', ')}`,
@@ -79,7 +80,7 @@ export class UploadsController {
     }
 
     // Validation 2: Path traversal prevention
-    if (
+    if(
       folder.includes('..') ||
       folder.includes('/') ||
       folder.includes('\\') ||
@@ -94,7 +95,7 @@ export class UploadsController {
     }
 
     // Validation 3: Filename must have an extension
-    if (!filename.includes('.')) {
+    if(!filename.includes('.')) {
       this.logger.warn(`Filename missing extension: ${filename}`);
       throw new BadRequestException('Invalid filename');
     }
@@ -117,6 +118,6 @@ export class UploadsController {
 
     // Serve file with proper headers
     this.logger.log(`Serving file: ${filepath}`);
-    return res.sendFile(filepath);
+    res.sendFile(filepath);
   }
 }

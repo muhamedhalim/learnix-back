@@ -1,13 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
-  IsOptional,
-  MaxLength,
-  IsInt,
-  IsUUID,
-  Min,
-  IsNumber,
   IsBoolean,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
 } from 'class-validator';
 
 export class UpdateLessonDto {
@@ -20,7 +21,7 @@ export class UpdateLessonDto {
   @IsString()
   @IsOptional()
   @MaxLength(255)
-  title?: string;
+  public title?: string;
 
   @ApiProperty({
     description: 'Lesson title in Arabic',
@@ -31,7 +32,7 @@ export class UpdateLessonDto {
   @IsString()
   @IsOptional()
   @MaxLength(255)
-  title_ar?: string;
+  public title_ar?: string;
 
   @ApiProperty({
     description: 'Lesson description in English',
@@ -40,7 +41,7 @@ export class UpdateLessonDto {
   })
   @IsString()
   @IsOptional()
-  description?: string;
+  public description?: string;
 
   @ApiProperty({
     description: 'Lesson description in Arabic',
@@ -49,7 +50,7 @@ export class UpdateLessonDto {
   })
   @IsString()
   @IsOptional()
-  description_ar?: string;
+  public description_ar?: string;
 
   @ApiProperty({
     description: 'Subject ID this lesson belongs to (UUID)',
@@ -58,7 +59,7 @@ export class UpdateLessonDto {
   })
   @IsUUID('4', { message: 'Subject ID must be a valid UUID' })
   @IsOptional()
-  subject_id?: string;
+  public subject_id?: string;
 
   @ApiProperty({
     description: 'Lesson price in EGP',
@@ -69,7 +70,7 @@ export class UpdateLessonDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   @Min(0, { message: 'Price cannot be negative' })
-  price?: number;
+  public price?: number;
 
   @ApiProperty({
     description: 'Lesson thumbnail URL',
@@ -80,7 +81,7 @@ export class UpdateLessonDto {
   @IsString()
   @IsOptional()
   @MaxLength(500)
-  thumbnail?: string;
+  public thumbnail?: string;
 
   @ApiProperty({
     description: 'Whether this is a group lesson',
@@ -89,7 +90,7 @@ export class UpdateLessonDto {
   })
   @IsBoolean()
   @IsOptional()
-  is_group?: boolean;
+  public is_group?: boolean;
 
   @ApiProperty({
     description: 'Number of days the lesson is available after purchase',
@@ -100,5 +101,5 @@ export class UpdateLessonDto {
   @IsInt()
   @IsOptional()
   @Min(1, { message: 'Lesson must be available for at least 1 day' })
-  available_for_days?: number;
+  public available_for_days?: number;
 }

@@ -12,7 +12,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  */
 export class AddSearchIndexes1768612000000 implements MigrationInterface {
   // Disable transaction wrapping - required for CONCURRENTLY operations
-  transaction = false;
+  public transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Enable pg_trgm extension for trigram-based text search

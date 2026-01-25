@@ -1,14 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TeacherProfile } from './entities/teacher-profile.entity';
-import { User } from '../users/entities/user.entity';
+
 import { Subject } from '../subjects/entities/subject.entity';
-import { TeachersService } from './teachers.service';
+import { User } from '../users/entities/user.entity';
 import {
-  TeachersController,
-  TeacherProfileController,
   AdminTeachersController,
+  TeacherProfileController,
+  TeachersController,
 } from './controllers';
+import { TeacherProfile } from './entities/teacher-profile.entity';
+import { TeachersService } from './teachers.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([TeacherProfile, User, Subject])],
@@ -20,4 +21,8 @@ import {
   providers: [TeachersService],
   exports: [TeachersService, TypeOrmModule],
 })
-export class TeachersModule {}
+export class TeachersModule implements OnModuleInit {
+  public onModuleInit(): void {
+    // Module initialized - Teacher services ready
+  }
+}

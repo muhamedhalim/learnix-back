@@ -1,20 +1,21 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { LessonsService } from '../lessons.service';
+
 import { LessonFilterDto } from '../dto';
+import { LessonsService } from '../lessons.service';
 
 @ApiTags('Lessons')
 @Controller('lessons')
@@ -94,28 +95,18 @@ export class LessonsController {
     status: HttpStatus.OK,
     description: 'List of lessons with pagination meta',
   })
-  async findAll(@Query() filter: LessonFilterDto) {
+  public async findAll(@Query() filter: LessonFilterDto): Promise<unknown> {
     return this.lessonsService.findAll(filter);
   }
 
   /**
    * Get a single lesson by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get lesson by ID',
-    description: 'Returns a single lesson with teacher and subject details.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.lessonsService.findOne(id);
   }
 
@@ -144,14 +135,14 @@ export class LessonsController {
     status: HttpStatus.OK,
     description: 'List of lessons by teacher',
   })
-  async findByTeacher(
+  public async findByTeacher(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<unknown> {
     return this.lessonsService.findByTeacher(teacherId, {
-      page: page || 1,
-      limit: limit || 20,
+      page: page ?? 1,
+      limit: limit ?? 20,
     });
   }
 
@@ -180,14 +171,14 @@ export class LessonsController {
     status: HttpStatus.OK,
     description: 'List of lessons by subject',
   })
-  async findBySubject(
+  public async findBySubject(
     @Param('subjectId', ParseUUIDPipe) subjectId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<unknown> {
     return this.lessonsService.findBySubject(subjectId, {
-      page: page || 1,
-      limit: limit || 20,
+      page: page ?? 1,
+      limit: limit ?? 20,
     });
   }
 }

@@ -1,11 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
-  IsString,
   IsNotEmpty,
-  MaxLength,
-  MinLength,
   IsOptional,
-  IsEnum,
+  IsString,
+  MaxLength,
 } from 'class-validator';
 
 export enum GradeLevel {
@@ -15,16 +14,8 @@ export enum GradeLevel {
 }
 
 export class CreateSubjectDto {
-  @ApiProperty({
-    description: 'Subject name',
-    example: 'الفيزياء',
-    maxLength: 255,
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(2)
   @MaxLength(255)
-  name!: string;
+  public name!: string;
 
   @ApiProperty({
     description: 'Subject description',
@@ -35,17 +26,10 @@ export class CreateSubjectDto {
   @IsString()
   @IsOptional()
   @MaxLength(2000)
-  description?: string;
+  public description?: string;
 
-  @ApiProperty({
-    description: 'Grade level',
-    example: 'grade_12',
-    enum: GradeLevel,
-    default: GradeLevel.GRADE_12,
-  })
-  @IsEnum(GradeLevel)
   @IsNotEmpty()
-  gradeLevel!: GradeLevel;
+  public gradeLevel!: GradeLevel;
 
   @ApiProperty({
     description: 'Thumbnail image URL',
@@ -56,5 +40,5 @@ export class CreateSubjectDto {
   @IsString()
   @IsOptional()
   @MaxLength(500)
-  thumbnail?: string;
+  public thumbnail?: string;
 }

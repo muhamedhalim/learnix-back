@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { DiscountCode, DiscountCodeUsage } from './entities';
-import { DiscountCodesService } from './discount-codes.service';
+
 import {
-  DiscountCodesController,
   AdminDiscountCodesController,
+  DiscountCodesController,
 } from './controllers';
+import { DiscountCodesService } from './discount-codes.service';
+import { DiscountCode, DiscountCodeUsage } from './entities';
 
 @Module({
   imports: [TypeOrmModule.forFeature([DiscountCode, DiscountCodeUsage])],

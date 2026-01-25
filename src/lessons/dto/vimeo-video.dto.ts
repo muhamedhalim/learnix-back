@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, MaxLength, IsInt, Min } from 'class-validator';
+
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateVimeoInfoDto {
   @ApiProperty({
@@ -7,9 +8,8 @@ export class UpdateVimeoInfoDto {
     example: '123456789',
     maxLength: 255,
   })
-  @IsString()
   @MaxLength(255)
-  vimeo_video_id!: string;
+  public vimeo_video_id!: string;
 
   @ApiProperty({
     description: 'Vimeo embed URL (auto-generated if not provided)',
@@ -20,7 +20,7 @@ export class UpdateVimeoInfoDto {
   @IsString()
   @IsOptional()
   @MaxLength(500)
-  vimeo_embed_url?: string;
+  public vimeo_embed_url?: string;
 
   @ApiProperty({
     description: 'Video duration in seconds',
@@ -31,5 +31,5 @@ export class UpdateVimeoInfoDto {
   @IsInt()
   @IsOptional()
   @Min(0)
-  duration?: number;
+  public duration?: number;
 }

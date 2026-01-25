@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsUUID, ArrayMinSize, ArrayMaxSize } from 'class-validator';
+
+import { ArrayMaxSize } from 'class-validator';
 
 export class AssignSubjectsDto {
   @ApiProperty({
@@ -12,9 +13,6 @@ export class AssignSubjectsDto {
     minItems: 1,
     maxItems: 10,
   })
-  @IsArray()
-  @IsUUID('4', { each: true, message: 'Each subject ID must be a valid UUID' })
-  @ArrayMinSize(1, { message: 'At least one subject must be provided' })
   @ArrayMaxSize(10, { message: 'Cannot assign more than 10 subjects at once' })
-  subjectIds!: string[];
+  public subjectIds!: string[];
 }

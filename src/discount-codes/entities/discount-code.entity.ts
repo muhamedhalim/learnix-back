@@ -1,15 +1,15 @@
+import { DiscountCodeUsage } from './discount-code-usage.entity';
+import { DiscountType } from './discount-type.enum';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
   DeleteDateColumn,
+  Entity,
   Index,
   OneToMany,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { DiscountType } from './discount-type.enum';
-import { DiscountCodeUsage } from './discount-code-usage.entity';
 
 @Entity('discount_codes')
 @Index('IDX_discount_codes_code', ['code'], { unique: true })

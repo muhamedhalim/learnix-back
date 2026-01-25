@@ -1,17 +1,18 @@
 import {
-  Controller,
-  Post,
-  Param,
   Body,
-  UseGuards,
+  Controller,
+  Param,
+  Post,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -36,13 +37,8 @@ export class CommentsStudentController {
 
   @Post()
   @ApiOperation({ summary: 'Add a comment to a lesson (student)' })
-  @ApiResponse({ status: 201, description: 'Comment created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Student must purchase lesson before commenting',
-  })
   @ApiResponse({ status: 404, description: 'Lesson not found' })
-  async createComment(
+  public async createComment(
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateCommentDto,
     @Request() req: AuthRequest,

@@ -1,30 +1,32 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
   ConflictException,
   Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
-import { StudentProfile } from './entities/student-profile.entity';
-import { User } from '../users/entities/user.entity';
-import { UserStatus } from '../users/entities/user-status.enum';
-import { UserRole } from '../users/entities/user-role.enum';
-import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import {
-  UpdateStudentProfileDto,
-  UpdateStudentNotificationSettingsDto,
-  RejectStudentDto,
-  StudentFilterDto,
-} from './dto';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
+import { UserStatus } from '../users/entities/user-status.enum';
+import {
+  RejectStudentDto,
+  StudentFilterDto,
+  UpdateStudentNotificationSettingsDto,
+  UpdateStudentProfileDto,
+} from './dto';
+import { StudentProfile } from './entities/student-profile.entity';
+import type { Cache } from 'cache-manager';
+import { Repository } from 'typeorm';
 
 /**
  * Response type for student profile with user info
@@ -47,7 +49,7 @@ export interface StudentProfileWithDetails {
   notification_settings: Record<string, boolean>;
   created_at: Date;
   updated_at: Date;
-  purchasedLessons?: Array<{
+  purchasedLessons?: {
     lessonId: string;
     title: string;
     attended: boolean;
@@ -55,15 +57,15 @@ export interface StudentProfileWithDetails {
     expiresAt: Date;
     pricePaid: number;
     isExpired: boolean;
-  }>;
-  exams?: Array<{
+  }[];
+  exams?: {
     examId: string;
     title: string;
     score: number | null;
     totalMarks: number;
     status: string;
     submittedAt: Date | null;
-  }>;
+  }[];
 }
 
 /**
@@ -78,6 +80,8 @@ export interface StudentStats {
 
 @Injectable()
 export class StudentsService {
+  private readonly logger = new Logger(StudentsService.name);
+
   constructor(
     @InjectRepository(StudentProfile)
     private readonly studentProfilesRepository: Repository<StudentProfile>,
@@ -96,12 +100,12 @@ export class StudentsService {
    * Used by students to view their profile
    * Includes purchased lessons and exam attempts with caching (5-min TTL)
    */
-  async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
+  public async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
     // Check cache first
     const cacheKey = `student:profile:${userId}`;
     const cached =
       await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
-    if (cached) {
+    if(cached) {
       return cached;
     }
 
@@ -111,7 +115,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
@@ -135,19 +139,19 @@ export class StudentsService {
     const now = new Date();
     const purchasedLessons = lessonPurchases.map((lp) => ({
       lessonId: lp.lesson_id,
-      title: lp.lesson?.title || 'Unknown Lesson',
-      attended: lp.access_granted_at !== null,
+      title: lp.lesson.title,
+      attended: Boolean(lp.access_granted_at),
       purchasedAt: lp.created_at,
       expiresAt: lp.access_expires_at,
-      pricePaid: Number(lp.price_paid),
+      pricePaid: lp.price_paid,
       isExpired: lp.access_expires_at < now,
     }));
 
     const exams = examAttempts.map((ea) => ({
       examId: ea.exam_id,
-      title: ea.exam?.title || 'Unknown Exam',
-      score: ea.total_score !== null ? Number(ea.total_score) : null,
-      totalMarks: ea.exam?.total_marks || 0,
+      title: ea.exam.title,
+      score: ea.total_score,
+      totalMarks: ea.exam.total_marks,
       status: ea.status,
       submittedAt: ea.submitted_at,
     }));
@@ -169,7 +173,7 @@ export class StudentsService {
    * Update student's own profile
    * Students can update their parent_phone and grade_level
    */
-  async updateProfile(
+  public async updateProfile(
     userId: string,
     dto: UpdateStudentProfileDto,
   ): Promise<StudentProfileWithDetails> {
@@ -178,15 +182,15 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
     // Update profile fields
-    if (dto.parent_phone !== undefined) {
+    if(dto.parent_phone !== undefined) {
       profile.parent_phone = dto.parent_phone;
     }
-    if (dto.grade_level !== undefined) {
+    if(dto.grade_level !== undefined) {
       profile.grade_level = dto.grade_level;
     }
 
@@ -198,13 +202,17 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    return this.mapToProfileWithDetails(updatedProfile!);
+    if (!updatedProfile) {
+      throw new NotFoundException('Failed to load updated profile');
+    }
+
+    return this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
    * Update student's notification settings
    */
-  async updateNotificationSettings(
+  public async updateNotificationSettings(
     userId: string,
     dto: UpdateStudentNotificationSettingsDto,
   ): Promise<StudentProfileWithDetails> {
@@ -213,7 +221,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
@@ -227,14 +235,18 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    return this.mapToProfileWithDetails(updatedProfile!);
+    if (!updatedProfile) {
+      throw new NotFoundException('Failed to load updated profile');
+    }
+
+    return this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
    * Find all students with filtering, sorting, and pagination
    * Used by admin endpoints
    */
-  async findAllStudents(
+  public async findAllStudents(
     filter: StudentFilterDto,
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
     const {
@@ -254,19 +266,19 @@ export class StudentsService {
       .andWhere('user.deleted_at IS NULL');
 
     // Filter by user status
-    if (status) {
+    if(status) {
       queryBuilder.andWhere('user.status = :status', { status });
     }
 
     // Filter by grade level
-    if (grade_level) {
+    if(grade_level) {
       queryBuilder.andWhere('student.grade_level = :grade_level', {
         grade_level,
       });
     }
 
     // Search by name or email
-    if (search) {
+    if(search) {
       queryBuilder.andWhere(
         `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
@@ -314,9 +326,9 @@ export class StudentsService {
   /**
    * Find pending students (for admin approval)
    */
-  async findPendingStudents(
-    page: number = 1,
-    limit: number = 20,
+  public async findPendingStudents(
+    page = 1,
+    limit = 20,
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
     return this.findAllStudents({
       status: UserStatus.PENDING,
@@ -328,7 +340,7 @@ export class StudentsService {
   /**
    * Find approved students (public listing)
    */
-  async findApprovedStudents(
+  public async findApprovedStudents(
     filter: Omit<StudentFilterDto, 'status'>,
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
     return this.findAllStudents({
@@ -341,13 +353,13 @@ export class StudentsService {
    * Get a single student by profile ID
    * Used by admin to view any student's details
    */
-  async findStudentById(id: string): Promise<StudentProfileWithDetails> {
+  public async findStudentById(id: string): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
       where: { id },
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Student with ID ${id} not found`);
     }
 
@@ -360,7 +372,7 @@ export class StudentsService {
    * @param profileId - Student profile ID (numeric)
    * @param notes - Optional approval notes (stored for audit trail)
    */
-  async approveStudent(
+  public async approveStudent(
     profileId: string,
     notes?: string,
   ): Promise<StudentProfileWithDetails> {
@@ -369,11 +381,11 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
-    if (profile.user.status === UserStatus.APPROVED) {
+    if(profile.user.status === UserStatus.APPROVED) {
       throw new ConflictException('Student is already approved');
     }
 
@@ -385,9 +397,9 @@ export class StudentsService {
 
     // TODO: Store approval notes in audit_logs table
     // TODO: Send notification to student/parent about approval
-    if (notes) {
+    if(notes) {
       // For now, just log. Later: save to audit_logs table
-      console.log(`Student ${profileId} approved with notes: ${notes}`);
+      this.logger.log(`Student ${profileId} approved with notes: ${notes}`);
     }
 
     return this.mapToProfileWithDetails(profile);
@@ -397,7 +409,7 @@ export class StudentsService {
    * Reject a pending student
    * Sets user status to REJECTED with reason
    */
-  async rejectStudent(
+  public async rejectStudent(
     profileId: string,
     dto: RejectStudentDto,
   ): Promise<StudentProfileWithDetails> {
@@ -406,11 +418,11 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
-    if (profile.user.status === UserStatus.REJECTED) {
+    if(profile.user.status === UserStatus.REJECTED) {
       throw new ConflictException('Student is already rejected');
     }
 
@@ -429,7 +441,7 @@ export class StudentsService {
   /**
    * Admin update student's grade level
    */
-  async updateGradeLevel(
+  public async updateGradeLevel(
     profileId: string,
     gradeLevel: string,
   ): Promise<StudentProfileWithDetails> {
@@ -438,7 +450,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
@@ -453,12 +465,12 @@ export class StudentsService {
    * Get student statistics
    * Returns lesson count, exam count, average score, etc.
    */
-  async getStudentStats(profileId: string): Promise<StudentStats> {
+  public async getStudentStats(profileId: string): Promise<StudentStats> {
     const profile = await this.studentProfilesRepository.findOne({
       where: { id: profileId },
     });
 
-    if (!profile) {
+    if(!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
@@ -476,7 +488,7 @@ export class StudentsService {
    * Create a student profile for a user
    * Called during student registration
    */
-  async createStudentProfile(
+  public async createStudentProfile(
     userId: string,
     parentPhone: string,
     gradeLevel?: string,
@@ -486,11 +498,11 @@ export class StudentsService {
       where: { id: userId },
     });
 
-    if (!user) {
+    if(!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if (user.role !== UserRole.STUDENT) {
+    if(user.role !== UserRole.STUDENT) {
       throw new BadRequestException('User must have STUDENT role');
     }
 
@@ -499,7 +511,7 @@ export class StudentsService {
       where: { user_id: userId },
     });
 
-    if (existingProfile) {
+    if(existingProfile) {
       throw new ConflictException(
         'Student profile already exists for this user',
       );
@@ -509,7 +521,7 @@ export class StudentsService {
     const profile = this.studentProfilesRepository.create({
       user_id: userId,
       parent_phone: parentPhone,
-      grade_level: gradeLevel || null,
+      grade_level: gradeLevel ?? null,
       notification_settings: {
         sms_enabled: true,
         email_enabled: true,

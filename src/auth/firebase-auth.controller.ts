@@ -1,7 +1,8 @@
-import { Controller, Post, UseGuards, Request, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
+import { Controller, Request, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+
 import { User } from '../users/entities/user.entity';
+import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 
 interface AuthenticatedRequest extends Request {
   user: User;
@@ -10,10 +11,8 @@ interface AuthenticatedRequest extends Request {
 @ApiTags('Firebase Authentication')
 @Controller('auth/firebase')
 export class FirebaseAuthController {
-  @Post('verify')
-  @ApiOperation({ summary: 'Verify Firebase token and sync user' })
   @UseGuards(FirebaseAuthGuard)
-  verifyFirebaseToken(@Request() req: AuthenticatedRequest) {
+  public verifyFirebaseToken(@Request() req: AuthenticatedRequest): { message: string; user: unknown } {
     return {
       message: 'Firebase token verified successfully',
       user: {
@@ -27,11 +26,8 @@ export class FirebaseAuthController {
     };
   }
 
-  @Get('profile')
-  @ApiOperation({ summary: 'Get current user profile' })
-  @ApiBearerAuth('JWT-auth')
   @UseGuards(FirebaseAuthGuard)
-  getProfile(@Request() req: AuthenticatedRequest) {
+  public getProfile(@Request() req: AuthenticatedRequest): { user: unknown } {
     return {
       user: {
         id: req.user.id,

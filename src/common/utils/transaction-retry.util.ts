@@ -4,6 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 
 import { Logger } from '@nestjs/common';
+
 import { DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -112,10 +113,10 @@ export async function retryTransaction<T>(
 
   let lastError: any;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for(let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Execute transaction with optional isolation level
-      if (isolationLevel) {
+      if(isolationLevel) {
         return await dataSource.transaction(isolationLevel, transactionFn);
       } else {
         return await dataSource.transaction(transactionFn);
@@ -126,12 +127,12 @@ export async function retryTransaction<T>(
       // Check if this is a deadlock error
       const deadlockCheck = checkDeadlockError(error);
 
-      if (!deadlockCheck.isDeadlock || attempt === maxRetries) {
+      if(!deadlockCheck.isDeadlock || attempt === maxRetries) {
         // Not a deadlock or no more retries left
-        if (deadlockCheck.isDeadlock && attempt === maxRetries) {
+        if(deadlockCheck.isDeadlock && attempt === maxRetries) {
           logger.error(
-            `Transaction failed after ${maxRetries + 1} attempts due to persistent deadlocks. ` +
-              `Last error: ${error.message}`,
+            `Transaction failed after ${String(maxRetries + 1)} attempts due to persistent deadlocks. ` +
+              `Last error: ${String(error.message)}`,
           );
         }
         throw error;
@@ -143,10 +144,10 @@ export async function retryTransaction<T>(
       const delayMs = Math.floor(exponentialDelay + jitter);
 
       logger.warn(
-        `Deadlock detected - Attempt ${attempt + 1}/${maxRetries + 1} failed. ` +
-          `Retrying in ${delayMs}ms... ` +
-          `Error code: ${deadlockCheck.errorCode}, ` +
-          `Message: ${deadlockCheck.errorMessage}`,
+        `Deadlock detected - Attempt ${String(attempt + 1)}/${String(maxRetries + 1)} failed. ` +
+          `Retrying in ${String(delayMs)}ms... ` +
+          `Error code: ${String(deadlockCheck.errorCode)}, ` +
+          `Message: ${String(deadlockCheck.errorMessage)}`,
       );
 
       // Wait before retrying
@@ -186,23 +187,23 @@ export async function retryTransaction<T>(
  * - Better to retry too much than too little for transient errors
  */
 function checkDeadlockError(error: any): DeadlockCheckResult {
-  if (!error) {
+  if(!error) {
     return { isDeadlock: false };
   }
 
   // Extract error code from various possible error structures
-  const errorCode = error.code || error.driverError?.code || error.errno;
+  const errorCode = error.code ?? error.driverError?.code ?? error.errno;
 
   // Extract error message
   const errorMessage =
-    error.message || error.driverError?.message || String(error);
+    error.message ?? error.driverError?.message ?? String(error);
 
   // PostgreSQL error codes for deadlocks and serialization failures
   const DEADLOCK_ERROR_CODE = '40P01'; // Definite deadlock
   const SERIALIZATION_FAILURE_CODE = '40001'; // May be deadlock
 
   // Check error code first (most reliable)
-  if (errorCode === DEADLOCK_ERROR_CODE) {
+  if(errorCode === DEADLOCK_ERROR_CODE) {
     return {
       isDeadlock: true,
       errorCode: DEADLOCK_ERROR_CODE,
@@ -210,7 +211,7 @@ function checkDeadlockError(error: any): DeadlockCheckResult {
     };
   }
 
-  if (errorCode === SERIALIZATION_FAILURE_CODE) {
+  if(errorCode === SERIALIZATION_FAILURE_CODE) {
     // 40001 may or may not be a deadlock, but safe to retry
     return {
       isDeadlock: true,
@@ -220,13 +221,12 @@ function checkDeadlockError(error: any): DeadlockCheckResult {
   }
 
   // Fallback: Check error message for deadlock keywords
-  if (
-    errorMessage &&
-    errorMessage.toLowerCase().includes('deadlock detected')
+  if(
+    errorMessage?.toLowerCase().includes('deadlock detected')
   ) {
     return {
       isDeadlock: true,
-      errorCode: errorCode || 'unknown',
+      errorCode: errorCode ?? 'unknown',
       errorMessage,
     };
   }
@@ -272,7 +272,7 @@ export async function retryOperation<T>(
 
   let lastError: any;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for(let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error: any) {
@@ -280,7 +280,7 @@ export async function retryOperation<T>(
 
       const deadlockCheck = checkDeadlockError(error);
 
-      if (!deadlockCheck.isDeadlock || attempt === maxRetries) {
+      if(!deadlockCheck.isDeadlock || attempt === maxRetries) {
         throw error;
       }
 
@@ -289,8 +289,8 @@ export async function retryOperation<T>(
       const delayMs = Math.floor(exponentialDelay + jitter);
 
       logger.warn(
-        `Operation failed with deadlock - Attempt ${attempt + 1}/${maxRetries + 1}. ` +
-          `Retrying in ${delayMs}ms...`,
+        `Operation failed with deadlock - Attempt ${String(attempt + 1)}/${String(maxRetries + 1)}. ` +
+          `Retrying in ${String(delayMs)}ms...`,
       );
 
       await new Promise((resolve) => setTimeout(resolve, delayMs));

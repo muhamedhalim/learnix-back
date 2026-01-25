@@ -1,14 +1,15 @@
-import {
-  IsOptional,
-  IsEnum,
-  IsBoolean,
-  IsInt,
-  Min,
-  IsDateString,
-} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type, Transform } from 'class-transformer';
+
 import { NotificationType } from '../entities/notification-type.enum';
+import { Transform,Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Min,
+} from 'class-validator';
 
 export class NotificationFilterDto {
   @ApiPropertyOptional({
@@ -20,7 +21,7 @@ export class NotificationFilterDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page?: number = 1;
+  public page?: number = 1;
 
   @ApiPropertyOptional({
     description: 'Items per page',
@@ -31,7 +32,7 @@ export class NotificationFilterDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  limit?: number = 20;
+  public limit?: number = 20;
 
   @ApiPropertyOptional({
     enum: NotificationType,
@@ -39,7 +40,7 @@ export class NotificationFilterDto {
   })
   @IsOptional()
   @IsEnum(NotificationType)
-  type?: NotificationType;
+  public type?: NotificationType;
 
   @ApiPropertyOptional({
     description: 'Filter by read status',
@@ -47,7 +48,7 @@ export class NotificationFilterDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  is_read?: boolean;
+  public is_read?: boolean;
 
   @ApiPropertyOptional({
     description: 'Filter by SMS sent status',
@@ -55,7 +56,7 @@ export class NotificationFilterDto {
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
-  sms_sent?: boolean;
+  public sms_sent?: boolean;
 
   @ApiPropertyOptional({
     description: 'Filter notifications sent after this date',
@@ -63,7 +64,7 @@ export class NotificationFilterDto {
   })
   @IsOptional()
   @IsDateString()
-  sent_after?: string;
+  public sent_after?: string;
 
   @ApiPropertyOptional({
     description: 'Filter notifications sent before this date',
@@ -71,5 +72,5 @@ export class NotificationFilterDto {
   })
   @IsOptional()
   @IsDateString()
-  sent_before?: string;
+  public sent_before?: string;
 }

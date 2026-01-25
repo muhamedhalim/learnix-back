@@ -1,16 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
+
+import { QuestionType } from '../entities';
 import {
-  IsString,
-  IsNotEmpty,
-  IsEnum,
-  IsArray,
-  ArrayMinSize,
   ArrayMaxSize,
-  IsInt,
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsNotEmpty,
+  IsString,
   Min,
   ValidateIf,
 } from 'class-validator';
-import { QuestionType } from '../entities';
 
 /**
  * DTO for exam questions
@@ -26,23 +26,13 @@ export class QuestionDto {
     example: QuestionType.MCQ,
   })
   @IsEnum(QuestionType, { message: 'Type must be either mcq or essay' })
-  type!: QuestionType;
+  public type!: QuestionType;
 
-  @ApiProperty({
-    description: 'Question text in English',
-    example: 'What is 2 + 2?',
-  })
-  @IsString()
   @IsNotEmpty({ message: 'Question text is required' })
-  question!: string;
+  public question!: string;
 
-  @ApiProperty({
-    description: 'Question text in Arabic',
-    example: 'ما هو 2 + 2؟',
-  })
-  @IsString()
   @IsNotEmpty({ message: 'Arabic question text is required' })
-  question_ar!: string;
+  public question_ar!: string;
 
   @ApiProperty({
     description: 'Answer choices (required for MCQ, 2-6 options)',
@@ -54,7 +44,7 @@ export class QuestionDto {
   @ArrayMinSize(2, { message: 'MCQ must have at least 2 choices' })
   @ArrayMaxSize(6, { message: 'MCQ cannot have more than 6 choices' })
   @IsString({ each: true, message: 'Each choice must be a string' })
-  choices?: string[];
+  public choices?: string[];
 
   @ApiProperty({
     description:
@@ -65,16 +55,10 @@ export class QuestionDto {
   @ValidateIf((o: QuestionDto) => o.type === QuestionType.MCQ)
   @IsString({ message: 'Correct answer must be a string' })
   @IsNotEmpty({ message: 'Correct answer is required for MCQ' })
-  correct_answer?: string;
+  public correct_answer?: string;
 
-  @ApiProperty({
-    description: 'Marks for this question',
-    example: 5,
-    minimum: 1,
-  })
-  @IsInt({ message: 'Marks must be an integer' })
   @Min(1, { message: 'Marks must be at least 1' })
-  marks!: number;
+  public marks!: number;
 }
 
 /**
@@ -86,15 +70,9 @@ export class AnswerDto {
     example: 0,
     minimum: 0,
   })
-  @IsInt({ message: 'Question index must be an integer' })
   @Min(0, { message: 'Question index cannot be negative' })
-  question_index!: number;
+  public question_index!: number;
 
-  @ApiProperty({
-    description: 'Student answer text',
-    example: '4',
-  })
-  @IsString({ message: 'Answer must be a string' })
   @IsNotEmpty({ message: 'Answer is required' })
-  answer!: string;
+  public answer!: string;
 }

@@ -1,27 +1,28 @@
 import {
+  Body,
   Controller,
   Get,
-  Put,
-  Body,
   HttpStatus,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
-import { StudentsService } from '../students.service';
-import {
-  UpdateStudentProfileDto,
-  UpdateStudentNotificationSettingsDto,
-} from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import {
+  UpdateStudentNotificationSettingsDto,
+  UpdateStudentProfileDto,
+} from '../dto';
+import { StudentsService } from '../students.service';
 
 @ApiTags('Student Profile')
 @Controller('student/profile')
@@ -57,7 +58,7 @@ export class StudentProfileController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (student only)',
   })
-  async getProfile(@GetUser() user: JwtPayload) {
+  public async getProfile(@GetUser() user: JwtPayload): Promise<{ profile: unknown }> {
     const profile = await this.studentsService.findStudentProfile(user.userId);
     return {
       profile,
@@ -94,10 +95,10 @@ export class StudentProfileController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (student only)',
   })
-  async updateProfile(
+  public async updateProfile(
     @GetUser() user: JwtPayload,
     @Body() updateDto: UpdateStudentProfileDto,
-  ) {
+  ): Promise<{ message: string; profile: unknown }> {
     const profile = await this.studentsService.updateProfile(
       user.userId,
       updateDto,
@@ -112,21 +113,11 @@ export class StudentProfileController {
    * Get current student's stats
    * Returns lesson count, exam count, average score, etc.
    */
-  @Get('stats')
-  @ApiOperation({
-    summary: 'Get my stats',
-    description:
-      "Returns the authenticated student's statistics including lessons completed, exams taken, and average score. Student only.",
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student profile not found',
   })
-  async getStats(@GetUser() user: JwtPayload) {
+  public async getStats(@GetUser() user: JwtPayload): Promise<{ stats: unknown }> {
     // First get the student profile to get the studentId
     const profile = await this.studentsService.findStudentProfile(user.userId);
     const stats = await this.studentsService.getStudentStats(profile.id);
@@ -139,28 +130,14 @@ export class StudentProfileController {
    * Update notification settings
    * Students can configure their notification preferences
    */
-  @Put('notifications')
-  @ApiOperation({
-    summary: 'Update notification settings',
-    description:
-      "Updates the authenticated student's notification settings. Controls SMS, email, and various notification types. Student only.",
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Notification settings updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Student profile not found',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid notification settings',
   })
-  async updateNotifications(
+  public async updateNotifications(
     @GetUser() user: JwtPayload,
     @Body() updateDto: UpdateStudentNotificationSettingsDto,
-  ) {
+  ): Promise<{ message: string; profile: unknown }> {
     const profile = await this.studentsService.updateNotificationSettings(
       user.userId,
       updateDto,

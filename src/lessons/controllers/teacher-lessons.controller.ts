@@ -1,38 +1,37 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Put,
-  Delete,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
-  ApiBearerAuth,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { LessonsService } from '../lessons.service';
-import {
-  CreateLessonDto,
-  UpdateLessonDto,
-  LessonFilterDto,
-  UpdateVimeoInfoDto,
-  UpdateLessonVideoDto,
-  UpdateVimeoUrlDto,
-} from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import {
+  CreateLessonDto,
+  LessonFilterDto,
+  UpdateLessonDto,
+  UpdateLessonVideoDto,
+  UpdateVimeoInfoDto,
+  UpdateVimeoUrlDto,
+} from '../dto';
+import { LessonsService } from '../lessons.service';
 
 @ApiTags('Teacher Lessons')
 @Controller('teacher/lessons')
@@ -91,38 +90,24 @@ export class TeacherLessonsController {
     status: HttpStatus.OK,
     description: "List of teacher's lessons",
   })
-  async findMyLessons(
+  public async findMyLessons(
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<LessonFilterDto, 'teacher_id'>,
-  ) {
+  ): Promise<unknown> {
     return this.lessonsService.findMyLessons(user.userId, filter);
   }
 
   /**
    * Create a new lesson
    */
-  @Post()
-  @ApiOperation({
-    summary: 'Create a lesson',
-    description:
-      'Creates a new lesson for the authenticated teacher. Teacher only.',
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Lesson created successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid input data',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
   })
-  async create(
+  public async create(
     @GetUser() user: JwtPayload,
     @Body() createDto: CreateLessonDto,
-  ) {
+  ): Promise<unknown> {
     const lesson = await this.lessonsService.create(user.userId, createDto);
     return {
       message: 'Lesson created successfully',
@@ -133,28 +118,17 @@ export class TeacherLessonsController {
   /**
    * Get a single lesson by ID (must be owner)
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get my lesson by ID',
-    description:
-      'Returns a specific lesson owned by the authenticated teacher.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  async findOne(
+  public async findOne(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<unknown> {
     // First get the lesson to verify ownership
     const lesson = await this.lessonsService.findOne(id);
-    if (lesson.teacher.id !== user.userId) {
+    if(lesson.teacher.id !== user.userId) {
       // Allow viewing but could add ownership check here
     }
     return lesson;
@@ -163,30 +137,15 @@ export class TeacherLessonsController {
   /**
    * Update a lesson
    */
-  @Put(':id')
-  @ApiOperation({
-    summary: 'Update my lesson',
-    description:
-      'Updates a lesson owned by the authenticated teacher. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own lessons',
   })
-  async update(
+  public async update(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDto: UpdateLessonDto,
-  ) {
+  ): Promise<unknown> {
     const lesson = await this.lessonsService.update(id, user.userId, updateDto);
     return {
       message: 'Lesson updated successfully',
@@ -197,29 +156,14 @@ export class TeacherLessonsController {
   /**
    * Delete a lesson
    */
-  @Delete(':id')
-  @ApiOperation({
-    summary: 'Delete my lesson',
-    description:
-      'Deletes a lesson owned by the authenticated teacher. Teacher only.',
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Lesson deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own lessons',
   })
-  async delete(
+  public async delete(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  ): Promise<unknown> {
     await this.lessonsService.delete(id, user.userId);
     return {
       message: 'Lesson deleted successfully',
@@ -235,37 +179,15 @@ export class TeacherLessonsController {
     description:
       'Updates the video URL for a lesson using Bunny.net Stream. Automatically extracts and stores library ID and video ID. Teacher can only update their own lessons.',
   })
-  @ApiParam({ name: 'id', description: 'Lesson ID', type: 'number' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Video URL updated successfully',
-    schema: {
-      example: {
-        message: 'Video URL updated successfully',
-        video_url: 'https://iframe.mediadelivery.net/embed/123456/abc-def-ghi',
-        video_platform: 'bunny',
-        bunny_video_id: 'abc-def-ghi',
-        bunny_library_id: '123456',
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid Bunny.net URL format',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own lessons',
   })
-  async updateVideoUrl(
+  public async updateVideoUrl(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateLessonVideoDto,
-  ) {
+  ): Promise<unknown> {
     return this.lessonsService.updateVideoUrl(
       id,
       user.userId,
@@ -298,24 +220,16 @@ export class TeacherLessonsController {
     },
   })
   @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid Vimeo URL format',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
-  @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own lessons',
   })
-  async updateVimeoUrl(
+  public async updateVimeoUrl(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateVimeoUrlDto,
-  ) {
-    const vimeoUrl = dto.vimeo_url || dto.video_url;
-    return this.lessonsService.updateVimeoUrl(
+  ): Promise<unknown> {
+    const vimeoUrl = dto.vimeo_url ?? dto.video_url;
+    return this.lessonsService.updateVideoUrl(
       id,
       user.userId,
       vimeoUrl,
@@ -334,24 +248,15 @@ export class TeacherLessonsController {
       'DEPRECATED: Use PUT /teacher/lessons/:id/video instead. Updates Vimeo video information for a lesson.',
     deprecated: true,
   })
-  @ApiParam({ name: 'id', description: 'Lesson ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Vimeo info updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own lessons',
   })
-  async updateVimeoInfo(
+  public async updateVimeoInfo(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() vimeoDto: UpdateVimeoInfoDto,
-  ) {
+  ): Promise<unknown> {
     const lesson = await this.lessonsService.updateVimeoInfo(
       id,
       user.userId,

@@ -1,20 +1,21 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { TeachersService } from '../teachers.service';
+
 import { TeacherFilterDto } from '../dto';
+import { TeachersService } from '../teachers.service';
 
 @ApiTags('Teachers')
 @Controller('teachers')
@@ -70,7 +71,7 @@ export class TeachersController {
     status: HttpStatus.OK,
     description: 'List of approved teachers with pagination meta',
   })
-  async findAll(@Query() filter: Omit<TeacherFilterDto, 'status'>) {
+  public async findAll(@Query() filter: Omit<TeacherFilterDto, 'status'>): Promise<unknown> {
     // Public endpoint only shows approved teachers
     return this.teachersService.findApprovedTeachers(filter);
   }
@@ -78,22 +79,11 @@ export class TeachersController {
   /**
    * Get a single approved teacher by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get teacher by ID',
-    description:
-      'Returns a single approved teacher profile with subjects and rating.',
-  })
-  @ApiParam({ name: 'id', description: 'Teacher profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Teacher profile retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.teachersService.findTeacherById(id);
   }
 
@@ -122,15 +112,15 @@ export class TeachersController {
     status: HttpStatus.OK,
     description: 'List of teachers for the subject',
   })
-  async findBySubject(
+  public async findBySubject(
     @Param('subjectId', ParseUUIDPipe) subjectId: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<unknown> {
     return this.teachersService.findApprovedTeachers({
       subjectId,
-      page: page || 1,
-      limit: limit || 20,
+      page: page ?? 1,
+      limit: limit ?? 20,
     });
   }
 }

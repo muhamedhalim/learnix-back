@@ -1,27 +1,28 @@
 import {
-  Injectable,
-  NotFoundException,
   ConflictException,
   ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { TeacherReview } from './entities/teacher-review.entity';
-import { LessonReview } from './entities/lesson-review.entity';
-import { CreateReviewDto } from './dto/create-review.dto';
-import { User } from '../users/entities/user.entity';
-import { UserRole } from '../users/entities/user-role.enum';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
+import { CreateReviewDto } from './dto/create-review.dto';
+import { LessonReview } from './entities/lesson-review.entity';
+import { TeacherReview } from './entities/teacher-review.entity';
 import {
   ReviewAggregates,
   ReviewWithStudent,
 } from './interfaces/review-aggregates.interface';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class ReviewsService {
@@ -55,7 +56,7 @@ export class ReviewsService {
       .andWhere('l.teacher_id = :teacherId', { teacherId })
       .getOne();
 
-    if (directPurchase) {
+    if(directPurchase) {
       return true;
     }
 
@@ -87,7 +88,7 @@ export class ReviewsService {
       },
     });
 
-    if (directPurchase) {
+    if(directPurchase) {
       return true;
     }
 
@@ -110,7 +111,7 @@ export class ReviewsService {
   /**
    * Create a teacher review
    */
-  async createTeacherReview(
+  public async createTeacherReview(
     teacherId: string,
     studentId: string,
     dto: CreateReviewDto,
@@ -120,7 +121,7 @@ export class ReviewsService {
       where: { id: teacherId, role: UserRole.TEACHER },
     });
 
-    if (!teacher) {
+    if(!teacher) {
       throw new NotFoundException('Teacher not found');
     }
 
@@ -130,7 +131,7 @@ export class ReviewsService {
       teacherId,
     );
 
-    if (!hasPurchase) {
+    if(!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase a lesson from this teacher before reviewing',
       );
@@ -141,7 +142,7 @@ export class ReviewsService {
       where: { teacher_id: teacherId, student_id: studentId },
     });
 
-    if (existingReview) {
+    if(existingReview) {
       throw new ConflictException(
         'You have already reviewed this teacher. Reviews cannot be edited.',
       );
@@ -152,7 +153,7 @@ export class ReviewsService {
       teacher_id: teacherId,
       student_id: studentId,
       rating: dto.rating,
-      comment: dto.comment || null,
+      comment: dto.comment ?? null,
     });
 
     return this.teacherReviewsRepository.save(review);
@@ -161,10 +162,10 @@ export class ReviewsService {
   /**
    * Get teacher reviews with aggregates
    */
-  async getTeacherReviews(
+  public async getTeacherReviews(
     teacherId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<
     PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }
   > {
@@ -173,7 +174,7 @@ export class ReviewsService {
       where: { id: teacherId, role: UserRole.TEACHER },
     });
 
-    if (!teacher) {
+    if(!teacher) {
       throw new NotFoundException('Teacher not found');
     }
 
@@ -230,7 +231,7 @@ export class ReviewsService {
       select: ['rating'],
     });
 
-    if (reviews.length === 0) {
+    if(reviews.length === 0) {
       return {
         average_rating: 0,
         total_reviews: 0,
@@ -255,7 +256,7 @@ export class ReviewsService {
   /**
    * Create a lesson review
    */
-  async createLessonReview(
+  public async createLessonReview(
     lessonId: string,
     studentId: string,
     dto: CreateReviewDto,
@@ -265,7 +266,7 @@ export class ReviewsService {
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -275,7 +276,7 @@ export class ReviewsService {
       lessonId,
     );
 
-    if (!hasPurchase) {
+    if(!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase this lesson before reviewing',
       );
@@ -286,7 +287,7 @@ export class ReviewsService {
       where: { lesson_id: lessonId, student_id: studentId },
     });
 
-    if (existingReview) {
+    if(existingReview) {
       throw new ConflictException(
         'You have already reviewed this lesson. Reviews cannot be edited.',
       );
@@ -297,7 +298,7 @@ export class ReviewsService {
       lesson_id: lessonId,
       student_id: studentId,
       rating: dto.rating,
-      comment: dto.comment || null,
+      comment: dto.comment ?? null,
     });
 
     return this.lessonReviewsRepository.save(review);
@@ -306,10 +307,10 @@ export class ReviewsService {
   /**
    * Get lesson reviews with aggregates
    */
-  async getLessonReviews(
+  public async getLessonReviews(
     lessonId: string,
-    page: number = 1,
-    limit: number = 20,
+    page = 1,
+    limit = 20,
   ): Promise<
     PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }
   > {
@@ -318,7 +319,7 @@ export class ReviewsService {
       where: { id: lessonId },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -375,7 +376,7 @@ export class ReviewsService {
       select: ['rating'],
     });
 
-    if (reviews.length === 0) {
+    if(reviews.length === 0) {
       return {
         average_rating: 0,
         total_reviews: 0,

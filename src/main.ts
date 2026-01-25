@@ -1,44 +1,45 @@
 import * as crypto from 'crypto';
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction,Request, Response } from 'express';
 
-// Polyfill for crypto in serverless environments
-if (!globalThis.crypto) {
-  Object.defineProperty(globalThis, 'crypto', {
-    value: crypto,
-    writable: false,
-    configurable: false,
-  });
-}
+// Crypto polyfill for serverless environments (if needed)
+// Note: Modern Node.js (16+) includes crypto on globalThis by default
+// Keeping import for backward compatibility
+Object.defineProperty(globalThis, 'crypto', {
+  value: crypto,
+  writable: false,
+  configurable: false,
+});
 
+import { Logger,ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { join } from 'path';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
+import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
-import * as cookieParser from 'cookie-parser';
-import { Reflector } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
+import basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
-import * as basicAuth from 'express-basic-auth';
+import { join } from 'path';
 
 const logger = new Logger('Bootstrap');
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Protect Bull Board with basic authentication (Issue #13)
-  const bullBoardUser = process.env.BULL_BOARD_USER || 'admin';
+  const bullBoardUser = process.env.BULL_BOARD_USER ?? 'admin';
   const bullBoardPassword = process.env.BULL_BOARD_PASSWORD;
 
-  if (!bullBoardPassword) {
+  if(!bullBoardPassword) {
     logger.warn(
       'WARNING: BULL_BOARD_PASSWORD not set. Bull Board will be inaccessible in production.',
     );
   }
 
-  if (bullBoardPassword) {
+  if(bullBoardPassword) {
     const authMiddleware = basicAuth({
       users: { [bullBoardUser]: bullBoardPassword },
       challenge: true,
@@ -48,7 +49,7 @@ async function bootstrap() {
     app.use('/admin/queues', authMiddleware);
     logger.log('Bull Board protected with basic authentication');
   } else {
-    if (process.env.NODE_ENV !== 'production') {
+    if(process.env.NODE_ENV !== 'production') {
       logger.warn(
         'WARNING: Bull Board running WITHOUT authentication in development',
       );
@@ -57,8 +58,8 @@ async function bootstrap() {
 
   // Enable cookie parsing for CSRF protection (Double Submit Cookie pattern)
   // Use a secret for signing cookies
-  const cookieSecret = process.env.COOKIE_SECRET || process.env.JWT_SECRET;
-  if (!cookieSecret) {
+  const cookieSecret = process.env.COOKIE_SECRET ?? process.env.JWT_SECRET;
+  if(!cookieSecret) {
     logger.error(
       'ERROR: COOKIE_SECRET or JWT_SECRET must be set for signed cookies',
     );
@@ -124,17 +125,17 @@ async function bootstrap() {
     origin: (origin, callback) => {
       const isProduction = process.env.NODE_ENV === 'production';
 
-      if (!origin) {
-        if (isProduction) {
+      if(!origin) {
+        if(isProduction) {
           logger.warn(
             'Request with no origin header (likely health check or direct API call)',
           );
         }
-        return callback(null, true);
+        callback(null, true); return;
       }
 
       // Check if origin is in allowed list
-      if (allowedOrigins.includes(origin)) {
+      if(allowedOrigins.includes(origin)) {
         callback(null, true);
       }
       // Allow all Vercel preview deployments (*.vercel.app)
@@ -206,16 +207,16 @@ async function bootstrap() {
 
   // Lightweight debug logger for root/health checks only
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    if (req.url === '/' || req.url.startsWith('/api/v1/health')) {
+    if(req.url === '/' || req.url.startsWith('/api/v1/health')) {
       logger.log(`[INCOMING] ${req.method} ${req.url}`);
     }
     next();
   });
 
   // Simple root endpoint for Railway healthcheck
-  app.use('/', (req: Request, res: Response, next: NextFunction) => {
-    if (req.url === '/' && req.method === 'GET') {
-      return res.status(200).json({
+  app.use('/', (req: Request, res: Response, next: NextFunction): void => {
+    if(req.url === '/' && req.method === 'GET') {
+      res.status(200).json({
         status: 'ok',
         message: 'E-Learning Platform API',
         version: '1.0.0',
@@ -223,19 +224,20 @@ async function bootstrap() {
         health: '/api/v1/health',
         timestamp: new Date().toISOString(),
       });
+      return;
     }
-    return next(); // ensure other routes still work
+    next(); // ensure other routes still work
   });
 
   // Ensure we parse PORT as a number and bind to 0.0.0.0 so Railway's proxy can reach the process
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   await app.listen(port, '0.0.0.0');
 
-  logger.log(`Application is running on: 0.0.0.0:${port}`);
-  logger.log(`Swagger documentation: http://0.0.0.0:${port}/api`);
+  logger.log(`Application is running on: 0.0.0.0:${String(port)}`);
+  logger.log(`Swagger documentation: http://0.0.0.0:${String(port)}/api`);
 }
 
-bootstrap().catch((error) => {
+bootstrap().catch((error: unknown) => {
   logger.error('ERROR: Error starting application:', error);
   process.exit(1);
 });

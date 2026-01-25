@@ -1,16 +1,17 @@
 import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
   ConflictException,
+  ForbiddenException,
+  Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
-import { Book } from '../entities/book.entity';
-import { CreateBookDto, UpdateBookDto, BookFilterDto } from '../dto';
-import { Subject } from '../../subjects/entities/subject.entity';
+
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { Subject } from '../../subjects/entities/subject.entity';
+import { BookFilterDto,CreateBookDto, UpdateBookDto } from '../dto';
+import { Book } from '../entities/book.entity';
+import { IsNull,Repository } from 'typeorm';
 
 @Injectable()
 export class BooksService {
@@ -26,13 +27,13 @@ export class BooksService {
   /**
    * Create a new book (teacher only)
    */
-  async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
+  public async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
     // Validate subject exists
     const subject = await this.subjectsRepository.findOne({
       where: { id: dto.subject_id, deleted_at: IsNull() },
     });
 
-    if (!subject) {
+    if(!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
@@ -47,14 +48,13 @@ export class BooksService {
       },
     });
 
-    if (existing) {
+    if(existing) {
       throw new ConflictException('You already have a book with this title');
     }
 
-    const book = this.booksRepository.create({
-      ...dto,
-      teacher_id: teacherId,
-    });
+    const book = this.booksRepository.create(
+      Object.assign({}, dto, { teacher_id: teacherId }),
+    );
 
     const saved = await this.booksRepository.save(book);
     this.logger.log(`Book created: ${saved.id} by teacher ${teacherId}`);
@@ -65,15 +65,15 @@ export class BooksService {
   /**
    * Find all books (public, with filters)
    */
-  async findAll(filter: BookFilterDto): Promise<{
+  public async findAll(filter: BookFilterDto): Promise<{
     data: Book[];
     meta: PaginationMeta;
   }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
-    const sortBy = filter.sortBy || 'created_at';
-    const order = filter.order || 'desc';
+    const sortBy = filter.sortBy ?? 'created_at';
+    const order = filter.order ?? 'desc';
 
     const query = this.booksRepository
       .createQueryBuilder('book')
@@ -82,20 +82,20 @@ export class BooksService {
       .where('book.deleted_at IS NULL');
 
     // Apply filters
-    if (filter.search) {
+    if(filter.search) {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
-    if (filter.subject_id) {
+    if(filter.subject_id) {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
-    if (filter.teacher_id) {
+    if(filter.teacher_id) {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });
@@ -128,7 +128,7 @@ export class BooksService {
   /**
    * Find teacher's own books
    */
-  async findMyBooks(
+  public async findMyBooks(
     teacherId: string,
     filter: Omit<BookFilterDto, 'teacher_id'>,
   ): Promise<{ data: Book[]; meta: PaginationMeta }> {
@@ -138,13 +138,13 @@ export class BooksService {
   /**
    * Find a single book by ID
    */
-  async findOne(id: string): Promise<Book> {
+  public async findOne(id: string): Promise<Book> {
     const book = await this.booksRepository.findOne({
       where: { id, deleted_at: IsNull() },
       relations: ['teacher', 'subject'],
     });
 
-    if (!book) {
+    if(!book) {
       throw new NotFoundException(`Book with ID ${id} not found`);
     }
 
@@ -154,14 +154,14 @@ export class BooksService {
   /**
    * Find a book by ID (including soft deleted, for admin)
    */
-  async findOneAdmin(id: string): Promise<Book> {
+  public async findOneAdmin(id: string): Promise<Book> {
     const book = await this.booksRepository.findOne({
       where: { id },
       relations: ['teacher', 'subject'],
       withDeleted: true,
     });
 
-    if (!book) {
+    if(!book) {
       throw new NotFoundException(`Book with ID ${id} not found`);
     }
 
@@ -171,7 +171,7 @@ export class BooksService {
   /**
    * Update a book (teacher must own it)
    */
-  async update(
+  public async update(
     id: string,
     teacherId: string,
     dto: UpdateBookDto,
@@ -179,17 +179,17 @@ export class BooksService {
     const book = await this.findOne(id);
 
     // Ownership validation
-    if (book.teacher_id !== teacherId) {
+    if(book.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own books');
     }
 
     // If updating subject, validate it exists
-    if (dto.subject_id && dto.subject_id !== book.subject_id) {
+    if(dto.subject_id && dto.subject_id !== book.subject_id) {
       const subject = await this.subjectsRepository.findOne({
         where: { id: dto.subject_id, deleted_at: IsNull() },
       });
 
-      if (!subject) {
+      if(!subject) {
         throw new NotFoundException(
           `Subject with ID ${dto.subject_id} not found`,
         );
@@ -197,7 +197,7 @@ export class BooksService {
     }
 
     // If updating title, check for duplicates
-    if (dto.title && dto.title !== book.title) {
+    if(dto.title && dto.title !== book.title) {
       const existing = await this.booksRepository.findOne({
         where: {
           teacher_id: teacherId,
@@ -206,7 +206,7 @@ export class BooksService {
         },
       });
 
-      if (existing && existing.id !== id) {
+      if(existing && existing.id !== id) {
         throw new ConflictException('You already have a book with this title');
       }
     }
@@ -222,11 +222,11 @@ export class BooksService {
   /**
    * Soft delete a book (teacher must own it)
    */
-  async delete(id: string, teacherId: string): Promise<void> {
+  public async delete(id: string, teacherId: string): Promise<void> {
     const book = await this.findOne(id);
 
     // Ownership validation
-    if (book.teacher_id !== teacherId) {
+    if(book.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only delete your own books');
     }
 
@@ -237,7 +237,7 @@ export class BooksService {
   /**
    * Hard delete a book (admin only)
    */
-  async hardDelete(id: string): Promise<void> {
+  public async hardDelete(id: string): Promise<void> {
     const book = await this.findOneAdmin(id);
     await this.booksRepository.remove(book);
     this.logger.log(`Book hard deleted: ${id}`);
@@ -246,10 +246,10 @@ export class BooksService {
   /**
    * Restore a soft-deleted book (admin only)
    */
-  async restore(id: string): Promise<Book> {
+  public async restore(id: string): Promise<Book> {
     const book = await this.findOneAdmin(id);
 
-    if (!book.deleted_at) {
+    if(!book.deleted_at) {
       throw new ConflictException('Book is not deleted');
     }
 
@@ -262,7 +262,7 @@ export class BooksService {
   /**
    * Increment purchase count
    */
-  async incrementPurchaseCount(bookId: string): Promise<void> {
+  public async incrementPurchaseCount(bookId: string): Promise<void> {
     await this.booksRepository.increment({ id: bookId }, 'purchase_count', 1);
     this.logger.log(`Book purchase count incremented: ${bookId}`);
   }
@@ -270,7 +270,7 @@ export class BooksService {
   /**
    * Check if teacher owns the book
    */
-  async checkOwnership(bookId: string, teacherId: string): Promise<boolean> {
+  public async checkOwnership(bookId: string, teacherId: string): Promise<boolean> {
     const book = await this.findOne(bookId);
     return book.teacher_id === teacherId;
   }
@@ -278,15 +278,15 @@ export class BooksService {
   /**
    * Get all books for admin (including soft deleted)
    */
-  async findAllAdmin(filter: BookFilterDto): Promise<{
+  public async findAllAdmin(filter: BookFilterDto): Promise<{
     data: Book[];
     meta: PaginationMeta;
   }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
-    const sortBy = filter.sortBy || 'created_at';
-    const order = filter.order || 'desc';
+    const sortBy = filter.sortBy ?? 'created_at';
+    const order = filter.order ?? 'desc';
 
     const query = this.booksRepository
       .createQueryBuilder('book')
@@ -295,20 +295,20 @@ export class BooksService {
       .withDeleted();
 
     // Apply filters
-    if (filter.search) {
+    if(filter.search) {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
-    if (filter.subject_id) {
+    if(filter.subject_id) {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
-    if (filter.teacher_id) {
+    if(filter.teacher_id) {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });

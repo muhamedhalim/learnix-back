@@ -1,20 +1,21 @@
 import {
   Controller,
   Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { PackagesService } from '../packages.service';
+
 import { PackageFilterDto } from '../dto';
+import { PackagesService } from '../packages.service';
 
 @ApiTags('Packages')
 @Controller('packages')
@@ -81,29 +82,19 @@ export class PackagesController {
     status: HttpStatus.OK,
     description: 'List of packages',
   })
-  async findAll(@Query() filter: PackageFilterDto) {
-    return this.packagesService.findAll({ ...filter, is_active: true });
+  public async findAll(@Query() filter: PackageFilterDto): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
+    const filterWithActive = Object.assign({}, filter, { is_active: true });
+    return this.packagesService.findAll(filterWithActive);
   }
 
   /**
    * Get a single package by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get package by ID',
-    description:
-      'Returns detailed information about a package including lessons.',
-  })
-  @ApiParam({ name: 'id', description: 'Package ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Package details retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.packagesService.findOne(id);
   }
 
@@ -132,10 +123,10 @@ export class PackagesController {
     status: HttpStatus.OK,
     description: 'List of packages by teacher',
   })
-  async findByTeacher(
+  public async findByTeacher(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ) {
+  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
     return this.packagesService.findByTeacher(teacherId, {
       ...filter,
       is_active: true,

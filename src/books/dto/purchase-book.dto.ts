@@ -1,14 +1,10 @@
-import { IsOptional, IsString, IsNotEmpty } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { IsNotEmpty,IsOptional, IsString } from 'class-validator';
 
 export class PurchaseBookDto {
-  @ApiProperty({
-    description: 'Book ID to purchase',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsString()
   @IsNotEmpty()
-  book_id!: string;
+  public book_id!: string;
 
   @ApiPropertyOptional({
     description: 'Discount code to apply',
@@ -16,7 +12,7 @@ export class PurchaseBookDto {
   })
   @IsString()
   @IsOptional()
-  discount_code?: string;
+  public discount_code?: string;
 
   @ApiPropertyOptional({
     description: 'Purchase code for free access',
@@ -24,5 +20,5 @@ export class PurchaseBookDto {
   })
   @IsString()
   @IsOptional()
-  purchase_code?: string;
+  public purchase_code?: string;
 }

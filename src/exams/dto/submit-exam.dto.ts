@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsArray, ArrayMinSize, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+
 import { AnswerDto } from './question.dto';
+import { Type } from 'class-transformer';
+import { ArrayMinSize, IsArray, IsUUID, ValidateNested } from 'class-validator';
 
 /**
  * DTO for submitting exam answers
@@ -16,7 +17,7 @@ export class SubmitExamDto {
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsUUID('4', { message: 'Exam ID must be a valid UUID' })
-  exam_id!: string;
+  public exam_id!: string;
 
   @ApiProperty({
     description: 'Array of student answers (one per question)',
@@ -34,5 +35,5 @@ export class SubmitExamDto {
   @ArrayMinSize(1, { message: 'At least one answer is required' })
   @ValidateNested({ each: true })
   @Type(() => AnswerDto)
-  answers!: AnswerDto[];
+  public answers!: AnswerDto[];
 }

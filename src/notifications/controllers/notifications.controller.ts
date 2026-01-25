@@ -1,26 +1,25 @@
 import {
   Controller,
   Get,
-  Put,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
-  ApiParam,
+  ApiTags,
 } from '@nestjs/swagger';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { NotificationsService } from '../services/notifications.service';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { NotificationFilterDto } from '../dto';
+import { NotificationsService } from '../services/notifications.service';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('JWT-auth')
@@ -36,10 +35,10 @@ export class NotificationsController {
     status: 200,
     description: 'Returns paginated list of notifications',
   })
-  async getMyNotifications(
+  public async getMyNotifications(
     @GetUser() user: JwtPayload,
     @Query() filter: NotificationFilterDto,
-  ) {
+  ): Promise<{ message: string; data: unknown[]; meta: unknown }> {
     const result = await this.notificationsService.findAllForUser(
       user.userId,
       filter,
@@ -50,13 +49,11 @@ export class NotificationsController {
     };
   }
 
-  @Get('unread-count')
-  @ApiOperation({ summary: 'Get count of unread notifications' })
   @ApiResponse({
     status: 200,
     description: 'Returns unread notification count',
   })
-  async getUnreadCount(@GetUser() user: JwtPayload) {
+  public async getUnreadCount(@GetUser() user: JwtPayload): Promise<{ message: string; data: { count: number } }> {
     const count = await this.notificationsService.getUnreadCount(user.userId);
     return {
       message: 'Unread count retrieved successfully',
@@ -64,21 +61,14 @@ export class NotificationsController {
     };
   }
 
-  @Put(':id/mark-read')
-  @ApiOperation({ summary: 'Mark a notification as read' })
-  @ApiParam({ name: 'id', description: 'Notification ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Notification marked as read',
-  })
   @ApiResponse({
     status: 404,
     description: 'Notification not found',
   })
-  async markAsRead(
+  public async markAsRead(
     @Param('id', ParseUUIDPipe) notificationId: string,
     @GetUser() user: JwtPayload,
-  ) {
+  ): Promise<{ message: string; data: unknown }> {
     const notification = await this.notificationsService.markAsRead(
       notificationId,
       user.userId,
@@ -89,16 +79,14 @@ export class NotificationsController {
     };
   }
 
-  @Put('mark-all-read')
-  @ApiOperation({ summary: 'Mark all notifications as read' })
   @ApiResponse({
     status: 200,
     description: 'All notifications marked as read',
   })
-  async markAllAsRead(@GetUser() user: JwtPayload) {
+  public async markAllAsRead(@GetUser() user: JwtPayload): Promise<{ message: string; data: unknown }> {
     const result = await this.notificationsService.markAllAsRead(user.userId);
     return {
-      message: `${result.count} notifications marked as read`,
+      message: `${result.count.toString()} notifications marked as read`,
       data: result,
     };
   }

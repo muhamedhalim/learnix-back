@@ -1,14 +1,14 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
-  Index,
-} from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { AttendanceCodeType } from './attendance-code-type.enum';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 
 @Entity('attendance_codes')
 @Index('IDX_attendance_codes_code', ['code'], { unique: true })

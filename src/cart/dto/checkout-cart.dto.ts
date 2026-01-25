@@ -1,5 +1,6 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
  * Payment method types for cart checkout
@@ -13,13 +14,8 @@ export enum PaymentMethod {
  * DTO for checking out cart
  */
 export class CheckoutCartDto {
-  @ApiProperty({
-    description: 'Payment method',
-    enum: PaymentMethod,
-    example: PaymentMethod.PAYMOB,
-  })
   @IsEnum(PaymentMethod)
-  paymentMethod!: PaymentMethod;
+  public paymentMethod!: PaymentMethod;
 
   @ApiPropertyOptional({
     description: 'Discount code to apply (optional)',
@@ -27,7 +23,7 @@ export class CheckoutCartDto {
   })
   @IsOptional()
   @IsString()
-  discountCode?: string;
+  public discountCode?: string;
 
   @ApiPropertyOptional({
     description:
@@ -36,5 +32,5 @@ export class CheckoutCartDto {
   })
   @IsOptional()
   @IsString()
-  attendanceCode?: string;
+  public attendanceCode?: string;
 }

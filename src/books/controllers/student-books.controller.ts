@@ -1,30 +1,29 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiQuery,
   ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { BookPurchasesService } from '../services/book-purchases.service';
-import { BooksService } from '../services/books.service';
-import { BookFilterDto, PurchaseBookDto } from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { BookFilterDto, PurchaseBookDto } from '../dto';
+import { BookPurchasesService } from '../services/book-purchases.service';
+import { BooksService } from '../services/books.service';
 
 @ApiTags('Student Books')
 @Controller('student/books')
@@ -73,30 +72,24 @@ export class StudentBooksController {
     status: HttpStatus.OK,
     description: 'List of purchased books',
   })
-  async getMyBooks(
+  public async getMyBooks(
     @GetUser() user: JwtPayload,
     @Query() filter: BookFilterDto,
-  ) {
+  ): Promise<unknown> {
     return this.bookPurchasesService.getMyBooks(user.userId, filter);
   }
 
   /**
    * Check if book is purchased
    */
-  @Get(':id/access')
-  @ApiOperation({
-    summary: 'Check book access',
-    description: 'Check if the student has purchased a specific book.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Access status returned',
   })
-  async checkAccess(
+  public async checkAccess(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) bookId: string,
-  ) {
+  ): Promise<{ has_access: boolean; purchased_at: Date | null }> {
     const purchase = await this.bookPurchasesService.checkAlreadyPurchased(
       user.userId,
       bookId,
@@ -104,36 +97,21 @@ export class StudentBooksController {
 
     return {
       has_access: !!purchase,
-      purchased_at: purchase?.purchased_at || null,
+      purchased_at: purchase?.purchased_at ?? null,
     };
   }
 
   /**
    * Get download URL for a purchased book
    */
-  @Get(':id/download')
-  @ApiOperation({
-    summary: 'Get book download URL',
-    description:
-      'Returns the download URL for a purchased book. Student must have purchased the book.',
-  })
-  @ApiParam({ name: 'id', description: 'Book ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Download URL returned',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You have not purchased this book',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async getDownloadUrl(
+  public async getDownloadUrl(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) bookId: string,
-  ) {
+  ): Promise<unknown> {
     const result = await this.bookPurchasesService.getDownloadUrl(
       user.userId,
       bookId,
@@ -150,35 +128,21 @@ export class StudentBooksController {
    * Note: This endpoint initiates the purchase flow.
    * For full payment integration, it should redirect to PaymentsService.
    */
-  @Post('purchase')
-  @ApiOperation({
-    summary: 'Purchase a book',
-    description:
-      'Initiates the purchase process for a book. Supports discount codes.',
-  })
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Purchase initiated',
-  })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Book already purchased',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  async purchaseBook(
+  public async purchaseBook(
     @GetUser() user: JwtPayload,
     @Body() dto: PurchaseBookDto,
-  ) {
+  ): Promise<unknown> {
     // Check if already purchased
     const existing = await this.bookPurchasesService.checkAlreadyPurchased(
       user.userId,
       dto.book_id,
     );
 
-    if (existing) {
+    if(existing) {
       return {
         message: 'You have already purchased this book',
         already_purchased: true,
@@ -199,8 +163,8 @@ export class StudentBooksController {
         title_ar: book.title_ar,
         price: book.price,
       },
-      discount_code: dto.discount_code || null,
-      purchase_code: dto.purchase_code || null,
+      discount_code: dto.discount_code ?? null,
+      purchase_code: dto.purchase_code ?? null,
       redirect_to_payment: true,
     };
   }

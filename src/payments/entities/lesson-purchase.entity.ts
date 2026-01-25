@@ -1,16 +1,16 @@
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { User } from '../../users/entities/user.entity';
+import { Payment } from './payment.entity';
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { User } from '../../users/entities/user.entity';
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { Payment } from './payment.entity';
 
 @Entity('lesson_purchases')
 @Index('IDX_lesson_purchases_student_id', ['student_id'])

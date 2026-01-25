@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+ 
+ 
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
-import type { Server } from 'http';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { AppModule } from '../src/app.module';
+import type { Server } from 'http';
+import * as request from 'supertest';
 import { DataSource } from 'typeorm';
 
 describe('Auth (e2e)', () => {
@@ -43,11 +44,9 @@ describe('Auth (e2e)', () => {
 
   afterAll(async () => {
     // Clean up test user
-    if (dataSource) {
-      await dataSource.query('DELETE FROM users WHERE email = $1', [
-        testUser.email,
-      ]);
-    }
+    await dataSource.query('DELETE FROM users WHERE email = $1', [
+      testUser.email,
+    ]);
     await app.close();
   });
 
@@ -60,7 +59,7 @@ describe('Auth (e2e)', () => {
           expect(res.body).toHaveProperty('message');
           expect(res.body.message).toContain('CSRF token');
           // token might be undefined on first call, which is expected
-        });
+        }) as unknown;
     });
   });
 
@@ -80,7 +79,7 @@ describe('Auth (e2e)', () => {
 
           accessToken = res.body.access_token;
           refreshToken = res.body.refresh_token;
-        });
+        }) as unknown;
     });
 
     it('should fail to register with duplicate email', () => {
@@ -90,7 +89,7 @@ describe('Auth (e2e)', () => {
         .expect(409)
         .expect((res) => {
           expect(res.body.message).toContain('already exists');
-        });
+        }) as unknown;
     });
 
     it('should fail to register with invalid email format', () => {
@@ -102,7 +101,7 @@ describe('Auth (e2e)', () => {
           username: 'testuser2',
           full_name: 'Test User 2',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
 
     it('should fail to register with weak password', () => {
@@ -114,7 +113,7 @@ describe('Auth (e2e)', () => {
           username: 'testuser3',
           full_name: 'Test User 3',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
   });
 
@@ -135,7 +134,7 @@ describe('Auth (e2e)', () => {
 
           accessToken = res.body.access_token;
           refreshToken = res.body.refresh_token;
-        });
+        }) as unknown;
     });
 
     it('should fail to login with invalid password', () => {
@@ -148,7 +147,7 @@ describe('Auth (e2e)', () => {
         .expect(401)
         .expect((res) => {
           expect(res.body.message).toBe('Invalid credentials');
-        });
+        }) as unknown;
     });
 
     it('should fail to login with non-existent email', () => {
@@ -161,7 +160,7 @@ describe('Auth (e2e)', () => {
         .expect(401)
         .expect((res) => {
           expect(res.body.message).toBe('Invalid credentials');
-        });
+        }) as unknown;
     });
 
     it('should fail to login with missing fields', () => {
@@ -170,7 +169,7 @@ describe('Auth (e2e)', () => {
         .send({
           email: testUser.email,
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
   });
 
@@ -194,7 +193,7 @@ describe('Auth (e2e)', () => {
 
           accessToken = res.body.access_token;
           refreshToken = res.body.refresh_token;
-        });
+        }) as unknown;
     });
 
     it('should fail to refresh with invalid refresh token', () => {
@@ -206,14 +205,14 @@ describe('Auth (e2e)', () => {
         .expect(401)
         .expect((res) => {
           expect(res.body.message).toBe('Invalid refresh token');
-        });
+        }) as unknown;
     });
 
     it('should fail to refresh with missing refresh token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/refresh')
         .send({})
-        .expect(400);
+        .expect(400) as unknown;
     });
   });
 
@@ -226,7 +225,7 @@ describe('Auth (e2e)', () => {
         .expect(200)
         .expect((res) => {
           expect(res.body.message).toBe('Logged out successfully');
-        });
+        }) as unknown;
 
       // Then, try to use the old refresh token (should fail)
       return request(app.getHttpServer() as Server)
@@ -234,20 +233,20 @@ describe('Auth (e2e)', () => {
         .send({
           refresh_token: refreshToken,
         })
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should fail to logout without authentication', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should fail to logout with invalid token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', 'Bearer invalid_token')
-        .expect(401);
+        .expect(401) as unknown;
     });
   });
 
@@ -323,20 +322,20 @@ describe('Auth (e2e)', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${validAccessToken}`)
-        .expect(200);
+        .expect(200) as unknown;
     });
 
     it('should fail to access protected route without token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should fail to access protected route with malformed token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', 'InvalidTokenFormat')
-        .expect(401);
+        .expect(401) as unknown;
     });
   });
 });

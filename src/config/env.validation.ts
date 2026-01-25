@@ -1,12 +1,11 @@
 import { plainToInstance } from 'class-transformer';
 import {
-  IsString,
   IsNotEmpty,
-  IsOptional,
-  IsEnum,
   IsNumber,
-  Min,
+  IsOptional,
+  IsString,
   Max,
+  Min,
   validateSync,
 } from 'class-validator';
 
@@ -17,144 +16,140 @@ enum Environment {
 }
 
 export class EnvironmentVariables {
-  @IsEnum(Environment)
   @IsOptional()
-  NODE_ENV: Environment = Environment.Development;
+  public NODE_ENV: Environment = Environment.Development;
 
   @IsNumber()
   @Min(1000)
   @Max(65535)
   @IsOptional()
-  PORT: number = 3000;
+  public PORT = 3000;
 
   // Database
-  @IsString()
   @IsNotEmpty()
-  DATABASE_URL!: string;
+  public DATABASE_URL!: string;
 
   // TypeORM
   @IsString()
   @IsOptional()
-  TYPEORM_SYNCHRONIZE?: string;
+  public TYPEORM_SYNCHRONIZE?: string;
 
   // Redis (optional for development - falls back to in-memory)
   @IsString()
   @IsOptional()
-  REDIS_HOST?: string;
+  public REDIS_HOST?: string;
 
   @IsNumber()
   @IsOptional()
-  REDIS_PORT?: number;
+  public REDIS_PORT?: number;
 
   @IsString()
   @IsOptional()
-  REDIS_PASSWORD?: string;
+  public REDIS_PASSWORD?: string;
 
   // JWT Authentication
-  @IsString()
   @IsNotEmpty()
-  JWT_SECRET!: string;
+  public JWT_SECRET!: string;
 
   @IsString()
   @IsOptional()
-  JWT_EXPIRATION?: string;
+  public JWT_EXPIRATION?: string;
 
-  @IsString()
   @IsNotEmpty()
-  JWT_REFRESH_SECRET!: string;
+  public JWT_REFRESH_SECRET!: string;
 
   @IsString()
   @IsOptional()
-  JWT_REFRESH_EXPIRATION?: string;
+  public JWT_REFRESH_EXPIRATION?: string;
 
   // Admin Initialization
   @IsString()
   @IsOptional()
-  INIT_SECRET?: string;
+  public INIT_SECRET?: string;
 
   @IsString()
   @IsOptional()
-  ADMIN_INIT_EMAIL?: string;
+  public ADMIN_INIT_EMAIL?: string;
 
   @IsString()
   @IsOptional()
-  ADMIN_INIT_PASSWORD?: string;
+  public ADMIN_INIT_PASSWORD?: string;
 
   // Firebase (optional - for SMS notifications)
   @IsString()
   @IsOptional()
-  FIREBASE_PROJECT_ID?: string;
+  public FIREBASE_PROJECT_ID?: string;
 
   @IsString()
   @IsOptional()
-  FIREBASE_CLIENT_EMAIL?: string;
+  public FIREBASE_CLIENT_EMAIL?: string;
 
   @IsString()
   @IsOptional()
-  FIREBASE_PRIVATE_KEY?: string;
+  public FIREBASE_PRIVATE_KEY?: string;
 
   // Bunny.net Stream (video hosting)
   @IsString()
   @IsOptional()
-  BUNNY_STREAM_LIBRARY_ID?: string;
+  public BUNNY_STREAM_LIBRARY_ID?: string;
 
   @IsString()
   @IsOptional()
-  BUNNY_STREAM_API_KEY?: string;
+  public BUNNY_STREAM_API_KEY?: string;
 
   // Paymob (optional until payment features are implemented)
   @IsString()
   @IsOptional()
-  PAYMOB_API_KEY?: string;
+  public PAYMOB_API_KEY?: string;
 
   @IsString()
   @IsOptional()
-  PAYMOB_INTEGRATION_ID?: string;
+  public PAYMOB_INTEGRATION_ID?: string;
 
   @IsString()
   @IsOptional()
-  PAYMOB_IFRAME_ID?: string;
+  public PAYMOB_IFRAME_ID?: string;
 
   @IsString()
   @IsOptional()
-  PAYMOB_HMAC_SECRET?: string;
+  public PAYMOB_HMAC_SECRET?: string;
 
   // Application URLs
   @IsString()
   @IsOptional()
-  FRONTEND_URL?: string;
+  public FRONTEND_URL?: string;
 
   @IsString()
   @IsOptional()
-  BACKEND_URL?: string;
+  public BACKEND_URL?: string;
 
   @IsString()
   @IsOptional()
-  CORS_ORIGIN?: string;
+  public CORS_ORIGIN?: string;
 
   // Security
   @IsNumber()
   @Min(4)
   @Max(20)
   @IsOptional()
-  BCRYPT_ROUNDS: number = 12;
+  public BCRYPT_ROUNDS = 12;
 
   // File Uploads
   @IsString()
   @IsOptional()
-  UPLOAD_DIR?: string;
+  public UPLOAD_DIR?: string;
 
   // Lesson Access Settings
   @IsNumber()
   @IsOptional()
-  LESSON_ACCESS_DAYS?: number;
+  public LESSON_ACCESS_DAYS?: number;
 
   @IsNumber()
   @IsOptional()
-  LESSON_EXTENSION_DAYS?: number;
+  public LESSON_EXTENSION_DAYS?: number;
 }
 
-export function validate(config: Record<string, unknown>) {
+export function validate(config: Record<string, unknown>): EnvironmentVariables {
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
@@ -163,7 +158,7 @@ export function validate(config: Record<string, unknown>) {
     skipMissingProperties: false,
   });
 
-  if (errors.length > 0) {
+  if(errors.length > 0) {
     const errorMessages = errors
       .map((error) => {
         const constraints = error.constraints

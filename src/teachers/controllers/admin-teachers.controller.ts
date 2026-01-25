@@ -1,34 +1,34 @@
 import {
+  Body,
   Controller,
   Get,
-  Post,
-  Put,
-  Body,
-  Param,
-  Query,
-  ParseUUIDPipe,
-  HttpStatus,
   HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
-  ApiTags,
+  ApiBearerAuth,
   ApiOperation,
-  ApiResponse,
   ApiParam,
   ApiQuery,
-  ApiBearerAuth,
+  ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
-import { TeachersService } from '../teachers.service';
-import {
-  ApproveTeacherDto,
-  RejectTeacherDto,
-  AssignSubjectsDto,
-  TeacherFilterDto,
-} from '../dto';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import {
+  ApproveTeacherDto,
+  AssignSubjectsDto,
+  RejectTeacherDto,
+  TeacherFilterDto,
+} from '../dto';
+import { TeachersService } from '../teachers.service';
 
 @ApiTags('Admin - Teachers')
 @Controller('admin/teachers')
@@ -101,7 +101,7 @@ export class AdminTeachersController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  async findAll(@Query() filter: TeacherFilterDto) {
+  public async findAll(@Query() filter: TeacherFilterDto): Promise<unknown> {
     return this.teachersService.findAllTeachers(filter);
   }
 
@@ -130,54 +130,32 @@ export class AdminTeachersController {
     status: HttpStatus.OK,
     description: 'List of pending teachers',
   })
-  async findPending(
+  public async findPending(
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
-    return this.teachersService.findPendingTeachers(page || 1, limit || 20);
+  ): Promise<unknown> {
+    return this.teachersService.findPendingTeachers(page ?? 1, limit ?? 20);
   }
 
   /**
    * Get a single teacher by ID
    */
-  @Get(':id')
-  @ApiOperation({
-    summary: 'Get teacher by ID',
-    description:
-      'Returns detailed information about a teacher including user details, subjects, and rating. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Teacher profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Teacher details retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return this.teachersService.findTeacherById(id);
   }
 
   /**
    * Get teacher statistics
    */
-  @Get(':id/stats')
-  @ApiOperation({
-    summary: 'Get teacher stats',
-    description:
-      'Returns statistics for a teacher including lesson count, student count, and earnings. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Teacher profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Teacher stats retrieved successfully',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  async getStats(@Param('id', ParseUUIDPipe) id: string) {
+  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     const stats = await this.teachersService.getTeacherStats(id);
     return {
       stats,
@@ -207,10 +185,10 @@ export class AdminTeachersController {
     status: HttpStatus.CONFLICT,
     description: 'Teacher is already approved',
   })
-  async approve(
+  public async approve(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveTeacherDto,
-  ) {
+  ): Promise<unknown> {
     const teacher = await this.teachersService.approveTeacher(
       id,
       approveDto.notes,
@@ -224,34 +202,14 @@ export class AdminTeachersController {
   /**
    * Reject a pending teacher
    */
-  @Post(':id/reject')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Reject a teacher',
-    description:
-      'Rejects a pending or approved teacher with a reason. Rejected teachers cannot create lessons. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Teacher profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Teacher rejected successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Teacher not found',
-  })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Teacher is already rejected',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Rejection reason is required',
   })
-  async reject(
+  public async reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectTeacherDto,
-  ) {
+  ): Promise<unknown> {
     const teacher = await this.teachersService.rejectTeacher(id, rejectDto);
     return {
       message: 'Teacher rejected successfully',
@@ -262,29 +220,14 @@ export class AdminTeachersController {
   /**
    * Assign subjects to a teacher
    */
-  @Put(':id/subjects')
-  @ApiOperation({
-    summary: 'Assign subjects to teacher',
-    description:
-      'Assigns or updates the subjects a teacher can teach. Replaces all existing subject assignments. Admin only.',
-  })
-  @ApiParam({ name: 'id', description: 'Teacher profile ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Subjects assigned successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Teacher not found',
-  })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'One or more subjects not found',
   })
-  async assignSubjects(
+  public async assignSubjects(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() assignDto: AssignSubjectsDto,
-  ) {
+  ): Promise<unknown> {
     const teacher = await this.teachersService.assignSubjects(id, assignDto);
     return {
       message: 'Subjects assigned successfully',

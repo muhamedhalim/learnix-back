@@ -3,7 +3,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class CreateBooksAndAttendance1736445600000
   implements MigrationInterface
 {
-  name = 'CreateBooksAndAttendance1736445600000';
+  public name = 'CreateBooksAndAttendance1736445600000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create books table (all IDs are UUID for consistency)

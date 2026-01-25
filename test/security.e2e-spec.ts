@@ -1,11 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+ 
+ 
 
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
-import type { Server } from 'http';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import { AppModule } from '../src/app.module';
+import type { Server } from 'http';
+import * as request from 'supertest';
 import { DataSource } from 'typeorm';
 
 describe('Security (e2e)', () => {
@@ -46,11 +47,9 @@ describe('Security (e2e)', () => {
 
   afterAll(async () => {
     // Clean up test user
-    if (dataSource) {
-      await dataSource.query('DELETE FROM users WHERE email = $1', [
-        testUser.email,
-      ]);
-    }
+    await dataSource.query('DELETE FROM users WHERE email = $1', [
+      testUser.email,
+    ]);
     await app.close();
   }, 10000);
 
@@ -66,7 +65,7 @@ describe('Security (e2e)', () => {
           .expect((res) => {
             // Should fail validation (400) or auth (401)
             expect([400, 401]).toContain(res.status);
-          });
+          }) as unknown;
       });
 
       it('should prevent SQL injection in registration email field', () => {
@@ -78,7 +77,7 @@ describe('Security (e2e)', () => {
             username: 'sqltest',
             full_name: 'SQL Test',
           })
-          .expect(400); // Should fail validation
+          .expect(400) as unknown; // Should fail validation
       });
 
       it('should prevent SQL injection with UNION SELECT', () => {
@@ -91,15 +90,15 @@ describe('Security (e2e)', () => {
           .expect((res) => {
             // Should fail validation (400) or auth (401)
             expect([400, 401]).toContain(res.status);
-          });
+          }) as unknown;
       });
     });
 
     describe('XSS Protection', () => {
       it('should accept or sanitize XSS in full_name field during registration', async () => {
         const xssPayload = '<script>alert("XSS")</script>';
-        const uniqueEmail = `xss.test.${Date.now()}@example.com`;
-        const uniqueUsername = `xssuser${Date.now()}`;
+        const uniqueEmail = `xss.test.${String(Date.now())}@example.com`;
+        const uniqueUsername = `xssuser${String(Date.now())}`;
 
         const res = await request(app.getHttpServer() as Server)
           .post('/api/v1/auth/register')
@@ -141,7 +140,7 @@ describe('Security (e2e)', () => {
             } else {
               expect(res.status).toBe(400);
             }
-          });
+          }) as unknown;
       });
     });
 
@@ -153,7 +152,7 @@ describe('Security (e2e)', () => {
             email: 'incomplete@example.com',
             // Missing password, username, full_name
           })
-          .expect(400);
+          .expect(400) as unknown;
       });
 
       it('should reject registration with invalid email format', () => {
@@ -165,7 +164,7 @@ describe('Security (e2e)', () => {
             username: 'testuser',
             full_name: 'Test User',
           })
-          .expect(400);
+          .expect(400) as unknown;
       });
 
       it('should reject registration with extra unknown fields', () => {
@@ -179,7 +178,7 @@ describe('Security (e2e)', () => {
             malicious_field: 'should be rejected',
             is_admin: true, // Privilege escalation attempt
           })
-          .expect(400);
+          .expect(400) as unknown;
       });
     });
   });
@@ -194,7 +193,7 @@ describe('Security (e2e)', () => {
           username: 'weakpass1',
           full_name: 'Weak Pass 1',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
 
     it('should reject weak password (no uppercase)', () => {
@@ -206,7 +205,7 @@ describe('Security (e2e)', () => {
           username: 'weakpass2',
           full_name: 'Weak Pass 2',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
 
     it('should reject weak password (no numbers)', () => {
@@ -218,7 +217,7 @@ describe('Security (e2e)', () => {
           username: 'weakpass3',
           full_name: 'Weak Pass 3',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
 
     it('should reject weak password (no special characters)', () => {
@@ -230,11 +229,11 @@ describe('Security (e2e)', () => {
           username: 'weakpass4',
           full_name: 'Weak Pass 4',
         })
-        .expect(400);
+        .expect(400) as unknown;
     });
 
-    it('should accept strong password', () => {
-      return request(app.getHttpServer() as Server)
+    it('should accept strong password', async () => {
+      await request(app.getHttpServer() as Server)
         .post('/api/v1/auth/register')
         .send({
           email: 'strong@example.com',
@@ -242,13 +241,12 @@ describe('Security (e2e)', () => {
           username: 'strongpass',
           full_name: 'Strong Pass',
         })
-        .expect(201)
-        .then(async () => {
-          // Clean up
-          await dataSource.query('DELETE FROM users WHERE email = $1', [
-            'strong@example.com',
-          ]);
-        });
+        .expect(201);
+
+      // Clean up
+      await dataSource.query('DELETE FROM users WHERE email = $1', [
+        'strong@example.com',
+      ]);
     });
 
     it('should never expose password hash in responses', async () => {
@@ -269,21 +267,21 @@ describe('Security (e2e)', () => {
     it('should reject access to protected routes without token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should reject access with invalid token', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', 'Bearer invalid_token_12345')
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should reject access with malformed authorization header', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', 'InvalidFormat')
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should reject access with expired token', () => {
@@ -294,7 +292,7 @@ describe('Security (e2e)', () => {
       return request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${expiredToken}`)
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should prevent token reuse after logout', async () => {
@@ -310,7 +308,7 @@ describe('Security (e2e)', () => {
         .post('/api/v1/auth/register')
         .send(newUser);
 
-      const token = registerRes.body.access_token;
+      const token = registerRes.body.access_token as string;
 
       // Logout
       await request(app.getHttpServer() as Server)
@@ -348,7 +346,7 @@ describe('Security (e2e)', () => {
         responses.push(res);
 
         // Stop if we hit rate limit
-        if (res.status === 429) break;
+        if (res.status === 429) {break;}
       }
 
       // Should either enforce rate limits (429) or successfully handle all requests
@@ -386,7 +384,7 @@ describe('Security (e2e)', () => {
         .expect((res) => {
           expect(res.body).toHaveProperty('message');
           expect(res.body.message).toContain('CSRF token');
-        });
+        }) as unknown;
     });
 
     it('should handle CSRF token requests without errors', async () => {
@@ -493,7 +491,7 @@ describe('Security (e2e)', () => {
         .send({
           refresh_token: firstRefreshToken,
         })
-        .expect(401);
+        .expect(401) as unknown;
     });
 
     it('should invalidate refresh tokens on logout', async () => {
@@ -504,8 +502,8 @@ describe('Security (e2e)', () => {
           password: testUser.password,
         });
 
-      const token = loginRes.body.access_token;
-      const refreshToken = loginRes.body.refresh_token;
+      const token = loginRes.body.access_token as string;
+      const refreshToken = loginRes.body.refresh_token as string;
 
       // Logout
       await request(app.getHttpServer() as Server)
@@ -519,7 +517,7 @@ describe('Security (e2e)', () => {
         .send({
           refresh_token: refreshToken,
         })
-        .expect(401);
+        .expect(401) as unknown;
     });
   });
 });

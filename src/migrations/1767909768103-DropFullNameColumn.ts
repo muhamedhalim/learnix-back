@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class DropFullNameColumn1767909768103 implements MigrationInterface {
-  name = 'DropFullNameColumn1767909768103';
+  public name = 'DropFullNameColumn1767909768103';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Drop full_name column that's causing conflicts

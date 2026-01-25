@@ -1,23 +1,18 @@
 import {
-  Controller,
-  Post,
   Body,
-  UseGuards,
-  HttpStatus,
+  Controller,
   Get,
+  HttpStatus,
   Param,
 } from '@nestjs/common';
 import {
-  ApiTags,
   ApiOperation,
   ApiResponse,
-  ApiBearerAuth,
+  ApiTags,
 } from '@nestjs/swagger';
-import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
-import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { JwtPayload } from '../../common/interfaces/user-request.interface';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { AttendanceCodesService } from '../attendance-codes.service';
 import { VerifyAttendanceCodeDto } from '../dto';
 
@@ -53,7 +48,15 @@ export class AttendanceCodesController {
       },
     },
   })
-  async verifyCode(@Param('code') code: string) {
+  public async verifyCode(@Param('code') code: string): Promise<{
+    data: {
+      valid: boolean;
+      type?: string;
+      item_id?: string;
+      isExpired?: boolean;
+      isUsed?: boolean;
+    };
+  }> {
     const verification =
       await this.attendanceCodesService.verifyCodePublic(code);
     return {
@@ -61,27 +64,21 @@ export class AttendanceCodesController {
     };
   }
 
-  @Post('redeem')
-  @UseGuards(HybridAuthGuard, RolesGuard)
-  @Roles('student')
-  @ApiBearerAuth('JWT-auth')
-  @ApiOperation({
-    summary: 'Redeem an attendance code',
-    description:
-      'Redeems an attendance code to grant free access to a lesson or package.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Code redeemed successfully, access granted',
-  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Invalid or expired code',
   })
-  async redeemCode(
+  public async redeemCode(
     @Body() dto: VerifyAttendanceCodeDto,
     @GetUser() user: JwtPayload,
-  ) {
+  ): Promise<{
+    message: string;
+    data: {
+      payment_id: string;
+      item_type: string;
+      item_id: string;
+    };
+  }> {
     const payment = await this.attendanceCodesService.verifyAndRedeem(
       dto,
       user.userId,

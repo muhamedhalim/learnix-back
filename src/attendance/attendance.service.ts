@@ -1,20 +1,21 @@
 import {
-  Injectable,
-  NotFoundException,
   ConflictException,
+  Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+
+import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { Lesson } from '../lessons/entities/lesson.entity';
+import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
+import { AttendanceFilterDto,MarkAttendanceDto } from './dto';
 import {
   AttendanceRecord,
   AttendanceStatus,
 } from './entities/attendance-record.entity';
 import { LessonSession } from './entities/lesson-session.entity';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { MarkAttendanceDto, AttendanceFilterDto } from './dto';
-import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
-import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { IsNull,Repository } from 'typeorm';
 
 const AUTO_ATTENDANCE_THRESHOLD = 80; // 80% video watch = auto present
 
@@ -44,10 +45,10 @@ export class AttendanceService {
   /**
    * Mark attendance manually (teacher/admin)
    */
-  async markAttendance(
+  public async markAttendance(
     markerId: string | null,
     dto: MarkAttendanceDto,
-    isAutoMarked: boolean = false,
+    isAutoMarked = false,
   ): Promise<AttendanceRecord> {
     // Check if already marked
     const existing = await this.checkAttendanceExists(
@@ -55,7 +56,7 @@ export class AttendanceService {
       dto.lesson_id,
     );
 
-    if (existing) {
+    if(existing) {
       throw new ConflictException(
         'Attendance already marked for this student and lesson',
       );
@@ -66,7 +67,7 @@ export class AttendanceService {
       where: { id: dto.lesson_id, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${dto.lesson_id} not found`);
     }
 
@@ -78,18 +79,18 @@ export class AttendanceService {
       marked_by: markerId,
       is_auto_marked: isAutoMarked,
       notes:
-        dto.notes ||
+        dto.notes ??
         (isAutoMarked ? 'Auto-marked: 80% video completion' : null),
     });
 
     const saved = await this.attendanceRepository.save(attendance);
 
     this.logger.log(
-      `Attendance marked: student ${dto.student_id}, lesson ${dto.lesson_id}, status ${dto.status}, auto=${isAutoMarked}`,
+      `Attendance marked: student ${dto.student_id}, lesson ${dto.lesson_id}, status ${dto.status}, auto=${String(isAutoMarked)}`,
     );
 
     // Send SMS notification to parent if marked present
-    if (dto.status === 'present') {
+    if(dto.status === 'present') {
       try {
         await this.notificationTriggersService.notifyAttendance(
           dto.student_id,
@@ -107,7 +108,7 @@ export class AttendanceService {
   /**
    * Update existing attendance record
    */
-  async updateAttendance(
+  public async updateAttendance(
     id: string,
     markerId: string,
     status: AttendanceStatus,
@@ -118,7 +119,7 @@ export class AttendanceService {
     attendance.status = status;
     attendance.marked_by = markerId;
     attendance.is_auto_marked = false;
-    if (notes !== undefined) {
+    if(notes !== undefined) {
       attendance.notes = notes;
     }
 
@@ -132,7 +133,7 @@ export class AttendanceService {
   /**
    * Delete attendance record
    */
-  async deleteAttendance(id: string): Promise<void> {
+  public async deleteAttendance(id: string): Promise<void> {
     const attendance = await this.findAttendanceById(id);
     await this.attendanceRepository.remove(attendance);
     this.logger.log(`Attendance deleted: ${id}`);
@@ -141,7 +142,7 @@ export class AttendanceService {
   /**
    * Check if attendance already exists
    */
-  async checkAttendanceExists(
+  public async checkAttendanceExists(
     studentId: string,
     lessonId: string,
   ): Promise<AttendanceRecord | null> {
@@ -156,13 +157,13 @@ export class AttendanceService {
   /**
    * Find attendance by ID
    */
-  async findAttendanceById(id: string): Promise<AttendanceRecord> {
+  public async findAttendanceById(id: string): Promise<AttendanceRecord> {
     const attendance = await this.attendanceRepository.findOne({
       where: { id },
       relations: ['student', 'lesson', 'marker'],
     });
 
-    if (!attendance) {
+    if(!attendance) {
       throw new NotFoundException(`Attendance record with ID ${id} not found`);
     }
 
@@ -172,7 +173,7 @@ export class AttendanceService {
   /**
    * Start a lesson session (track video watch)
    */
-  async enterLesson(
+  public async enterLesson(
     studentId: string,
     lessonId: string,
     ipAddress?: string,
@@ -183,7 +184,7 @@ export class AttendanceService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if(!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -191,8 +192,8 @@ export class AttendanceService {
     const session = this.sessionsRepository.create({
       student_id: studentId,
       lesson_id: lessonId,
-      ip_address: ipAddress || null,
-      device_info: deviceInfo || null,
+      ip_address: ipAddress ?? null,
+      device_info: deviceInfo ?? null,
     });
 
     const saved = await this.sessionsRepository.save(session);
@@ -207,7 +208,7 @@ export class AttendanceService {
   /**
    * End a lesson session and check for auto-attendance
    */
-  async exitLesson(
+  public async exitLesson(
     sessionId: string,
     watchPercentage: number,
     durationSeconds: number,
@@ -223,12 +224,12 @@ export class AttendanceService {
 
     const isCompleted = watchPercentage >= AUTO_ATTENDANCE_THRESHOLD;
     this.logger.log(
-      `Session ended: ${sessionId}, watch ${watchPercentage}%, completed=${isCompleted}`,
+      `Session ended: ${sessionId}, watch ${String(watchPercentage)}%, completed=${String(isCompleted)}`,
     );
 
     // Check for auto-attendance
     let autoAttendance = false;
-    if (isCompleted) {
+    if(isCompleted) {
       autoAttendance = await this.checkAndAutoMarkAttendance(session);
     }
 
@@ -238,14 +239,14 @@ export class AttendanceService {
   /**
    * Update session progress (during playback)
    */
-  async updateSessionProgress(
+  public async updateSessionProgress(
     sessionId: string,
     watchPercentage: number,
   ): Promise<LessonSession> {
     const session = await this.findSessionById(sessionId);
 
     session.video_progress_percent = Math.max(
-      Number(session.video_progress_percent),
+      session.video_progress_percent,
       watchPercentage,
     );
 
@@ -266,7 +267,7 @@ export class AttendanceService {
       session.lesson_id,
     );
 
-    if (existing) {
+    if(existing) {
       this.logger.log(
         `Auto-attendance skipped: already marked for student ${session.student_id}, lesson ${session.lesson_id}`,
       );
@@ -281,7 +282,7 @@ export class AttendanceService {
           student_id: session.student_id,
           lesson_id: session.lesson_id,
           status: 'present',
-          notes: `Auto-marked: ${session.video_progress_percent}% video completion`,
+          notes: `Auto-marked: ${String(session.video_progress_percent)}% video completion`,
         },
         true,
       );
@@ -300,13 +301,13 @@ export class AttendanceService {
   /**
    * Find session by ID
    */
-  async findSessionById(id: string): Promise<LessonSession> {
+  public async findSessionById(id: string): Promise<LessonSession> {
     const session = await this.sessionsRepository.findOne({
       where: { id },
       relations: ['student', 'lesson'],
     });
 
-    if (!session) {
+    if(!session) {
       throw new NotFoundException(`Session with ID ${id} not found`);
     }
 
@@ -316,7 +317,7 @@ export class AttendanceService {
   /**
    * Find active session for student in lesson
    */
-  async findActiveSession(
+  public async findActiveSession(
     studentId: string,
     lessonId: string,
   ): Promise<LessonSession | null> {
@@ -333,12 +334,12 @@ export class AttendanceService {
   /**
    * Get student's attendance history
    */
-  async getStudentAttendance(
+  public async getStudentAttendance(
     studentId: string,
     filter: AttendanceFilterDto,
   ): Promise<{ data: AttendanceRecord[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const query = this.attendanceRepository
@@ -349,23 +350,23 @@ export class AttendanceService {
       .where('attendance.student_id = :studentId', { studentId });
 
     // Apply filters
-    if (filter.lesson_id) {
+    if(filter.lesson_id) {
       query.andWhere('attendance.lesson_id = :lessonId', {
         lessonId: filter.lesson_id,
       });
     }
 
-    if (filter.status) {
+    if(filter.status) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if (filter.from_date) {
+    if(filter.from_date) {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if (filter.to_date) {
+    if(filter.to_date) {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -395,12 +396,12 @@ export class AttendanceService {
   /**
    * Get attendance for a lesson (teacher view)
    */
-  async getLessonAttendance(
+  public async getLessonAttendance(
     lessonId: string,
     filter: AttendanceFilterDto,
   ): Promise<{ data: AttendanceRecord[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 50;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 50;
     const skip = (page - 1) * limit;
 
     const query = this.attendanceRepository
@@ -410,17 +411,17 @@ export class AttendanceService {
       .where('attendance.lesson_id = :lessonId', { lessonId });
 
     // Apply filters
-    if (filter.status) {
+    if(filter.status) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if (filter.from_date) {
+    if(filter.from_date) {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if (filter.to_date) {
+    if(filter.to_date) {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -450,11 +451,11 @@ export class AttendanceService {
   /**
    * Get all attendance (admin view)
    */
-  async getAllAttendance(
+  public async getAllAttendance(
     filter: AttendanceFilterDto,
   ): Promise<{ data: AttendanceRecord[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const query = this.attendanceRepository
@@ -465,29 +466,29 @@ export class AttendanceService {
       .leftJoinAndSelect('attendance.marker', 'marker');
 
     // Apply filters
-    if (filter.student_id) {
+    if(filter.student_id) {
       query.andWhere('attendance.student_id = :studentId', {
         studentId: filter.student_id,
       });
     }
 
-    if (filter.lesson_id) {
+    if(filter.lesson_id) {
       query.andWhere('attendance.lesson_id = :lessonId', {
         lessonId: filter.lesson_id,
       });
     }
 
-    if (filter.status) {
+    if(filter.status) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if (filter.from_date) {
+    if(filter.from_date) {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if (filter.to_date) {
+    if(filter.to_date) {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -517,7 +518,7 @@ export class AttendanceService {
   /**
    * Get student attendance statistics
    */
-  async getStudentAttendanceStats(studentId: string): Promise<{
+  public async getStudentAttendanceStats(studentId: string): Promise<{
     total: number;
     present: number;
     absent: number;
@@ -555,7 +556,7 @@ export class AttendanceService {
   /**
    * Get lesson attendance statistics
    */
-  async getLessonAttendanceStats(lessonId: string): Promise<{
+  public async getLessonAttendanceStats(lessonId: string): Promise<{
     total: number;
     present: number;
     absent: number;

@@ -1,23 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+import { BillingDataDto } from './billing-data.dto';
+import { Type } from 'class-transformer';
 import {
-  IsUUID,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
-import { BillingDataDto } from './billing-data.dto';
 
 export class PurchaseLessonDto {
   @ApiProperty({
     description: 'ID of the lesson to purchase (UUID)',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsUUID('4', { message: 'Lesson ID must be a valid UUID' })
   @IsNotEmpty()
-  lesson_id!: string;
+  public lesson_id!: string;
 
   @ApiPropertyOptional({
     description: 'Discount code to apply',
@@ -26,7 +25,7 @@ export class PurchaseLessonDto {
   @IsOptional()
   @IsString()
   @MaxLength(50)
-  discount_code?: string;
+  public discount_code?: string;
 
   @ApiPropertyOptional({
     description: 'Idempotency key for preventing duplicate purchases',
@@ -35,12 +34,12 @@ export class PurchaseLessonDto {
   @IsOptional()
   @IsString()
   @MaxLength(255)
-  idempotency_key?: string;
+  public idempotency_key?: string;
 
   @ApiProperty({
     description: 'Billing information for Paymob',
   })
   @ValidateNested()
   @Type(() => BillingDataDto)
-  billing_data!: BillingDataDto;
+  public billing_data!: BillingDataDto;
 }

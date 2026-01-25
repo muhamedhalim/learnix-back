@@ -1,5 +1,6 @@
-import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
+import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 
 export class UpdateNotificationSettingsDto {
   @ApiPropertyOptional({
@@ -8,7 +9,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  sms_enabled?: boolean;
+  public sms_enabled?: boolean;
 
   @ApiPropertyOptional({
     description: 'Enable email notifications (future)',
@@ -16,7 +17,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  email_enabled?: boolean;
+  public email_enabled?: boolean;
 
   @ApiPropertyOptional({
     description: 'Enable push notifications (future)',
@@ -24,7 +25,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  push_enabled?: boolean;
+  public push_enabled?: boolean;
 
   @ApiPropertyOptional({
     description: 'Override parent phone number for SMS (Egyptian format)',
@@ -35,7 +36,7 @@ export class UpdateNotificationSettingsDto {
   @Matches(/^01[0125][0-9]{8}$/, {
     message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
-  parent_phone_override?: string;
+  public parent_phone_override?: string;
 
   @ApiPropertyOptional({
     description: 'Notify parent on attendance events',
@@ -43,7 +44,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  notify_parent_on_attendance?: boolean;
+  public notify_parent_on_attendance?: boolean;
 
   @ApiPropertyOptional({
     description: 'Notify parent when exam is graded',
@@ -51,7 +52,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  notify_parent_on_exam_grade?: boolean;
+  public notify_parent_on_exam_grade?: boolean;
 
   @ApiPropertyOptional({
     description: 'Notify parent when lesson access is about to expire',
@@ -59,7 +60,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  notify_parent_on_lesson_expiry?: boolean;
+  public notify_parent_on_lesson_expiry?: boolean;
 
   @ApiPropertyOptional({
     description: 'Notify on successful purchase',
@@ -67,5 +68,5 @@ export class UpdateNotificationSettingsDto {
   })
   @IsBoolean()
   @IsOptional()
-  notify_on_purchase?: boolean;
+  public notify_on_purchase?: boolean;
 }

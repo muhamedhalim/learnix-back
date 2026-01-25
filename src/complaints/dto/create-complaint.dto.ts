@@ -1,28 +1,22 @@
+import { ComplaintType } from '../enums/complaint-type.enum';
 import {
   IsEnum,
-  IsString,
-  IsNotEmpty,
-  MaxLength,
-  IsUUID,
   IsOptional,
+  IsUUID,
+  MaxLength,
 } from 'class-validator';
-import { ComplaintType } from '../enums/complaint-type.enum';
 
 export class CreateComplaintDto {
   @IsEnum(ComplaintType)
-  type!: ComplaintType;
+  public type!: ComplaintType;
 
   @IsOptional()
   @IsUUID()
-  target_id?: string;
+  public target_id?: string;
 
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(255)
-  subject!: string;
+  public subject!: string;
 
-  @IsString()
-  @IsNotEmpty()
   @MaxLength(5000)
-  description!: string;
+  public description!: string;
 }
