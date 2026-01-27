@@ -17,7 +17,9 @@ export const AppDataSource = new DataSource({
   logging: true,
   migrationsTransactionMode: 'each', // Allow individual migrations to control transaction behavior
   ssl:
-    process.env.DATABASE_URL && process.env.NODE_ENV === 'production'
+    typeof process.env.DATABASE_URL === 'string' &&
+    process.env.DATABASE_URL !== '' &&
+    process.env.NODE_ENV === 'production'
       ? {
           rejectUnauthorized: process.env.SSL_REJECT_UNAUTHORIZED !== 'false',
         }

@@ -76,7 +76,7 @@ export class StudentBooksController {
     @GetUser() user: JwtPayload,
     @Query() filter: BookFilterDto,
   ): Promise<unknown> {
-    return this.bookPurchasesService.getMyBooks(user.userId, filter);
+    return await this.bookPurchasesService.getMyBooks(user.userId, filter);
   }
 
   /**
@@ -142,7 +142,7 @@ export class StudentBooksController {
       dto.book_id,
     );
 
-    if(existing) {
+    if (existing) {
       return {
         message: 'You have already purchased this book',
         already_purchased: true,

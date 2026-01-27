@@ -9,9 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { Subject } from '../../subjects/entities/subject.entity';
-import { BookFilterDto,CreateBookDto, UpdateBookDto } from '../dto';
+import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 @Injectable()
 export class BooksService {
@@ -33,7 +33,7 @@ export class BooksService {
       where: { id: dto.subject_id, deleted_at: IsNull() },
     });
 
-    if(!subject) {
+    if (!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
@@ -48,7 +48,7 @@ export class BooksService {
       },
     });
 
-    if(existing) {
+    if (existing) {
       throw new ConflictException('You already have a book with this title');
     }
 
@@ -59,7 +59,7 @@ export class BooksService {
     const saved = await this.booksRepository.save(book);
     this.logger.log(`Book created: ${saved.id} by teacher ${teacherId}`);
 
-    return this.findOne(saved.id);
+    return await this.findOne(saved.id);
   }
 
   /**
@@ -82,20 +82,20 @@ export class BooksService {
       .where('book.deleted_at IS NULL');
 
     // Apply filters
-    if(filter.search) {
+    if (filter.search != null && filter.search !== '') {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
-    if(filter.subject_id) {
+    if (filter.subject_id != null && filter.subject_id !== '') {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
-    if(filter.teacher_id) {
+    if (filter.teacher_id != null && filter.teacher_id !== '') {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });
@@ -132,7 +132,7 @@ export class BooksService {
     teacherId: string,
     filter: Omit<BookFilterDto, 'teacher_id'>,
   ): Promise<{ data: Book[]; meta: PaginationMeta }> {
-    return this.findAll({ ...filter, teacher_id: teacherId });
+    return await this.findAll({ ...filter, teacher_id: teacherId });
   }
 
   /**
@@ -144,7 +144,7 @@ export class BooksService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!book) {
+    if (!book) {
       throw new NotFoundException(`Book with ID ${id} not found`);
     }
 
@@ -161,7 +161,7 @@ export class BooksService {
       withDeleted: true,
     });
 
-    if(!book) {
+    if (!book) {
       throw new NotFoundException(`Book with ID ${id} not found`);
     }
 
@@ -179,17 +179,21 @@ export class BooksService {
     const book = await this.findOne(id);
 
     // Ownership validation
-    if(book.teacher_id !== teacherId) {
+    if (book.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own books');
     }
 
     // If updating subject, validate it exists
-    if(dto.subject_id && dto.subject_id !== book.subject_id) {
+    if (
+      dto.subject_id != null &&
+      dto.subject_id !== '' &&
+      dto.subject_id !== book.subject_id
+    ) {
       const subject = await this.subjectsRepository.findOne({
         where: { id: dto.subject_id, deleted_at: IsNull() },
       });
 
-      if(!subject) {
+      if (!subject) {
         throw new NotFoundException(
           `Subject with ID ${dto.subject_id} not found`,
         );
@@ -197,7 +201,7 @@ export class BooksService {
     }
 
     // If updating title, check for duplicates
-    if(dto.title && dto.title !== book.title) {
+    if (dto.title != null && dto.title !== '' && dto.title !== book.title) {
       const existing = await this.booksRepository.findOne({
         where: {
           teacher_id: teacherId,
@@ -206,7 +210,7 @@ export class BooksService {
         },
       });
 
-      if(existing && existing.id !== id) {
+      if (existing && existing.id !== id) {
         throw new ConflictException('You already have a book with this title');
       }
     }
@@ -216,7 +220,7 @@ export class BooksService {
 
     this.logger.log(`Book updated: ${id} by teacher ${teacherId}`);
 
-    return this.findOne(id);
+    return await this.findOne(id);
   }
 
   /**
@@ -226,7 +230,7 @@ export class BooksService {
     const book = await this.findOne(id);
 
     // Ownership validation
-    if(book.teacher_id !== teacherId) {
+    if (book.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only delete your own books');
     }
 
@@ -249,14 +253,14 @@ export class BooksService {
   public async restore(id: string): Promise<Book> {
     const book = await this.findOneAdmin(id);
 
-    if(!book.deleted_at) {
+    if (!book.deleted_at) {
       throw new ConflictException('Book is not deleted');
     }
 
     await this.booksRepository.restore(id);
     this.logger.log(`Book restored: ${id}`);
 
-    return this.findOne(id);
+    return await this.findOne(id);
   }
 
   /**
@@ -270,7 +274,10 @@ export class BooksService {
   /**
    * Check if teacher owns the book
    */
-  public async checkOwnership(bookId: string, teacherId: string): Promise<boolean> {
+  public async checkOwnership(
+    bookId: string,
+    teacherId: string,
+  ): Promise<boolean> {
     const book = await this.findOne(bookId);
     return book.teacher_id === teacherId;
   }
@@ -295,20 +302,20 @@ export class BooksService {
       .withDeleted();
 
     // Apply filters
-    if(filter.search) {
+    if (filter.search != null && filter.search !== '') {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
       );
     }
 
-    if(filter.subject_id) {
+    if (filter.subject_id != null && filter.subject_id !== '') {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
-    if(filter.teacher_id) {
+    if (filter.teacher_id != null && filter.teacher_id !== '') {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });

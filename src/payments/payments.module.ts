@@ -13,7 +13,7 @@ import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
 import { TeacherPaymentsController } from './controllers/teacher-payments.controller';
 // Entities
-import { LessonPurchase, PackagePurchase,Payment } from './entities';
+import { LessonPurchase, PackagePurchase, Payment } from './entities';
 // Services
 import { PaymentsService } from './services/payments.service';
 import { PaymobService } from './services/paymob.service';

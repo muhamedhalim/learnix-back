@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * Create cart and cart_items tables for shopping cart functionality
@@ -46,8 +46,6 @@ export class CreateCartTables1768613000000 implements MigrationInterface {
       CREATE INDEX "IDX_cart_items_item"
         ON cart_items(item_type, item_id);
     `);
-
-    console.log('Created cart tables with indexes');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -59,7 +57,5 @@ export class CreateCartTables1768613000000 implements MigrationInterface {
     // Drop tables (cascade will handle foreign keys)
     await queryRunner.query(`DROP TABLE IF EXISTS cart_items;`);
     await queryRunner.query(`DROP TABLE IF EXISTS carts;`);
-
-    console.log('Dropped cart tables');
   }
 }

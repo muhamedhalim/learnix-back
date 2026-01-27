@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Transform,Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -63,8 +63,12 @@ export class PackageFilterDto {
   @IsOptional()
   @IsBoolean()
   @Transform(({ value }): boolean | undefined => {
-    if(value === 'true') {return true;}
-    if(value === 'false') {return false;}
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
     return value as boolean | undefined;
   })
   public is_active?: boolean;

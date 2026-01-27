@@ -7,16 +7,11 @@ import {
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
-import {
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { ExamFilterDto,SubmitExamDto } from '../dto';
+import { ExamFilterDto, SubmitExamDto } from '../dto';
 import { ExamsService } from '../exams.service';
 
 @ApiTags('Exams')
@@ -77,8 +72,18 @@ export class ExamsController {
     status: HttpStatus.OK,
     description: 'List of exams with pagination meta',
   })
-  public async findAll(@Query() filter: ExamFilterDto): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.examsService.findAll(filter);
+  public async findAll(@Query() filter: ExamFilterDto): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.examsService.findAll(filter);
   }
 
   /**
@@ -95,8 +100,10 @@ export class ExamsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Exam not found or inactive',
   })
-  public async getExamPreview(@Param('id', ParseUUIDPipe) examId: string): Promise<unknown> {
-    return this.examsService.getExamPreview(examId);
+  public async getExamPreview(
+    @Param('id', ParseUUIDPipe) examId: string,
+  ): Promise<unknown> {
+    return await this.examsService.getExamPreview(examId);
   }
 
   /**
@@ -111,7 +118,7 @@ export class ExamsController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) examId: string,
   ): Promise<unknown> {
-    return this.examsService.findOneForTaking(examId, user.userId);
+    return await this.examsService.findOneForTaking(examId, user.userId);
   }
 
   /**
@@ -126,6 +133,6 @@ export class ExamsController {
     @GetUser() user: JwtPayload,
     @Body() submitDto: SubmitExamDto,
   ): Promise<unknown> {
-    return this.examsService.submitExam(user.userId, submitDto);
+    return await this.examsService.submitExam(user.userId, submitDto);
   }
 }

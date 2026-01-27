@@ -26,9 +26,9 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { AttendanceService } from '../attendance.service';
-import { AttendanceFilterDto,MarkAttendanceDto } from '../dto';
+import { AttendanceFilterDto, MarkAttendanceDto } from '../dto';
 import type { AttendanceStatus } from '../entities';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 @ApiTags('Teacher Attendance')
 @Controller('teacher/lessons')
@@ -41,30 +41,6 @@ export class TeacherAttendanceController {
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
   ) {}
-
-  /**
-   * Validate teacher owns the lesson
-   */
-  private async validateOwnership(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<Lesson> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId, deleted_at: IsNull() },
-    });
-
-    if(!lesson) {
-      throw new ForbiddenException(`Lesson with ID ${lessonId} not found`);
-    }
-
-    if(lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        'You can only manage attendance for your own lessons',
-      );
-    }
-
-    return lesson;
-  }
 
   /**
    * Mark attendance for a student in a lesson
@@ -198,7 +174,7 @@ export class TeacherAttendanceController {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
-    return this.attendanceService.getLessonAttendance(lessonId, filter);
+    return await this.attendanceService.getLessonAttendance(lessonId, filter);
   }
 
   /**
@@ -215,6 +191,30 @@ export class TeacherAttendanceController {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
-    return this.attendanceService.getLessonAttendanceStats(lessonId);
+    return await this.attendanceService.getLessonAttendanceStats(lessonId);
+  }
+
+  /**
+   * Validate teacher owns the lesson
+   */
+  private async validateOwnership(
+    lessonId: string,
+    teacherId: string,
+  ): Promise<Lesson> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId, deleted_at: IsNull() },
+    });
+
+    if (!lesson) {
+      throw new ForbiddenException(`Lesson with ID ${lessonId} not found`);
+    }
+
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        'You can only manage attendance for your own lessons',
+      );
+    }
+
+    return lesson;
   }
 }

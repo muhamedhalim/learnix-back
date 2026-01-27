@@ -29,15 +29,17 @@ import { CallCenterUpdateStudentDto } from './dto/update-student.dto';
 @ApiBearerAuth('JWT')
 export class CallCenterController {
   constructor(
-    private studentsService: StudentsService,
-    private usersService: UsersService,
+    private readonly studentsService: StudentsService,
+    private readonly usersService: UsersService,
   ) {}
 
   @Get('students/:studentId')
   @ApiOperation({ summary: 'Get student profile (call center)' })
   @ApiResponse({ status: 200, description: 'Student profile retrieved' })
-  public async getStudentProfile(@Param('studentId') studentId: string): Promise<unknown> {
-    return this.studentsService.findStudentProfile(studentId);
+  public async getStudentProfile(
+    @Param('studentId') studentId: string,
+  ): Promise<unknown> {
+    return await this.studentsService.findStudentProfile(studentId);
   }
 
   @Put('students/:studentId')
@@ -47,19 +49,28 @@ export class CallCenterController {
     @Param('studentId') studentId: string,
     @Body() dto: CallCenterUpdateStudentDto,
   ): Promise<{ message: string }> {
-    // Update user fields (name, phone)
-    if(dto.name || dto.phone) {
+    const {
+      name,
+      phone,
+      grade_level: gradeLevel,
+      parent_phone: parentPhone,
+    } = dto;
+
+    // Update user fields
+    if (name != null || phone != null) {
       await this.usersService.update(studentId, {
-        ...(dto.name && { name: dto.name }),
-        ...(dto.phone && { phone: dto.phone }),
+        ...(name != null && name !== '' && { name }),
+        ...(phone != null && phone !== '' && { phone }),
       });
     }
 
-    // Update profile fields (grade_level, parent_phone)
-    if(dto.grade_level || dto.parent_phone) {
+    // Update profile fields
+    if (gradeLevel != null || parentPhone != null) {
       await this.studentsService.updateProfile(studentId, {
-        ...(dto.grade_level && { grade_level: dto.grade_level }),
-        ...(dto.parent_phone && { parent_phone: dto.parent_phone }),
+        ...(gradeLevel != null &&
+          gradeLevel !== '' && { grade_level: gradeLevel }),
+        ...(parentPhone != null &&
+          parentPhone !== '' && { parent_phone: parentPhone }),
       });
     }
 
@@ -69,7 +80,9 @@ export class CallCenterController {
   @Get('students')
   @ApiOperation({ summary: 'Search students (call center)' })
   @ApiResponse({ status: 200, description: 'Students retrieved successfully' })
-  public async searchStudents(@Query() filter: StudentFilterDto): Promise<unknown> {
-    return this.studentsService.findAllStudents(filter);
+  public async searchStudents(
+    @Query() filter: StudentFilterDto,
+  ): Promise<unknown> {
+    return await this.studentsService.findAllStudents(filter);
   }
 }

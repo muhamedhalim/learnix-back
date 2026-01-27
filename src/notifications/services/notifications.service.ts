@@ -1,4 +1,4 @@
-import { Injectable, Logger,NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { StudentProfile } from '../../students/entities/student-profile.entity';
@@ -66,7 +66,7 @@ export class NotificationsService {
     const saved = await this.notificationsRepository.save(notification);
 
     // Send SMS if requested
-    if(sendSms && dto.send_sms !== false) {
+    if (sendSms && dto.send_sms !== false) {
       await this.trySendSms(saved);
     }
 
@@ -81,12 +81,12 @@ export class NotificationsService {
     const settings = await this.getOrCreateSettings(notification.user_id);
 
     // Check if SMS is enabled and if this notification type should trigger SMS
-    if(!settings.sms_enabled) {
+    if (!settings.sms_enabled) {
       this.logger.debug(`SMS disabled for user ${notification.user_id}`);
       return;
     }
 
-    if(!this.shouldSendSmsForType(notification.type, settings)) {
+    if (!this.shouldSendSmsForType(notification.type, settings)) {
       this.logger.debug(
         `SMS not enabled for type ${notification.type} for user ${notification.user_id}`,
       );
@@ -99,23 +99,23 @@ export class NotificationsService {
       settings,
     );
 
-    if(!parentPhone) {
+    if (parentPhone !== null && parentPhone !== '') {
+      // Send SMS
+      const result = await this.smsSenderService.sendSms(
+        parentPhone,
+        notification.message,
+      );
+
+      if (result.success) {
+        await this.notificationsRepository.update(notification.id, {
+          sms_sent: true,
+          sms_to: parentPhone,
+        });
+      }
+    } else {
       this.logger.warn(
         `No parent phone for user ${notification.user_id}, skipping SMS`,
       );
-      return;
-    }
-
-    // Send SMS
-    const result = await this.smsSenderService.sendSms(
-      parentPhone,
-      notification.message,
-    );
-
-    if(result.success) {
-      notification.sms_sent = true;
-      notification.sms_to = parentPhone;
-      await this.notificationsRepository.save(notification);
     }
   }
 
@@ -126,7 +126,7 @@ export class NotificationsService {
     type: NotificationType,
     settings: NotificationSettings,
   ): boolean {
-    switch(type) {
+    switch (type) {
       case NotificationType.ATTENDANCE:
         return settings.notify_parent_on_attendance;
       case NotificationType.EXAM_RESULT:
@@ -137,8 +137,6 @@ export class NotificationsService {
         return settings.notify_on_purchase;
       case NotificationType.CUSTOM:
         return true; // Admin custom notifications always send if SMS enabled
-      default:
-        return true;
     }
   }
 
@@ -150,7 +148,10 @@ export class NotificationsService {
     settings: NotificationSettings,
   ): Promise<string | null> {
     // Check for override in settings
-    if(settings.parent_phone_override) {
+    if (
+      settings.parent_phone_override !== null &&
+      settings.parent_phone_override !== ''
+    ) {
       return settings.parent_phone_override;
     }
 
@@ -178,29 +179,29 @@ export class NotificationsService {
       .where('notification.user_id = :userId', { userId });
 
     // Apply filters
-    if(filter.type) {
+    if (filter.type !== undefined) {
       queryBuilder.andWhere('notification.type = :type', { type: filter.type });
     }
 
-    if(filter.is_read !== undefined) {
+    if (filter.is_read !== undefined) {
       queryBuilder.andWhere('notification.is_read = :isRead', {
         isRead: filter.is_read,
       });
     }
 
-    if(filter.sms_sent !== undefined) {
+    if (filter.sms_sent !== undefined) {
       queryBuilder.andWhere('notification.sms_sent = :smsSent', {
         smsSent: filter.sms_sent,
       });
     }
 
-    if(filter.sent_after) {
+    if (filter.sent_after !== undefined) {
       queryBuilder.andWhere('notification.sent_at >= :sentAfter', {
         sentAfter: new Date(filter.sent_after),
       });
     }
 
-    if(filter.sent_before) {
+    if (filter.sent_before !== undefined) {
       queryBuilder.andWhere('notification.sent_at <= :sentBefore', {
         sentBefore: new Date(filter.sent_before),
       });
@@ -234,7 +235,7 @@ export class NotificationsService {
    * Get unread notification count for a user
    */
   public async getUnreadCount(userId: string): Promise<number> {
-    return this.notificationsRepository.count({
+    return await this.notificationsRepository.count({
       where: { user_id: userId, is_read: false },
     });
   }
@@ -250,14 +251,14 @@ export class NotificationsService {
       where: { id: notificationId, user_id: userId },
     });
 
-    if(!notification) {
+    if (!notification) {
       throw new NotFoundException('Notification not found');
     }
 
-    if(!notification.is_read) {
+    if (!notification.is_read) {
       notification.is_read = true;
       notification.read_at = new Date();
-      return this.notificationsRepository.save(notification);
+      return await this.notificationsRepository.save(notification);
     }
 
     return notification;
@@ -278,12 +279,14 @@ export class NotificationsService {
   /**
    * Get or create notification settings for a user
    */
-  public async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
+  public async getOrCreateSettings(
+    userId: string,
+  ): Promise<NotificationSettings> {
     let settings = await this.settingsRepository.findOne({
       where: { user_id: userId },
     });
 
-    if(!settings) {
+    if (!settings) {
       settings = this.settingsRepository.create({
         user_id: userId,
         sms_enabled: true,
@@ -310,32 +313,33 @@ export class NotificationsService {
     const settings = await this.getOrCreateSettings(userId);
 
     // Update only provided fields
-    if(dto.sms_enabled !== undefined) {
+    if (dto.sms_enabled !== undefined) {
       settings.sms_enabled = dto.sms_enabled;
     }
-    if(dto.email_enabled !== undefined) {
+    if (dto.email_enabled !== undefined) {
       settings.email_enabled = dto.email_enabled;
     }
-    if(dto.push_enabled !== undefined) {
+    if (dto.push_enabled !== undefined) {
       settings.push_enabled = dto.push_enabled;
     }
-    if(dto.parent_phone_override !== undefined) {
-      settings.parent_phone_override = dto.parent_phone_override || null;
+    if (dto.parent_phone_override !== undefined) {
+      settings.parent_phone_override =
+        dto.parent_phone_override !== '' ? dto.parent_phone_override : null;
     }
-    if(dto.notify_parent_on_attendance !== undefined) {
+    if (dto.notify_parent_on_attendance !== undefined) {
       settings.notify_parent_on_attendance = dto.notify_parent_on_attendance;
     }
-    if(dto.notify_parent_on_exam_grade !== undefined) {
+    if (dto.notify_parent_on_exam_grade !== undefined) {
       settings.notify_parent_on_exam_grade = dto.notify_parent_on_exam_grade;
     }
-    if(dto.notify_parent_on_lesson_expiry !== undefined) {
+    if (dto.notify_parent_on_lesson_expiry !== undefined) {
       settings.notify_parent_on_lesson_expiry =
         dto.notify_parent_on_lesson_expiry;
     }
-    if(dto.notify_on_purchase !== undefined) {
+    if (dto.notify_on_purchase !== undefined) {
       settings.notify_on_purchase = dto.notify_on_purchase;
     }
 
-    return this.settingsRepository.save(settings);
+    return await this.settingsRepository.save(settings);
   }
 }

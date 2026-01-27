@@ -42,8 +42,8 @@ export class HealthService {
 
   constructor(
     @InjectDataSource()
-    private dataSource: DataSource,
-    private configService: ConfigService,
+    private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {
     this.uploadDir =
       this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
@@ -116,7 +116,7 @@ export class HealthService {
     try {
       const pathExists = existsSync(this.uploadDir);
 
-      if(!pathExists) {
+      if (!pathExists) {
         this.logger.warn(`Upload directory does not exist: ${this.uploadDir}`);
 
         return {
@@ -145,7 +145,8 @@ export class HealthService {
       const usedPercentage = (usedSpace / totalSpace) * 100;
 
       // Convert to GB for readability
-      const toGB = (bytes: number): string => (bytes / (1024 * 1024 * 1024)).toFixed(2);
+      const toGB = (bytes: number): string =>
+        (bytes / (1024 * 1024 * 1024)).toFixed(2);
 
       const storageStatus: StorageHealthResult = {
         status: usedPercentage > 90 ? 'unhealthy' : 'healthy',
@@ -161,7 +162,7 @@ export class HealthService {
         },
       };
 
-      if(usedPercentage > 90) {
+      if (usedPercentage > 90) {
         this.logger.warn(
           `Storage usage critical: ${usedPercentage.toFixed(2)}% used`,
         );

@@ -154,7 +154,9 @@ export class EnvironmentVariables {
   public LESSON_EXTENSION_DAYS?: number;
 }
 
-export function validate(config: Record<string, unknown>): EnvironmentVariables {
+export function validate(
+  config: Record<string, unknown>,
+): EnvironmentVariables {
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
@@ -163,7 +165,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     skipMissingProperties: false,
   });
 
-  if(errors.length > 0) {
+  if (errors.length > 0) {
     const errorMessages = errors
       .map((error) => {
         const constraints = error.constraints

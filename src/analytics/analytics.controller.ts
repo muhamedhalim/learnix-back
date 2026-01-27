@@ -1,8 +1,5 @@
 import { Controller, HttpStatus } from '@nestjs/common';
-import {
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';

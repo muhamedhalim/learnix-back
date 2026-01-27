@@ -10,7 +10,7 @@ import {
   TeacherBooksController,
 } from './controllers';
 import { Book, BookPurchase } from './entities';
-import { BookPurchasesService,BooksService } from './services';
+import { BookPurchasesService, BooksService } from './services';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Book, BookPurchase, Subject, Payment])],

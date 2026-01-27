@@ -33,7 +33,7 @@ interface AuthRequest extends Request {
 @Roles('student')
 @ApiBearerAuth('JWT')
 export class CommentsStudentController {
-  constructor(private commentsService: CommentsService) {}
+  constructor(private readonly commentsService: CommentsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Add a comment to a lesson (student)' })
@@ -43,6 +43,6 @@ export class CommentsStudentController {
     @Body() dto: CreateCommentDto,
     @Request() req: AuthRequest,
   ): Promise<CommentWithReplies> {
-    return this.commentsService.createComment(lessonId, req.user.id, dto);
+    return await this.commentsService.createComment(lessonId, req.user.id, dto);
   }
 }

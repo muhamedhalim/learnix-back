@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { ExamAttempt } from '../../exams/entities';
-import { ItemType,Payment } from '../../payments/entities';
+import { ItemType, Payment } from '../../payments/entities';
 import { LessonPurchase } from '../../payments/entities';
 import { NotificationType } from '../entities';
 import { NotificationsService } from './notifications.service';
@@ -59,11 +59,12 @@ export class NotificationTriggersService {
           ? 'الباقة'
           : 'الكتاب';
 
-    const finalAmount = typeof payment.final_amount === 'string'
-      ? parseFloat(payment.final_amount)
-      : payment.final_amount;
+    const finalAmount =
+      typeof payment.final_amount === 'string'
+        ? parseFloat(payment.final_amount)
+        : payment.final_amount;
 
-    if(finalAmount === 0) {
+    if (finalAmount === 0) {
       // Free purchase (purchase code)
       return `تم الحصول على ${itemType} بنجاح باستخدام كود الشراء. مدة الوصول: 7 أيام.`;
     }
@@ -81,9 +82,10 @@ export class NotificationTriggersService {
   ): Promise<void> {
     try {
       const marks = totalMarks ?? attempt.exam.total_marks;
-      const totalScore = typeof attempt.total_score === 'string'
-        ? parseFloat(attempt.total_score)
-        : attempt.total_score;
+      const totalScore =
+        typeof attempt.total_score === 'string'
+          ? parseFloat(attempt.total_score)
+          : attempt.total_score;
       const score = totalScore ?? 0;
       const percentage = Math.round((score / marks) * 100);
 
@@ -97,7 +99,7 @@ export class NotificationTriggersService {
         data: {
           attempt_id: attempt.id,
           exam_id: attempt.exam_id,
-          score: score,
+          score,
           total_marks: marks,
           percentage,
         },

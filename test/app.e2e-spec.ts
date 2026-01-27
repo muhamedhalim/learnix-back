@@ -1,8 +1,9 @@
-import { INestApplication } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { INestApplication } from '@nestjs/common';
+import type { TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 
 import { AppModule } from './../src/app.module';
-import type { NextFunction,Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'http';
 import * as request from 'supertest';
 
@@ -18,7 +19,8 @@ describe('AppController (e2e)', () => {
     app.setGlobalPrefix('api/v1');
     app.use('/', (req: Request, res: Response, next: NextFunction) => {
       if (req.url === '/') {
-        res.redirect('/api'); return;
+        res.redirect('/api');
+        return;
       }
       next();
     });

@@ -1,8 +1,5 @@
 import { Body, Controller, HttpStatus } from '@nestjs/common';
-import {
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
@@ -33,7 +30,15 @@ export class DiscountCodesController {
   public async verifyCode(
     @Body() dto: VerifyDiscountCodeDto,
     @GetUser() user: JwtPayload,
-  ): Promise<{ valid: boolean; error?: string; discount_code_id?: string; discount_type?: string; discount_value?: number; discount_amount?: number; final_amount?: number }> {
+  ): Promise<{
+    valid: boolean;
+    error?: string;
+    discount_code_id?: string;
+    discount_type?: string;
+    discount_value?: number;
+    discount_amount?: number;
+    final_amount?: number;
+  }> {
     const result = await this.discountCodesService.verifyCode(dto, user.userId);
     return result;
   }

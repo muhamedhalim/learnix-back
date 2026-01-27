@@ -53,7 +53,9 @@ export class NotificationsController {
     status: 200,
     description: 'Returns unread notification count',
   })
-  public async getUnreadCount(@GetUser() user: JwtPayload): Promise<{ message: string; data: { count: number } }> {
+  public async getUnreadCount(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ message: string; data: { count: number } }> {
     const count = await this.notificationsService.getUnreadCount(user.userId);
     return {
       message: 'Unread count retrieved successfully',
@@ -83,7 +85,9 @@ export class NotificationsController {
     status: 200,
     description: 'All notifications marked as read',
   })
-  public async markAllAsRead(@GetUser() user: JwtPayload): Promise<{ message: string; data: unknown }> {
+  public async markAllAsRead(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ message: string; data: unknown }> {
     const result = await this.notificationsService.markAllAsRead(user.userId);
     return {
       message: `${result.count.toString()} notifications marked as read`,

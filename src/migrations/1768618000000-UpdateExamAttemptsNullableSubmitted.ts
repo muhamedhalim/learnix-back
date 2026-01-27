@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class UpdateExamAttemptsNullableSubmitted1768618000000
   implements MigrationInterface

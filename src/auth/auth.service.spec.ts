@@ -1,20 +1,18 @@
- 
- 
- 
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import { AuthService } from './auth.service';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import type { LoginDto } from './dto/login.dto';
+import type { RegisterDto } from './dto/register.dto';
 import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
+import type { Repository } from 'typeorm';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -74,8 +72,12 @@ describe('AuthService', () => {
     configService = module.get(ConfigService);
 
     configService.get.mockImplementation((key: string) => {
-      if (key === 'BCRYPT_ROUNDS') {return 12;}
-      if (key === 'JWT_REFRESH_EXPIRATION') {return '7d';}
+      if (key === 'BCRYPT_ROUNDS') {
+        return 12;
+      }
+      if (key === 'JWT_REFRESH_EXPIRATION') {
+        return '7d';
+      }
       return undefined;
     });
   });
@@ -96,13 +98,12 @@ describe('AuthService', () => {
     it('should successfully register a new user with pending approval', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
 
-      const newUser = {
-        ...mockUser,
+      const newUser: User = Object.assign(new User(), mockUser, {
         id: 'stu_789012',
         name: registerDto.name,
         email: registerDto.email,
         phone: registerDto.phone,
-      } as User;
+      });
 
       userRepository.create.mockReturnValue(newUser);
       userRepository.save.mockResolvedValue(newUser);
@@ -268,11 +269,10 @@ describe('AuthService', () => {
     const refreshToken = 'valid_refresh_token';
     const hashedRefreshToken = 'hashed_refresh_token';
 
-    const userWithRefreshToken = {
-      ...mockUser,
+    const userWithRefreshToken: User = Object.assign(new User(), mockUser, {
       refresh_token: hashedRefreshToken,
       refresh_token_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    } as User;
+    });
 
     it('should successfully refresh tokens with valid refresh token', async () => {
       const queryBuilder = {
@@ -319,9 +319,13 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for expired refresh token', async () => {
-      const expiredUser = Object.assign(new User(), userWithRefreshToken, {
-        refresh_token_expires_at: new Date(Date.now() - 1000),
-      });
+      const expiredUser: User = Object.assign(
+        new User(),
+        userWithRefreshToken,
+        {
+          refresh_token_expires_at: new Date(Date.now() - 1000),
+        },
+      );
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -341,9 +345,13 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      const inactiveUser = Object.assign(new User(), userWithRefreshToken, {
-        is_active: false,
-      });
+      const inactiveUser: User = Object.assign(
+        new User(),
+        userWithRefreshToken,
+        {
+          is_active: false,
+        },
+      );
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -393,9 +401,13 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for pending user on refresh', async () => {
-      const pendingUser = Object.assign(new User(), userWithRefreshToken, {
-        status: UserStatus.PENDING,
-      });
+      const pendingUser: User = Object.assign(
+        new User(),
+        userWithRefreshToken,
+        {
+          status: UserStatus.PENDING,
+        },
+      );
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -417,10 +429,14 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for rejected user on refresh', async () => {
-      const rejectedUser = Object.assign(new User(), userWithRefreshToken, {
-        status: UserStatus.REJECTED,
-        rejection_reason: 'Invalid documents',
-      });
+      const rejectedUser: User = Object.assign(
+        new User(),
+        userWithRefreshToken,
+        {
+          status: UserStatus.REJECTED,
+          rejection_reason: 'Invalid documents',
+        },
+      );
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -443,7 +459,11 @@ describe('AuthService', () => {
   describe('logout', () => {
     it('should successfully logout and clear refresh token and token_id', async () => {
       const userId = 'stu_123456';
-      userRepository.update.mockResolvedValue({} as never);
+      userRepository.update.mockResolvedValue({
+        generatedMaps: [],
+        raw: [],
+        affected: 1,
+      });
 
       await service.logout(userId);
 
@@ -457,7 +477,8 @@ describe('AuthService', () => {
 
   describe('validateUser', () => {
     it('should return user data for valid active user', async () => {
-      userRepository.findOne.mockResolvedValue(mockUser as User);
+      const user: User = Object.assign(new User(), mockUser);
+      userRepository.findOne.mockResolvedValue(user);
 
       const result = await service.validateUser({
         sub: 'stu_123456',
@@ -473,7 +494,9 @@ describe('AuthService', () => {
     });
 
     it('should return null for inactive user', async () => {
-      const inactiveUser = { ...mockUser, is_active: false } as User;
+      const inactiveUser: User = Object.assign(new User(), mockUser, {
+        is_active: false,
+      });
       userRepository.findOne.mockResolvedValue(inactiveUser);
 
       const result = await service.validateUser({

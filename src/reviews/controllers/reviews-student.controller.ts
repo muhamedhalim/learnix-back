@@ -33,7 +33,7 @@ interface AuthRequest extends Request {
 @Roles('student')
 @ApiBearerAuth('JWT')
 export class ReviewsStudentController {
-  constructor(private reviewsService: ReviewsService) {}
+  constructor(private readonly reviewsService: ReviewsService) {}
 
   @Post('teachers/:teacherId/reviews')
   @ApiOperation({ summary: 'Create a teacher review (student)' })
@@ -43,7 +43,11 @@ export class ReviewsStudentController {
     @Body() dto: CreateReviewDto,
     @Request() req: AuthRequest,
   ): Promise<unknown> {
-    return this.reviewsService.createTeacherReview(teacherId, req.user.id, dto);
+    return await this.reviewsService.createTeacherReview(
+      teacherId,
+      req.user.id,
+      dto,
+    );
   }
 
   @Post('lessons/:lessonId/reviews')
@@ -54,6 +58,10 @@ export class ReviewsStudentController {
     @Body() dto: CreateReviewDto,
     @Request() req: AuthRequest,
   ): Promise<unknown> {
-    return this.reviewsService.createLessonReview(lessonId, req.user.id, dto);
+    return await this.reviewsService.createLessonReview(
+      lessonId,
+      req.user.id,
+      dto,
+    );
   }
 }

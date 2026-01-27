@@ -59,7 +59,7 @@ export class PaymobService {
         body: JSON.stringify({ api_key: this.apiKey }),
       });
 
-      if(!response.ok) {
+      if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob auth failed: ${error}`);
         throw new InternalServerErrorException(
@@ -99,7 +99,7 @@ export class PaymobService {
         }),
       });
 
-      if(!response.ok) {
+      if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob order registration failed: ${error}`);
         throw new InternalServerErrorException(
@@ -157,7 +157,7 @@ export class PaymobService {
         }),
       });
 
-      if(!response.ok) {
+      if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob payment key generation failed: ${error}`);
         throw new InternalServerErrorException(
@@ -256,8 +256,10 @@ export class PaymobService {
 
     const isValid = calculatedHmac === receivedHmac;
 
-    if(!isValid) {
-      this.logger.warn(`HMAC verification failed for transaction ${obj.id.toString()}`);
+    if (!isValid) {
+      this.logger.warn(
+        `HMAC verification failed for transaction ${obj.id.toString()}`,
+      );
       this.logger.debug(`Expected: ${calculatedHmac.substring(0, 20)}...`);
       this.logger.debug(`Received: ${receivedHmac.substring(0, 20)}...`);
     }

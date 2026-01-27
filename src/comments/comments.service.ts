@@ -17,7 +17,7 @@ import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { Comment } from './entities/comment.entity';
 import { CommentReply } from './entities/comment-reply.entity';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 export interface CommentWithReplies {
   id: string;
@@ -28,7 +28,7 @@ export interface CommentWithReplies {
     id: string;
     name: string;
   };
-  replies: {
+  replies: Array<{
     id: string;
     reply_text: string;
     teacher: {
@@ -36,7 +36,7 @@ export interface CommentWithReplies {
       name: string;
     };
     created_at: Date;
-  }[];
+  }>;
   created_at: Date;
   updated_at: Date;
 }
@@ -45,15 +45,15 @@ export interface CommentWithReplies {
 export class CommentsService {
   constructor(
     @InjectRepository(Comment)
-    private commentsRepository: Repository<Comment>,
+    private readonly commentsRepository: Repository<Comment>,
     @InjectRepository(CommentReply)
-    private repliesRepository: Repository<CommentReply>,
+    private readonly repliesRepository: Repository<CommentReply>,
     @InjectRepository(Lesson)
-    private lessonsRepository: Repository<Lesson>,
+    private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPurchase)
-    private lessonPurchasesRepository: Repository<LessonPurchase>,
+    private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(PackagePurchase)
-    private packagePurchasesRepository: Repository<PackagePurchase>,
+    private readonly packagePurchasesRepository: Repository<PackagePurchase>,
   ) {}
 
   /**
@@ -71,7 +71,7 @@ export class CommentsService {
       },
     });
 
-    if(directPurchase) {
+    if (directPurchase) {
       return true;
     }
 
@@ -104,7 +104,7 @@ export class CommentsService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -114,7 +114,7 @@ export class CommentsService {
       lessonId,
     );
 
-    if(!hasPurchase) {
+    if (!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase this lesson before commenting',
       );
@@ -158,7 +158,7 @@ export class CommentsService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -229,12 +229,12 @@ export class CommentsService {
       relations: ['lesson'],
     });
 
-    if(!comment) {
+    if (!comment) {
       throw new NotFoundException('Comment not found');
     }
 
     // Validate teacher owns the lesson
-    if(comment.lesson.teacher_id !== teacherId) {
+    if (comment.lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
         'You can only reply to comments on your own lessons',
       );
@@ -247,7 +247,7 @@ export class CommentsService {
       },
     });
 
-    if(existingReply) {
+    if (existingReply) {
       throw new BadRequestException(
         'This comment already has a reply. Only one-level replies are allowed.',
       );
@@ -260,7 +260,7 @@ export class CommentsService {
       reply_text: dto.reply_text,
     });
 
-    return this.repliesRepository.save(reply);
+    return await this.repliesRepository.save(reply);
   }
 
   /**
@@ -271,7 +271,7 @@ export class CommentsService {
       where: { id: commentId },
     });
 
-    if(!comment) {
+    if (!comment) {
       throw new NotFoundException('Comment not found');
     }
 
@@ -289,13 +289,15 @@ export class CommentsService {
   /**
    * Get comment by ID (with replies)
    */
-  public async getCommentById(commentId: string): Promise<CommentWithReplies | null> {
+  public async getCommentById(
+    commentId: string,
+  ): Promise<CommentWithReplies | null> {
     const comment = await this.commentsRepository.findOne({
       where: { id: commentId, deleted_at: IsNull() },
       relations: ['student', 'replies', 'replies.teacher'],
     });
 
-    if(!comment) {
+    if (!comment) {
       return null;
     }
 

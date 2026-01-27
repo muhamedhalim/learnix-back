@@ -1,9 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-
 import { Logger } from '@nestjs/common';
 
 /**
@@ -76,31 +70,39 @@ export interface RetryOnDeadlockOptions {
  * }
  * ```
  */
-export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
+export function RetryOnDeadlock(
+  options: RetryOnDeadlockOptions = {},
+): MethodDecorator {
   const maxRetries = options.maxRetries ?? 3;
   const baseDelay = options.baseDelay ?? 100;
   const logger = options.logger ?? new Logger('RetryOnDeadlock');
 
   return function (
-    target: any,
-    propertyKey: string,
+    target: object,
+    propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
   ) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor.value as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    const newDescriptor = { ...descriptor };
 
-    descriptor.value = async function (...args: any[]) {
-      let lastError: any;
+    newDescriptor.value = async function (
+      this: unknown,
+      ...args: unknown[]
+    ): Promise<unknown> {
+      let lastError: unknown;
 
-      for(let attempt = 0; attempt <= maxRetries; attempt++) {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
           return await originalMethod.apply(this, args);
-        } catch (error: any) {
+        } catch (error: unknown) {
           lastError = error;
 
           // Check if this is a deadlock error
           const isDeadlock = isDeadlockError(error);
 
-          if(!isDeadlock || attempt === maxRetries) {
+          if (!isDeadlock || attempt === maxRetries) {
             // Not a deadlock or no more retries left - throw original error
             throw error;
           }
@@ -110,11 +112,14 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
           const jitter = exponentialDelay * 0.2 * (Math.random() - 0.5); // ±10% jitter
           const delayMs = Math.floor(exponentialDelay + jitter);
 
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+
           logger.warn(
-            `Deadlock detected in ${String(target.constructor.name)}.${propertyKey}() - ` +
+            `Deadlock detected in ${target.constructor.name}.${String(propertyKey)}() - ` +
               `Attempt ${String(attempt + 1)}/${String(maxRetries + 1)} failed. ` +
               `Retrying in ${String(delayMs)}ms... ` +
-              `Error: ${String(error.message)}`,
+              `Error: ${errorMessage}`,
           );
 
           // Wait before retrying
@@ -126,7 +131,7 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
       throw lastError;
     };
 
-    return descriptor;
+    return newDescriptor;
   };
 }
 
@@ -151,11 +156,21 @@ export function RetryOnDeadlock(options: RetryOnDeadlockOptions = {}) {
  * - This ensures we don't retry non-deadlock serialization failures
  * - Non-deadlock errors should fail fast for debugging
  */
-function isDeadlockError(error: any): boolean {
-  if(!error) {return false;}
+function isDeadlockError(error: unknown): boolean {
+  if (error === null || error === undefined) {
+    return false;
+  }
 
   // Check for PostgreSQL deadlock error code in various error structures
-  const errorCode = error.code ?? error.driverError?.code;
+  const errorObj = error as Record<string, unknown>;
+  const driverError = errorObj.driverError as
+    | Record<string, unknown>
+    | undefined;
+
+  const errorCode = (errorObj.code ?? driverError?.code) as
+    | string
+    | number
+    | undefined;
 
   // PostgreSQL deadlock error code
   const POSTGRES_DEADLOCK_ERROR_CODE = '40P01';

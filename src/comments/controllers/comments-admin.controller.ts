@@ -17,12 +17,14 @@ import { CommentsService } from '../comments.service';
 @Roles('admin')
 @ApiBearerAuth('JWT')
 export class CommentsAdminController {
-  constructor(private commentsService: CommentsService) {}
+  constructor(private readonly commentsService: CommentsService) {}
 
   @Delete()
   @ApiOperation({ summary: 'Soft-delete a comment (admin)' })
   @ApiResponse({ status: 404, description: 'Comment not found' })
-  public async deleteComment(@Param('commentId') commentId: string): Promise<{ message: string }> {
+  public async deleteComment(
+    @Param('commentId') commentId: string,
+  ): Promise<{ message: string }> {
     await this.commentsService.deleteComment(commentId);
     return { message: 'Comment deleted successfully' };
   }

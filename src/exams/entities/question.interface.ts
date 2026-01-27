@@ -1,4 +1,4 @@
-import { QuestionType } from './question-type.enum';
+import type { QuestionType } from './question-type.enum';
 
 /**
  * Question interface for JSONB storage in exams.questions

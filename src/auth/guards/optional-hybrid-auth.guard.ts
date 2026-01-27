@@ -29,16 +29,16 @@ export class OptionalHybridAuthGuard implements CanActivate {
   private readonly logger = new Logger(OptionalHybridAuthGuard.name);
 
   constructor(
-    private firebaseService: FirebaseService,
-    private usersService: UsersService,
-    private authService: AuthService,
-    private configService: ConfigService,
+    private readonly firebaseService: FirebaseService,
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   private decodeJwtHeader(token: string): Record<string, unknown> | null {
     try {
       const part = token.split('.')[0];
-      if(!part) {
+      if (part === undefined || part === '') {
         return null;
       }
       const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
@@ -54,7 +54,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
     request: Request,
   ): Promise<boolean> {
     const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    if(!jwtSecret) {
+    if (jwtSecret === undefined || jwtSecret === '') {
       this.logger.debug('JWT_SECRET not configured, skipping JWT verification');
       return true;
     }
@@ -72,7 +72,9 @@ export class OptionalHybridAuthGuard implements CanActivate {
 
     // sub is now a UUID string
     const sub =
-      (payloadObj !== null && 'sub' in payloadObj && typeof payloadObj.sub === 'string')
+      payloadObj !== null &&
+      'sub' in payloadObj &&
+      typeof payloadObj.sub === 'string'
         ? payloadObj.sub
         : undefined;
 
@@ -81,7 +83,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
         ? payloadObj.email
         : undefined;
 
-    if(!sub || !email) {
+    if (sub === undefined || email === undefined) {
       this.logger.debug(
         'JWT payload missing required claims, continuing without auth',
       );
@@ -90,8 +92,8 @@ export class OptionalHybridAuthGuard implements CanActivate {
 
     try {
       const user = await this.authService.validateUser({ sub, email });
-      if(user) {
-        request.user = user;
+      if (user) {
+        Object.assign(request, { user });
         this.logger.debug(`Optional auth: User ${user.userId} authenticated`);
       }
     } catch {
@@ -106,7 +108,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
     const authHeader = request.headers.authorization;
 
     // No auth header - allow request without user context
-    if(!authHeader?.startsWith('Bearer ')) {
+    if (authHeader?.startsWith('Bearer ') !== true) {
       this.logger.debug(
         'No auth header provided, continuing as unauthenticated',
       );
@@ -114,7 +116,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
     }
 
     const token = authHeader.split(' ')[1];
-    if(!token) {
+    if (token === undefined || token === '') {
       this.logger.debug('Empty token, continuing as unauthenticated');
       return true;
     }
@@ -122,9 +124,9 @@ export class OptionalHybridAuthGuard implements CanActivate {
     const header = this.decodeJwtHeader(token);
 
     // Non-Firebase token (no kid claim)
-    if(header && !('kid' in header)) {
+    if (header && !('kid' in header)) {
       this.logger.debug('Token has no kid claim, trying JWT verification');
-      return this.tryJwtVerify(token, request);
+      return await this.tryJwtVerify(token, request);
     }
 
     // Try Firebase verification first
@@ -138,7 +140,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
       return true;
     } catch {
       this.logger.debug('Firebase verification failed, trying JWT fallback');
-      return this.tryJwtVerify(token, request);
+      return await this.tryJwtVerify(token, request);
     }
   }
 }

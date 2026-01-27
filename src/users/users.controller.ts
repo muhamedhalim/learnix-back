@@ -18,12 +18,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth,ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { FILE_LIMITS,THROTTLE } from '../common/constants';
+import { FILE_LIMITS, THROTTLE } from '../common/constants';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { UserRequest } from '../common/interfaces/user-request.interface';
@@ -42,24 +42,26 @@ export class UsersController {
   @Roles('admin')
   @ApiOperation({ summary: 'Get all users (admin only)' })
   public async findAll(@Query() pagination: PaginationDto): Promise<unknown> {
-    return this.usersService.findAll(pagination.page, pagination.limit);
+    return await this.usersService.findAll(pagination.page, pagination.limit);
   }
 
   @ApiOperation({ summary: 'Get current user profile' })
   public async getProfile(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
-    if (!userId) {
+    if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
     }
-    return this.usersService.findOne(userId);
+    return await this.usersService.findOne(userId);
   }
 
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Get user by ID (admin only)' })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.usersService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.usersService.findOne(id);
   }
 
   @ApiOperation({ summary: 'Update own profile' })
@@ -68,10 +70,10 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
   ): Promise<unknown> {
     const userId = req.user?.userId;
-    if (!userId) {
+    if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
     }
-    return this.usersService.update(userId, updateUserDto);
+    return await this.usersService.update(userId, updateUserDto);
   }
 
   @Put(':id')
@@ -82,7 +84,7 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
   ): Promise<unknown> {
-    return this.usersService.update(id, updateUserDto);
+    return await this.usersService.update(id, updateUserDto);
   }
 
   @Post('me/profile-picture')
@@ -104,19 +106,19 @@ export class UsersController {
     file: Express.Multer.File,
   ): Promise<unknown> {
     const userId = req.user?.userId;
-    if (!userId) {
+    if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
     }
-    return this.usersService.uploadProfilePicture(userId, file);
+    return await this.usersService.uploadProfilePicture(userId, file);
   }
 
   @ApiOperation({ summary: 'Delete own account' })
   public async deleteOwnAccount(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
-    if (!userId) {
+    if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
     }
-    return this.usersService.remove(userId);
+    return await this.usersService.remove(userId);
   }
 
   @Delete(':id')
@@ -128,14 +130,14 @@ export class UsersController {
     @Request() req: UserRequest,
   ): Promise<unknown> {
     const userId = req.user?.userId;
-    if (!userId) {
+    if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
     }
-    if(id === userId) {
+    if (id === userId) {
       throw new ForbiddenException(
         'Cannot delete your own account through admin endpoint. Use DELETE /users/me instead.',
       );
     }
-    return this.usersService.remove(id);
+    return await this.usersService.remove(id);
   }
 }

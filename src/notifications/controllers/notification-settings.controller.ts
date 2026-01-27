@@ -1,9 +1,5 @@
 import { Body, Controller, UseGuards } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -25,7 +21,9 @@ export class NotificationSettingsController {
     status: 200,
     description: 'Returns notification settings',
   })
-  public async getSettings(@GetUser() user: JwtPayload): Promise<{ message: string; data: unknown }> {
+  public async getSettings(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ message: string; data: unknown }> {
     const settings = await this.notificationsService.getOrCreateSettings(
       user.userId,
     );

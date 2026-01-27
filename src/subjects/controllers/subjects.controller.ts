@@ -6,10 +6,7 @@ import {
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
-import {
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { SubjectFilterDto } from '../dto';
 import { SubjectsService } from '../subjects.service';
@@ -28,7 +25,7 @@ export class SubjectsController {
     description: 'List of subjects retrieved successfully',
   })
   public async findAll(@Query() filter: SubjectFilterDto): Promise<unknown> {
-    return this.subjectsService.findAll(filter);
+    return await this.subjectsService.findAll(filter);
   }
 
   /**
@@ -39,8 +36,10 @@ export class SubjectsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.subjectsService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.subjectsService.findOne(id);
   }
 
   /**
@@ -56,6 +55,6 @@ export class SubjectsController {
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
   ): Promise<unknown> {
-    return this.subjectsService.findTeachersBySubject(id, page, limit);
+    return await this.subjectsService.findTeachersBySubject(id, page, limit);
   }
 }

@@ -21,7 +21,7 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { AttendanceCodesService } from '../attendance-codes.service';
-import { AttendanceCodeFilterDto,GenerateAttendanceCodesDto } from '../dto';
+import { AttendanceCodeFilterDto, GenerateAttendanceCodesDto } from '../dto';
 
 @ApiTags('Admin - Attendance Codes')
 @Controller('admin/attendance-codes')
@@ -45,12 +45,12 @@ export class AdminAttendanceCodesController {
     @GetUser() user: JwtPayload,
   ): Promise<{
     message: string;
-    data: {
+    data: Array<{
       code: string;
       type: string;
       item_id: string;
       expires_at: Date;
-    }[];
+    }>;
   }> {
     const codes = await this.attendanceCodesService.generateCodes(
       dto,
@@ -71,7 +71,9 @@ export class AdminAttendanceCodesController {
     status: HttpStatus.OK,
     description: 'List of attendance codes',
   })
-  public async findAll(@Query() filter: AttendanceCodeFilterDto): Promise<unknown> {
+  public async findAll(
+    @Query() filter: AttendanceCodeFilterDto,
+  ): Promise<unknown> {
     return await this.attendanceCodesService.findAll(filter);
   }
 
@@ -96,7 +98,7 @@ export class AdminAttendanceCodesController {
     message?: string;
   }> {
     const attendanceCode = await this.attendanceCodesService.findByCode(code);
-    if(!attendanceCode) {
+    if (!attendanceCode) {
       return { data: null, message: 'Purchase code not found' };
     }
     return { data: attendanceCode };
@@ -106,7 +108,9 @@ export class AdminAttendanceCodesController {
     status: HttpStatus.BAD_REQUEST,
     description: 'Cannot delete used code',
   })
-  public async remove(@Param('code') code: string): Promise<{ message: string }> {
+  public async remove(
+    @Param('code') code: string,
+  ): Promise<{ message: string }> {
     await this.attendanceCodesService.remove(code);
     return { message: 'Purchase code deleted successfully' };
   }

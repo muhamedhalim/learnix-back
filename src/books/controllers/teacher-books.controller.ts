@@ -21,7 +21,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { BookFilterDto,CreateBookDto, UpdateBookDto } from '../dto';
+import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { BookPurchasesService } from '../services/book-purchases.service';
 import { BooksService } from '../services/books.service';
 
@@ -88,7 +88,7 @@ export class TeacherBooksController {
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<BookFilterDto, 'teacher_id'>,
   ): Promise<unknown> {
-    return this.booksService.findMyBooks(user.userId, filter);
+    return await this.booksService.findMyBooks(user.userId, filter);
   }
 
   /**
@@ -98,7 +98,10 @@ export class TeacherBooksController {
     status: HttpStatus.CONFLICT,
     description: 'Book with this title already exists',
   })
-  public async create(@GetUser() user: JwtPayload, @Body() dto: CreateBookDto): Promise<{ message: string; data: unknown }> {
+  public async create(
+    @GetUser() user: JwtPayload,
+    @Body() dto: CreateBookDto,
+  ): Promise<{ message: string; data: unknown }> {
     const book = await this.booksService.create(user.userId, dto);
     return {
       message: 'Book created successfully',
@@ -173,6 +176,6 @@ export class TeacherBooksController {
     description: 'Revenue summary retrieved',
   })
   public async getRevenue(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.bookPurchasesService.getTeacherBookRevenue(user.userId);
+    return await this.bookPurchasesService.getTeacherBookRevenue(user.userId);
   }
 }

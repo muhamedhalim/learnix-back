@@ -1,11 +1,5 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableCheck,
-  TableIndex,
-  TableUnique,
-} from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
+import { Table, TableCheck, TableIndex, TableUnique } from 'typeorm';
 
 export class CreateReviewsSystem1768615000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {

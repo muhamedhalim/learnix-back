@@ -6,11 +6,7 @@ import {
   HttpStatus,
   Req,
 } from '@nestjs/common';
-import {
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -21,26 +17,28 @@ import type { Request } from 'express';
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async register(@Body() registerDto: RegisterDto): Promise<unknown> {
-    return this.authService.register(registerDto);
+    return await this.authService.register(registerDto);
   }
 
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async login(@Body() loginDto: LoginDto): Promise<unknown> {
-    return this.authService.login(loginDto);
+    return await this.authService.login(loginDto);
   }
 
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<unknown> {
-    return this.authService.refresh(refreshTokenDto.refresh_token);
+  public async refresh(
+    @Body() refreshTokenDto: RefreshTokenDto,
+  ): Promise<unknown> {
+    return await this.authService.refresh(refreshTokenDto.refresh_token);
   }
 
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   public async logout(@Req() request: Request): Promise<{ message: string }> {
-    const userId = (request.user as { userId: string }).userId;
+    const { userId } = request.user as { userId: string };
     await this.authService.logout(userId);
     return { message: 'Logged out successfully' };
   }
@@ -63,7 +61,10 @@ export class AuthController {
       },
     },
   })
-  public getCsrfToken(@Req() request: Request): { token: string | undefined; message: string } {
+  public getCsrfToken(@Req() request: Request): {
+    token: string | undefined;
+    message: string;
+  } {
     // Token is attached to request by CsrfGuard (handles both existing and new tokens)
     // This ensures the token is available even on the first request when cookie hasn't been set yet
     const token = (request as Request & { csrfToken?: string }).csrfToken;

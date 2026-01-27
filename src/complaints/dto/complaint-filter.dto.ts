@@ -1,7 +1,7 @@
 import { ComplaintStatus } from '../enums/complaint-status.enum';
 import { ComplaintType } from '../enums/complaint-type.enum';
 import { Type } from 'class-transformer';
-import { IsEnum,IsInt, IsOptional, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 
 export class ComplaintFilterDto {
   @IsOptional()

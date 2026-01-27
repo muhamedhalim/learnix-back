@@ -87,7 +87,7 @@ export class AdminBooksController {
     description: 'List of all books',
   })
   public async findAll(@Query() filter: BookFilterDto): Promise<unknown> {
-    return this.booksService.findAllAdmin(filter);
+    return await this.booksService.findAllAdmin(filter);
   }
 
   /**
@@ -103,7 +103,9 @@ export class AdminBooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     const book = await this.booksService.findOneAdmin(id);
     const stats = await this.bookPurchasesService.getBookPurchaseStats(id);
 
@@ -120,7 +122,9 @@ export class AdminBooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  public async hardDelete(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
+  public async hardDelete(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string }> {
     await this.booksService.hardDelete(id);
     return {
       message: 'Book permanently deleted',
@@ -134,7 +138,9 @@ export class AdminBooksController {
     status: HttpStatus.CONFLICT,
     description: 'Book is not deleted',
   })
-  public async restore(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string; data: unknown }> {
+  public async restore(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string; data: unknown }> {
     const book = await this.booksService.restore(id);
     return {
       message: 'Book restored successfully',
@@ -183,7 +189,9 @@ export class AdminBooksController {
     status: HttpStatus.OK,
     description: 'List of all book purchases',
   })
-  public async getAllPurchases(@Query() filter: BookFilterDto): Promise<unknown> {
-    return this.bookPurchasesService.getAllPurchases(filter);
+  public async getAllPurchases(
+    @Query() filter: BookFilterDto,
+  ): Promise<unknown> {
+    return await this.bookPurchasesService.getAllPurchases(filter);
   }
 }

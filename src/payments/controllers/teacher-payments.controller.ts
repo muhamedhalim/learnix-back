@@ -72,7 +72,7 @@ export class TeacherPaymentsController {
     @Query('to_date') toDate?: string,
     @Query('group_by') groupBy: 'day' | 'week' | 'month' = 'month',
   ): Promise<unknown> {
-    return this.paymentsService.getTeacherRevenue(
+    return await this.paymentsService.getTeacherRevenue(
       user.userId,
       fromDate,
       toDate,
@@ -100,8 +100,10 @@ export class TeacherPaymentsController {
       },
     },
   })
-  public async getRevenueByLesson(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.paymentsService.getTeacherRevenueByLesson(user.userId);
+  public async getRevenueByLesson(
+    @GetUser() user: JwtPayload,
+  ): Promise<unknown> {
+    return await this.paymentsService.getTeacherRevenueByLesson(user.userId);
   }
 
   /**
@@ -111,7 +113,9 @@ export class TeacherPaymentsController {
     status: HttpStatus.OK,
     description: 'Revenue by package retrieved',
   })
-  public async getRevenueByPackage(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.paymentsService.getTeacherRevenueByPackage(user.userId);
+  public async getRevenueByPackage(
+    @GetUser() user: JwtPayload,
+  ): Promise<unknown> {
+    return await this.paymentsService.getTeacherRevenueByPackage(user.userId);
   }
 }

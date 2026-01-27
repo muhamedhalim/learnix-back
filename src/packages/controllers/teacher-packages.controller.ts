@@ -90,8 +90,18 @@ export class TeacherPackagesController {
   public async findMyPackages(
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.packagesService.findMyPackages(user.userId, filter);
+  ): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.packagesService.findMyPackages(user.userId, filter);
   }
 
   /**
@@ -119,7 +129,9 @@ export class TeacherPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     const pkg = await this.packagesService.findOne(id);
     return pkg;
   }

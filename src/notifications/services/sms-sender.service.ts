@@ -12,7 +12,7 @@ export interface SmsResult {
 @Injectable()
 export class SmsSenderService {
   private readonly logger = new Logger(SmsSenderService.name);
-  private twilioClient: twilio.Twilio | null = null;
+  private readonly twilioClient: twilio.Twilio | null = null;
   private readonly fromNumber: string;
 
   constructor(private readonly configService: ConfigService) {
@@ -21,7 +21,12 @@ export class SmsSenderService {
     this.fromNumber =
       this.configService.get<string>('TWILIO_PHONE_NUMBER') ?? '';
 
-    if(accountSid && authToken) {
+    if (
+      accountSid !== undefined &&
+      accountSid !== '' &&
+      authToken !== undefined &&
+      authToken !== ''
+    ) {
       this.twilioClient = twilio(accountSid, authToken);
       this.logger.log('Twilio client initialized successfully');
     } else {
@@ -41,22 +46,22 @@ export class SmsSenderService {
     const cleaned = phone.replace(/[\s\-()]/g, '');
 
     // Already in international format
-    if(cleaned.startsWith('+20')) {
+    if (cleaned.startsWith('+20')) {
       return cleaned;
     }
 
     // Has country code but no plus
-    if(cleaned.startsWith('20') && cleaned.length === 12) {
+    if (cleaned.startsWith('20') && cleaned.length === 12) {
       return `+${cleaned}`;
     }
 
     // Local Egyptian number (starts with 0)
-    if(cleaned.startsWith('0') && cleaned.length === 11) {
+    if (cleaned.startsWith('0') && cleaned.length === 11) {
       return `+2${cleaned}`;
     }
 
     // Assume local number without leading zero
-    if(cleaned.length === 10) {
+    if (cleaned.length === 10) {
       return `+20${cleaned}`;
     }
 
@@ -68,7 +73,7 @@ export class SmsSenderService {
    * Send SMS to a single recipient
    */
   public async sendSms(to: string, message: string): Promise<SmsResult> {
-    if(!this.twilioClient) {
+    if (!this.twilioClient) {
       this.logger.warn('SMS not sent - Twilio client not configured');
       return {
         success: false,
@@ -112,14 +117,15 @@ export class SmsSenderService {
    * Returns array of results in same order as recipients
    */
   public async sendBulkSms(
-    recipients: { phone: string; message: string }[],
+    recipients: Array<{ phone: string; message: string }>,
   ): Promise<SmsResult[]> {
     const results = await Promise.all(
-      recipients.map(({ phone, message }) =>
-        this.sendSms(phone, message).catch((err: unknown) => ({
-          success: false,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        })),
+      recipients.map(
+        async ({ phone, message }) =>
+          await this.sendSms(phone, message).catch((err: unknown) => ({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          })),
       ),
     );
 

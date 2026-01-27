@@ -1,4 +1,4 @@
-import { OmitType,PartialType } from '@nestjs/swagger';
+import { OmitType, PartialType } from '@nestjs/swagger';
 
 import { CreateDiscountCodeDto } from './create-discount-code.dto';
 

@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
-import { CreateSubjectDto, SubjectFilterDto,UpdateSubjectDto } from './dto';
+import { CreateSubjectDto, SubjectFilterDto, UpdateSubjectDto } from './dto';
 import { Subject } from './entities/subject.entity';
 import { SubjectWithCounts } from './interfaces';
 import { Repository } from 'typeorm';
@@ -30,7 +30,7 @@ export class SubjectsService {
       where: { name: createSubjectDto.name },
     });
 
-    if(existingByName) {
+    if (existingByName) {
       throw new ConflictException(
         `Subject with name "${createSubjectDto.name}" already exists`,
       );
@@ -74,7 +74,7 @@ export class SubjectsService {
       .where('subject.deleted_at IS NULL');
 
     // Add search filter
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere('subject.name ILIKE :search', {
         search: `%${search}%`,
       });
@@ -121,7 +121,7 @@ export class SubjectsService {
       where: { id },
     });
 
-    if(!subject) {
+    if (!subject) {
       throw new NotFoundException(`Subject with ID ${id} not found`);
     }
 
@@ -138,12 +138,16 @@ export class SubjectsService {
     const subject = await this.findOne(id);
 
     // Check for duplicate name if being updated
-    if(updateSubjectDto.name && updateSubjectDto.name !== subject.name) {
+    if (
+      updateSubjectDto.name !== undefined &&
+      updateSubjectDto.name !== '' &&
+      updateSubjectDto.name !== subject.name
+    ) {
       const existingByName = await this.subjectsRepository.findOne({
         where: { name: updateSubjectDto.name },
       });
 
-      if(existingByName) {
+      if (existingByName) {
         throw new ConflictException(
           `Subject with name "${updateSubjectDto.name}" already exists`,
         );
@@ -151,13 +155,18 @@ export class SubjectsService {
     }
 
     // Update subject with new field names
-    if(updateSubjectDto.name) {subject.name = updateSubjectDto.name;}
-    if(updateSubjectDto.description !== undefined)
-      {subject.description = updateSubjectDto.description;}
-    if(updateSubjectDto.gradeLevel)
-      {subject.grade_level = updateSubjectDto.gradeLevel;}
-    if(updateSubjectDto.thumbnail !== undefined)
-      {subject.thumbnail = updateSubjectDto.thumbnail;}
+    if (updateSubjectDto.name !== undefined && updateSubjectDto.name !== '') {
+      subject.name = updateSubjectDto.name;
+    }
+    if (updateSubjectDto.description !== undefined) {
+      subject.description = updateSubjectDto.description;
+    }
+    if (updateSubjectDto.gradeLevel !== undefined) {
+      subject.grade_level = updateSubjectDto.gradeLevel;
+    }
+    if (updateSubjectDto.thumbnail !== undefined) {
+      subject.thumbnail = updateSubjectDto.thumbnail;
+    }
 
     const updatedSubject = await this.subjectsRepository.save(subject);
 

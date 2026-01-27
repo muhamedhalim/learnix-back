@@ -7,4 +7,4 @@ export { ExamStatus } from './exam-status.enum';
 export { QuestionType } from './question-type.enum';
 
 // Interfaces
-export type { Answer,Question } from './question.interface';
+export type { Answer, Question } from './question.interface';

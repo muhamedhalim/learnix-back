@@ -13,9 +13,9 @@ export class AppService {
   private readonly startTime: number;
 
   constructor(
-    private configService: ConfigService,
+    private readonly configService: ConfigService,
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private readonly userRepository: Repository<User>,
   ) {
     this.startTime = Date.now();
   }
@@ -60,7 +60,12 @@ export class AppService {
     const adminEmail = this.configService.get<string>('ADMIN_INIT_EMAIL');
     const adminPassword = this.configService.get<string>('ADMIN_INIT_PASSWORD');
 
-    if(!adminEmail || !adminPassword) {
+    if (
+      adminEmail === undefined ||
+      adminEmail === '' ||
+      adminPassword === undefined ||
+      adminPassword === ''
+    ) {
       throw new BadRequestException(
         'Admin initialization requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables to be set.',
       );
@@ -71,7 +76,7 @@ export class AppService {
       where: { email: adminEmail },
     });
 
-    if(existingAdmin) {
+    if (existingAdmin) {
       results.push(`Admin user already exists: ${adminEmail}`);
       return {
         success: true,
@@ -86,7 +91,7 @@ export class AppService {
       where: { role: UserRole.ADMIN },
     });
 
-    if(anyAdmin) {
+    if (anyAdmin) {
       results.push('An admin user already exists in the system');
       return {
         success: false,

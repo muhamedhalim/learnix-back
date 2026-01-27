@@ -1,4 +1,4 @@
-import { Injectable, Logger,UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { logAndThrow } from '../common/utils/error-handler.util';
@@ -9,12 +9,19 @@ export class FirebaseService {
   private readonly logger = new Logger(FirebaseService.name);
   private readonly firebaseApp?: admin.app.App;
 
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
     const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
     const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
 
-    if(!projectId || !clientEmail || !privateKey) {
+    if (
+      projectId === undefined ||
+      projectId === '' ||
+      clientEmail === undefined ||
+      clientEmail === '' ||
+      privateKey === undefined ||
+      privateKey === ''
+    ) {
       this.logger.warn(
         'Firebase credentials not configured. Firebase authentication will be disabled.',
       );
@@ -23,12 +30,12 @@ export class FirebaseService {
 
     try {
       // Check if Firebase app is already initialized (important for tests)
-      if(admin.apps.length === 0) {
+      if (admin.apps.length === 0) {
         // Handle private key formatting issues
         let formattedKey = privateKey;
 
         // Remove wrapping quotes if present (both single and double)
-        if(
+        if (
           (formattedKey.startsWith('"') && formattedKey.endsWith('"')) ||
           (formattedKey.startsWith("'") && formattedKey.endsWith("'"))
         ) {
@@ -39,7 +46,7 @@ export class FirebaseService {
         formattedKey = formattedKey.replace(/\\n/g, '\n');
 
         // Basic validation logging (redacted)
-        if(!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
+        if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
           this.logger.error(
             'Firebase Private Key seems to be missing the standard header.',
           );
@@ -61,8 +68,10 @@ export class FirebaseService {
     }
   }
 
-  public async verifyToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
-    if(!this.firebaseApp) {
+  public async verifyToken(
+    idToken: string,
+  ): Promise<admin.auth.DecodedIdToken> {
+    if (!this.firebaseApp) {
       throw new UnauthorizedException('Firebase is not initialized');
     }
 

@@ -109,7 +109,9 @@ export class PaymentsController {
     status: HttpStatus.OK,
     description: 'Active lessons retrieved successfully',
   })
-  public async getMyLessons(@GetUser() user: JwtPayload): Promise<{ data: unknown; total: number }> {
+  public async getMyLessons(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown; total: number }> {
     const lessons = await this.paymentsService.getMyLessons(user.userId);
     return {
       data: lessons,
@@ -121,7 +123,9 @@ export class PaymentsController {
     status: HttpStatus.OK,
     description: 'Purchased packages retrieved successfully',
   })
-  public async getMyPackages(@GetUser() user: JwtPayload): Promise<{ data: unknown; total: number }> {
+  public async getMyPackages(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown; total: number }> {
     const packages = await this.paymentsService.getMyPackages(user.userId);
     return {
       data: packages,

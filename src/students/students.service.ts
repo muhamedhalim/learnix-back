@@ -49,7 +49,7 @@ export interface StudentProfileWithDetails {
   notification_settings: Record<string, boolean>;
   created_at: Date;
   updated_at: Date;
-  purchasedLessons?: {
+  purchasedLessons?: Array<{
     lessonId: string;
     title: string;
     attended: boolean;
@@ -57,15 +57,15 @@ export interface StudentProfileWithDetails {
     expiresAt: Date;
     pricePaid: number;
     isExpired: boolean;
-  }[];
-  exams?: {
+  }>;
+  exams?: Array<{
     examId: string;
     title: string;
     score: number | null;
     totalMarks: number;
     status: string;
     submittedAt: Date | null;
-  }[];
+  }>;
 }
 
 /**
@@ -100,12 +100,14 @@ export class StudentsService {
    * Used by students to view their profile
    * Includes purchased lessons and exam attempts with caching (5-min TTL)
    */
-  public async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
+  public async findStudentProfile(
+    userId: string,
+  ): Promise<StudentProfileWithDetails> {
     // Check cache first
     const cacheKey = `student:profile:${userId}`;
     const cached =
       await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
-    if(cached) {
+    if (cached) {
       return cached;
     }
 
@@ -115,7 +117,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
@@ -182,15 +184,15 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
     // Update profile fields
-    if(dto.parent_phone !== undefined) {
+    if (dto.parent_phone !== undefined) {
       profile.parent_phone = dto.parent_phone;
     }
-    if(dto.grade_level !== undefined) {
+    if (dto.grade_level !== undefined) {
       profile.grade_level = dto.grade_level;
     }
 
@@ -221,7 +223,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException('Student profile not found');
     }
 
@@ -252,7 +254,7 @@ export class StudentsService {
     const {
       search,
       status,
-      grade_level,
+      grade_level: gradeLevel,
       sortBy = 'created_at',
       order = 'desc',
       page = 1,
@@ -266,19 +268,19 @@ export class StudentsService {
       .andWhere('user.deleted_at IS NULL');
 
     // Filter by user status
-    if(status) {
+    if (status !== undefined) {
       queryBuilder.andWhere('user.status = :status', { status });
     }
 
     // Filter by grade level
-    if(grade_level) {
-      queryBuilder.andWhere('student.grade_level = :grade_level', {
-        grade_level,
+    if (gradeLevel !== undefined && gradeLevel !== '') {
+      queryBuilder.andWhere('student.grade_level = :gradeLevel', {
+        gradeLevel,
       });
     }
 
     // Search by name or email
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
@@ -330,7 +332,7 @@ export class StudentsService {
     page = 1,
     limit = 20,
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
-    return this.findAllStudents({
+    return await this.findAllStudents({
       status: UserStatus.PENDING,
       page,
       limit,
@@ -343,7 +345,7 @@ export class StudentsService {
   public async findApprovedStudents(
     filter: Omit<StudentFilterDto, 'status'>,
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
-    return this.findAllStudents({
+    return await this.findAllStudents({
       ...filter,
       status: UserStatus.APPROVED,
     });
@@ -359,7 +361,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Student with ID ${id} not found`);
     }
 
@@ -381,11 +383,11 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
-    if(profile.user.status === UserStatus.APPROVED) {
+    if (profile.user.status === UserStatus.APPROVED) {
       throw new ConflictException('Student is already approved');
     }
 
@@ -397,7 +399,7 @@ export class StudentsService {
 
     // TODO: Store approval notes in audit_logs table
     // TODO: Send notification to student/parent about approval
-    if(notes) {
+    if (notes !== undefined && notes !== '') {
       // For now, just log. Later: save to audit_logs table
       this.logger.log(`Student ${profileId} approved with notes: ${notes}`);
     }
@@ -418,11 +420,11 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
-    if(profile.user.status === UserStatus.REJECTED) {
+    if (profile.user.status === UserStatus.REJECTED) {
       throw new ConflictException('Student is already rejected');
     }
 
@@ -450,7 +452,7 @@ export class StudentsService {
       relations: ['user'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
@@ -470,7 +472,7 @@ export class StudentsService {
       where: { id: profileId },
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Student with ID ${profileId} not found`);
     }
 
@@ -498,11 +500,11 @@ export class StudentsService {
       where: { id: userId },
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if(user.role !== UserRole.STUDENT) {
+    if (user.role !== UserRole.STUDENT) {
       throw new BadRequestException('User must have STUDENT role');
     }
 
@@ -511,7 +513,7 @@ export class StudentsService {
       where: { user_id: userId },
     });
 
-    if(existingProfile) {
+    if (existingProfile) {
       throw new ConflictException(
         'Student profile already exists for this user',
       );
@@ -531,7 +533,7 @@ export class StudentsService {
       },
     });
 
-    return this.studentProfilesRepository.save(profile);
+    return await this.studentProfilesRepository.save(profile);
   }
 
   /**

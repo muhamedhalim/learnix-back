@@ -1,5 +1,5 @@
 import { CacheModule } from '@nestjs/cache-manager';
-import { Logger,Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -64,7 +64,7 @@ import { redisStore } from 'cache-manager-redis-yet';
         const logger = new Logger('CacheModule');
 
         // If no Redis host, use in-memory cache (development fallback)
-        if(!redisHost) {
+        if (redisHost === undefined || redisHost === '') {
           logger.warn(
             'WARNING: REDIS_HOST not set - Using in-memory cache (not recommended for production)',
           );
@@ -74,9 +74,10 @@ import { redisStore } from 'cache-manager-redis-yet';
         }
 
         const port = redisPort ?? 6379;
-        const redisUrl = redisPassword
-          ? `redis://:${redisPassword}@${redisHost}:${port.toString()}`
-          : `redis://${redisHost}:${port.toString()}`;
+        const redisUrl =
+          redisPassword !== undefined && redisPassword !== ''
+            ? `redis://:${redisPassword}@${redisHost}:${port.toString()}`
+            : `redis://${redisHost}:${port.toString()}`;
 
         logger.log(`Connecting to Redis at ${redisHost}:${port.toString()}`);
 
@@ -124,7 +125,7 @@ import { redisStore } from 'cache-manager-redis-yet';
         const synchronize =
           configService.get<string>('TYPEORM_SYNCHRONIZE') === 'true';
 
-        if(isProduction && synchronize) {
+        if (isProduction && synchronize) {
           throw new Error(
             'CRITICAL: Cannot enable TypeORM synchronize in production! This could cause catastrophic data loss.',
           );
@@ -133,7 +134,7 @@ import { redisStore } from 'cache-manager-redis-yet';
         const shouldSynchronize = !isProduction && synchronize;
         const logger = new Logger('TypeORM');
 
-        if(shouldSynchronize) {
+        if (shouldSynchronize) {
           logger.warn(
             'WARNING: TypeORM synchronize is ENABLED. This should only be used in development.',
           );
@@ -146,7 +147,7 @@ import { redisStore } from 'cache-manager-redis-yet';
           synchronize: shouldSynchronize,
           logging: !isProduction,
           ssl:
-            databaseUrl && isProduction
+            databaseUrl !== undefined && databaseUrl !== '' && isProduction
               ? {
                   rejectUnauthorized:
                     process.env.SSL_REJECT_UNAUTHORIZED !== 'false',

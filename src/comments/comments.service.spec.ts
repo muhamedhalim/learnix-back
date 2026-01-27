@@ -3,16 +3,18 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import type { User } from '../users/entities/user.entity';
 import { CommentsService } from './comments.service';
 import { Comment } from './entities/comment.entity';
 import { CommentReply } from './entities/comment-reply.entity';
-import { Repository } from 'typeorm';
+import type { Repository } from 'typeorm';
 
 describe('CommentsService', () => {
   let service: CommentsService;
@@ -93,19 +95,25 @@ describe('CommentsService', () => {
     it('should create a comment when student has direct lesson purchase', async () => {
       const dto = { comment_text: 'Great lesson!' };
 
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue({
+      const mockLesson: Partial<Lesson> = {
         id: mockLessonId,
         teacher_id: mockTeacherId,
         deleted_at: null,
-      } as Lesson);
+      };
+      jest
+        .spyOn(lessonsRepository, 'findOne')
+        .mockResolvedValue(mockLesson as Lesson);
 
-      jest.spyOn(lessonPurchasesRepository, 'findOne').mockResolvedValue({
+      const mockPurchase: Partial<LessonPurchase> = {
         id: 'purchase-123',
         student_id: mockStudentId,
         lesson_id: mockLessonId,
-      } as LessonPurchase);
+      };
+      jest
+        .spyOn(lessonPurchasesRepository, 'findOne')
+        .mockResolvedValue(mockPurchase as LessonPurchase);
 
-      const mockComment = {
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
         lesson_id: mockLessonId,
         student_id: mockStudentId,
@@ -134,10 +142,13 @@ describe('CommentsService', () => {
     it('should create a comment when student has package purchase', async () => {
       const dto = { comment_text: 'Great lesson!' };
 
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue({
+      const mockLesson: Partial<Lesson> = {
         id: mockLessonId,
         teacher_id: mockTeacherId,
-      } as Lesson);
+      };
+      jest
+        .spyOn(lessonsRepository, 'findOne')
+        .mockResolvedValue(mockLesson as Lesson);
 
       jest.spyOn(lessonPurchasesRepository, 'findOne').mockResolvedValue(null);
 
@@ -152,7 +163,7 @@ describe('CommentsService', () => {
         .spyOn(packagePurchasesRepository, 'createQueryBuilder')
         .mockReturnValue(mockQueryBuilder as never);
 
-      const mockComment = {
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
         lesson_id: mockLessonId,
         student_id: mockStudentId,
@@ -180,10 +191,13 @@ describe('CommentsService', () => {
     it('should throw ForbiddenException when student has no purchase', async () => {
       const dto = { comment_text: 'Great lesson!' };
 
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue({
+      const mockLesson: Partial<Lesson> = {
         id: mockLessonId,
         teacher_id: mockTeacherId,
-      } as Lesson);
+      };
+      jest
+        .spyOn(lessonsRepository, 'findOne')
+        .mockResolvedValue(mockLesson as Lesson);
 
       jest.spyOn(lessonPurchasesRepository, 'findOne').mockResolvedValue(null);
 
@@ -216,31 +230,39 @@ describe('CommentsService', () => {
 
   describe('getCommentsByLesson', () => {
     it('should return paginated comments with replies', async () => {
-      const mockComment = {
+      const mockStudent: Record<string, unknown> = {
+        id: mockStudentId,
+        name: 'Student Name',
+      };
+      const mockReplies: Array<Record<string, unknown>> = [
+        {
+          id: 'reply-123',
+          reply_text: 'Thank you!',
+          teacher: { id: mockTeacherId, name: 'Teacher Name' },
+          created_at: new Date(),
+        },
+      ];
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
         lesson_id: mockLessonId,
         student_id: mockStudentId,
         comment_text: 'Great lesson!',
-        student: { id: mockStudentId, name: 'Student Name' },
-        replies: [
-          {
-            id: 'reply-123',
-            reply_text: 'Thank you!',
-            teacher: { id: mockTeacherId, name: 'Teacher Name' },
-            created_at: new Date(),
-          },
-        ],
+        student: mockStudent as unknown as User,
+        replies: mockReplies as unknown as CommentReply[],
         created_at: new Date(),
         updated_at: new Date(),
       };
 
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue({
+      const mockLesson: Partial<Lesson> = {
         id: mockLessonId,
-      } as Lesson);
+      };
+      jest
+        .spyOn(lessonsRepository, 'findOne')
+        .mockResolvedValue(mockLesson as Lesson);
 
       jest
         .spyOn(commentsRepository, 'findAndCount')
-        .mockResolvedValue([[mockComment as unknown as Comment], 1]);
+        .mockResolvedValue([[mockComment as Comment], 1]);
 
       const result = await service.getCommentsByLesson(mockLessonId, 1, 20);
 
@@ -260,9 +282,12 @@ describe('CommentsService', () => {
     });
 
     it('should handle pagination correctly', async () => {
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue({
+      const mockLesson: Partial<Lesson> = {
         id: mockLessonId,
-      } as Lesson);
+      };
+      jest
+        .spyOn(lessonsRepository, 'findOne')
+        .mockResolvedValue(mockLesson as Lesson);
 
       jest
         .spyOn(commentsRepository, 'findAndCount')
@@ -281,17 +306,23 @@ describe('CommentsService', () => {
     it('should add reply when teacher owns the lesson', async () => {
       const dto = { reply_text: 'Thank you for the question!' };
 
-      const mockComment = {
+      const mockLessonRelation: Record<string, unknown> = {
+        id: mockLessonId,
+        teacher_id: mockTeacherId,
+      };
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
         lesson_id: mockLessonId,
-        lesson: { id: mockLessonId, teacher_id: mockTeacherId },
-      } as unknown as Comment;
+        lesson: mockLessonRelation as unknown as Lesson,
+      };
 
-      jest.spyOn(commentsRepository, 'findOne').mockResolvedValue(mockComment);
+      jest
+        .spyOn(commentsRepository, 'findOne')
+        .mockResolvedValue(mockComment as Comment);
 
       jest.spyOn(repliesRepository, 'findOne').mockResolvedValue(null);
 
-      const mockReply = {
+      const mockReply: Partial<CommentReply> = {
         id: 'reply-123',
         comment_id: mockCommentId,
         teacher_id: mockTeacherId,
@@ -316,12 +347,18 @@ describe('CommentsService', () => {
       const dto = { reply_text: 'Thank you!' };
       const differentTeacherId = 'other-teacher-123';
 
-      const mockComment = {
+      const mockLessonRelation: Record<string, unknown> = {
+        id: mockLessonId,
+        teacher_id: mockTeacherId,
+      };
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
-        lesson: { id: mockLessonId, teacher_id: mockTeacherId },
-      } as unknown as Comment;
+        lesson: mockLessonRelation as unknown as Lesson,
+      };
 
-      jest.spyOn(commentsRepository, 'findOne').mockResolvedValue(mockComment);
+      jest
+        .spyOn(commentsRepository, 'findOne')
+        .mockResolvedValue(mockComment as Comment);
 
       await expect(
         service.addReply(mockCommentId, differentTeacherId, dto),
@@ -331,16 +368,25 @@ describe('CommentsService', () => {
     it('should throw BadRequestException when comment already has reply', async () => {
       const dto = { reply_text: 'Thank you!' };
 
-      const mockComment = {
+      const mockLessonRelation: Record<string, unknown> = {
+        id: mockLessonId,
+        teacher_id: mockTeacherId,
+      };
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
-        lesson: { id: mockLessonId, teacher_id: mockTeacherId },
-      } as unknown as Comment;
+        lesson: mockLessonRelation as unknown as Lesson,
+      };
 
-      jest.spyOn(commentsRepository, 'findOne').mockResolvedValue(mockComment);
+      jest
+        .spyOn(commentsRepository, 'findOne')
+        .mockResolvedValue(mockComment as Comment);
 
-      jest.spyOn(repliesRepository, 'findOne').mockResolvedValue({
+      const mockReply: Partial<CommentReply> = {
         id: 'existing-reply',
-      } as CommentReply);
+      };
+      jest
+        .spyOn(repliesRepository, 'findOne')
+        .mockResolvedValue(mockReply as CommentReply);
 
       await expect(
         service.addReply(mockCommentId, mockTeacherId, dto),
@@ -350,17 +396,19 @@ describe('CommentsService', () => {
 
   describe('deleteComment', () => {
     it('should soft-delete a comment', async () => {
-      const mockComment = {
+      const mockComment: Partial<Comment> = {
         id: mockCommentId,
         deleted_at: null,
-      } as Comment;
+      };
 
-      jest.spyOn(commentsRepository, 'findOne').mockResolvedValue(mockComment);
+      jest
+        .spyOn(commentsRepository, 'findOne')
+        .mockResolvedValue(mockComment as Comment);
 
       jest.spyOn(commentsRepository, 'save').mockResolvedValue(
         Object.assign(new Comment(), mockComment, {
           deleted_at: new Date(),
-        }),
+        }) as Comment,
       );
 
       await service.deleteComment(mockCommentId);

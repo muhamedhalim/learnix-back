@@ -97,8 +97,18 @@ export class AdminPackagesController {
     status: HttpStatus.OK,
     description: 'List of all packages',
   })
-  public async findAll(@Query() filter: PackageFilterDto): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.packagesService.findAll(filter);
+  public async findAll(@Query() filter: PackageFilterDto): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.packagesService.findAll(filter);
   }
 
   /**
@@ -108,8 +118,10 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.packagesService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.packagesService.findOne(id);
   }
 
   /**
@@ -119,7 +131,9 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<{ stats: unknown }> {
+  public async getStats(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ stats: unknown }> {
     const stats = await this.packagesService.getPackageStats(id);
     return {
       stats,
@@ -139,7 +153,9 @@ export class AdminPackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  public async delete(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
+  public async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string }> {
     await this.packagesService.adminDelete(id);
     return {
       message: 'Package deleted successfully',

@@ -27,17 +27,17 @@ import { Request, Response } from 'express';
 @Injectable()
 export class CsrfGuard implements CanActivate {
   private readonly logger = new Logger(CsrfGuard.name);
-  private readonly CSRF_COOKIE_NAME = 'XSRF-TOKEN';
-  private readonly CSRF_HEADER_NAME = 'x-csrf-token';
-  private readonly TOKEN_LENGTH = 32; // 256 bits
+  private readonly csrfCookieName = 'XSRF-TOKEN';
+  private readonly csrfHeaderName = 'x-csrf-token';
+  private readonly tokenLength = 32; // 256 bits
 
-  constructor(private reflector: Reflector) {}
+  constructor(private readonly reflector: Reflector) {}
 
   /**
    * Generates a cryptographically secure random CSRF token
    */
   private generateToken(): string {
-    return crypto.randomBytes(this.TOKEN_LENGTH).toString('hex');
+    return crypto.randomBytes(this.tokenLength).toString('hex');
   }
 
   /**
@@ -54,32 +54,39 @@ export class CsrfGuard implements CanActivate {
       context.getHandler(),
     );
 
-    if(skipCsrf) {
+    if (skipCsrf) {
       this.logger.debug(`CSRF check skipped for ${method} ${request.url}`);
       return true;
     }
 
     // GET, HEAD, OPTIONS are safe methods - no CSRF check needed
     // But we still generate and set the cookie for future requests
-    if(['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    if (['GET', 'HEAD', 'OPTIONS'].includes(method)) {
       this.ensureCsrfCookie(request, response);
       return true;
     }
 
     // For state-changing methods (POST, PUT, DELETE, PATCH), validate token
     // Read from signedCookies (cookies signed with COOKIE_SECRET)
-    const cookieToken = (request.signedCookies[this.CSRF_COOKIE_NAME]) as
+    const cookieToken = request.signedCookies[this.csrfCookieName] as
       | string
       | undefined;
-    const headerToken = request.headers[this.CSRF_HEADER_NAME] as string;
+    const headerToken = request.headers[this.csrfHeaderName] as
+      | string
+      | undefined;
 
     // Log for debugging (remove in production)
     this.logger.debug(
-      `CSRF validation for ${method} ${request.url}: cookie=${String(!!cookieToken)}, header=${String(!!headerToken)}`,
+      `CSRF validation for ${method} ${request.url}: cookie=${String(cookieToken !== undefined)}, header=${String(headerToken !== undefined)}`,
     );
 
     // Both tokens must be present
-    if(!cookieToken || !headerToken) {
+    if (
+      cookieToken === undefined ||
+      cookieToken === '' ||
+      headerToken === undefined ||
+      headerToken === ''
+    ) {
       this.logger.warn(
         `CSRF token missing for ${method} ${request.url} from ${String(request.ip)}`,
       );
@@ -91,7 +98,7 @@ export class CsrfGuard implements CanActivate {
     }
 
     // Tokens must match (Double Submit Cookie pattern)
-    if(cookieToken !== headerToken) {
+    if (cookieToken !== headerToken) {
       this.logger.warn(
         `CSRF token mismatch for ${method} ${request.url} from ${String(request.ip)}`,
       );
@@ -113,13 +120,13 @@ export class CsrfGuard implements CanActivate {
    */
   private ensureCsrfCookie(request: Request, response: Response): string {
     // Check for existing token in signedCookies
-    const existingToken = (request.signedCookies[this.CSRF_COOKIE_NAME]) as
+    const existingToken = request.signedCookies[this.csrfCookieName] as
       | string
       | undefined;
 
-    if(existingToken) {
+    if (existingToken !== undefined && existingToken !== '') {
       // Attach existing token to request for controller access
-      (request as Request & { csrfToken?: string }).csrfToken = existingToken;
+      Object.assign(request, { csrfToken: existingToken });
       return existingToken;
     }
 
@@ -127,7 +134,7 @@ export class CsrfGuard implements CanActivate {
     const newToken = this.generateToken();
 
     // Set signed cookie with secure options
-    response.cookie(this.CSRF_COOKIE_NAME, newToken, {
+    response.cookie(this.csrfCookieName, newToken, {
       httpOnly: false, // Must be accessible to JavaScript for reading
       signed: true, // Sign cookie with COOKIE_SECRET to prevent tampering
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
@@ -138,9 +145,11 @@ export class CsrfGuard implements CanActivate {
     });
 
     // Attach new token to request for controller access
-    (request as Request & { csrfToken?: string }).csrfToken = newToken;
+    Object.assign(request, { csrfToken: newToken });
 
-    this.logger.debug(`Generated new signed CSRF token for ${String(request.ip)}`);
+    this.logger.debug(
+      `Generated new signed CSRF token for ${String(request.ip)}`,
+    );
     return newToken;
   }
 }
@@ -154,10 +163,10 @@ export class CsrfGuard implements CanActivate {
  * @Post('/webhook/payment')
  * async handleWebhook() {}
  */
-export const SkipCsrf = () => {
-  return(
+export const SkipCsrf = (): MethodDecorator => {
+  return (
     _target: object,
-    _propertyKey: string,
+    _propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
   ) => {
     Reflect.defineMetadata(

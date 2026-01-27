@@ -19,10 +19,10 @@ export class HybridAuthGuard implements CanActivate {
   private readonly logger = new Logger(HybridAuthGuard.name);
 
   constructor(
-    private firebaseService: FirebaseService,
-    private usersService: UsersService,
-    private authService: AuthService,
-    private configService: ConfigService,
+    private readonly firebaseService: FirebaseService,
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   private decodeJwtHeader(token: string): Record<string, unknown> | null {
@@ -30,7 +30,7 @@ export class HybridAuthGuard implements CanActivate {
       const part = token.split('.')[0];
 
       // FIX 2: Check for 'part' in case of strict TS rules (noUncheckedIndexedAccess)
-      if(!part) {
+      if (part === undefined || part === '') {
         this.logger.debug('Failed to get first part of JWT.');
         return null;
       }
@@ -49,7 +49,7 @@ export class HybridAuthGuard implements CanActivate {
 
   private verifyJwtSecret(): string {
     const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    if(!jwtSecret) {
+    if (jwtSecret === undefined || jwtSecret === '') {
       this.logger.error('JWT_SECRET not configured');
       throw new Error('JWT_SECRET not configured');
     }
@@ -72,7 +72,7 @@ export class HybridAuthGuard implements CanActivate {
     const payloadObj: JwtPayload | null =
       typeof verified === 'object' ? verified : null;
 
-    if(!payloadObj) {
+    if (!payloadObj) {
       this.logger.warn('JWT payload is not an object');
       throw new UnauthorizedException('Invalid token payload');
     }
@@ -80,18 +80,24 @@ export class HybridAuthGuard implements CanActivate {
     return payloadObj;
   }
 
-  private validatePayloadClaims(payloadObj: JwtPayload): { sub: string; email: string } {
+  private validatePayloadClaims(payloadObj: JwtPayload): {
+    sub: string;
+    email: string;
+  } {
     const sub =
       'sub' in payloadObj && typeof payloadObj.sub === 'string'
         ? payloadObj.sub
         : undefined;
 
     const email =
-      typeof payloadObj.email === 'string'
-        ? payloadObj.email
-        : undefined;
+      typeof payloadObj.email === 'string' ? payloadObj.email : undefined;
 
-    if(!sub || !email) {
+    if (
+      sub === undefined ||
+      sub === '' ||
+      email === undefined ||
+      email === ''
+    ) {
       this.logger.warn(
         'JWT payload is missing required "sub" or "email" claims.',
       );
@@ -111,11 +117,11 @@ export class HybridAuthGuard implements CanActivate {
 
     try {
       const user = await this.authService.validateUser(validateParams);
-      if(!user) {
+      if (user === null) {
         this.logger.warn('JWT verified but user not found or inactive');
         throw new UnauthorizedException('User not found or inactive');
       }
-      request.user = user;
+      Object.assign(request, { user });
       return true;
     } catch (validateErr) {
       this.logger.warn(
@@ -133,37 +139,37 @@ export class HybridAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     const authHeader = request.headers.authorization;
 
-    if(!authHeader?.startsWith('Bearer ')) {
+    if (authHeader?.startsWith('Bearer ') !== true) {
       throw new UnauthorizedException('No authentication token provided');
     }
 
     const token = authHeader.split(' ')[1];
 
-    if(!token) {
+    if (token === undefined || token === '') {
       throw new UnauthorizedException('Malformed authorization header');
     }
 
     // Inspect token header
     const header = this.decodeJwtHeader(token);
-    if(header) {
+    if (header) {
       this.logger.debug(`Auth token header: ${JSON.stringify(header)}`);
     } else {
       this.logger.debug('Unable to decode auth token header');
     }
 
     // If token header exists but has no `kid`, treat it as non-Firebase ID token
-    if(header && !('kid' in header)) {
+    if (header && !('kid' in header)) {
       this.logger.warn(
         'Auth token header has no "kid" claim — skipping Firebase verification and trying JWT.',
       );
-      return this.tryJwtVerify(token, request);
+      return await this.tryJwtVerify(token, request);
     }
 
     // Otherwise, try Firebase verification first (for regular users)
     try {
       const decodedToken = await this.firebaseService.verifyToken(token);
       const user = await this.usersService.syncFirebaseUser(decodedToken);
-      request.user = user;
+      Object.assign(request, { user });
       return true;
     } catch (firebaseErr) {
       // Log details and fall back to JWT
@@ -176,7 +182,7 @@ export class HybridAuthGuard implements CanActivate {
       );
 
       // Try JWT authentication (for admin / fallback)
-      return this.tryJwtVerify(token, request);
+      return await this.tryJwtVerify(token, request);
     }
   }
 }

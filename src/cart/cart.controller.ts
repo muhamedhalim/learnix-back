@@ -103,6 +103,6 @@ export class CartController {
     @GetUser() user: JwtPayload,
     @Body() dto: CheckoutCartDto,
   ): Promise<{ message: string; data: unknown }> {
-    return this.cartService.checkout(user.userId, dto);
+    return await this.cartService.checkout(user.userId, dto);
   }
 }

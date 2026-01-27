@@ -6,12 +6,7 @@ import {
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
-import {
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { StudentFilterDto } from '../dto';
 import { StudentsService } from '../students.service';
@@ -69,9 +64,11 @@ export class StudentsController {
     status: HttpStatus.OK,
     description: 'List of approved students with pagination meta',
   })
-  public async findAll(@Query() filter: Omit<StudentFilterDto, 'status'>): Promise<unknown> {
+  public async findAll(
+    @Query() filter: Omit<StudentFilterDto, 'status'>,
+  ): Promise<unknown> {
     // Public endpoint only shows approved students
-    return this.studentsService.findApprovedStudents(filter);
+    return await this.studentsService.findApprovedStudents(filter);
   }
 
   /**
@@ -81,7 +78,9 @@ export class StudentsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.studentsService.findStudentById(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.studentsService.findStudentById(id);
   }
 }

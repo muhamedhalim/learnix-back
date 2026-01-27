@@ -1,11 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export enum GradeLevel {
   GRADE_10 = 'grade_10',

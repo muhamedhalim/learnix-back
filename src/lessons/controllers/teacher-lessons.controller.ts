@@ -94,7 +94,7 @@ export class TeacherLessonsController {
     @GetUser() user: JwtPayload,
     @Query() filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<unknown> {
-    return this.lessonsService.findMyLessons(user.userId, filter);
+    return await this.lessonsService.findMyLessons(user.userId, filter);
   }
 
   /**
@@ -128,7 +128,7 @@ export class TeacherLessonsController {
   ): Promise<unknown> {
     // First get the lesson to verify ownership
     const lesson = await this.lessonsService.findOne(id);
-    if(lesson.teacher.id !== user.userId) {
+    if (lesson.teacher.id !== user.userId) {
       // Allow viewing but could add ownership check here
     }
     return lesson;
@@ -188,7 +188,7 @@ export class TeacherLessonsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateLessonVideoDto,
   ): Promise<unknown> {
-    return this.lessonsService.updateVideoUrl(
+    return await this.lessonsService.updateVideoUrl(
       id,
       user.userId,
       dto.video_url,
@@ -229,7 +229,7 @@ export class TeacherLessonsController {
     @Body() dto: UpdateVimeoUrlDto,
   ): Promise<unknown> {
     const vimeoUrl = dto.vimeo_url ?? dto.video_url;
-    return this.lessonsService.updateVideoUrl(
+    return await this.lessonsService.updateVideoUrl(
       id,
       user.userId,
       vimeoUrl,

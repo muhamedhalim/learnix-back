@@ -82,9 +82,19 @@ export class PackagesController {
     status: HttpStatus.OK,
     description: 'List of packages',
   })
-  public async findAll(@Query() filter: PackageFilterDto): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
+  public async findAll(@Query() filter: PackageFilterDto): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
     const filterWithActive = Object.assign({}, filter, { is_active: true });
-    return this.packagesService.findAll(filterWithActive);
+    return await this.packagesService.findAll(filterWithActive);
   }
 
   /**
@@ -94,8 +104,10 @@ export class PackagesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.packagesService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.packagesService.findOne(id);
   }
 
   /**
@@ -126,8 +138,18 @@ export class PackagesController {
   public async findByTeacher(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
     @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.packagesService.findByTeacher(teacherId, {
+  ): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.packagesService.findByTeacher(teacherId, {
       ...filter,
       is_active: true,
     });

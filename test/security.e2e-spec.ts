@@ -1,8 +1,7 @@
- 
- 
-
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { INestApplication } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import type { TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 
 import { AppModule } from '../src/app.module';
 import type { Server } from 'http';
@@ -346,7 +345,9 @@ describe('Security (e2e)', () => {
         responses.push(res);
 
         // Stop if we hit rate limit
-        if (res.status === 429) {break;}
+        if (res.status === 429) {
+          break;
+        }
       }
 
       // Should either enforce rate limits (429) or successfully handle all requests
@@ -486,12 +487,12 @@ describe('Security (e2e)', () => {
       expect(secondRefreshToken).not.toBe(firstRefreshToken);
 
       // Old refresh token should be invalidated
-      await request(app.getHttpServer() as Server)
+      (await request(app.getHttpServer() as Server)
         .post('/api/v1/auth/refresh')
         .send({
           refresh_token: firstRefreshToken,
         })
-        .expect(401) as unknown;
+        .expect(401)) as unknown;
     });
 
     it('should invalidate refresh tokens on logout', async () => {
@@ -512,12 +513,12 @@ describe('Security (e2e)', () => {
         .expect(200);
 
       // Refresh token should be invalidated
-      await request(app.getHttpServer() as Server)
+      (await request(app.getHttpServer() as Server)
         .post('/api/v1/auth/refresh')
         .send({
           refresh_token: refreshToken,
         })
-        .expect(401) as unknown;
+        .expect(401)) as unknown;
     });
   });
 });

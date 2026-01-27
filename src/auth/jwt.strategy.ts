@@ -9,19 +9,19 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
-    private authService: AuthService,
+    private readonly authService: AuthService,
   ) {
     const jwtSecret = configService.get<string>('JWT_SECRET');
 
-    if(!jwtSecret) {
+    if (jwtSecret === undefined || jwtSecret === '') {
       throw new Error('JWT_SECRET environment variable is not configured');
     }
 
-    if(jwtSecret.length < 32) {
+    if (jwtSecret.length < 32) {
       throw new Error('JWT_SECRET must be at least 32 characters long');
     }
 
-    if(jwtSecret === 'your-secret-key' || jwtSecret === 'change-me') {
+    if (jwtSecret === 'your-secret-key' || jwtSecret === 'change-me') {
       throw new Error('JWT_SECRET cannot be a default/example value');
     }
 
@@ -32,9 +32,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  public async validate(payload: { sub: string; email: string }): Promise<unknown> {
+  public async validate(payload: {
+    sub: string;
+    email: string;
+  }): Promise<unknown> {
     const user = await this.authService.validateUser(payload);
-    if(!user) {
+    if (!user) {
       throw new UnauthorizedException();
     }
     return user;

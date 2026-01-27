@@ -104,7 +104,7 @@ export class AdminLessonsController {
     description: 'List of all lessons',
   })
   public async findAll(@Query() filter: LessonFilterDto): Promise<unknown> {
-    return this.lessonsService.findAll(filter);
+    return await this.lessonsService.findAll(filter);
   }
 
   /**
@@ -114,8 +114,10 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.lessonsService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.lessonsService.findOne(id);
   }
 
   /**
@@ -125,7 +127,9 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async getStats(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     const stats = await this.lessonsService.getLessonStats(id);
     return {
       stats,
@@ -145,7 +149,9 @@ export class AdminLessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  public async delete(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     await this.lessonsService.adminDelete(id);
     return {
       message: 'Lesson deleted successfully',

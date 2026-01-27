@@ -18,7 +18,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ComplaintsService } from '../complaints.service';
-import { ComplaintFilterDto,CreateComplaintDto } from '../dto';
+import { ComplaintFilterDto, CreateComplaintDto } from '../dto';
 
 interface AuthRequest extends Request {
   user: {
@@ -34,7 +34,7 @@ interface AuthRequest extends Request {
 @Roles('student')
 @ApiBearerAuth('JWT')
 export class ComplaintsStudentController {
-  constructor(private complaintsService: ComplaintsService) {}
+  constructor(private readonly complaintsService: ComplaintsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Submit a complaint (student)' })
@@ -43,7 +43,7 @@ export class ComplaintsStudentController {
     @Body() dto: CreateComplaintDto,
     @Request() req: AuthRequest,
   ): Promise<unknown> {
-    return this.complaintsService.createComplaint(req.user.id, dto);
+    return await this.complaintsService.createComplaint(req.user.id, dto);
   }
 
   @Get()
@@ -56,7 +56,7 @@ export class ComplaintsStudentController {
     @Query() filter: ComplaintFilterDto,
     @Request() req: AuthRequest,
   ): Promise<unknown> {
-    return this.complaintsService.getStudentComplaints(
+    return await this.complaintsService.getStudentComplaints(
       req.user.id,
       filter.page,
       filter.limit,

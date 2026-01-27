@@ -1,15 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpStatus,
-  Param,
-} from '@nestjs/common';
-import {
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Get, HttpStatus, Param } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';

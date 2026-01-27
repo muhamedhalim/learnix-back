@@ -58,7 +58,9 @@ export class StudentProfileController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (student only)',
   })
-  public async getProfile(@GetUser() user: JwtPayload): Promise<{ profile: unknown }> {
+  public async getProfile(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ profile: unknown }> {
     const profile = await this.studentsService.findStudentProfile(user.userId);
     return {
       profile,
@@ -117,7 +119,9 @@ export class StudentProfileController {
     status: HttpStatus.NOT_FOUND,
     description: 'Student profile not found',
   })
-  public async getStats(@GetUser() user: JwtPayload): Promise<{ stats: unknown }> {
+  public async getStats(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ stats: unknown }> {
     // First get the student profile to get the studentId
     const profile = await this.studentsService.findStudentProfile(user.userId);
     const stats = await this.studentsService.getStudentStats(profile.id);

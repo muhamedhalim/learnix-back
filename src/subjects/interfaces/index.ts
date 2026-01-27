@@ -1,1 +1,1 @@
-export * from './subject.interface';
+export type * from './subject.interface';

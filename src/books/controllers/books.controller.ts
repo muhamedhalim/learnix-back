@@ -6,12 +6,7 @@ import {
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
-import {
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { BookFilterDto } from '../dto';
 import { BooksService } from '../services/books.service';
@@ -76,7 +71,7 @@ export class BooksController {
     description: 'List of books with pagination',
   })
   public async findAll(@Query() filter: BookFilterDto): Promise<unknown> {
-    return this.booksService.findAll(filter);
+    return await this.booksService.findAll(filter);
   }
 
   /**
@@ -86,7 +81,9 @@ export class BooksController {
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.booksService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.booksService.findOne(id);
   }
 }

@@ -25,7 +25,7 @@ import {
 } from './dto';
 import { AttendanceCode, AttendanceCodeType } from './entities';
 import * as crypto from 'crypto';
-import { DataSource, IsNull,MoreThan, Repository } from 'typeorm';
+import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
 @Injectable()
 export class AttendanceCodesService {
@@ -49,18 +49,18 @@ export class AttendanceCodesService {
     adminId: string,
   ): Promise<AttendanceCode[]> {
     // Validate item exists
-    if(dto.type === AttendanceCodeType.LESSON) {
+    if (dto.type === AttendanceCodeType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
-      if(!lesson) {
+      if (!lesson) {
         throw new NotFoundException('Lesson not found');
       }
     } else if (dto.type === AttendanceCodeType.PACKAGE) {
       const pkg = await this.packagesRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
-      if(!pkg) {
+      if (!pkg) {
         throw new NotFoundException('Package not found');
       }
     }
@@ -68,7 +68,7 @@ export class AttendanceCodesService {
     const codes: AttendanceCode[] = [];
     const expiresAt = new Date(dto.expires_at);
 
-    for(let i = 0; i < dto.count; i++) {
+    for (let i = 0; i < dto.count; i++) {
       const code = this.generateUniqueCode();
 
       const attendanceCode = this.attendanceCodesRepository.create({
@@ -98,7 +98,7 @@ export class AttendanceCodesService {
     let code = '';
     const randomBytesArray = crypto.randomBytes(8);
 
-    for(let i = 0; i < 8; i++) {
+    for (let i = 0; i < 8; i++) {
       const byteValue = randomBytesArray[i];
       if (byteValue !== undefined) {
         const charIndex = byteValue % chars.length;
@@ -131,7 +131,7 @@ export class AttendanceCodesService {
       },
     });
 
-    if(!attendanceCode) {
+    if (!attendanceCode) {
       return { valid: false };
     }
 
@@ -143,7 +143,7 @@ export class AttendanceCodesService {
     let itemTitle: string | undefined;
     let price: number | undefined;
 
-    if(attendanceCode.type === AttendanceCodeType.LESSON) {
+    if (attendanceCode.type === AttendanceCodeType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: attendanceCode.item_id, deleted_at: IsNull() },
       });
@@ -158,7 +158,8 @@ export class AttendanceCodesService {
     }
 
     // Code is valid if: exists, not used, not expired, and item still exists
-    const valid = !isUsed && !isExpired && !!itemTitle;
+    const valid =
+      !isUsed && !isExpired && itemTitle !== undefined && itemTitle !== '';
 
     return {
       valid,
@@ -190,7 +191,7 @@ export class AttendanceCodesService {
         lock: { mode: 'pessimistic_write' },
       });
 
-      if(!code) {
+      if (!code) {
         throw new NotFoundException('Invalid or expired purchase code');
       }
 
@@ -223,7 +224,7 @@ export class AttendanceCodesService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Grant access immediately
-      if(code.type === AttendanceCodeType.LESSON) {
+      if (code.type === AttendanceCodeType.LESSON) {
         await this.grantLessonAccess(manager, savedPayment, code.item_id);
       } else if (code.type === AttendanceCodeType.PACKAGE) {
         await this.grantPackageAccess(manager, savedPayment, code.item_id);
@@ -281,7 +282,7 @@ export class AttendanceCodesService {
       relations: ['items', 'items.lesson'],
     });
 
-    if(!pkg) {
+    if (!pkg) {
       throw new NotFoundException('Package not found');
     }
 
@@ -297,10 +298,11 @@ export class AttendanceCodesService {
     await manager.save(PackagePurchase, packagePurchase);
 
     // Grant access to each lesson
-    for(const item of pkg.items) {
-      const lesson = item.lesson;
+    for (const item of pkg.items) {
+      const { lesson } = item;
 
-      const accessDays = lesson.available_for_days || 7;
+      const accessDays =
+        lesson.available_for_days !== 0 ? lesson.available_for_days : 7;
       const accessGrantedAt = new Date();
       const accessExpiresAt = new Date(accessGrantedAt);
       accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
@@ -326,8 +328,8 @@ export class AttendanceCodesService {
   public async findAll(
     filter: AttendanceCodeFilterDto,
   ): Promise<{ data: AttendanceCode[]; meta: PaginationMeta }> {
-    const page = filter.page || 1;
-    const limit = filter.limit || 20;
+    const page = filter.page !== 0 ? filter.page : 1;
+    const limit = filter.limit !== 0 ? filter.limit : 20;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.attendanceCodesRepository
@@ -335,23 +337,23 @@ export class AttendanceCodesService {
       .leftJoinAndSelect('code.user', 'user')
       .leftJoinAndSelect('code.creator', 'creator');
 
-    if(filter.is_used !== undefined) {
+    if (filter.is_used !== undefined) {
       queryBuilder.andWhere('code.is_used = :isUsed', {
         isUsed: filter.is_used,
       });
     }
 
-    if(filter.type) {
+    if (typeof filter.type === 'string') {
       queryBuilder.andWhere('code.type = :type', { type: filter.type });
     }
 
-    if(filter.item_id) {
+    if (typeof filter.item_id === 'string' && filter.item_id !== '') {
       queryBuilder.andWhere('code.item_id = :itemId', {
         itemId: filter.item_id,
       });
     }
 
-    if(!filter.include_expired) {
+    if (filter.include_expired !== true) {
       queryBuilder.andWhere('code.expires_at > :now', { now: new Date() });
     }
 
@@ -395,11 +397,11 @@ export class AttendanceCodesService {
       where: { code: code.toUpperCase() },
     });
 
-    if(!attendanceCode) {
+    if (!attendanceCode) {
       throw new NotFoundException('Purchase code not found');
     }
 
-    if(attendanceCode.is_used) {
+    if (attendanceCode.is_used) {
       throw new BadRequestException('Cannot delete a used purchase code');
     }
 

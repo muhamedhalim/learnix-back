@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiResponse,ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { ReviewFilterDto } from '../dto';
 import { ReviewsService } from '../reviews.service';
@@ -7,7 +7,7 @@ import { ReviewsService } from '../reviews.service';
 @ApiTags('Reviews')
 @Controller()
 export class ReviewsPublicController {
-  constructor(private reviewsService: ReviewsService) {}
+  constructor(private readonly reviewsService: ReviewsService) {}
 
   @Get('teachers/:teacherId/reviews')
   @ApiOperation({ summary: 'Get teacher reviews with aggregates (public)' })
@@ -16,7 +16,7 @@ export class ReviewsPublicController {
     @Param('teacherId') teacherId: string,
     @Query() filter: ReviewFilterDto,
   ): Promise<unknown> {
-    return this.reviewsService.getTeacherReviews(
+    return await this.reviewsService.getTeacherReviews(
       teacherId,
       filter.page,
       filter.limit,
@@ -30,7 +30,7 @@ export class ReviewsPublicController {
     @Param('lessonId') lessonId: string,
     @Query() filter: ReviewFilterDto,
   ): Promise<unknown> {
-    return this.reviewsService.getLessonReviews(
+    return await this.reviewsService.getLessonReviews(
       lessonId,
       filter.page,
       filter.limit,

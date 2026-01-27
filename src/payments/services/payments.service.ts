@@ -36,6 +36,7 @@ import {
   LessThanOrEqual,
   MoreThan,
   Repository,
+  SelectQueryBuilder,
 } from 'typeorm';
 
 export interface PaymentResponse {
@@ -131,15 +132,19 @@ export class PaymentsService {
   ): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
-      dto.idempotency_key ?? `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
+      dto.idempotency_key ??
+      `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
 
     // Check idempotency
-    const idempotencyCheck =
-      await this.idempotencyService.checkPaymentRequest(
-        userId,
-        idempotencyKey,
-      );
-    if(idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
+    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+      userId,
+      idempotencyKey,
+    );
+    if (
+      idempotencyCheck.isProcessed &&
+      idempotencyCheck.cachedResult !== undefined &&
+      idempotencyCheck.cachedResult !== null
+    ) {
       this.logger.log(`Returning cached payment response for user ${userId}`);
       return idempotencyCheck.cachedResult as PaymentResponse;
     }
@@ -149,13 +154,13 @@ export class PaymentsService {
       where: { id: dto.lesson_id, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (lesson === null) {
       throw new NotFoundException('Lesson not found');
     }
 
     // Check if student already has active access
     const existingAccess = await this.checkLessonAccess(userId, dto.lesson_id);
-    if(existingAccess.has_access) {
+    if (existingAccess.has_access) {
       throw new ConflictException(
         `You already have access to this lesson until ${existingAccess.expires_at?.toISOString() ?? 'unlimited'}`,
       );
@@ -165,7 +170,7 @@ export class PaymentsService {
     let discountAmount = 0;
     let discountCodeId: string | null = null;
 
-    if(dto.discount_code) {
+    if (dto.discount_code !== undefined && dto.discount_code !== '') {
       const verification = await this.discountCodesService.verifyCode(
         {
           code: dto.discount_code,
@@ -176,7 +181,7 @@ export class PaymentsService {
         userId,
       );
 
-      if(!verification.valid) {
+      if (!verification.valid) {
         throw new BadRequestException(verification.error);
       }
 
@@ -204,7 +209,7 @@ export class PaymentsService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Apply discount code if used (within transaction for atomicity)
-      if(discountCodeId) {
+      if (discountCodeId !== null && discountCodeId !== '') {
         await this.discountCodesService.applyDiscount(
           discountCodeId,
           userId,
@@ -264,12 +269,15 @@ export class PaymentsService {
       `package-${userId}-${dto.package_id}-${Date.now().toString()}`;
 
     // Check idempotency
-    const idempotencyCheck =
-      await this.idempotencyService.checkPaymentRequest(
-        userId,
-        idempotencyKey,
-      );
-    if(idempotencyCheck.isProcessed && idempotencyCheck.cachedResult) {
+    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+      userId,
+      idempotencyKey,
+    );
+    if (
+      idempotencyCheck.isProcessed &&
+      idempotencyCheck.cachedResult !== undefined &&
+      idempotencyCheck.cachedResult !== null
+    ) {
       this.logger.log(`Returning cached payment response for user ${userId}`);
       return idempotencyCheck.cachedResult as PaymentResponse;
     }
@@ -280,7 +288,7 @@ export class PaymentsService {
       relations: ['items', 'items.lesson'],
     });
 
-    if(!pkg) {
+    if (pkg === null) {
       throw new NotFoundException('Package not found or not active');
     }
 
@@ -288,7 +296,7 @@ export class PaymentsService {
     let discountAmount = 0;
     let discountCodeId: string | null = null;
 
-    if(dto.discount_code) {
+    if (dto.discount_code !== undefined && dto.discount_code !== '') {
       const verification = await this.discountCodesService.verifyCode(
         {
           code: dto.discount_code,
@@ -299,7 +307,7 @@ export class PaymentsService {
         userId,
       );
 
-      if(!verification.valid) {
+      if (!verification.valid) {
         throw new BadRequestException(verification.error);
       }
 
@@ -327,7 +335,7 @@ export class PaymentsService {
       const savedPayment = await manager.save(Payment, payment);
 
       // Apply discount code if used (within transaction for atomicity)
-      if(discountCodeId) {
+      if (discountCodeId !== null && discountCodeId !== '') {
         await this.discountCodesService.applyDiscount(
           discountCodeId,
           userId,
@@ -392,7 +400,7 @@ export class PaymentsService {
       relations: ['lesson'],
     });
 
-    if(!expiredPurchase) {
+    if (!expiredPurchase) {
       throw new BadRequestException(
         'You have not previously purchased this lesson or access is still active',
       );
@@ -403,7 +411,7 @@ export class PaymentsService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -464,11 +472,11 @@ export class PaymentsService {
         lock: { mode: 'pessimistic_write' },
       });
 
-      if(!payment) {
+      if (!payment) {
         throw new NotFoundException('Payment not found');
       }
 
-      if(payment.status === PaymentStatus.COMPLETED) {
+      if (payment.status === PaymentStatus.COMPLETED) {
         this.logger.log(`Payment ${paymentId} already completed, skipping`);
         return;
       }
@@ -478,7 +486,7 @@ export class PaymentsService {
       await manager.save(Payment, payment);
 
       // Grant access based on item type
-      if(payment.item_type === ItemType.LESSON) {
+      if (payment.item_type === ItemType.LESSON) {
         await this.grantLessonAccess(manager, payment);
       } else if (payment.item_type === ItemType.PACKAGE) {
         await this.grantPackageAccess(manager, payment);
@@ -546,7 +554,7 @@ export class PaymentsService {
       relations: ['items', 'items.lesson'],
     });
 
-    if(!pkg) {
+    if (!pkg) {
       throw new NotFoundException('Package not found');
     }
 
@@ -562,8 +570,8 @@ export class PaymentsService {
     await manager.save(PackagePurchase, packagePurchase);
 
     // Grant access to each lesson in the package
-    for(const item of pkg.items) {
-      const lesson = item.lesson;
+    for (const item of pkg.items) {
+      const { lesson } = item;
 
       const accessDays = lesson.available_for_days;
       const accessGrantedAt = new Date();
@@ -621,7 +629,7 @@ export class PaymentsService {
       },
     });
 
-    if(!purchase) {
+    if (!purchase) {
       return { has_access: false };
     }
 
@@ -646,7 +654,7 @@ export class PaymentsService {
       where: { id: purchaseId },
     });
 
-    if(!purchase) {
+    if (!purchase) {
       throw new NotFoundException('Purchase not found');
     }
 
@@ -711,25 +719,25 @@ export class PaymentsService {
       .createQueryBuilder('payment')
       .where('payment.user_id = :userId', { userId });
 
-    if(filter.status) {
+    if (filter.status !== undefined) {
       queryBuilder.andWhere('payment.status = :status', {
         status: filter.status,
       });
     }
 
-    if(filter.item_type) {
+    if (filter.item_type !== undefined) {
       queryBuilder.andWhere('payment.item_type = :itemType', {
         itemType: filter.item_type,
       });
     }
 
-    if(filter.from_date) {
+    if (filter.from_date !== undefined && filter.from_date !== '') {
       queryBuilder.andWhere('payment.created_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if(filter.to_date) {
+    if (filter.to_date !== undefined && filter.to_date !== '') {
       queryBuilder.andWhere('payment.created_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -771,31 +779,31 @@ export class PaymentsService {
 
     const queryBuilder = this.paymentsRepository.createQueryBuilder('payment');
 
-    if(filter.user_id) {
+    if (filter.user_id !== undefined && filter.user_id !== '') {
       queryBuilder.andWhere('payment.user_id = :userId', {
         userId: filter.user_id,
       });
     }
 
-    if(filter.status) {
+    if (filter.status !== undefined) {
       queryBuilder.andWhere('payment.status = :status', {
         status: filter.status,
       });
     }
 
-    if(filter.item_type) {
+    if (filter.item_type !== undefined) {
       queryBuilder.andWhere('payment.item_type = :itemType', {
         itemType: filter.item_type,
       });
     }
 
-    if(filter.from_date) {
+    if (filter.from_date !== undefined && filter.from_date !== '') {
       queryBuilder.andWhere('payment.created_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if(filter.to_date) {
+    if (filter.to_date !== undefined && filter.to_date !== '') {
       queryBuilder.andWhere('payment.created_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -846,7 +854,7 @@ export class PaymentsService {
     // Validate UUID format
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if(!uuidRegex.test(merchantOrderId)) {
+    if (!uuidRegex.test(merchantOrderId)) {
       return null;
     }
     return await this.paymentsRepository.findOne({
@@ -899,146 +907,212 @@ export class PaymentsService {
       .addSelect('SUM(payment.discount_amount)', 'total_discounts')
       .where('payment.status = :status', { status: PaymentStatus.COMPLETED });
 
-    if(fromDate) {
+    if (fromDate !== undefined) {
       queryBuilder.andWhere('payment.created_at >= :fromDate', { fromDate });
     }
 
-    if(toDate) {
+    if (toDate !== undefined) {
       queryBuilder.andWhere('payment.created_at <= :toDate', { toDate });
     }
 
-    const result = await queryBuilder.getRawOne<RevenueRawResult>();
+    const result = (await queryBuilder.getRawOne<RevenueRawResult>()) ?? {
+      total_revenue: null,
+
+      total_payments: null,
+
+      total_discounts: null,
+    };
 
     return {
-      total_revenue: result?.total_revenue ? parseFloat(result.total_revenue) : 0,
-      total_payments: result?.total_payments ? parseInt(result.total_payments, 10) : 0,
-      total_discounts: result?.total_discounts ? parseFloat(result.total_discounts) : 0,
+      total_revenue:
+        result.total_revenue !== null ? parseFloat(result.total_revenue) : 0,
+
+      total_payments:
+        result.total_payments !== null
+          ? parseInt(result.total_payments, 10)
+          : 0,
+
+      total_discounts:
+        result.total_discounts !== null
+          ? parseFloat(result.total_discounts)
+          : 0,
     };
   }
 
   /**
-   * Get teacher revenue with date range filtering and grouping
-   */
+
+     * Get teacher revenue base query with common filters
+
+     */
+
+  private getTeacherRevenueBaseQuery(
+    teacherId: string,
+
+    fromDate?: string,
+
+    toDate?: string,
+  ): SelectQueryBuilder<LessonPurchase> {
+    const query = this.lessonPurchasesRepository
+
+      .createQueryBuilder('lp')
+
+      .innerJoin('lp.lesson', 'lesson')
+
+      .innerJoin('lp.payment', 'payment')
+
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+
+      .andWhere('payment.status = :status', {
+        status: PaymentStatus.COMPLETED,
+      });
+
+    if (fromDate !== undefined && fromDate !== '') {
+      query.andWhere('payment.paid_at >= :fromDate', { fromDate });
+    }
+
+    if (toDate !== undefined && toDate !== '') {
+      query.andWhere('payment.paid_at <= :toDate', { toDate });
+    }
+
+    return query;
+  }
+
+  /**
+
+     * Get teacher revenue with date range filtering and grouping
+
+     */
+
   public async getTeacherRevenue(
     teacherId: string,
+
     fromDate?: string,
+
     toDate?: string,
+
     groupBy: 'day' | 'week' | 'month' = 'month',
   ): Promise<{
     total_revenue: number;
-    revenue_by_period: {
+
+    revenue_by_period: Array<{
       period: string;
+
       revenue: number;
+
       sales: number;
-    }[];
-    top_lessons: {
+    }>;
+
+    top_lessons: Array<{
       lesson_id: string;
+
       lesson_title: string;
+
       revenue: number;
+
       sales: number;
-    }[];
+    }>;
+
     date_range: { from: string | undefined; to: string | undefined };
   }> {
     // Get total revenue for this teacher
-    const totalQuery = this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .innerJoin('lp.payment', 'payment')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('payment.status = :status', {
-        status: PaymentStatus.COMPLETED,
-      });
 
-    if(fromDate) {
-      totalQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
-    }
-    if(toDate) {
-      totalQuery.andWhere('payment.paid_at <= :toDate', { toDate });
-    }
+    const totalQuery = this.getTeacherRevenueBaseQuery(
+      teacherId,
 
-    const totalResult = await totalQuery
+      fromDate,
+
+      toDate,
+    );
+
+    const totalResult = (await totalQuery
+
       .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<TeacherRevenueTotalRaw>();
+
+      .getRawOne<TeacherRevenueTotalRaw>()) ?? { total: null };
 
     // Get revenue grouped by period
-    let dateFormat: string;
-    switch(groupBy) {
-      case 'day':
-        dateFormat = 'YYYY-MM-DD';
-        break;
-      case 'week':
-        dateFormat = 'IYYY-IW';
-        break;
-      case 'month':
-      default:
-        dateFormat = 'YYYY-MM';
-        break;
-    }
 
-    const periodQuery = this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .innerJoin('lp.payment', 'payment')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('payment.status = :status', {
-        status: PaymentStatus.COMPLETED,
-      });
+    const dateFormats = {
+      day: 'YYYY-MM-DD',
 
-    if(fromDate) {
-      periodQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
-    }
-    if(toDate) {
-      periodQuery.andWhere('payment.paid_at <= :toDate', { toDate });
-    }
+      week: 'IYYY-IW',
+
+      month: 'YYYY-MM',
+    };
+
+    const dateFormat = dateFormats[groupBy];
+
+    const periodQuery = this.getTeacherRevenueBaseQuery(
+      teacherId,
+
+      fromDate,
+
+      toDate,
+    );
 
     const periodResults = await periodQuery
+
       .select(`TO_CHAR(payment.paid_at, '${dateFormat}')`, 'period')
+
       .addSelect('SUM(lp.price_paid)', 'revenue')
+
       .addSelect('COUNT(lp.id)', 'sales')
+
       .groupBy('period')
+
       .orderBy('period', 'DESC')
+
       .getRawMany<TeacherRevenuePeriodRaw>();
 
     // Get top performing lessons
-    const topLessonsQuery = this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .innerJoin('lp.payment', 'payment')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('payment.status = :status', {
-        status: PaymentStatus.COMPLETED,
-      });
 
-    if(fromDate) {
-      topLessonsQuery.andWhere('payment.paid_at >= :fromDate', { fromDate });
-    }
-    if(toDate) {
-      topLessonsQuery.andWhere('payment.paid_at <= :toDate', { toDate });
-    }
+    const topLessonsQuery = this.getTeacherRevenueBaseQuery(
+      teacherId,
+
+      fromDate,
+
+      toDate,
+    );
 
     const topLessons = await topLessonsQuery
+
       .select('lesson.id', 'lesson_id')
+
       .addSelect('lesson.title', 'lesson_title')
+
       .addSelect('SUM(lp.price_paid)', 'revenue')
+
       .addSelect('COUNT(lp.id)', 'sales')
+
       .groupBy('lesson.id, lesson.title')
+
       .orderBy('revenue', 'DESC')
+
       .limit(5)
+
       .getRawMany<TeacherTopLessonsRaw>();
 
     return {
-      total_revenue: Number(totalResult?.total) || 0,
+      total_revenue: totalResult.total !== null ? Number(totalResult.total) : 0,
+
       revenue_by_period: periodResults.map((r) => ({
         period: r.period,
-        revenue: Number(r.revenue) || 0,
-        sales: Number(r.sales) || 0,
+
+        revenue: Number(r.revenue),
+
+        sales: Number(r.sales),
       })),
+
       top_lessons: topLessons.map((l) => ({
         lesson_id: l.lesson_id,
+
         lesson_title: l.lesson_title,
-        revenue: Number(l.revenue) || 0,
-        sales: Number(l.sales) || 0,
+
+        revenue: Number(l.revenue),
+
+        sales: Number(l.sales),
       })),
+
       date_range: { from: fromDate, to: toDate },
     };
   }
@@ -1047,13 +1121,13 @@ export class PaymentsService {
    * Get revenue breakdown by lesson for a teacher
    */
   public async getTeacherRevenueByLesson(teacherId: string): Promise<{
-    lessons: {
+    lessons: Array<{
       lesson_id: string;
       lesson_title: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
-    }[];
+    }>;
   }> {
     const results = await this.lessonPurchasesRepository
       .createQueryBuilder('lp')
@@ -1087,13 +1161,13 @@ export class PaymentsService {
    * Get revenue breakdown by package for a teacher
    */
   public async getTeacherRevenueByPackage(teacherId: string): Promise<{
-    packages: {
+    packages: Array<{
       package_id: string;
       package_title: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
-    }[];
+    }>;
   }> {
     // Package purchases are linked to lesson_packages
     // We need to check if any lesson in the package belongs to this teacher

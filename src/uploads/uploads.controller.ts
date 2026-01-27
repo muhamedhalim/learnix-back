@@ -8,7 +8,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiOperation, ApiParam,ApiResponse } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { THROTTLE, UPLOAD_FOLDERS } from '../common/constants';
@@ -21,9 +21,9 @@ import { join } from 'path';
 @Throttle({ default: THROTTLE.DEFAULT })
 export class UploadsController {
   private readonly logger = new Logger(UploadsController.name);
-  private uploadDir: string;
+  private readonly uploadDir: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     this.uploadDir =
       this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
     this.logger.log(`Uploads controller serving from: ${this.uploadDir}`);
@@ -72,7 +72,7 @@ export class UploadsController {
   ): Promise<void> {
     // Validation 1: Folder must be one of allowed folders
     const validFolders: readonly string[] = UPLOAD_FOLDERS;
-    if(!validFolders.includes(folder)) {
+    if (!validFolders.includes(folder)) {
       this.logger.warn(`Invalid folder requested: ${folder}`);
       throw new BadRequestException(
         `Invalid folder. Allowed: ${UPLOAD_FOLDERS.join(', ')}`,
@@ -80,7 +80,7 @@ export class UploadsController {
     }
 
     // Validation 2: Path traversal prevention
-    if(
+    if (
       folder.includes('..') ||
       folder.includes('/') ||
       folder.includes('\\') ||
@@ -95,7 +95,7 @@ export class UploadsController {
     }
 
     // Validation 3: Filename must have an extension
-    if(!filename.includes('.')) {
+    if (!filename.includes('.')) {
       this.logger.warn(`Filename missing extension: ${filename}`);
       throw new BadRequestException('Invalid filename');
     }

@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class DropFullNameColumn1767909768103 implements MigrationInterface {
   public name = 'DropFullNameColumn1767909768103';

@@ -23,9 +23,9 @@ export class UsersService {
 
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
-    private uploadService: UploadService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    private readonly userRepository: Repository<User>,
+    private readonly uploadService: UploadService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
   /**
@@ -85,7 +85,7 @@ export class UsersService {
     // Try to get from cache first
     const cacheKey = this.getUserCacheKey(id);
     const cached = await this.cacheManager.get(cacheKey);
-    if(cached) {
+    if (cached !== null && cached !== undefined) {
       this.logger.debug(`Cache HIT for user ${id}`);
       return cached;
     }
@@ -108,7 +108,7 @@ export class UsersService {
       ],
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
@@ -133,12 +133,16 @@ export class UsersService {
   }
 
   public async findByEmail(email: string): Promise<User | null> {
-    return this.userRepository.findOne({
+    return await this.userRepository.findOne({
       where: { email },
     });
   }
 
-  public async findByRole(role: UserRole, page = 1, limit = 10): Promise<unknown> {
+  public async findByRole(
+    role: UserRole,
+    page = 1,
+    limit = 10,
+  ): Promise<unknown> {
     const [users, total] = await this.userRepository.findAndCount({
       where: { role },
       select: [
@@ -167,7 +171,10 @@ export class UsersService {
     };
   }
 
-  public async update(id: string, updateUserDto: UpdateUserDto): Promise<unknown> {
+  public async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -183,36 +190,44 @@ export class UsersService {
       ],
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    if(updateUserDto.email && updateUserDto.email !== user.email) {
+    if (
+      updateUserDto.email !== undefined &&
+      updateUserDto.email !== '' &&
+      updateUserDto.email !== user.email
+    ) {
       const emailExists = await this.userRepository.findOne({
         where: { email: updateUserDto.email },
       });
-      if(emailExists) {
+      if (emailExists) {
         throw new ConflictException('Email already in use');
       }
     }
 
-    if(updateUserDto.phone && updateUserDto.phone !== user.phone) {
+    if (
+      updateUserDto.phone !== undefined &&
+      updateUserDto.phone !== '' &&
+      updateUserDto.phone !== user.phone
+    ) {
       const phoneExists = await this.userRepository.findOne({
         where: { phone: updateUserDto.phone },
       });
-      if(phoneExists) {
+      if (phoneExists) {
         throw new ConflictException('Phone number already in use');
       }
     }
 
     // Use explicit field assignment to prevent mass assignment vulnerability
-    if(updateUserDto.name !== undefined) {
+    if (updateUserDto.name !== undefined) {
       user.name = updateUserDto.name;
     }
-    if(updateUserDto.phone !== undefined) {
+    if (updateUserDto.phone !== undefined) {
       user.phone = updateUserDto.phone;
     }
-    if(updateUserDto.parentPhone !== undefined) {
+    if (updateUserDto.parentPhone !== undefined) {
       user.parent_phone = updateUserDto.parentPhone;
     }
 
@@ -242,18 +257,18 @@ export class UsersService {
       where: { id },
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
     // Check if user is an admin
-    if(user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN) {
       // Count total active admins
       const adminCount = await this.userRepository.count({
         where: { role: UserRole.ADMIN, is_active: true },
       });
 
-      if(adminCount <= 1) {
+      if (adminCount <= 1) {
         throw new ForbiddenException(
           'Cannot delete the last admin account. Please create another admin first.',
         );
@@ -284,8 +299,12 @@ export class UsersService {
       where: { firebase_uid: uid },
     });
 
-    if(!user) {
-      const safeName: string = (name as string) || 'Firebase User';
+    if (!user) {
+      const firebaseName = name as string | undefined;
+      const safeName: string =
+        firebaseName !== undefined && firebaseName !== ''
+          ? firebaseName
+          : 'Firebase User';
 
       user = this.userRepository.create({
         firebase_uid: uid,
@@ -306,18 +325,21 @@ export class UsersService {
     return user;
   }
 
-  public async uploadProfilePicture(userId: string, file: Express.Multer.File): Promise<unknown> {
+  public async uploadProfilePicture(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if(user.profile_picture_url) {
+    if (user.profile_picture_url !== null && user.profile_picture_url !== '') {
       const filename = user.profile_picture_url.split('/').pop();
-      if(filename) {
+      if (filename !== undefined && filename !== '') {
         await this.uploadService.deleteFile('profiles', filename);
       }
     }
@@ -344,17 +366,17 @@ export class UsersService {
       where: { id: userId },
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
     // Prevent removing the last admin
-    if(user.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
       const adminCount = await this.userRepository.count({
         where: { role: UserRole.ADMIN, is_active: true },
       });
 
-      if(adminCount <= 1) {
+      if (adminCount <= 1) {
         throw new ForbiddenException(
           'Cannot remove admin role from the last admin account.',
         );

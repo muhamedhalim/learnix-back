@@ -1,4 +1,4 @@
-import { Subject } from '../entities/subject.entity';
+import type { Subject } from '../entities/subject.entity';
 
 /**
  * Subject with aggregated counts for listing

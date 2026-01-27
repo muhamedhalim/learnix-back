@@ -1,4 +1,5 @@
-import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
+import { Table, TableIndex } from 'typeorm';
 
 export class CreateCommentsSystem1768614000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {

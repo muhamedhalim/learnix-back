@@ -1,8 +1,7 @@
- 
- 
-
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import type { INestApplication } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import type { TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
 
 import { AppModule } from '../src/app.module';
 import type { Server } from 'http';
@@ -219,13 +218,13 @@ describe('Auth (e2e)', () => {
   describe('/auth/logout (POST)', () => {
     it('should successfully logout and invalidate refresh token', async () => {
       // First, logout
-      await request(app.getHttpServer() as Server)
+      (await request(app.getHttpServer() as Server)
         .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${accessToken}`)
         .expect(200)
         .expect((res) => {
           expect(res.body.message).toBe('Logged out successfully');
-        }) as unknown;
+        })) as unknown;
 
       // Then, try to use the old refresh token (should fail)
       return request(app.getHttpServer() as Server)

@@ -52,7 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const logLevel = this.getLogLevel(status);
     const logMessage = `${request.method} ${request.url} - ${String(status)} ${problemDetails.title}: ${problemDetails.detail}`;
 
-    if(logLevel === 'error') {
+    if (logLevel === 'error') {
       this.logger.error(
         logMessage,
         exception instanceof Error ? exception.stack : undefined,
@@ -80,21 +80,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let type = 'about:blank';
     let errors: string[] | undefined = undefined;
 
-    if(exception instanceof HttpException) {
+    if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
 
       // Extract error details from NestJS validation errors
-      if(typeof exceptionResponse === 'object') {
+      if (typeof exceptionResponse === 'object') {
         const responseObj = exceptionResponse as NestExceptionResponse;
 
         title = responseObj.error ?? exception.name;
         detail = Array.isArray(responseObj.message)
           ? responseObj.message.join(', ')
-          : responseObj.message ?? detail;
+          : (responseObj.message ?? detail);
 
         // Include validation errors if present
-        if(responseObj.message && Array.isArray(responseObj.message)) {
+        if (
+          responseObj.message !== undefined &&
+          Array.isArray(responseObj.message)
+        ) {
           errors = responseObj.message;
         }
       } else if (typeof exceptionResponse === 'string') {
@@ -126,7 +129,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     };
 
     // Include validation errors if present
-    if(errors) {
+    if (errors !== undefined) {
       problemDetails.errors = errors;
     }
 
@@ -157,8 +160,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
    * Get appropriate log level based on HTTP status
    */
   private getLogLevel(status: number): 'error' | 'warn' | 'log' {
-    if(status >= 500) {return 'error';}
-    if(status >= 400) {return 'warn';}
+    if (status >= 500) {
+      return 'error';
+    }
+    if (status >= 400) {
+      return 'warn';
+    }
     return 'log';
   }
 }

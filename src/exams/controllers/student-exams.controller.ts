@@ -85,8 +85,18 @@ export class StudentExamsController {
   public async findAvailableExams(
     @GetUser() user: JwtPayload,
     @Query() filter: StudentExamFilterDto,
-  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.examsService.findAvailableExams(user.userId, filter);
+  ): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.examsService.findAvailableExams(user.userId, filter);
   }
 
   /**
@@ -101,7 +111,7 @@ export class StudentExamsController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) examId: string,
   ): Promise<unknown> {
-    return this.examsService.startExam(user.userId, examId);
+    return await this.examsService.startExam(user.userId, examId);
   }
 
   /**
@@ -130,6 +140,6 @@ export class StudentExamsController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) examId: string,
   ): Promise<unknown> {
-    return this.examsService.getExamResult(user.userId, examId);
+    return await this.examsService.getExamResult(user.userId, examId);
   }
 }

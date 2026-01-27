@@ -30,7 +30,7 @@ import {
   Question,
   QuestionType,
 } from './entities';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 /**
  * Response type for exam with teacher and subject details
@@ -79,14 +79,14 @@ export interface ExamForTaking {
   description_ar: string | null;
   total_marks: number;
   duration: number;
-  questions: {
+  questions: Array<{
     index: number;
     type: QuestionType;
     question: string;
     question_ar: string;
     choices?: string[];
     marks: number;
-  }[];
+  }>;
 }
 
 /**
@@ -116,7 +116,7 @@ export interface ExamResult {
   max_score: number;
   percentage: number;
   passed: boolean;
-  answers: {
+  answers: Array<{
     question_index: number;
     type: QuestionType;
     question: string;
@@ -127,7 +127,7 @@ export interface ExamResult {
     score: number;
     max_marks: number;
     feedback?: string | null;
-  }[];
+  }>;
   submitted_at: Date;
   graded_at: Date;
 }
@@ -145,7 +145,7 @@ export interface ExamSubmission {
   score_essay: number | null;
   total_score: number | null;
   status: ExamStatus;
-  essay_answers: {
+  essay_answers: Array<{
     question_index: number;
     question: string;
     question_ar: string;
@@ -153,7 +153,7 @@ export interface ExamSubmission {
     marks: number;
     score: number | null;
     feedback: string | null;
-  }[];
+  }>;
   submitted_at: Date;
 }
 
@@ -185,11 +185,11 @@ export class ExamsService {
       where: { id: teacherId },
     });
 
-    if(!teacher) {
+    if (!teacher) {
       throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
     }
 
-    if(teacher.role !== UserRole.TEACHER) {
+    if (teacher.role !== UserRole.TEACHER) {
       throw new BadRequestException('Only teachers can create exams');
     }
 
@@ -198,17 +198,19 @@ export class ExamsService {
       where: { id: dto.subject_id },
     });
 
-    if(!subject) {
+    if (!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
     }
 
     // Validate questions and calculate total marks
-    const { questions, totalMarks } = this.validateAndProcessQuestions(dto.questions);
+    const { questions, totalMarks } = this.validateAndProcessQuestions(
+      dto.questions,
+    );
 
     // Validate passing marks
-    if(dto.passing_marks > totalMarks) {
+    if (dto.passing_marks > totalMarks) {
       throw new BadRequestException(
         `Passing marks (${String(dto.passing_marks)}) cannot exceed total marks (${String(totalMarks)})`,
       );
@@ -253,10 +255,10 @@ export class ExamsService {
   ): Promise<PaginatedResponse<ExamListItem>> {
     const {
       search,
-      subject_id,
-      is_active,
-      sort_by,
-      sort_order,
+      subject_id: subjectId,
+      is_active: isActive,
+      sort_by: sortBy,
+      sort_order: sortOrder,
       page = 1,
       limit = 20,
     } = filter;
@@ -270,19 +272,23 @@ export class ExamsService {
       .andWhere('exam.teacher_id = :teacherId', { teacherId });
 
     // Filters
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
 
-    if(subject_id) {
-      queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
+    if (subjectId !== undefined && subjectId !== '') {
+      queryBuilder.andWhere('exam.subject_id = :subjectId', {
+        subjectId,
+      });
     }
 
-    if(is_active !== undefined) {
-      queryBuilder.andWhere('exam.is_active = :is_active', { is_active });
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('exam.is_active = :isActive', {
+        isActive,
+      });
     }
 
     // Add aggregations for stats
@@ -297,8 +303,8 @@ export class ExamsService {
       .addGroupBy('subject.id');
 
     // Sorting
-    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
+    const sortColumn = `exam.${sortBy ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sortOrder ?? 'DESC');
 
     // Get total count (need separate query due to grouping)
     const countQuery = this.examsRepository
@@ -306,17 +312,21 @@ export class ExamsService {
       .where('exam.deleted_at IS NULL')
       .andWhere('exam.teacher_id = :teacherId', { teacherId });
 
-    if(search) {
+    if (search !== undefined && search !== '') {
       countQuery.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
-    if(subject_id) {
-      countQuery.andWhere('exam.subject_id = :subject_id', { subject_id });
+    if (subjectId !== undefined && subjectId !== '') {
+      countQuery.andWhere('exam.subject_id = :subjectId', {
+        subjectId,
+      });
     }
-    if(is_active !== undefined) {
-      countQuery.andWhere('exam.is_active = :is_active', { is_active });
+    if (isActive !== undefined) {
+      countQuery.andWhere('exam.is_active = :isActive', {
+        isActive,
+      });
     }
 
     const total = await countQuery.getCount();
@@ -336,12 +346,13 @@ export class ExamsService {
     // Map results with stats
     const exams: ExamListItem[] = rawResults.entities.map((exam, index) => {
       const raw = rawResults.raw[index] as RawExamStats | undefined;
+      const count = parseInt(raw?.submissions_count ?? '0', 10);
+      const avg = raw?.average_score;
+
       return {
         ...this.mapToExamWithDetails(exam),
-        submissions_count: parseInt(raw?.submissions_count ?? '0') || 0,
-        average_score: raw?.average_score
-          ? parseFloat(raw.average_score)
-          : null,
+        submissions_count: !isNaN(count) ? count : 0,
+        average_score: avg !== undefined ? parseFloat(avg) : null,
       };
     });
 
@@ -446,19 +457,19 @@ export class ExamsService {
 
     // 2. Validate question is essay type
     const question = exam.questions[dto.question_index];
-    if(!question) {
+    if (!question) {
       throw new BadRequestException(
         `Invalid question index: ${String(dto.question_index)}`,
       );
     }
-    if(question.type !== QuestionType.ESSAY) {
+    if (question.type !== QuestionType.ESSAY) {
       throw new BadRequestException(
         `Question ${String(dto.question_index)} is not an essay question`,
       );
     }
 
     // 3. Validate score <= max marks
-    if(dto.score > question.marks) {
+    if (dto.score > question.marks) {
       throw new BadRequestException(
         `Score (${String(dto.score)}) exceeds maximum marks (${String(question.marks)}) for this question`,
       );
@@ -469,7 +480,7 @@ export class ExamsService {
       where: { exam_id: examId, student_id: dto.student_id },
     });
 
-    if(!attempt) {
+    if (!attempt) {
       throw new NotFoundException(
         `Student ${dto.student_id} has not submitted this exam`,
       );
@@ -477,7 +488,7 @@ export class ExamsService {
 
     // 5. Update answer with score and feedback
     const updatedAnswers: Answer[] = attempt.answers.map((ans: Answer) => {
-      if(ans.question_index === dto.question_index) {
+      if (ans.question_index === dto.question_index) {
         return {
           ...ans,
           score: dto.score,
@@ -489,9 +500,9 @@ export class ExamsService {
 
     // 6. Recalculate score_essay
     let scoreEssay = 0;
-    for(const ans of updatedAnswers) {
+    for (const ans of updatedAnswers) {
       const q = exam.questions[ans.question_index];
-      if(
+      if (
         q?.type === QuestionType.ESSAY &&
         ans.score !== null &&
         ans.score !== undefined
@@ -503,7 +514,7 @@ export class ExamsService {
     // 7. Check if all essays are graded
     const allEssaysGraded = updatedAnswers.every((ans: Answer) => {
       const q = exam.questions[ans.question_index];
-      return(
+      return (
         q?.type === QuestionType.MCQ ||
         (ans.score !== null && ans.score !== undefined)
       );
@@ -513,8 +524,9 @@ export class ExamsService {
     const status = allEssaysGraded
       ? ExamStatus.GRADED
       : ExamStatus.PENDING_GRADING;
+    const mcqScore = Number(attempt.score_mcq);
     const totalScore = allEssaysGraded
-      ? (Number(attempt.score_mcq) || 0) + scoreEssay
+      ? (!isNaN(mcqScore) ? mcqScore : 0) + scoreEssay
       : null;
     const gradedAt = allEssaysGraded ? new Date() : attempt.graded_at;
 
@@ -552,22 +564,24 @@ export class ExamsService {
       where: { exam_id: examId },
     });
 
-    if(submissionCount > 0) {
+    if (submissionCount > 0) {
       throw new BadRequestException(
         `Cannot update exam with existing submissions (${String(submissionCount)} found). Create a new exam instead.`,
       );
     }
 
     // If questions are being updated, recalculate total marks
-    if(dto.questions) {
-      const { questions, totalMarks } = this.validateAndProcessQuestions(dto.questions);
+    if (dto.questions) {
+      const { questions, totalMarks } = this.validateAndProcessQuestions(
+        dto.questions,
+      );
 
       exam.questions = questions;
       exam.total_marks = totalMarks;
 
       // Validate passing marks against new total
       const passingMarks = dto.passing_marks ?? exam.passing_marks;
-      if(passingMarks > totalMarks) {
+      if (passingMarks > totalMarks) {
         throw new BadRequestException(
           `Passing marks (${String(passingMarks)}) cannot exceed total marks (${String(totalMarks)})`,
         );
@@ -575,14 +589,27 @@ export class ExamsService {
     }
 
     // Update fields
-    if(dto.title !== undefined) {exam.title = dto.title;}
-    if(dto.title_ar !== undefined) {exam.title_ar = dto.title_ar;}
-    if(dto.description !== undefined) {exam.description = dto.description;}
-    if(dto.description_ar !== undefined)
-      {exam.description_ar = dto.description_ar;}
-    if(dto.subject_id !== undefined) {exam.subject_id = dto.subject_id;}
-    if(dto.duration !== undefined) {exam.duration = dto.duration;}
-    if(dto.passing_marks !== undefined) {exam.passing_marks = dto.passing_marks;}
+    if (dto.title !== undefined) {
+      exam.title = dto.title;
+    }
+    if (dto.title_ar !== undefined) {
+      exam.title_ar = dto.title_ar;
+    }
+    if (dto.description !== undefined) {
+      exam.description = dto.description;
+    }
+    if (dto.description_ar !== undefined) {
+      exam.description_ar = dto.description_ar;
+    }
+    if (dto.subject_id !== undefined) {
+      exam.subject_id = dto.subject_id;
+    }
+    if (dto.duration !== undefined) {
+      exam.duration = dto.duration;
+    }
+    if (dto.passing_marks !== undefined) {
+      exam.passing_marks = dto.passing_marks;
+    }
 
     const savedExam = await this.examsRepository.save(exam);
 
@@ -619,10 +646,10 @@ export class ExamsService {
   ): Promise<PaginatedResponse<ExamWithDetails>> {
     const {
       search,
-      subject_id,
+      subject_id: subjectId,
       attempted,
-      sort_by,
-      sort_order,
+      sort_by: sortBy,
+      sort_order: sortOrder,
       page = 1,
       limit = 20,
     } = filter;
@@ -638,14 +665,14 @@ export class ExamsService {
       .andWhere('exam.is_active = true');
 
     // Filter by attempted/not attempted
-    if(attempted === false) {
+    if (attempted === false) {
       queryBuilder.andWhere('attempt.id IS NULL');
     } else if (attempted === true) {
       queryBuilder.andWhere('attempt.id IS NOT NULL');
     }
 
     // Search
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
@@ -653,13 +680,15 @@ export class ExamsService {
     }
 
     // Filter by subject
-    if(subject_id) {
-      queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
+    if (subjectId !== undefined && subjectId !== '') {
+      queryBuilder.andWhere('exam.subject_id = :subjectId', {
+        subjectId,
+      });
     }
 
     // Sorting
-    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
+    const sortColumn = `exam.${sortBy ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sortOrder ?? 'DESC');
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -698,7 +727,7 @@ export class ExamsService {
       where: { id: examId, is_active: true, deleted_at: IsNull() },
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException(
         `Exam with ID ${examId} not found or inactive`,
       );
@@ -709,7 +738,7 @@ export class ExamsService {
       where: { exam_id: examId, student_id: studentId },
     });
 
-    if(existing) {
+    if (existing) {
       throw new ConflictException('You have already submitted this exam');
     }
 
@@ -739,11 +768,11 @@ export class ExamsService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
-    const questions = exam.questions;
+    const { questions } = exam;
     const mcqCount = questions.filter(
       (q) => q.type === QuestionType.MCQ,
     ).length;
@@ -783,14 +812,14 @@ export class ExamsService {
     examId: string,
   ): Promise<{
     attempt_id: string;
-    questions: {
+    questions: Array<{
       index: number;
       type: 'mcq' | 'essay';
       question: string;
       question_ar?: string;
       choices?: string[];
       marks: number;
-    }[];
+    }>;
     expiration_time: Date;
     started_at: Date;
   }> {
@@ -799,7 +828,7 @@ export class ExamsService {
       where: { id: examId, is_active: true, deleted_at: IsNull() },
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
@@ -813,8 +842,8 @@ export class ExamsService {
     });
 
     // If IN_PROGRESS attempt exists, resume it
-    if(existingAttempt) {
-      const questions = exam.questions;
+    if (existingAttempt) {
+      const { questions } = exam;
       const formattedQuestions = questions.map((q, index) => ({
         index,
         type: q.type,
@@ -842,7 +871,7 @@ export class ExamsService {
       },
     });
 
-    if(
+    if (
       completedAttempt &&
       completedAttempt.status !== ExamStatus.IN_PROGRESS
     ) {
@@ -860,7 +889,7 @@ export class ExamsService {
     const savedAttempt = await this.attemptsRepository.save(attempt);
 
     // Return questions WITHOUT correct_answer
-    const questions = exam.questions;
+    const { questions } = exam;
     const formattedQuestions = questions.map((q, index) => ({
       index,
       type: q.type,
@@ -893,7 +922,7 @@ export class ExamsService {
       where: { id: dto.exam_id, is_active: true, deleted_at: IsNull() },
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException('Exam not found or inactive');
     }
 
@@ -902,20 +931,20 @@ export class ExamsService {
       where: { exam_id: dto.exam_id, student_id: studentId },
     });
 
-    if(!existingAttempt) {
+    if (!existingAttempt) {
       throw new BadRequestException(
         'No exam attempt found. Please start the exam first using POST /student/exams/:id/start',
       );
     }
 
-    if(existingAttempt.status !== ExamStatus.IN_PROGRESS) {
+    if (existingAttempt.status !== ExamStatus.IN_PROGRESS) {
       throw new ConflictException(
         `Exam attempt already ${existingAttempt.status.toLowerCase()}. Cannot submit again.`,
       );
     }
 
     // 3. Validate answer count
-    if(dto.answers.length !== exam.questions.length) {
+    if (dto.answers.length !== exam.questions.length) {
       throw new BadRequestException(
         `Expected ${String(exam.questions.length)} answers, got ${String(dto.answers.length)}`,
       );
@@ -925,9 +954,9 @@ export class ExamsService {
     const sortedAnswers = [...dto.answers].sort(
       (a, b) => a.question_index - b.question_index,
     );
-    for(let i = 0; i < sortedAnswers.length; i++) {
+    for (let i = 0; i < sortedAnswers.length; i++) {
       const ans = sortedAnswers[i];
-      if(!ans || ans.question_index !== i) {
+      if (!ans || ans.question_index !== i) {
         throw new BadRequestException(
           `Missing or invalid question index. Expected sequential indices 0 to ${String(exam.questions.length - 1)}`,
         );
@@ -948,11 +977,11 @@ export class ExamsService {
       };
 
       // question is guaranteed to exist due to validation above, but TypeScript needs a guard
-      if(!question) {
+      if (!question) {
         return answer;
       }
 
-      if(question.type === QuestionType.MCQ) {
+      if (question.type === QuestionType.MCQ) {
         // Auto-grade MCQ
         mcqCount++;
         const isCorrect = studentAnswer.answer === question.correct_answer;
@@ -1002,30 +1031,35 @@ export class ExamsService {
   /**
    * Get exam result (only if fully graded)
    */
-  public async getExamResult(studentId: string, examId: string): Promise<ExamResult> {
+  public async getExamResult(
+    studentId: string,
+    examId: string,
+  ): Promise<ExamResult> {
     const attempt = await this.attemptsRepository.findOne({
       where: { exam_id: examId, student_id: studentId },
       relations: ['exam'],
     });
 
-    if(!attempt) {
+    if (!attempt) {
       throw new NotFoundException('You have not submitted this exam');
     }
 
-    if(attempt.status !== ExamStatus.GRADED) {
+    if (attempt.status !== ExamStatus.GRADED) {
       throw new BadRequestException(
         'Results are not available yet. Some questions are still being graded.',
       );
     }
 
-    const exam = attempt.exam;
-    const totalScore = Number(attempt.total_score) || 0;
+    const { exam } = attempt;
+    const rawTotalScore = Number(attempt.total_score);
+    const totalScore = !isNaN(rawTotalScore) ? rawTotalScore : 0;
     const percentage = (totalScore / exam.total_marks) * 100;
     const passed = totalScore >= exam.passing_marks;
 
     // Build detailed results
     const answers = attempt.answers.map((ans: Answer) => {
       const question = exam.questions[ans.question_index];
+      const rawScore = Number(ans.score);
       return {
         question_index: ans.question_index,
         type: question?.type ?? QuestionType.MCQ,
@@ -1037,7 +1071,7 @@ export class ExamsService {
             ? question.correct_answer
             : undefined,
         is_correct: ans.is_correct,
-        score: Number(ans.score) || 0,
+        score: !isNaN(rawScore) ? rawScore : 0,
         max_marks: question?.marks ?? 0,
         feedback: ans.feedback,
       };
@@ -1069,10 +1103,10 @@ export class ExamsService {
   ): Promise<PaginatedResponse<ExamWithDetails>> {
     const {
       search,
-      subject_id,
-      is_active,
-      sort_by,
-      sort_order,
+      subject_id: subjectId,
+      is_active: isActive,
+      sort_by: sortBy,
+      sort_order: sortOrder,
       page = 1,
       limit = 20,
     } = filter;
@@ -1083,24 +1117,28 @@ export class ExamsService {
       .leftJoinAndSelect('exam.subject', 'subject')
       .where('exam.deleted_at IS NULL');
 
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(exam.title ILIKE :search OR exam.title_ar ILIKE :search)`,
         { search: `%${search}%` },
       );
     }
 
-    if(subject_id) {
-      queryBuilder.andWhere('exam.subject_id = :subject_id', { subject_id });
+    if (subjectId !== undefined && subjectId !== '') {
+      queryBuilder.andWhere('exam.subject_id = :subjectId', {
+        subjectId,
+      });
     }
 
-    if(is_active !== undefined) {
-      queryBuilder.andWhere('exam.is_active = :is_active', { is_active });
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('exam.is_active = :isActive', {
+        isActive,
+      });
     }
 
     // Sorting
-    const sortColumn = `exam.${sort_by ?? 'created_at'}`;
-    queryBuilder.orderBy(sortColumn, sort_order ?? 'DESC');
+    const sortColumn = `exam.${sortBy ?? 'created_at'}`;
+    queryBuilder.orderBy(sortColumn, sortOrder ?? 'DESC');
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -1137,7 +1175,7 @@ export class ExamsService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException(`Exam with ID ${examId} not found`);
     }
 
@@ -1157,11 +1195,11 @@ export class ExamsService {
       where: { id: examId, deleted_at: IsNull() },
     });
 
-    if(!exam) {
+    if (!exam) {
       throw new NotFoundException(`Exam with ID ${examId} not found`);
     }
 
-    if(exam.teacher_id !== teacherId) {
+    if (exam.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only manage your own exams');
     }
 
@@ -1227,29 +1265,31 @@ export class ExamsService {
    * Extracted helper method to reduce cyclomatic complexity
    */
   private validateAndProcessQuestions(
-    dtoQuestions: {
+    dtoQuestions: Array<{
       type: QuestionType;
       question: string;
       question_ar: string;
       choices?: string[];
       correct_answer?: string;
       marks: number;
-    }[],
+    }>,
   ): { questions: Question[]; totalMarks: number } {
     const questions: Question[] = [];
     let totalMarks = 0;
 
-    for(let i = 0; i < dtoQuestions.length; i++) {
+    for (let i = 0; i < dtoQuestions.length; i++) {
       const q = dtoQuestions[i];
-      if(!q) {continue;} // TypeScript guard
+      if (!q) {
+        continue;
+      } // TypeScript guard
 
       // Validate MCQ questions
-      if(q.type === QuestionType.MCQ) {
+      if (q.type === QuestionType.MCQ) {
         this.validateMcqQuestion(q, i);
       }
 
       // Validate Essay questions
-      if(q.type === QuestionType.ESSAY) {
+      if (q.type === QuestionType.ESSAY) {
         this.validateEssayQuestion(q, i);
       }
 
@@ -1276,17 +1316,17 @@ export class ExamsService {
     q: { choices?: string[]; correct_answer?: string },
     index: number,
   ): void {
-    if(!q.choices || q.choices.length < 2) {
+    if (q.choices === undefined || q.choices.length < 2) {
       throw new BadRequestException(
         `Question ${String(index + 1)}: MCQ must have at least 2 choices`,
       );
     }
-    if(!q.correct_answer) {
+    if (q.correct_answer === undefined || q.correct_answer === '') {
       throw new BadRequestException(
         `Question ${String(index + 1)}: MCQ must have a correct answer`,
       );
     }
-    if(!q.choices.includes(q.correct_answer)) {
+    if (!q.choices.includes(q.correct_answer)) {
       throw new BadRequestException(
         `Question ${String(index + 1)}: Correct answer must be one of the choices`,
       );
@@ -1300,12 +1340,12 @@ export class ExamsService {
     q: { choices?: string[]; correct_answer?: string },
     index: number,
   ): void {
-    if(q.choices && q.choices.length > 0) {
+    if (q.choices !== undefined && q.choices.length > 0) {
       throw new BadRequestException(
         `Question ${String(index + 1)}: Essay questions should not have choices`,
       );
     }
-    if(q.correct_answer) {
+    if (q.correct_answer !== undefined && q.correct_answer !== '') {
       throw new BadRequestException(
         `Question ${String(index + 1)}: Essay questions should not have a correct answer`,
       );

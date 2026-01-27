@@ -1,4 +1,4 @@
-import {
+import type {
   ChapterResponse,
   CourseResponse,
   LessonResponse,
@@ -59,7 +59,9 @@ export function assertIsArray<T>(
   if (itemValidator) {
     value.forEach((item, index) => {
       if (!itemValidator(item)) {
-        throw new Error(`Array item at index ${String(index)} failed validation`);
+        throw new Error(
+          `Array item at index ${String(index)} failed validation`,
+        );
       }
     });
   }

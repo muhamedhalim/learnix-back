@@ -46,7 +46,10 @@ export class TeacherExamsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
   })
-  public async create(@GetUser() user: JwtPayload, @Body() createDto: CreateExamDto): Promise<{ message: string; exam: unknown }> {
+  public async create(
+    @GetUser() user: JwtPayload,
+    @Body() createDto: CreateExamDto,
+  ): Promise<{ message: string; exam: unknown }> {
     const exam = await this.examsService.create(user.userId, createDto);
     return {
       message: 'Exam created successfully',
@@ -107,8 +110,18 @@ export class TeacherExamsController {
   public async findMyExams(
     @GetUser() user: JwtPayload,
     @Query() filter: ExamFilterDto,
-  ): Promise<{ data: unknown[]; meta: { page: number; limit: number; total: number; totalPages: number; hasNextPage: boolean; hasPrevPage: boolean } }> {
-    return this.examsService.findMyExams(user.userId, filter);
+  ): Promise<{
+    data: unknown[];
+    meta: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+      hasNextPage: boolean;
+      hasPrevPage: boolean;
+    };
+  }> {
+    return await this.examsService.findMyExams(user.userId, filter);
   }
 
   /**
@@ -143,7 +156,7 @@ export class TeacherExamsController {
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
   ): Promise<unknown> {
-    return this.examsService.getSubmissions(
+    return await this.examsService.getSubmissions(
       examId,
       user.userId,
       page ?? 1,
@@ -163,7 +176,7 @@ export class TeacherExamsController {
     @Param('id', ParseUUIDPipe) examId: string,
     @Body() gradeDto: GradeEssayDto,
   ): Promise<unknown> {
-    return this.examsService.gradeEssay(user.userId, examId, gradeDto);
+    return await this.examsService.gradeEssay(user.userId, examId, gradeDto);
   }
 
   /**

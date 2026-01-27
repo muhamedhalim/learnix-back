@@ -96,8 +96,10 @@ export class StudentLessonsController {
     status: HttpStatus.OK,
     description: 'List of available lessons',
   })
-  public async browseLessons(@Query() filter: LessonFilterDto): Promise<unknown> {
-    return this.lessonsService.findAll(filter);
+  public async browseLessons(
+    @Query() filter: LessonFilterDto,
+  ): Promise<unknown> {
+    return await this.lessonsService.findAll(filter);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { HttpException, Logger } from '@nestjs/common';
+import type { HttpException, Logger } from '@nestjs/common';
 
 export interface ParsedError {
   message: string;
@@ -6,7 +6,7 @@ export interface ParsedError {
 }
 
 export function parseError(error: unknown): ParsedError {
-  if(error instanceof Error) {
+  if (error instanceof Error) {
     return {
       message: error.message,
       code: 'code' in error ? String(error.code) : undefined,
@@ -22,9 +22,10 @@ export function logAndThrow(
   httpException: HttpException,
 ): never {
   const { message, code } = parseError(error);
-  const logMessage = code
-    ? `${context}: ${message} (code: ${code})`
-    : `${context}: ${message}`;
+  const logMessage =
+    code !== undefined && code !== ''
+      ? `${context}: ${message} (code: ${code})`
+      : `${context}: ${message}`;
   logger.error(logMessage);
   throw httpException;
 }

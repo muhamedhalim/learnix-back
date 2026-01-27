@@ -39,7 +39,7 @@ export class PaymentsWebhookController {
 
     // Step 1: Verify HMAC signature (CRITICAL SECURITY)
     const isValidHmac = this.paymobService.verifyHmac(dto, dto.hmac);
-    if(!isValidHmac) {
+    if (!isValidHmac) {
       this.logger.warn(
         `HMAC verification failed for transaction ${String(dto.obj.id)}`,
       );
@@ -49,7 +49,7 @@ export class PaymentsWebhookController {
     const merchantOrderId = dto.obj.order.merchant_order_id;
     const transactionId = dto.obj.id;
 
-    if(!merchantOrderId) {
+    if (merchantOrderId === '') {
       this.logger.warn('Webhook missing merchant_order_id');
       return { status: 'error', message: 'Missing merchant_order_id' };
     }
@@ -60,7 +60,7 @@ export class PaymentsWebhookController {
       transactionId.toString(),
     );
 
-    if(idempotencyCheck.isProcessed) {
+    if (idempotencyCheck.isProcessed) {
       this.logger.log(
         `Webhook already processed for payment ${merchantOrderId}, transaction ${String(transactionId)}`,
       );
@@ -71,7 +71,7 @@ export class PaymentsWebhookController {
     const payment =
       await this.paymentsService.getPaymentByMerchantOrderId(merchantOrderId);
 
-    if(!payment) {
+    if (!payment) {
       this.logger.warn(
         `Payment not found for merchant_order_id: ${merchantOrderId}`,
       );
@@ -81,7 +81,7 @@ export class PaymentsWebhookController {
     // Step 4: Process based on transaction success
     let result: WebhookResponse;
 
-    if(dto.obj.success && !dto.obj.pending) {
+    if (dto.obj.success && !dto.obj.pending) {
       // Payment successful
       this.logger.log(
         `Payment ${merchantOrderId} successful, granting access...`,
@@ -150,6 +150,6 @@ export class PaymentsWebhookController {
   public async handlePaymobCallback(
     @Body() dto: PaymobWebhookDto,
   ): Promise<WebhookResponse> {
-    return this.handlePaymobWebhook(dto);
+    return await this.handlePaymobWebhook(dto);
   }
 }

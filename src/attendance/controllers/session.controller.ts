@@ -7,11 +7,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -85,7 +81,7 @@ export class SessionController {
       lessonId,
     );
 
-    if(!activeSession) {
+    if (!activeSession) {
       return {
         message: 'No active session found',
         session: null,

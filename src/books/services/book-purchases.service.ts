@@ -50,7 +50,7 @@ export class BookPurchasesService {
   ): Promise<BookPurchase> {
     // Check if already purchased
     const existing = await this.checkAlreadyPurchased(studentId, bookId);
-    if(existing) {
+    if (existing) {
       throw new ConflictException('You have already purchased this book');
     }
 
@@ -74,7 +74,7 @@ export class BookPurchasesService {
       `Book purchased: book ${bookId} by student ${studentId}, payment ${paymentId}`,
     );
 
-    return this.findPurchaseById(saved.id);
+    return await this.findPurchaseById(saved.id);
   }
 
   /**
@@ -84,7 +84,7 @@ export class BookPurchasesService {
     studentId: string,
     bookId: string,
   ): Promise<BookPurchase | null> {
-    return this.purchasesRepository.findOne({
+    return await this.purchasesRepository.findOne({
       where: {
         student_id: studentId,
         book_id: bookId,
@@ -112,7 +112,7 @@ export class BookPurchasesService {
       .andWhere('book.deleted_at IS NULL');
 
     // Apply search filter
-    if(filter.search) {
+    if (filter.search !== undefined && filter.search !== '') {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
@@ -120,7 +120,7 @@ export class BookPurchasesService {
     }
 
     // Apply subject filter
-    if(filter.subject_id) {
+    if (filter.subject_id !== undefined && filter.subject_id !== '') {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
@@ -161,7 +161,7 @@ export class BookPurchasesService {
     // Check if student purchased this book
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
 
-    if(!purchase) {
+    if (!purchase) {
       throw new ForbiddenException('You have not purchased this book');
     }
 
@@ -183,7 +183,7 @@ export class BookPurchasesService {
       relations: ['book', 'book.teacher', 'book.subject', 'student', 'payment'],
     });
 
-    if(!purchase) {
+    if (!purchase) {
       throw new NotFoundException(`Purchase with ID ${id} not found`);
     }
 
@@ -210,7 +210,7 @@ export class BookPurchasesService {
       .leftJoinAndSelect('purchase.payment', 'payment');
 
     // Apply search filter
-    if(filter.search) {
+    if (filter.search !== undefined && filter.search !== '') {
       query.andWhere(
         '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
         { search: `%${filter.search}%` },
@@ -218,14 +218,14 @@ export class BookPurchasesService {
     }
 
     // Apply subject filter
-    if(filter.subject_id) {
+    if (filter.subject_id !== undefined && filter.subject_id !== '') {
       query.andWhere('book.subject_id = :subjectId', {
         subjectId: filter.subject_id,
       });
     }
 
     // Apply teacher filter
-    if(filter.teacher_id) {
+    if (filter.teacher_id !== undefined && filter.teacher_id !== '') {
       query.andWhere('book.teacher_id = :teacherId', {
         teacherId: filter.teacher_id,
       });
@@ -273,10 +273,14 @@ export class BookPurchasesService {
       ])
       .getRawOne<BookPurchaseStatsRaw>();
 
+    const totalPurchases = Number(result?.total_purchases);
+    const totalRevenue = Number(result?.total_revenue);
+    const avgPrice = Number(result?.avg_price);
+
     return {
-      total_purchases: Number(result?.total_purchases) || 0,
-      total_revenue: Number(result?.total_revenue) || 0,
-      avg_price: Number(result?.avg_price) || 0,
+      total_purchases: Number.isNaN(totalPurchases) ? 0 : totalPurchases,
+      total_revenue: Number.isNaN(totalRevenue) ? 0 : totalRevenue,
+      avg_price: Number.isNaN(avgPrice) ? 0 : avgPrice,
     };
   }
 
@@ -286,12 +290,12 @@ export class BookPurchasesService {
   public async getTeacherBookRevenue(teacherId: string): Promise<{
     total_revenue: number;
     total_sales: number;
-    books: {
+    books: Array<{
       book_id: string;
       book_title: string;
       sales: number;
       revenue: number;
-    }[];
+    }>;
   }> {
     const results = await this.purchasesRepository
       .createQueryBuilder('purchase')

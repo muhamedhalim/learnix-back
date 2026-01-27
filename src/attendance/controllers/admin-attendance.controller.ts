@@ -75,7 +75,9 @@ export class AdminAttendanceController {
     status: HttpStatus.OK,
     description: 'All attendance records retrieved',
   })
-  public async getAllAttendance(@Query() filter: AttendanceFilterDto): Promise<unknown> {
-    return this.attendanceService.getAllAttendance(filter);
+  public async getAllAttendance(
+    @Query() filter: AttendanceFilterDto,
+  ): Promise<unknown> {
+    return await this.attendanceService.getAllAttendance(filter);
   }
 }

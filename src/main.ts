@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import type { NextFunction,Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 // Crypto polyfill for serverless environments (if needed)
 // Note: Modern Node.js (16+) includes crypto on globalThis by default
@@ -10,10 +10,10 @@ Object.defineProperty(globalThis, 'crypto', {
   configurable: false,
 });
 
-import { Logger,ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Reflector } from '@nestjs/core';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
@@ -33,13 +33,13 @@ async function bootstrap(): Promise<void> {
   const bullBoardUser = process.env.BULL_BOARD_USER ?? 'admin';
   const bullBoardPassword = process.env.BULL_BOARD_PASSWORD;
 
-  if(!bullBoardPassword) {
+  if (bullBoardPassword === undefined || bullBoardPassword === '') {
     logger.warn(
       'WARNING: BULL_BOARD_PASSWORD not set. Bull Board will be inaccessible in production.',
     );
   }
 
-  if(bullBoardPassword) {
+  if (bullBoardPassword !== undefined && bullBoardPassword !== '') {
     const authMiddleware = basicAuth({
       users: { [bullBoardUser]: bullBoardPassword },
       challenge: true,
@@ -48,18 +48,16 @@ async function bootstrap(): Promise<void> {
 
     app.use('/admin/queues', authMiddleware);
     logger.log('Bull Board protected with basic authentication');
-  } else {
-    if(process.env.NODE_ENV !== 'production') {
-      logger.warn(
-        'WARNING: Bull Board running WITHOUT authentication in development',
-      );
-    }
+  } else if (process.env.NODE_ENV !== 'production') {
+    logger.warn(
+      'WARNING: Bull Board running WITHOUT authentication in development',
+    );
   }
 
   // Enable cookie parsing for CSRF protection (Double Submit Cookie pattern)
   // Use a secret for signing cookies
   const cookieSecret = process.env.COOKIE_SECRET ?? process.env.JWT_SECRET;
-  if(!cookieSecret) {
+  if (cookieSecret === undefined || cookieSecret === '') {
     logger.error(
       'ERROR: COOKIE_SECRET or JWT_SECRET must be set for signed cookies',
     );
@@ -101,41 +99,43 @@ async function bootstrap(): Promise<void> {
     prefix: '/uploads/',
   });
 
-  const allowedOrigins = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',')
-        .map((origin) => origin.trim())
-        .filter((origin) => {
-          try {
-            new URL(origin);
-            return true;
-          } catch {
-            logger.error(`Invalid CORS origin: ${origin}`);
-            return false;
-          }
-        })
-    : [
-        'http://localhost:3000',
-        'http://localhost:5173',
-        'https://dodline.vercel.app',
-      ];
+  const allowedOrigins =
+    process.env.CORS_ORIGINS !== undefined && process.env.CORS_ORIGINS !== ''
+      ? process.env.CORS_ORIGINS.split(',')
+          .map((origin) => origin.trim())
+          .filter((origin) => {
+            try {
+              new URL(origin);
+              return true;
+            } catch {
+              logger.error(`Invalid CORS origin: ${origin}`);
+              return false;
+            }
+          })
+      : [
+          'http://localhost:3000',
+          'http://localhost:5173',
+          'https://dodline.vercel.app',
+        ];
 
   logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
 
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback) => {
       const isProduction = process.env.NODE_ENV === 'production';
 
-      if(!origin) {
-        if(isProduction) {
+      if (origin === undefined) {
+        if (isProduction) {
           logger.warn(
             'Request with no origin header (likely health check or direct API call)',
           );
         }
-        callback(null, true); return;
+        callback(null, true);
+        return;
       }
 
       // Check if origin is in allowed list
-      if(allowedOrigins.includes(origin)) {
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       }
       // Allow all Vercel preview deployments (*.vercel.app)
@@ -207,7 +207,7 @@ async function bootstrap(): Promise<void> {
 
   // Lightweight debug logger for root/health checks only
   app.use((req: Request, _res: Response, next: NextFunction) => {
-    if(req.url === '/' || req.url.startsWith('/api/v1/health')) {
+    if (req.url === '/' || req.url.startsWith('/api/v1/health')) {
       logger.log(`[INCOMING] ${req.method} ${req.url}`);
     }
     next();
@@ -215,7 +215,7 @@ async function bootstrap(): Promise<void> {
 
   // Simple root endpoint for Railway healthcheck
   app.use('/', (req: Request, res: Response, next: NextFunction): void => {
-    if(req.url === '/' && req.method === 'GET') {
+    if (req.url === '/' && req.method === 'GET') {
       res.status(200).json({
         status: 'ok',
         message: 'E-Learning Platform API',
@@ -230,7 +230,10 @@ async function bootstrap(): Promise<void> {
   });
 
   // Ensure we parse PORT as a number and bind to 0.0.0.0 so Railway's proxy can reach the process
-  const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const port =
+    process.env.PORT !== undefined && process.env.PORT !== ''
+      ? Number(process.env.PORT)
+      : 3000;
   await app.listen(port, '0.0.0.0');
 
   logger.log(`Application is running on: 0.0.0.0:${String(port)}`);

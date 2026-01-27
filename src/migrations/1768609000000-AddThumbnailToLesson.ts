@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class AddThumbnailToLesson1768609000000 implements MigrationInterface {
   public name = 'AddThumbnailToLesson1768609000000';

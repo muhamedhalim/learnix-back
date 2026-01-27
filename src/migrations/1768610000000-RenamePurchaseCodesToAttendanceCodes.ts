@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class RenamePurchaseCodesToAttendanceCodes1768610000000
   implements MigrationInterface
@@ -32,8 +32,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
         await queryRunner.query(
           `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
         );
-      } else {
-        console.log(`${oldName} not found, skipping...`);
       }
     }
 
@@ -57,8 +55,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
         await queryRunner.query(
           `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
         );
-      } else {
-        console.log(`${oldName} not found, skipping...`);
       }
     }
   }
@@ -84,8 +80,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
         await queryRunner.query(
           `ALTER TABLE attendance_codes RENAME CONSTRAINT "${oldName}" TO "${newName}"`,
         );
-      } else {
-        console.log(`${oldName} not found, skipping...`);
       }
     }
 
@@ -112,8 +106,6 @@ export class RenamePurchaseCodesToAttendanceCodes1768610000000
         await queryRunner.query(
           `ALTER INDEX "${oldName}" RENAME TO "${newName}"`,
         );
-      } else {
-        console.log(`${oldName} not found, skipping...`);
       }
     }
 

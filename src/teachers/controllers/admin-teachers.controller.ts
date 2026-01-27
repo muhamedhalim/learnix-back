@@ -102,7 +102,7 @@ export class AdminTeachersController {
     description: 'Not authorized (admin only)',
   })
   public async findAll(@Query() filter: TeacherFilterDto): Promise<unknown> {
-    return this.teachersService.findAllTeachers(filter);
+    return await this.teachersService.findAllTeachers(filter);
   }
 
   /**
@@ -134,7 +134,10 @@ export class AdminTeachersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<unknown> {
-    return this.teachersService.findPendingTeachers(page ?? 1, limit ?? 20);
+    return await this.teachersService.findPendingTeachers(
+      page ?? 1,
+      limit ?? 20,
+    );
   }
 
   /**
@@ -144,8 +147,10 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.teachersService.findTeacherById(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.teachersService.findTeacherById(id);
   }
 
   /**
@@ -155,7 +160,9 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async getStats(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     const stats = await this.teachersService.getTeacherStats(id);
     return {
       stats,

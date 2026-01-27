@@ -29,9 +29,9 @@ export class CleanupService {
   private readonly uploadDir: string;
 
   constructor(
-    private configService: ConfigService,
+    private readonly configService: ConfigService,
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private readonly userRepository: Repository<User>,
   ) {
     this.uploadDir =
       this.configService.get<string>('UPLOAD_DIR') ?? './uploads';
@@ -147,7 +147,7 @@ export class CleanupService {
       // Get all files in folder
       const files = await readdir(folderPath);
 
-      if(files.length === 0) {
+      if (files.length === 0) {
         this.logger.log('No files found in profiles folder');
         return { orphaned: 0, deleted: 0, errors: 0 };
       }
@@ -160,9 +160,12 @@ export class CleanupService {
 
       // Extract filenames from URLs
       users.forEach((user) => {
-        if(user.profile_picture_url) {
+        if (
+          user.profile_picture_url !== null &&
+          user.profile_picture_url !== ''
+        ) {
           const filename = user.profile_picture_url.split('/').pop();
-          if(filename) {
+          if (filename !== undefined && filename !== '') {
             referencedFilenames.add(filename);
           }
         }
@@ -173,10 +176,12 @@ export class CleanupService {
       );
 
       // Check each file
-      for(const file of files) {
-        if(file === '.gitkeep') {continue;}
+      for (const file of files) {
+        if (file === '.gitkeep') {
+          continue;
+        }
 
-        if(!referencedFilenames.has(file)) {
+        if (!referencedFilenames.has(file)) {
           orphanedCount++;
           this.logger.warn(`Orphaned file detected: profiles/${file}`);
 

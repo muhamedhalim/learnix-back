@@ -50,12 +50,16 @@ export const JOB_TYPES = {
  * Build Redis connection object from environment variables
  * Returns undefined if Redis is not configured (for development without Redis)
  */
-function getRedisConnection(): { host: string; port: number; password?: string } {
+function getRedisConnection(): {
+  host: string;
+  port: number;
+  password?: string;
+} {
   const host = process.env.REDIS_HOST;
   const port = process.env.REDIS_PORT;
 
   // If no Redis host configured, return minimal config that will fail gracefully
-  if(!host) {
+  if (host === undefined || host === '') {
     return {
       host: 'localhost',
       port: 6379,
@@ -66,8 +70,8 @@ function getRedisConnection(): { host: string; port: number; password?: string }
 
   return {
     host,
-    port: port ? parseInt(port, 10) : 6379,
-    ...(password && { password }),
+    port: port !== undefined && port !== '' ? parseInt(port, 10) : 6379,
+    ...(password !== undefined && password !== '' && { password }),
   };
 }
 

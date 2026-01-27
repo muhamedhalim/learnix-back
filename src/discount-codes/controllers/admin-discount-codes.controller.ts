@@ -7,11 +7,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -37,7 +33,9 @@ export class AdminDiscountCodesController {
     status: HttpStatus.CONFLICT,
     description: 'Code already exists',
   })
-  public async create(@Body() dto: CreateDiscountCodeDto): Promise<{ message: string; data: DiscountCode }> {
+  public async create(
+    @Body() dto: CreateDiscountCodeDto,
+  ): Promise<{ message: string; data: DiscountCode }> {
     const discountCode = await this.discountCodesService.create(dto);
     return {
       message: 'Discount code created successfully',
@@ -49,12 +47,16 @@ export class AdminDiscountCodesController {
     status: HttpStatus.OK,
     description: 'List of discount codes',
   })
-  public async findAll(@Query() filter: DiscountFilterDto): Promise<{ data: DiscountCode[]; meta: PaginationMeta }> {
+  public async findAll(
+    @Query() filter: DiscountFilterDto,
+  ): Promise<{ data: DiscountCode[]; meta: PaginationMeta }> {
     return await this.discountCodesService.findAll(filter);
   }
 
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<{ data: DiscountCode }> {
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ data: DiscountCode }> {
     const discountCode = await this.discountCodesService.findOne(id);
     return { data: discountCode };
   }
@@ -63,7 +65,14 @@ export class AdminDiscountCodesController {
     status: HttpStatus.OK,
     description: 'Usage statistics',
   })
-  public async getUsage(@Param('id', ParseUUIDPipe) id: string): Promise<{ data: { total_uses: number; remaining_uses: number; total_discount_given: number; users: { user_id: string; used_at: Date; discount_amount: number }[] } }> {
+  public async getUsage(@Param('id', ParseUUIDPipe) id: string): Promise<{
+    data: {
+      total_uses: number;
+      remaining_uses: number;
+      total_discount_given: number;
+      users: Array<{ user_id: string; used_at: Date; discount_amount: number }>;
+    };
+  }> {
     const stats = await this.discountCodesService.getUsageStats(id);
     return { data: stats };
   }
@@ -81,7 +90,9 @@ export class AdminDiscountCodesController {
   }
 
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
+  public async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string }> {
     await this.discountCodesService.remove(id);
     return { message: 'Discount code deleted successfully' };
   }

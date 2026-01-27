@@ -76,7 +76,10 @@ export class StudentAttendanceController {
     @GetUser() user: JwtPayload,
     @Query() filter: AttendanceFilterDto,
   ): Promise<unknown> {
-    return this.attendanceService.getStudentAttendance(user.userId, filter);
+    return await this.attendanceService.getStudentAttendance(
+      user.userId,
+      filter,
+    );
   }
 
   /**
@@ -93,6 +96,6 @@ export class StudentAttendanceController {
     description: 'Attendance statistics retrieved',
   })
   public async getMyStats(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.attendanceService.getStudentAttendanceStats(user.userId);
+    return await this.attendanceService.getStudentAttendanceStats(user.userId);
   }
 }

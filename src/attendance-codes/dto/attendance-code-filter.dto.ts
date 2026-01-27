@@ -3,7 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber,IsOptional } from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional } from 'class-validator';
 
 export class AttendanceCodeFilterDto extends PaginationDto {
   @ApiProperty({

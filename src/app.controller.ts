@@ -1,5 +1,5 @@
 import { Controller, Post, UseGuards } from '@nestjs/common';
-import { ApiHeader,ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
@@ -65,7 +65,7 @@ export class AppController {
 
   @ApiResponse({ status: 204, description: 'No content' })
   public getFavicon(): void {
-    return;
+    // No content
   }
 
   @Post('init-admin')
@@ -109,6 +109,6 @@ export class AppController {
     adminEmail?: string;
     results: string[];
   }> {
-    return this.appService.initAdmin();
+    return await this.appService.initAdmin();
   }
 }

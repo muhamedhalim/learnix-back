@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
- 
-
 import {
   Injectable,
   Logger,
@@ -14,7 +11,7 @@ import { createClient, RedisClientType } from 'redis';
 /**
  * Result of an idempotency check
  */
-export interface IdempotencyCheckResult<T = any> {
+export interface IdempotencyCheckResult<T = unknown> {
   /**
    * Whether this request has already been processed
    */
@@ -77,7 +74,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IdempotencyService.name);
 
   // TTL for idempotency keys: 24 hours in seconds
-  private readonly IDEMPOTENCY_TTL = 86400;
+  private readonly idempotencyTtl = 86400;
 
   private redisClient?: RedisClientType;
 
@@ -89,7 +86,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
   public async onModuleInit(): Promise<void> {
     const redisUrl = this.configService.get<string>('REDIS_URL');
 
-    if(!redisUrl) {
+    if (redisUrl === undefined || redisUrl === '') {
       this.logger.error('REDIS_URL not configured - idempotency disabled');
       return;
     }
@@ -117,7 +114,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * Disconnects Redis on module shutdown.
    */
   public async onModuleDestroy(): Promise<void> {
-    if(this.redisClient) {
+    if (this.redisClient) {
       await this.redisClient.quit();
       this.logger.log('Redis disconnected');
     }
@@ -148,7 +145,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     paymentId: string,
     externalOrderId: string,
   ): Promise<IdempotencyCheckResult> {
-    if(!this.redisClient || !this.redisClient.isReady) {
+    if (this.redisClient?.isReady !== true) {
       this.logger.warn('Redis not ready - skipping idempotency check');
       return { isProcessed: false };
     }
@@ -158,7 +155,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       const cachedData = await this.redisClient.get(key);
 
-      if(cachedData) {
+      if (cachedData !== null) {
         this.logger.log(
           `Webhook idempotency hit - Payment: ${paymentId}, Order: ${externalOrderId}`,
         );
@@ -202,7 +199,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     externalOrderId: string,
     result: unknown,
   ): Promise<void> {
-    if(!this.redisClient || !this.redisClient.isReady) {
+    if (this.redisClient?.isReady !== true) {
       this.logger.warn('Redis not ready - skipping result storage');
       return;
     }
@@ -212,7 +209,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.redisClient.setEx(
         key,
-        this.IDEMPOTENCY_TTL,
+        this.idempotencyTtl,
         JSON.stringify(result),
       );
 
@@ -251,7 +248,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     userId: string,
     idempotencyKey: string,
   ): Promise<IdempotencyCheckResult> {
-    if(!this.redisClient || !this.redisClient.isReady) {
+    if (this.redisClient?.isReady !== true) {
       this.logger.warn('Redis not ready - skipping idempotency check');
       return { isProcessed: false };
     }
@@ -261,7 +258,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       const cachedData = await this.redisClient.get(key);
 
-      if(cachedData) {
+      if (cachedData !== null) {
         this.logger.log(
           `Payment idempotency hit - User: ${userId}, Key: ${idempotencyKey}`,
         );
@@ -296,7 +293,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     idempotencyKey: string,
     result: unknown,
   ): Promise<void> {
-    if(!this.redisClient || !this.redisClient.isReady) {
+    if (this.redisClient?.isReady !== true) {
       this.logger.warn('Redis not ready - skipping result storage');
       return;
     }
@@ -306,7 +303,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.redisClient.setEx(
         key,
-        this.IDEMPOTENCY_TTL,
+        this.idempotencyTtl,
         JSON.stringify(result),
       );
 
@@ -334,7 +331,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * **Warning:** Use carefully - clearing key allows duplicate processing.
    */
   public async clearKey(key: string): Promise<void> {
-    if(!this.redisClient || !this.redisClient.isReady) {
+    if (this.redisClient?.isReady !== true) {
       throw new Error('Redis not ready');
     }
 

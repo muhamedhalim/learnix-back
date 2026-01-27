@@ -28,17 +28,17 @@ import { Repository } from 'typeorm';
 export class ReviewsService {
   constructor(
     @InjectRepository(TeacherReview)
-    private teacherReviewsRepository: Repository<TeacherReview>,
+    private readonly teacherReviewsRepository: Repository<TeacherReview>,
     @InjectRepository(LessonReview)
-    private lessonReviewsRepository: Repository<LessonReview>,
+    private readonly lessonReviewsRepository: Repository<LessonReview>,
     @InjectRepository(User)
-    private usersRepository: Repository<User>,
+    private readonly usersRepository: Repository<User>,
     @InjectRepository(Lesson)
-    private lessonsRepository: Repository<Lesson>,
+    private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPurchase)
-    private lessonPurchasesRepository: Repository<LessonPurchase>,
+    private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(PackagePurchase)
-    private packagePurchasesRepository: Repository<PackagePurchase>,
+    private readonly packagePurchasesRepository: Repository<PackagePurchase>,
   ) {}
 
   /**
@@ -56,7 +56,7 @@ export class ReviewsService {
       .andWhere('l.teacher_id = :teacherId', { teacherId })
       .getOne();
 
-    if(directPurchase) {
+    if (directPurchase) {
       return true;
     }
 
@@ -88,7 +88,7 @@ export class ReviewsService {
       },
     });
 
-    if(directPurchase) {
+    if (directPurchase) {
       return true;
     }
 
@@ -121,7 +121,7 @@ export class ReviewsService {
       where: { id: teacherId, role: UserRole.TEACHER },
     });
 
-    if(!teacher) {
+    if (!teacher) {
       throw new NotFoundException('Teacher not found');
     }
 
@@ -131,7 +131,7 @@ export class ReviewsService {
       teacherId,
     );
 
-    if(!hasPurchase) {
+    if (!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase a lesson from this teacher before reviewing',
       );
@@ -142,7 +142,7 @@ export class ReviewsService {
       where: { teacher_id: teacherId, student_id: studentId },
     });
 
-    if(existingReview) {
+    if (existingReview) {
       throw new ConflictException(
         'You have already reviewed this teacher. Reviews cannot be edited.',
       );
@@ -156,7 +156,7 @@ export class ReviewsService {
       comment: dto.comment ?? null,
     });
 
-    return this.teacherReviewsRepository.save(review);
+    return await this.teacherReviewsRepository.save(review);
   }
 
   /**
@@ -174,7 +174,7 @@ export class ReviewsService {
       where: { id: teacherId, role: UserRole.TEACHER },
     });
 
-    if(!teacher) {
+    if (!teacher) {
       throw new NotFoundException('Teacher not found');
     }
 
@@ -231,7 +231,7 @@ export class ReviewsService {
       select: ['rating'],
     });
 
-    if(reviews.length === 0) {
+    if (reviews.length === 0) {
       return {
         average_rating: 0,
         total_reviews: 0,
@@ -266,7 +266,7 @@ export class ReviewsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -276,7 +276,7 @@ export class ReviewsService {
       lessonId,
     );
 
-    if(!hasPurchase) {
+    if (!hasPurchase) {
       throw new ForbiddenException(
         'You must purchase this lesson before reviewing',
       );
@@ -287,7 +287,7 @@ export class ReviewsService {
       where: { lesson_id: lessonId, student_id: studentId },
     });
 
-    if(existingReview) {
+    if (existingReview) {
       throw new ConflictException(
         'You have already reviewed this lesson. Reviews cannot be edited.',
       );
@@ -301,7 +301,7 @@ export class ReviewsService {
       comment: dto.comment ?? null,
     });
 
-    return this.lessonReviewsRepository.save(review);
+    return await this.lessonReviewsRepository.save(review);
   }
 
   /**
@@ -319,7 +319,7 @@ export class ReviewsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
 
@@ -376,7 +376,7 @@ export class ReviewsService {
       select: ['rating'],
     });
 
-    if(reviews.length === 0) {
+    if (reviews.length === 0) {
       return {
         average_rating: 0,
         total_reviews: 0,

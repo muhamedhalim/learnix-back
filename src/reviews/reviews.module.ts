@@ -9,7 +9,7 @@ import {
   ReviewsPublicController,
   ReviewsStudentController,
 } from './controllers';
-import { LessonReview,TeacherReview } from './entities';
+import { LessonReview, TeacherReview } from './entities';
 import { ReviewsService } from './reviews.service';
 
 @Module({

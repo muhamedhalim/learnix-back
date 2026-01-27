@@ -71,9 +71,11 @@ export class TeachersController {
     status: HttpStatus.OK,
     description: 'List of approved teachers with pagination meta',
   })
-  public async findAll(@Query() filter: Omit<TeacherFilterDto, 'status'>): Promise<unknown> {
+  public async findAll(
+    @Query() filter: Omit<TeacherFilterDto, 'status'>,
+  ): Promise<unknown> {
     // Public endpoint only shows approved teachers
-    return this.teachersService.findApprovedTeachers(filter);
+    return await this.teachersService.findApprovedTeachers(filter);
   }
 
   /**
@@ -83,8 +85,10 @@ export class TeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.teachersService.findTeacherById(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.teachersService.findTeacherById(id);
   }
 
   /**
@@ -117,7 +121,7 @@ export class TeachersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<unknown> {
-    return this.teachersService.findApprovedTeachers({
+    return await this.teachersService.findApprovedTeachers({
       subjectId,
       page: page ?? 1,
       limit: limit ?? 20,

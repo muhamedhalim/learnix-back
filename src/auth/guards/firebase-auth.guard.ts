@@ -12,21 +12,21 @@ import { Request } from 'express';
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
   constructor(
-    private firebaseService: FirebaseService,
-    private usersService: UsersService,
+    private readonly firebaseService: FirebaseService,
+    private readonly usersService: UsersService,
   ) {}
 
   public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const authHeader = request.headers.authorization;
 
-    if(!authHeader?.startsWith('Bearer ')) {
+    if (authHeader?.startsWith('Bearer ') !== true) {
       throw new UnauthorizedException('No Firebase token provided');
     }
 
     const firebaseToken = authHeader.split(' ')[1];
 
-    if(!firebaseToken) {
+    if (firebaseToken === undefined || firebaseToken === '') {
       throw new UnauthorizedException('Malformed authorization header');
     }
 

@@ -1,5 +1,5 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject,Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Book } from '../books/entities/book.entity';
@@ -19,7 +19,7 @@ import {
   TeacherDashboardDto,
 } from './dto';
 import type { Cache } from 'cache-manager';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 /**
  * Type definitions for raw query results
@@ -65,7 +65,7 @@ export class AnalyticsService {
   public async getAdminDashboard(): Promise<AdminDashboardDto> {
     const cacheKey = 'dashboard:admin';
     const cached = await this.cacheManager.get<AdminDashboardDto>(cacheKey);
-    if(cached) {
+    if (cached) {
       return cached;
     }
 
@@ -156,10 +156,12 @@ export class AnalyticsService {
   /**
    * Get teacher dashboard statistics with caching (5-min TTL)
    */
-  public async getTeacherDashboard(teacherId: string): Promise<TeacherDashboardDto> {
+  public async getTeacherDashboard(
+    teacherId: string,
+  ): Promise<TeacherDashboardDto> {
     const cacheKey = `dashboard:teacher:${teacherId}`;
     const cached = await this.cacheManager.get<TeacherDashboardDto>(cacheKey);
-    if(cached) {
+    if (cached) {
       return cached;
     }
 
@@ -258,10 +260,12 @@ export class AnalyticsService {
   /**
    * Get student dashboard statistics with caching (5-min TTL)
    */
-  public async getStudentDashboard(studentId: string): Promise<StudentDashboardDto> {
+  public async getStudentDashboard(
+    studentId: string,
+  ): Promise<StudentDashboardDto> {
     const cacheKey = `dashboard:student:${studentId}`;
     const cached = await this.cacheManager.get<StudentDashboardDto>(cacheKey);
-    if(cached) {
+    if (cached) {
       return cached;
     }
 
@@ -307,7 +311,10 @@ export class AnalyticsService {
       .select('AVG(ea.total_score)', 'avg')
       .getRawOne<AvgResult>();
 
-    const averageScore = avgScore?.avg ? parseFloat(avgScore.avg) : null;
+    const averageScore =
+      avgScore?.avg !== null && avgScore?.avg !== undefined
+        ? parseFloat(avgScore.avg)
+        : null;
 
     // Count lessons with active access (not expired)
     const now = new Date();
@@ -352,7 +359,7 @@ export class AnalyticsService {
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    return(
+    return (
       parseFloat(lessonRevenue?.total ?? '0') +
       parseFloat(packageRevenue?.total ?? '0') +
       parseFloat(bookRevenue?.total ?? '0')
@@ -391,7 +398,7 @@ export class AnalyticsService {
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    return(
+    return (
       parseFloat(lessonRevenue?.total ?? '0') +
       parseFloat(packageRevenue?.total ?? '0') +
       parseFloat(bookRevenue?.total ?? '0')

@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner } from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 export class MigrateToBunnyNet1767891201000 implements MigrationInterface {
   public name = 'MigrateToBunnyNet1767891201000';

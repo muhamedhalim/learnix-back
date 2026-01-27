@@ -17,9 +17,9 @@ import { Repository } from 'typeorm';
 @Injectable()
 export class InitAdminGuard implements CanActivate {
   constructor(
-    private configService: ConfigService,
+    private readonly configService: ConfigService,
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private readonly userRepository: Repository<User>,
   ) {}
 
   public async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -27,7 +27,7 @@ export class InitAdminGuard implements CanActivate {
 
     // Layer 1: Check if any admin user already exists
     const adminExists = await this.checkAdminExists();
-    if(adminExists) {
+    if (adminExists) {
       throw new ForbiddenException(
         'Admin initialization has already been completed. This endpoint is now disabled.',
       );
@@ -35,7 +35,7 @@ export class InitAdminGuard implements CanActivate {
 
     // Layer 2: Validate secret token from header
     const initSecret = this.configService.get<string>('INIT_SECRET');
-    if(!initSecret) {
+    if (initSecret === undefined || initSecret === '') {
       throw new ForbiddenException(
         'Admin initialization is not configured. INIT_SECRET environment variable is missing.',
       );
@@ -44,14 +44,14 @@ export class InitAdminGuard implements CanActivate {
     const providedSecret = request.headers['x-init-secret'] as
       | string
       | undefined;
-    if(!providedSecret) {
+    if (providedSecret === undefined || providedSecret === '') {
       throw new UnauthorizedException(
         'Admin initialization requires X-Init-Secret header.',
       );
     }
 
     // Use constant-time comparison to prevent timing attacks
-    const providedBuffer = Buffer.from(providedSecret || '');
+    const providedBuffer = Buffer.from(providedSecret);
     const expectedBuffer = Buffer.from(initSecret);
 
     // Pad buffers to same length to prevent timing leaks
@@ -65,7 +65,7 @@ export class InitAdminGuard implements CanActivate {
       Buffer.alloc(maxLen - expectedBuffer.length),
     ]);
 
-    if(!timingSafeEqual(paddedProvided, paddedExpected)) {
+    if (!timingSafeEqual(paddedProvided, paddedExpected)) {
       throw new UnauthorizedException('Invalid initialization secret.');
     }
 

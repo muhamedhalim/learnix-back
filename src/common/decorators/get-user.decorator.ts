@@ -1,6 +1,7 @@
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { ExecutionContext } from '@nestjs/common';
+import { createParamDecorator } from '@nestjs/common';
 
-import { JwtPayload } from '../interfaces/user-request.interface';
+import type { JwtPayload } from '../interfaces/user-request.interface';
 
 /**
  * Custom decorator to extract the current user from the request

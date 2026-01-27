@@ -1,9 +1,5 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  TableColumn,
-  TableIndex,
-} from 'typeorm';
+import type { MigrationInterface, QueryRunner } from 'typeorm';
+import { TableColumn, TableIndex } from 'typeorm';
 
 export class UpdateLessonSessions1768617000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {

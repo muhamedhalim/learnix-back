@@ -20,8 +20,8 @@ import { Repository } from 'typeorm';
 export class ComplaintsService {
   constructor(
     @InjectRepository(Complaint)
-    private complaintsRepository: Repository<Complaint>,
-    private notificationsService: NotificationsService,
+    private readonly complaintsRepository: Repository<Complaint>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   public async createComplaint(
@@ -37,7 +37,7 @@ export class ComplaintsService {
       status: ComplaintStatus.PENDING,
     });
 
-    return this.complaintsRepository.save(complaint);
+    return await this.complaintsRepository.save(complaint);
   }
 
   public async getStudentComplaints(
@@ -74,13 +74,13 @@ export class ComplaintsService {
       .leftJoinAndSelect('complaint.student', 'student')
       .leftJoinAndSelect('complaint.admin', 'admin');
 
-    if(filter.status) {
+    if (filter.status !== undefined) {
       queryBuilder.andWhere('complaint.status = :status', {
         status: filter.status,
       });
     }
 
-    if(filter.type) {
+    if (filter.type !== undefined) {
       queryBuilder.andWhere('complaint.type = :type', { type: filter.type });
     }
 
@@ -113,7 +113,7 @@ export class ComplaintsService {
       relations: ['student'],
     });
 
-    if(!complaint) {
+    if (!complaint) {
       throw new NotFoundException('Complaint not found');
     }
 

@@ -21,7 +21,7 @@ import {
   UpdateVimeoInfoDto,
 } from './dto';
 import { Lesson } from './entities/lesson.entity';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -94,11 +94,11 @@ export class LessonsService {
       where: { id: teacherId },
     });
 
-    if(!teacher) {
+    if (!teacher) {
       throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
     }
 
-    if(teacher.role !== UserRole.TEACHER) {
+    if (teacher.role !== UserRole.TEACHER) {
       throw new BadRequestException('Only teachers can create lessons');
     }
 
@@ -107,7 +107,7 @@ export class LessonsService {
       where: { id: dto.subject_id },
     });
 
-    if(!subject) {
+    if (!subject) {
       throw new NotFoundException(
         `Subject with ID ${dto.subject_id} not found`,
       );
@@ -115,7 +115,7 @@ export class LessonsService {
 
     // Generate Vimeo embed URL if video ID provided
     let vimeoEmbedUrl: string | null = null;
-    if(dto.vimeo_video_id) {
+    if (dto.vimeo_video_id !== undefined && dto.vimeo_video_id !== '') {
       vimeoEmbedUrl = this.generateVimeoEmbedUrl(dto.vimeo_video_id);
     }
 
@@ -158,18 +158,7 @@ export class LessonsService {
   public async findAll(
     filter: LessonFilterDto,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
-    const {
-      search,
-      teacher_id,
-      subject_id,
-      is_group,
-      minPrice,
-      maxPrice,
-      sortBy = 'created_at',
-      order = 'desc',
-      page = 1,
-      limit = 20,
-    } = filter;
+    const { page = 1, limit = 20 } = filter;
 
     const queryBuilder = this.lessonsRepository
       .createQueryBuilder('lesson')
@@ -177,47 +166,11 @@ export class LessonsService {
       .leftJoinAndSelect('lesson.subject', 'subject')
       .where('lesson.deleted_at IS NULL');
 
-    // Filter by teacher
-    if(teacher_id) {
-      queryBuilder.andWhere('lesson.teacher_id = :teacher_id', { teacher_id });
-    }
+    // Apply various filters
+    this.applyAllFilters(queryBuilder, filter);
 
-    // Filter by subject
-    if(subject_id) {
-      queryBuilder.andWhere('lesson.subject_id = :subject_id', { subject_id });
-    }
-
-    // Filter by group lessons
-    if(is_group !== undefined) {
-      queryBuilder.andWhere('lesson.is_group = :is_group', { is_group });
-    }
-
-    // Price range filters
-    if(minPrice !== undefined) {
-      queryBuilder.andWhere('lesson.price >= :minPrice', { minPrice });
-    }
-    if(maxPrice !== undefined) {
-      queryBuilder.andWhere('lesson.price <= :maxPrice', { maxPrice });
-    }
-
-    // Search by title
-    if(search) {
-      queryBuilder.andWhere(
-        `(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)`,
-        { search: `%${search}%` },
-      );
-    }
-
-    // Sorting
-    const sortColumn =
-      sortBy === 'price'
-        ? 'lesson.price'
-        : sortBy === 'title'
-          ? 'lesson.title'
-          : sortBy === 'students_count'
-            ? 'lesson.students_count'
-            : 'lesson.created_at';
-    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    // Apply sorting
+    this.applySorting(queryBuilder, filter.sortBy, filter.order);
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -246,13 +199,77 @@ export class LessonsService {
   }
 
   /**
+   * Applies all filters to the lesson query builder
+   */
+  private applyAllFilters(
+    queryBuilder: SelectQueryBuilder<Lesson>,
+    filter: LessonFilterDto,
+  ): void {
+    const {
+      search,
+      teacher_id: teacherId,
+      subject_id: subjectId,
+      is_group: isGroup,
+      minPrice,
+      maxPrice,
+    } = filter;
+
+    if (teacherId !== undefined && teacherId !== '') {
+      queryBuilder.andWhere('lesson.teacher_id = :teacherId', { teacherId });
+    }
+
+    if (subjectId !== undefined && subjectId !== '') {
+      queryBuilder.andWhere('lesson.subject_id = :subjectId', { subjectId });
+    }
+
+    if (isGroup !== undefined) {
+      queryBuilder.andWhere('lesson.is_group = :isGroup', { isGroup });
+    }
+
+    if (minPrice !== undefined) {
+      queryBuilder.andWhere('lesson.price >= :minPrice', { minPrice });
+    }
+
+    if (maxPrice !== undefined) {
+      queryBuilder.andWhere('lesson.price <= :maxPrice', { maxPrice });
+    }
+
+    if (search !== undefined && search !== '') {
+      queryBuilder.andWhere(
+        '(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+  }
+
+  /**
+   * Applies sorting to the lesson query builder
+   */
+  private applySorting(
+    queryBuilder: SelectQueryBuilder<Lesson>,
+    sortBy?: string,
+    order: 'asc' | 'desc' = 'desc',
+  ): void {
+    const sortColumn =
+      sortBy === 'price'
+        ? 'lesson.price'
+        : sortBy === 'title'
+          ? 'lesson.title'
+          : sortBy === 'students_count'
+            ? 'lesson.students_count'
+            : 'lesson.created_at';
+
+    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+  }
+
+  /**
    * Find lessons by teacher
    */
   public async findByTeacher(
     teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
-    return this.findAll({
+    return await this.findAll({
       ...filter,
       teacher_id: teacherId,
     });
@@ -265,7 +282,7 @@ export class LessonsService {
     subjectId: string,
     filter: Omit<LessonFilterDto, 'subject_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
-    return this.findAll({
+    return await this.findAll({
       ...filter,
       subject_id: subjectId,
     });
@@ -280,7 +297,7 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${id} not found`);
     }
 
@@ -301,12 +318,12 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if(lesson.teacher_id !== teacherId) {
+    if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
@@ -335,11 +352,11 @@ export class LessonsService {
     dto: UpdateLessonDto,
     lesson: Lesson,
   ): Promise<void> {
-    if(dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
+    if (dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
       const subject = await this.subjectsRepository.findOne({
         where: { id: dto.subject_id },
       });
-      if(!subject) {
+      if (!subject) {
         throw new NotFoundException(
           `Subject with ID ${dto.subject_id} not found`,
         );
@@ -348,15 +365,35 @@ export class LessonsService {
   }
 
   private applyLessonUpdates(lesson: Lesson, dto: UpdateLessonDto): void {
-    if(dto.title !== undefined) {lesson.title = dto.title;}
-    if(dto.title_ar !== undefined) {lesson.title_ar = dto.title_ar;}
-    if(dto.description !== undefined) {lesson.description = dto.description;}
-    if(dto.description_ar !== undefined) {lesson.description_ar = dto.description_ar;}
-    if(dto.subject_id !== undefined) {lesson.subject_id = dto.subject_id;}
-    if(dto.price !== undefined) {lesson.price = dto.price;}
-    if(dto.thumbnail !== undefined) {lesson.thumbnail = dto.thumbnail;}
-    if(dto.is_group !== undefined) {lesson.is_group = dto.is_group;}
-    if(dto.available_for_days !== undefined) {lesson.available_for_days = dto.available_for_days;}
+    const updates: Partial<Lesson> = {};
+    if (dto.title !== undefined) {
+      updates.title = dto.title;
+    }
+    if (dto.title_ar !== undefined) {
+      updates.title_ar = dto.title_ar;
+    }
+    if (dto.description !== undefined) {
+      updates.description = dto.description;
+    }
+    if (dto.description_ar !== undefined) {
+      updates.description_ar = dto.description_ar;
+    }
+    if (dto.subject_id !== undefined) {
+      updates.subject_id = dto.subject_id;
+    }
+    if (dto.price !== undefined) {
+      updates.price = dto.price;
+    }
+    if (dto.thumbnail !== undefined) {
+      updates.thumbnail = dto.thumbnail;
+    }
+    if (dto.is_group !== undefined) {
+      updates.is_group = dto.is_group;
+    }
+    if (dto.available_for_days !== undefined) {
+      updates.available_for_days = dto.available_for_days;
+    }
+    Object.assign(lesson, updates);
   }
 
   /**
@@ -368,12 +405,12 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if(lesson.teacher_id !== teacherId) {
+    if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only delete your own lessons');
     }
 
@@ -388,7 +425,7 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -402,7 +439,7 @@ export class LessonsService {
     teacherId: string,
     filter: Omit<LessonFilterDto, 'teacher_id'>,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
-    return this.findAll({
+    return await this.findAll({
       ...filter,
       teacher_id: teacherId,
     });
@@ -422,12 +459,12 @@ export class LessonsService {
       relations: ['teacher', 'subject'],
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if(lesson.teacher_id !== teacherId) {
+    if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
@@ -435,7 +472,7 @@ export class LessonsService {
     lesson.vimeo_video_id = dto.vimeo_video_id;
     lesson.vimeo_embed_url =
       dto.vimeo_embed_url ?? this.generateVimeoEmbedUrl(dto.vimeo_video_id);
-    if(dto.duration !== undefined) {
+    if (dto.duration !== undefined) {
       lesson.duration = dto.duration;
     }
 
@@ -482,19 +519,19 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if(lesson.teacher_id !== teacherId) {
+    if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
     // Validate Bunny.net URL format using regex from constants
     const match = videoUrl.match(VIDEO_URL_PATTERNS.BUNNY);
 
-    if(!match?.[1] || !match[2]) {
+    if (match?.[1] === undefined || match[2] === undefined) {
       throw new BadRequestException(
         'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
       );
@@ -509,7 +546,7 @@ export class LessonsService {
     lesson.video_platform = 'bunny';
     lesson.bunny_video_id = videoId;
     lesson.bunny_library_id = libraryId;
-    if(duration !== undefined) {
+    if (duration !== undefined) {
       lesson.duration = duration;
     }
 
@@ -542,17 +579,17 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
     // Verify ownership
-    if(lesson.teacher_id !== teacherId) {
+    if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException('You can only update your own lessons');
     }
 
     // Validate Vimeo URL format
-    if(!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
+    if (!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
       throw new BadRequestException(
         'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
       );
@@ -561,7 +598,7 @@ export class LessonsService {
     // Update lesson with Vimeo video info
     lesson.video_url = vimeoUrl;
     lesson.video_platform = 'vimeo';
-    if(duration !== undefined) {
+    if (duration !== undefined) {
       lesson.duration = duration;
     }
 
@@ -583,7 +620,7 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -605,7 +642,7 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -624,7 +661,7 @@ export class LessonsService {
       where: { id: lessonId },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 

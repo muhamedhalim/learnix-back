@@ -24,9 +24,9 @@ export class AuthService {
 
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
-    private jwtService: JwtService,
-    private configService: ConfigService,
+    private readonly userRepository: Repository<User>,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
@@ -39,7 +39,7 @@ export class AuthService {
       where: [{ email }, { phone }],
     });
 
-    if(existingUser) {
+    if (existingUser) {
       throw new ConflictException(
         'Registration failed. Please try different credentials.',
       );
@@ -77,12 +77,12 @@ export class AuthService {
       .where('user.email = :email', { email })
       .getOne();
 
-    if(!user) {
+    if (!user) {
       this.logger.warn(`Failed login attempt for non-existent user: ${email}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if(!user.password_hash) {
+    if (user.password_hash === null || user.password_hash === '') {
       this.logger.warn(
         `Failed login attempt for Firebase-only account: ${email}`,
       );
@@ -92,7 +92,7 @@ export class AuthService {
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    if(!isPasswordValid) {
+    if (!isPasswordValid) {
       this.logger.warn(
         `Failed login attempt - invalid password for user: ${email} (ID: ${user.id})`,
       );
@@ -100,7 +100,7 @@ export class AuthService {
     }
 
     // Check user status (BREAKING CHANGE: new response format)
-    if(user.status === UserStatus.PENDING) {
+    if (user.status === UserStatus.PENDING) {
       this.logger.log(
         `Login attempt with pending account: ${email} (ID: ${user.id})`,
       );
@@ -111,7 +111,7 @@ export class AuthService {
       };
     }
 
-    if(user.status === UserStatus.REJECTED) {
+    if (user.status === UserStatus.REJECTED) {
       this.logger.warn(
         `Login attempt with rejected account: ${email} (ID: ${user.id})`,
       );
@@ -128,17 +128,17 @@ export class AuthService {
       role: user.role,
     };
 
-    const access_token = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload);
 
     // Generate and store refresh token
-    const refresh_token = this.generateRefreshToken();
-    await this.storeRefreshToken(user.id, refresh_token);
+    const refreshToken = this.generateRefreshToken();
+    await this.storeRefreshToken(user.id, refreshToken);
 
     // Return new response format with status
     return {
       status: 'approved',
-      token: access_token,
-      refreshToken: refresh_token,
+      token: accessToken,
+      refreshToken,
       role: user.role,
       userId: user.id,
     };
@@ -154,7 +154,7 @@ export class AuthService {
       where: { id: payload.sub },
     });
 
-    if(user?.is_active) {
+    if (user?.is_active === true) {
       return {
         userId: user.id,
         email: user.email,
@@ -184,7 +184,7 @@ export class AuthService {
    * Hash refresh token before storing in database
    */
   private async hashRefreshToken(token: string): Promise<string> {
-    return bcrypt.hash(token, this.bcryptRounds);
+    return await bcrypt.hash(token, this.bcryptRounds);
   }
 
   /**
@@ -194,7 +194,7 @@ export class AuthService {
     token: string,
     hash: string,
   ): Promise<boolean> {
-    return bcrypt.compare(token, hash);
+    return await bcrypt.compare(token, hash);
   }
 
   /**
@@ -226,7 +226,7 @@ export class AuthService {
    */
   private calculateTokenExpiration(duration: string): Date {
     const match = /^(\d+)([dhms])$/.exec(duration);
-    if(!match?.[1] || !match[2]) {
+    if (match?.[1] === undefined || match[2] === undefined) {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
@@ -234,7 +234,7 @@ export class AuthService {
     const unit = match[2];
     const now = new Date();
 
-    switch(unit) {
+    switch (unit) {
       case 'd': // days
         now.setDate(now.getDate() + value);
         break;
@@ -247,6 +247,8 @@ export class AuthService {
       case 's': // seconds
         now.setSeconds(now.getSeconds() + value);
         break;
+      default:
+        throw new Error(`Invalid duration unit: ${unit}`);
     }
 
     return now;
@@ -269,7 +271,7 @@ export class AuthService {
       .andWhere('user.refresh_token IS NOT NULL')
       .getOne();
 
-    if(!user?.refresh_token) {
+    if (user?.refresh_token == null) {
       this.logger.warn('Invalid refresh token attempt');
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -280,7 +282,7 @@ export class AuthService {
       user.refresh_token,
     );
 
-    if(!isValid) {
+    if (!isValid) {
       this.logger.warn(
         `Refresh token verification failed - User: ${user.email} (ID: ${user.id})`,
       );
@@ -288,7 +290,7 @@ export class AuthService {
     }
 
     // Check if token is expired
-    if(
+    if (
       !user.refresh_token_expires_at ||
       user.refresh_token_expires_at < new Date()
     ) {
@@ -299,7 +301,7 @@ export class AuthService {
     }
 
     // Check if user is active
-    if(!user.is_active) {
+    if (!user.is_active) {
       this.logger.warn(
         `Inactive user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
@@ -307,7 +309,7 @@ export class AuthService {
     }
 
     // Check user status (BREAKING CHANGE: new response format)
-    if(user.status === UserStatus.PENDING) {
+    if (user.status === UserStatus.PENDING) {
       this.logger.warn(
         `Pending user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
@@ -316,7 +318,7 @@ export class AuthService {
       );
     }
 
-    if(user.status === UserStatus.REJECTED) {
+    if (user.status === UserStatus.REJECTED) {
       this.logger.warn(
         `Rejected user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
       );
@@ -333,7 +335,7 @@ export class AuthService {
       role: user.role,
     };
 
-    const access_token = this.jwtService.sign(payload);
+    const accessToken = this.jwtService.sign(payload);
 
     // Generate new refresh token (token rotation for security)
     const newRefreshToken = this.generateRefreshToken();
@@ -344,7 +346,7 @@ export class AuthService {
     // Return new response format with status
     return {
       status: 'approved',
-      token: access_token,
+      token: accessToken,
       refreshToken: newRefreshToken,
       role: user.role,
       userId: user.id,

@@ -96,7 +96,7 @@ export class LessonsController {
     description: 'List of lessons with pagination meta',
   })
   public async findAll(@Query() filter: LessonFilterDto): Promise<unknown> {
-    return this.lessonsService.findAll(filter);
+    return await this.lessonsService.findAll(filter);
   }
 
   /**
@@ -106,8 +106,10 @@ export class LessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.lessonsService.findOne(id);
+  public async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.lessonsService.findOne(id);
   }
 
   /**
@@ -140,7 +142,7 @@ export class LessonsController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<unknown> {
-    return this.lessonsService.findByTeacher(teacherId, {
+    return await this.lessonsService.findByTeacher(teacherId, {
       page: page ?? 1,
       limit: limit ?? 20,
     });
@@ -176,7 +178,7 @@ export class LessonsController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<unknown> {
-    return this.lessonsService.findBySubject(subjectId, {
+    return await this.lessonsService.findBySubject(subjectId, {
       page: page ?? 1,
       limit: limit ?? 20,
     });

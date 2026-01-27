@@ -21,7 +21,7 @@ import {
   UpdateTeacherProfileDto,
 } from './dto';
 import { TeacherProfile } from './entities/teacher-profile.entity';
-import { In,Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 /**
  * Response type for teacher profile with user info and subjects
@@ -74,13 +74,15 @@ export class TeachersService {
    * Get a teacher's own profile by user ID
    * Used by teachers to view their profile
    */
-  public async findTeacherProfile(userId: string): Promise<TeacherProfileWithDetails> {
+  public async findTeacherProfile(
+    userId: string,
+  ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { user_id: userId },
       relations: ['user', 'subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException('Teacher profile not found');
     }
 
@@ -100,23 +102,23 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException('Teacher profile not found');
     }
 
     // Update profile fields
-    if(dto.qualifications !== undefined) {
+    if (dto.qualifications !== undefined) {
       profile.qualifications = dto.qualifications;
     }
-    if(dto.years_of_experience !== undefined) {
+    if (dto.years_of_experience !== undefined) {
       profile.years_of_experience = dto.years_of_experience;
     }
-    if(dto.bio !== undefined) {
+    if (dto.bio !== undefined) {
       profile.bio = dto.bio;
     }
 
     // Update phone on user entity
-    if(dto.phone !== undefined) {
+    if (dto.phone !== undefined) {
       profile.user.phone = dto.phone;
       await this.usersRepository.save(profile.user);
     }
@@ -130,7 +132,9 @@ export class TeachersService {
     });
 
     if (!updatedProfile) {
-      throw new NotFoundException(`Failed to reload teacher profile ${savedProfile.id}`);
+      throw new NotFoundException(
+        `Failed to reload teacher profile ${savedProfile.id}`,
+      );
     }
 
     return this.mapToProfileWithDetails(updatedProfile);
@@ -161,12 +165,12 @@ export class TeachersService {
       .andWhere('user.deleted_at IS NULL');
 
     // Filter by user status
-    if(status) {
+    if (status !== undefined) {
       queryBuilder.andWhere('user.status = :status', { status });
     }
 
     // Search by name or email
-    if(search) {
+    if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
@@ -177,7 +181,7 @@ export class TeachersService {
     }
 
     // Filter by subject
-    if(subjectId) {
+    if (subjectId !== undefined && subjectId !== '') {
       queryBuilder.andWhere(
         'EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher_profile_id = teacher.id AND ts.subject_id = :subjectId)',
         { subjectId },
@@ -226,7 +230,7 @@ export class TeachersService {
     page = 1,
     limit = 20,
   ): Promise<PaginatedResponse<TeacherProfileWithDetails>> {
-    return this.findAllTeachers({
+    return await this.findAllTeachers({
       status: UserStatus.PENDING,
       page,
       limit,
@@ -239,7 +243,7 @@ export class TeachersService {
   public async findApprovedTeachers(
     filter: Omit<TeacherFilterDto, 'status'>,
   ): Promise<PaginatedResponse<TeacherProfileWithDetails>> {
-    return this.findAllTeachers({
+    return await this.findAllTeachers({
       ...filter,
       status: UserStatus.APPROVED,
     });
@@ -255,7 +259,7 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${id} not found`);
     }
 
@@ -277,11 +281,11 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
-    if(profile.user.status === UserStatus.APPROVED) {
+    if (profile.user.status === UserStatus.APPROVED) {
       throw new ConflictException('Teacher is already approved');
     }
 
@@ -314,11 +318,11 @@ export class TeachersService {
       relations: ['user', 'subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
-    if(profile.user.status === UserStatus.REJECTED) {
+    if (profile.user.status === UserStatus.REJECTED) {
       throw new ConflictException('Teacher is already rejected');
     }
 
@@ -347,7 +351,7 @@ export class TeachersService {
       relations: ['subjects'],
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
@@ -356,7 +360,7 @@ export class TeachersService {
       id: In(dto.subjectIds),
     });
 
-    if(subjects.length !== dto.subjectIds.length) {
+    if (subjects.length !== dto.subjectIds.length) {
       const foundIds = subjects.map((s) => s.id);
       const missingIds = dto.subjectIds.filter((id) => !foundIds.includes(id));
       throw new BadRequestException(
@@ -375,7 +379,9 @@ export class TeachersService {
     });
 
     if (!updatedProfile) {
-      throw new NotFoundException(`Failed to reload teacher profile ${profileId}`);
+      throw new NotFoundException(
+        `Failed to reload teacher profile ${profileId}`,
+      );
     }
 
     return this.mapToProfileWithDetails(updatedProfile);
@@ -390,7 +396,7 @@ export class TeachersService {
       where: { id: profileId },
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 
@@ -400,7 +406,7 @@ export class TeachersService {
       lessonsCount: 0,
       studentsCount: 0,
       totalEarnings: 0,
-      averageRating: profile.rating || 0,
+      averageRating: profile.rating,
     };
   }
 
@@ -419,11 +425,11 @@ export class TeachersService {
       where: { id: userId },
     });
 
-    if(!user) {
+    if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
-    if(user.role !== UserRole.TEACHER) {
+    if (user.role !== UserRole.TEACHER) {
       throw new BadRequestException('User must have TEACHER role');
     }
 
@@ -432,7 +438,7 @@ export class TeachersService {
       where: { user_id: userId },
     });
 
-    if(existingProfile) {
+    if (existingProfile) {
       throw new ConflictException(
         'Teacher profile already exists for this user',
       );
@@ -448,7 +454,7 @@ export class TeachersService {
       total_ratings: 0,
     });
 
-    return this.teacherProfilesRepository.save(profile);
+    return await this.teacherProfilesRepository.save(profile);
   }
 
   /**
@@ -463,7 +469,7 @@ export class TeachersService {
       where: { id: profileId },
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException(`Teacher with ID ${profileId} not found`);
     }
 

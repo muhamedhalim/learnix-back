@@ -87,16 +87,19 @@ export class AdminSubjectsController {
     @Body() createSubjectDto: CreateSubjectDto,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<unknown> {
+    const dtoToUse = new CreateSubjectDto();
+    Object.assign(dtoToUse, createSubjectDto);
+
     // Upload thumbnail if provided
-    if(file) {
+    if (file) {
       const uploadResult = await this.uploadService.uploadFile(
         file,
         'thumbnails',
       );
-      createSubjectDto.thumbnail = uploadResult.url;
+      dtoToUse.thumbnail = uploadResult.url;
     }
 
-    const subject = await this.subjectsService.create(createSubjectDto);
+    const subject = await this.subjectsService.create(dtoToUse);
     return {
       message: 'Subject created successfully',
       subject,
@@ -130,7 +133,9 @@ export class AdminSubjectsController {
     status: HttpStatus.CONFLICT,
     description: 'Cannot delete subject with existing lessons',
   })
-  public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
+  public async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
     await this.subjectsService.remove(id);
     return {
       message: 'Subject deleted successfully',
@@ -146,6 +151,6 @@ export class AdminSubjectsController {
     description: 'Subjects with counts retrieved successfully',
   })
   public async getSubjectsWithCounts(): Promise<unknown> {
-    return this.subjectsService.getSubjectsWithCounts();
+    return await this.subjectsService.getSubjectsWithCounts();
   }
 }

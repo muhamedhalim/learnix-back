@@ -3,7 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DiscountType } from '../entities/discount-type.enum';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsDateString,IsEnum, IsOptional } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsOptional } from 'class-validator';
 
 export class DiscountFilterDto extends PaginationDto {
   @ApiProperty({

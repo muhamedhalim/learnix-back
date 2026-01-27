@@ -1,12 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 /**
  * DTO for grading an essay question

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Transform,Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
@@ -77,8 +77,12 @@ export class ExamFilterDto {
     required: false,
   })
   @Transform(({ value }): boolean | undefined => {
-    if(value === 'true') {return true;}
-    if(value === 'false') {return false;}
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
     return undefined;
   })
   @IsBoolean()
@@ -118,8 +122,12 @@ export class StudentExamFilterDto extends ExamFilterDto {
     required: false,
   })
   @Transform(({ value }): boolean | undefined => {
-    if(value === 'true') {return true;}
-    if(value === 'false') {return false;}
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
     return undefined;
   })
   @IsBoolean()

@@ -1,11 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-
 import { Logger } from '@nestjs/common';
 
-import { DataSource, EntityManager } from 'typeorm';
+import type { DataSource, EntityManager } from 'typeorm';
 
 /**
  * Configuration options for transaction retry utility.
@@ -109,35 +104,35 @@ export async function retryTransaction<T>(
   const maxRetries = options.maxRetries ?? 3;
   const baseDelay = options.baseDelay ?? 100;
   const logger = options.logger ?? new Logger('TransactionRetry');
-  const isolationLevel = options.isolationLevel;
+  const { isolationLevel } = options;
 
-  let lastError: any;
+  let lastError: unknown;
 
-  for(let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       // Execute transaction with optional isolation level
-      if(isolationLevel) {
-        return await dataSource.transaction(isolationLevel, transactionFn);
-      } else {
-        return await dataSource.transaction(transactionFn);
+      if (isolationLevel !== undefined) {
+        return await dataSource.transaction<T>(isolationLevel, transactionFn);
       }
-    } catch (error: any) {
+      return await dataSource.transaction<T>(transactionFn);
+    } catch (error: unknown) {
       lastError = error;
 
       // Check if this is a deadlock error
       const deadlockCheck = checkDeadlockError(error);
 
-      if(!deadlockCheck.isDeadlock || attempt === maxRetries) {
+      if (!deadlockCheck.isDeadlock || attempt === maxRetries) {
         // Not a deadlock or no more retries left
-        if(deadlockCheck.isDeadlock && attempt === maxRetries) {
+        if (deadlockCheck.isDeadlock && attempt === maxRetries) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           logger.error(
             `Transaction failed after ${String(maxRetries + 1)} attempts due to persistent deadlocks. ` +
-              `Last error: ${String(error.message)}`,
+              `Last error: ${errorMessage}`,
           );
         }
         throw error;
       }
-
       // Calculate delay with exponential backoff and jitter
       const exponentialDelay = baseDelay * Math.pow(2, attempt);
       const jitter = exponentialDelay * 0.2 * (Math.random() - 0.5); // ±10% jitter
@@ -160,78 +155,89 @@ export async function retryTransaction<T>(
 }
 
 /**
+ * Safely extracts an error message from an unknown error object.
+ */
+function extractErrorMessage(error: unknown): string {
+  if (error === null || error === undefined) {
+    return 'Unknown error';
+  }
+
+  const errorObj = error as Record<string, unknown>;
+  const driverError = errorObj.driverError as
+    | Record<string, unknown>
+    | undefined;
+
+  if (typeof errorObj.message === 'string') {
+    return errorObj.message;
+  }
+
+  if (typeof driverError?.message === 'string') {
+    return driverError.message;
+  }
+
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
+/**
+ * Safely extracts a database error code from an unknown error object.
+ */
+function extractErrorCode(error: unknown): string | number | undefined {
+  if (error === null || error === undefined) {
+    return undefined;
+  }
+
+  const errorObj = error as Record<string, unknown>;
+  const driverError = errorObj.driverError as
+    | Record<string, unknown>
+    | undefined;
+
+  return (errorObj.code ?? driverError?.code ?? errorObj.errno) as
+    | string
+    | number
+    | undefined;
+}
+
+/**
  * Checks if an error is a PostgreSQL deadlock error with detailed information.
  *
  * @param error - Error to check
  * @returns Deadlock check result with error code and message
- *
- * @remarks
- * **Detection Strategy (in order of priority):**
- * 1. Check for exact deadlock error code '40P01'
- * 2. Check for serialization failure code '40001' (may indicate deadlock)
- * 3. Check error message for 'deadlock detected' string (fallback)
- *
- * **PostgreSQL Error Codes:**
- * - 40P01: deadlock_detected (definite deadlock)
- * - 40001: serialization_failure (may be deadlock or other serialization issue)
- *
- * **Why Multiple Checks:**
- * Different PostgreSQL versions and drivers may report deadlocks differently.
- * Message checking ensures we catch deadlocks even if error code is missing.
- *
- * **False Positives:**
- * May incorrectly identify some serialization failures as deadlocks, but this is
- * acceptable because:
- * - Retrying serialization failures is generally safe
- * - False positives are rare in practice
- * - Better to retry too much than too little for transient errors
  */
-function checkDeadlockError(error: any): DeadlockCheckResult {
-  if(!error) {
+function checkDeadlockError(error: unknown): DeadlockCheckResult {
+  if (error === null || error === undefined) {
     return { isDeadlock: false };
   }
 
-  // Extract error code from various possible error structures
-  const errorCode = error.code ?? error.driverError?.code ?? error.errno;
+  const errorCode = extractErrorCode(error);
+  const errorMessage = extractErrorMessage(error);
 
-  // Extract error message
-  const errorMessage =
-    error.message ?? error.driverError?.message ?? String(error);
+  const DEADLOCK_ERROR_CODE = '40P01';
+  const SERIALIZATION_FAILURE_CODE = '40001';
 
-  // PostgreSQL error codes for deadlocks and serialization failures
-  const DEADLOCK_ERROR_CODE = '40P01'; // Definite deadlock
-  const SERIALIZATION_FAILURE_CODE = '40001'; // May be deadlock
-
-  // Check error code first (most reliable)
-  if(errorCode === DEADLOCK_ERROR_CODE) {
-    return {
-      isDeadlock: true,
-      errorCode: DEADLOCK_ERROR_CODE,
-      errorMessage,
-    };
-  }
-
-  if(errorCode === SERIALIZATION_FAILURE_CODE) {
-    // 40001 may or may not be a deadlock, but safe to retry
-    return {
-      isDeadlock: true,
-      errorCode: SERIALIZATION_FAILURE_CODE,
-      errorMessage,
-    };
-  }
-
-  // Fallback: Check error message for deadlock keywords
-  if(
-    errorMessage?.toLowerCase().includes('deadlock detected')
+  if (
+    errorCode === DEADLOCK_ERROR_CODE ||
+    errorCode === SERIALIZATION_FAILURE_CODE
   ) {
     return {
       isDeadlock: true,
-      errorCode: errorCode ?? 'unknown',
+      errorCode: typeof errorCode === 'string' ? errorCode : String(errorCode),
       errorMessage,
     };
   }
 
-  return { isDeadlock: false, errorCode, errorMessage };
+  if (errorMessage.toLowerCase().includes('deadlock detected')) {
+    return {
+      isDeadlock: true,
+      errorCode: errorCode !== undefined ? String(errorCode) : 'unknown',
+      errorMessage,
+    };
+  }
+
+  return {
+    isDeadlock: false,
+    errorCode: errorCode !== undefined ? String(errorCode) : undefined,
+    errorMessage,
+  };
 }
 
 /**
@@ -270,17 +276,17 @@ export async function retryOperation<T>(
   const baseDelay = options.baseDelay ?? 100;
   const logger = options.logger ?? new Logger('RetryOperation');
 
-  let lastError: any;
+  let lastError: unknown;
 
-  for(let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
 
       const deadlockCheck = checkDeadlockError(error);
 
-      if(!deadlockCheck.isDeadlock || attempt === maxRetries) {
+      if (!deadlockCheck.isDeadlock || attempt === maxRetries) {
         throw error;
       }
 

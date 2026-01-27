@@ -1,9 +1,5 @@
 import { Body, Controller, UseGuards } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
@@ -42,7 +38,7 @@ export class AdminNotificationsController {
   ): Promise<{ message: string; data: ManualNotificationResponseDto }> {
     let userIds: string[];
 
-    if(dto.user_ids && dto.user_ids.length > 0) {
+    if (dto.user_ids && dto.user_ids.length > 0) {
       // Send to specific users
       userIds = dto.user_ids;
     } else {
@@ -62,7 +58,7 @@ export class AdminNotificationsController {
     let smsFailedCount = 0;
 
     // Send notifications to each user
-    for(const userId of userIds) {
+    for (const userId of userIds) {
       try {
         await this.notificationTriggersService.sendCustomNotification(
           userId,
@@ -72,11 +68,11 @@ export class AdminNotificationsController {
         );
         sentCount++;
 
-        if(dto.send_sms) {
+        if (dto.send_sms === true) {
           smsSentCount++;
         }
       } catch {
-        if(dto.send_sms) {
+        if (dto.send_sms === true) {
           smsFailedCount++;
         }
       }
@@ -147,13 +143,10 @@ export class AdminNotificationsController {
             : 0,
         sms_sent: smsSent,
         sms_enabled: this.smsSenderService.isConfigured(),
-        by_type: typeStats.reduce<Record<string, number>>(
-          (acc, item) => {
-            acc[item.type] = parseInt(item.count);
-            return acc;
-          },
-          {},
-        ),
+        by_type: typeStats.reduce<Record<string, number>>((acc, item) => {
+          acc[item.type] = parseInt(item.count);
+          return acc;
+        }, {}),
         last_24_hours: last24Hours,
         last_7_days: last7Days,
       },

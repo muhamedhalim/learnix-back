@@ -12,7 +12,10 @@ interface AuthenticatedRequest extends Request {
 @Controller('auth/firebase')
 export class FirebaseAuthController {
   @UseGuards(FirebaseAuthGuard)
-  public verifyFirebaseToken(@Request() req: AuthenticatedRequest): { message: string; user: unknown } {
+  public verifyFirebaseToken(@Request() req: AuthenticatedRequest): {
+    message: string;
+    user: unknown;
+  } {
     return {
       message: 'Firebase token verified successfully',
       user: {

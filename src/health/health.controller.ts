@@ -19,7 +19,8 @@ export class HealthController {
   @Get()
   @ApiOperation({
     summary: 'Basic application health check',
-    description: 'Returns the application status, uptime, version, and environment.',
+    description:
+      'Returns the application status, uptime, version, and environment.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -135,6 +136,6 @@ export class HealthController {
     description: 'All systems are healthy',
   })
   public async getComprehensiveHealth(): Promise<unknown> {
-    return this.healthService.getComprehensiveHealth();
+    return await this.healthService.getComprehensiveHealth();
   }
 }

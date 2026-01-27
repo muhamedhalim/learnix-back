@@ -22,14 +22,16 @@ export class SanitizationService {
    * Use for: usernames, titles, short descriptions where HTML is not needed
    */
   public sanitizeStrict(dirty: string): string {
-    if(!dirty) {return '';}
+    if (dirty === '') {
+      return '';
+    }
 
     const clean = sanitizeHtml(dirty, {
       allowedTags: [], // No HTML tags allowed
       allowedAttributes: {}, // No attributes allowed
     });
 
-    if(this.containsHtml(dirty) && dirty !== clean) {
+    if (this.containsHtml(dirty) && dirty !== clean) {
       this.logger.warn(
         `Stripped HTML from strict input: ${dirty.substring(0, 50)}...`,
       );
@@ -44,7 +46,9 @@ export class SanitizationService {
    * Allows: bold, italic, paragraphs, lists, links
    */
   public sanitizeBasic(dirty: string): string {
-    if(!dirty) {return '';}
+    if (dirty === '') {
+      return '';
+    }
 
     const clean = sanitizeHtml(dirty, {
       allowedTags: [
@@ -92,7 +96,7 @@ export class SanitizationService {
       },
     });
 
-    if(dirty !== clean) {
+    if (dirty !== clean) {
       this.logger.debug(
         `Sanitized basic HTML input (length: ${String(dirty.length)} -> ${String(clean.length)})`,
       );
@@ -107,7 +111,9 @@ export class SanitizationService {
    * Allows: all basic tags + images, tables, divs with limited styling
    */
   public sanitizePermissive(dirty: string): string {
-    if(!dirty) {return '';}
+    if (dirty === '') {
+      return '';
+    }
 
     const clean = sanitizeHtml(dirty, {
       allowedTags: [
@@ -172,22 +178,21 @@ export class SanitizationService {
         },
         // Security: Validate data URIs in img tags (prevent XSS and DoS)
         img: (tagName: string, attribs: Record<string, string>) => {
-          if(attribs.src?.startsWith('data:')) {
+          const { src, ...rest } = attribs;
+          if (src?.startsWith('data:') === true) {
             // Validate MIME type - only allow safe image formats
             const validDataUriPattern =
               /^data:image\/(png|jpeg|jpg|gif|webp);base64,/;
-            if(!validDataUriPattern.test(attribs.src)) {
+            if (!validDataUriPattern.test(src)) {
               // Strip invalid data URI (e.g., data:text/html, data:application/javascript)
-              delete attribs.src;
-              return { tagName, attribs };
+              return { tagName, attribs: rest };
             }
 
             // Check size limit (max 5MB base64 ~= 6.7MB encoded)
-            const base64Data = attribs.src.split(',')[1];
-            if(base64Data && base64Data.length > 5 * 1024 * 1024) {
+            const base64Data = src.split(',')[1];
+            if ((base64Data?.length ?? 0) > 5 * 1024 * 1024) {
               // Strip oversized data URI to prevent DoS
-              delete attribs.src;
-              return { tagName, attribs };
+              return { tagName, attribs: rest };
             }
           }
           return { tagName, attribs };
@@ -197,7 +202,7 @@ export class SanitizationService {
       allowedStyles: {},
     });
 
-    if(dirty !== clean) {
+    if (dirty !== clean) {
       this.logger.debug(
         `Sanitized permissive HTML input (length: ${String(dirty.length)} -> ${String(clean.length)})`,
       );
@@ -212,17 +217,17 @@ export class SanitizationService {
    */
   public sanitizeObject<T extends Record<string, unknown>>(
     obj: T,
-    fieldsToSanitize: (keyof T)[],
+    fieldsToSanitize: Array<keyof T>,
     level: 'strict' | 'basic' | 'permissive' = 'basic',
   ): T {
     const sanitized = { ...obj };
 
-    for(const field of fieldsToSanitize) {
-      if(typeof obj[field] === 'string') {
+    for (const field of fieldsToSanitize) {
+      if (typeof obj[field] === 'string') {
         const originalValue = obj[field] as string;
         let sanitizedValue: string;
 
-        switch(level) {
+        switch (level) {
           case 'strict':
             sanitizedValue = this.sanitizeStrict(originalValue);
             break;
@@ -230,7 +235,6 @@ export class SanitizationService {
             sanitizedValue = this.sanitizePermissive(originalValue);
             break;
           case 'basic':
-          default:
             sanitizedValue = this.sanitizeBasic(originalValue);
             break;
         }
@@ -254,7 +258,9 @@ export class SanitizationService {
    * Use for: search indexing, previews, metadata
    */
   public toPlainText(html: string): string {
-    if(!html) {return '';}
+    if (html === '') {
+      return '';
+    }
 
     return sanitizeHtml(html, {
       allowedTags: [],
@@ -267,7 +273,9 @@ export class SanitizationService {
    * Returns true if content appears safe, false if suspicious
    */
   public validateSafety(content: string): { isSafe: boolean; reason?: string } {
-    if(!content) {return { isSafe: true };}
+    if (content === '') {
+      return { isSafe: true };
+    }
 
     // Check for common XSS patterns that might slip through
     const suspiciousPatterns = [
@@ -279,8 +287,8 @@ export class SanitizationService {
       /vbscript:/gi,
     ];
 
-    for(const pattern of suspiciousPatterns) {
-      if(pattern.test(content)) {
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(content)) {
         this.logger.warn(`Suspicious pattern detected: ${String(pattern)}`);
         return {
           isSafe: false,

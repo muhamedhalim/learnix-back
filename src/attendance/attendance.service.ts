@@ -9,13 +9,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
-import { AttendanceFilterDto,MarkAttendanceDto } from './dto';
+import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
 import {
   AttendanceRecord,
   AttendanceStatus,
 } from './entities/attendance-record.entity';
 import { LessonSession } from './entities/lesson-session.entity';
-import { IsNull,Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 const AUTO_ATTENDANCE_THRESHOLD = 80; // 80% video watch = auto present
 
@@ -56,7 +56,7 @@ export class AttendanceService {
       dto.lesson_id,
     );
 
-    if(existing) {
+    if (existing) {
       throw new ConflictException(
         'Attendance already marked for this student and lesson',
       );
@@ -67,7 +67,7 @@ export class AttendanceService {
       where: { id: dto.lesson_id, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${dto.lesson_id} not found`);
     }
 
@@ -90,7 +90,7 @@ export class AttendanceService {
     );
 
     // Send SMS notification to parent if marked present
-    if(dto.status === 'present') {
+    if (dto.status === 'present') {
       try {
         await this.notificationTriggersService.notifyAttendance(
           dto.student_id,
@@ -102,7 +102,7 @@ export class AttendanceService {
       }
     }
 
-    return this.findAttendanceById(saved.id);
+    return await this.findAttendanceById(saved.id);
   }
 
   /**
@@ -119,7 +119,7 @@ export class AttendanceService {
     attendance.status = status;
     attendance.marked_by = markerId;
     attendance.is_auto_marked = false;
-    if(notes !== undefined) {
+    if (notes !== undefined) {
       attendance.notes = notes;
     }
 
@@ -127,7 +127,7 @@ export class AttendanceService {
 
     this.logger.log(`Attendance updated: ${id} to ${status}`);
 
-    return this.findAttendanceById(id);
+    return await this.findAttendanceById(id);
   }
 
   /**
@@ -146,7 +146,7 @@ export class AttendanceService {
     studentId: string,
     lessonId: string,
   ): Promise<AttendanceRecord | null> {
-    return this.attendanceRepository.findOne({
+    return await this.attendanceRepository.findOne({
       where: {
         student_id: studentId,
         lesson_id: lessonId,
@@ -163,7 +163,7 @@ export class AttendanceService {
       relations: ['student', 'lesson', 'marker'],
     });
 
-    if(!attendance) {
+    if (!attendance) {
       throw new NotFoundException(`Attendance record with ID ${id} not found`);
     }
 
@@ -184,7 +184,7 @@ export class AttendanceService {
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if(!lesson) {
+    if (!lesson) {
       throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
     }
 
@@ -229,7 +229,7 @@ export class AttendanceService {
 
     // Check for auto-attendance
     let autoAttendance = false;
-    if(isCompleted) {
+    if (isCompleted) {
       autoAttendance = await this.checkAndAutoMarkAttendance(session);
     }
 
@@ -267,7 +267,7 @@ export class AttendanceService {
       session.lesson_id,
     );
 
-    if(existing) {
+    if (existing) {
       this.logger.log(
         `Auto-attendance skipped: already marked for student ${session.student_id}, lesson ${session.lesson_id}`,
       );
@@ -307,7 +307,7 @@ export class AttendanceService {
       relations: ['student', 'lesson'],
     });
 
-    if(!session) {
+    if (!session) {
       throw new NotFoundException(`Session with ID ${id} not found`);
     }
 
@@ -321,7 +321,7 @@ export class AttendanceService {
     studentId: string,
     lessonId: string,
   ): Promise<LessonSession | null> {
-    return this.sessionsRepository.findOne({
+    return await this.sessionsRepository.findOne({
       where: {
         student_id: studentId,
         lesson_id: lessonId,
@@ -350,23 +350,23 @@ export class AttendanceService {
       .where('attendance.student_id = :studentId', { studentId });
 
     // Apply filters
-    if(filter.lesson_id) {
+    if (typeof filter.lesson_id === 'string' && filter.lesson_id !== '') {
       query.andWhere('attendance.lesson_id = :lessonId', {
         lessonId: filter.lesson_id,
       });
     }
 
-    if(filter.status) {
+    if (filter.status !== undefined) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if(filter.from_date) {
+    if (typeof filter.from_date === 'string' && filter.from_date !== '') {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if(filter.to_date) {
+    if (typeof filter.to_date === 'string' && filter.to_date !== '') {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -411,17 +411,17 @@ export class AttendanceService {
       .where('attendance.lesson_id = :lessonId', { lessonId });
 
     // Apply filters
-    if(filter.status) {
+    if (filter.status !== undefined) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if(filter.from_date) {
+    if (typeof filter.from_date === 'string' && filter.from_date !== '') {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if(filter.to_date) {
+    if (typeof filter.to_date === 'string' && filter.to_date !== '') {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -466,29 +466,29 @@ export class AttendanceService {
       .leftJoinAndSelect('attendance.marker', 'marker');
 
     // Apply filters
-    if(filter.student_id) {
+    if (typeof filter.student_id === 'string' && filter.student_id !== '') {
       query.andWhere('attendance.student_id = :studentId', {
         studentId: filter.student_id,
       });
     }
 
-    if(filter.lesson_id) {
+    if (typeof filter.lesson_id === 'string' && filter.lesson_id !== '') {
       query.andWhere('attendance.lesson_id = :lessonId', {
         lessonId: filter.lesson_id,
       });
     }
 
-    if(filter.status) {
+    if (filter.status !== undefined) {
       query.andWhere('attendance.status = :status', { status: filter.status });
     }
 
-    if(filter.from_date) {
+    if (typeof filter.from_date === 'string' && filter.from_date !== '') {
       query.andWhere('attendance.marked_at >= :fromDate', {
         fromDate: filter.from_date,
       });
     }
 
-    if(filter.to_date) {
+    if (typeof filter.to_date === 'string' && filter.to_date !== '') {
       query.andWhere('attendance.marked_at <= :toDate', {
         toDate: filter.to_date,
       });
@@ -538,16 +538,16 @@ export class AttendanceService {
       ])
       .getRawOne<AttendanceStatsRaw>();
 
-    const total = Number(result?.total) || 0;
-    const present = Number(result?.present) || 0;
-    const late = Number(result?.late) || 0;
+    const total = result ? Number(result.total) : 0;
+    const present = result ? Number(result.present) : 0;
+    const late = result ? Number(result.late) : 0;
 
     return {
       total,
       present,
-      absent: Number(result?.absent) || 0,
+      absent: result ? Number(result.absent) : 0,
       late,
-      excused: Number(result?.excused) || 0,
+      excused: result ? Number(result.excused) : 0,
       attendance_rate:
         total > 0 ? Math.round(((present + late) / total) * 100) : 0,
     };
@@ -576,16 +576,16 @@ export class AttendanceService {
       ])
       .getRawOne<AttendanceStatsRaw>();
 
-    const total = Number(result?.total) || 0;
-    const present = Number(result?.present) || 0;
-    const late = Number(result?.late) || 0;
+    const total = result ? Number(result.total) : 0;
+    const present = result ? Number(result.present) : 0;
+    const late = result ? Number(result.late) : 0;
 
     return {
       total,
       present,
-      absent: Number(result?.absent) || 0,
+      absent: result ? Number(result.absent) : 0,
       late,
-      excused: Number(result?.excused) || 0,
+      excused: result ? Number(result.excused) : 0,
       attendance_rate:
         total > 0 ? Math.round(((present + late) / total) * 100) : 0,
     };
