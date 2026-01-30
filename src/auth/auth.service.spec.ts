@@ -14,6 +14,20 @@ import type { RegisterDto } from './dto/register.dto';
 import * as bcrypt from 'bcryptjs';
 import type { Repository } from 'typeorm';
 
+interface RegisterResponse {
+  message: string;
+  userId: string;
+}
+
+interface LoginResponse {
+  status: string;
+  token?: string;
+  refreshToken?: string;
+  role?: string;
+  userId?: string;
+  message?: string;
+}
+
 describe('AuthService', () => {
   let service: AuthService;
   let userRepository: jest.Mocked<Repository<User>>;
@@ -113,10 +127,10 @@ describe('AuthService', () => {
 
       expect(result).toHaveProperty('message');
       expect(result).toHaveProperty('userId');
-      expect((result as any).message).toBe(
+      expect((result as RegisterResponse).message).toBe(
         'Registration request received. Pending approval',
       );
-      expect((result as any).userId).toContain('u_');
+      expect((result as RegisterResponse).userId).toContain('u_');
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {
@@ -388,8 +402,8 @@ describe('AuthService', () => {
       const result = await service.refresh(refreshToken);
 
       // Updated to use new response format
-      expect((result as any).refreshToken).toBeDefined();
-      expect((result as any).refreshToken).not.toBe(refreshToken);
+      expect((result as LoginResponse).refreshToken).toBeDefined();
+      expect((result as LoginResponse).refreshToken).not.toBe(refreshToken);
       expect(userRepository.update).toHaveBeenCalledWith(
         mockUser.id,
         expect.objectContaining({

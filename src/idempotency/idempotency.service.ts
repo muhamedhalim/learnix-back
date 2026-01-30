@@ -161,7 +161,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
         );
         return {
           isProcessed: true,
-          cachedResult: JSON.parse(cachedData as string),
+          cachedResult: JSON.parse(cachedData),
         };
       }
 
@@ -264,7 +264,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
         );
         return {
           isProcessed: true,
-          cachedResult: JSON.parse(cachedData as string),
+          cachedResult: JSON.parse(cachedData),
         };
       }
 
