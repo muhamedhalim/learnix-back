@@ -267,8 +267,8 @@ describe('CommentsService', () => {
       const result = await service.getCommentsByLesson(mockLessonId, 1, 20);
 
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].comment_text).toBe('Great lesson!');
-      expect(result.data[0].replies).toHaveLength(1);
+      expect(result.data?.[0]?.comment_text).toBe('Great lesson!');
+      expect(result.data?.[0]?.replies).toHaveLength(1);
       expect(result.meta.page).toBe(1);
       expect(result.meta.total).toBe(1);
     });

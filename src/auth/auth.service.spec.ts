@@ -113,10 +113,10 @@ describe('AuthService', () => {
 
       expect(result).toHaveProperty('message');
       expect(result).toHaveProperty('userId');
-      expect(result.message).toBe(
+      expect((result as any).message).toBe(
         'Registration request received. Pending approval',
       );
-      expect(result.userId).toContain('u_');
+      expect((result as any).userId).toContain('u_');
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {
@@ -388,8 +388,8 @@ describe('AuthService', () => {
       const result = await service.refresh(refreshToken);
 
       // Updated to use new response format
-      expect(result.refreshToken).toBeDefined();
-      expect(result.refreshToken).not.toBe(refreshToken);
+      expect((result as any).refreshToken).toBeDefined();
+      expect((result as any).refreshToken).not.toBe(refreshToken);
       expect(userRepository.update).toHaveBeenCalledWith(
         mockUser.id,
         expect.objectContaining({
