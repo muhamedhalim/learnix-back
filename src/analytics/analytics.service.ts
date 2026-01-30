@@ -1,20 +1,26 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
-import { Exam } from '../exams/entities/exam.entity';
+import { Exam } from '../exams/entities';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamStatus } from '../exams/entities/exam-status.enum';
+import { QuestionType } from '../exams/entities/question-type.enum';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
   AdminDashboardDto,
+  ExamAnalyticsDto,
+  LessonAnalyticsDto,
+  QuestionAnalysisDto,
   StudentDashboardDto,
   TeacherDashboardDto,
 } from './dto';
@@ -36,6 +42,12 @@ interface AvgResult {
   avg: string | null;
 }
 
+interface AnswerData {
+  question_index: number;
+  is_correct?: boolean;
+  score?: number | null;
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(
@@ -55,6 +67,10 @@ export class AnalyticsService {
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     @InjectRepository(ExamAttempt)
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
+    @InjectRepository(LessonSession)
+    private readonly lessonSessionsRepository: Repository<LessonSession>,
+    @InjectRepository(LessonReview)
+    private readonly lessonReviewsRepository: Repository<LessonReview>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
   ) {}
@@ -338,6 +354,405 @@ export class AnalyticsService {
     await this.cacheManager.set(cacheKey, stats, 300000);
 
     return stats;
+  }
+
+  // ==================== PER-RESOURCE ANALYTICS ====================
+
+  /**
+   * Get analytics for a specific lesson with caching (5-min TTL)
+   * Includes purchases, views, completion rate, revenue, and ratings
+   */
+  public async getLessonAnalytics(
+    lessonId: string,
+  ): Promise<LessonAnalyticsDto> {
+    const cacheKey = `analytics:lesson:${lessonId}`;
+    const cached = await this.cacheManager.get<LessonAnalyticsDto>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Verify lesson exists
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId, deleted_at: IsNull() },
+    });
+
+    if (!lesson) {
+      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+    }
+
+    // Count direct purchases
+    const directPurchases = await this.lessonPurchasesRepository.count({
+      where: { lesson_id: lessonId },
+    });
+
+    // Count package purchases (via lesson_package_items join)
+    const packagePurchasesResult = await this.packagePurchasesRepository
+      .createQueryBuilder('pp')
+      .innerJoin('lesson_packages', 'lp', 'lp.id = pp.package_id')
+      .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = lp.id')
+      .where('lpi.lesson_id = :lessonId', { lessonId })
+      .select('COUNT(DISTINCT pp.id)', 'count')
+      .getRawOne<CountResult>();
+
+    const packagePurchases = parseInt(packagePurchasesResult?.count ?? '0', 10);
+    const totalPurchases = directPurchases + packagePurchases;
+
+    // Count total views (lesson sessions)
+    const totalViews = await this.lessonSessionsRepository.count({
+      where: { lesson_id: lessonId },
+    });
+
+    // Calculate average watch time
+    const avgWatchTimeResult = await this.lessonSessionsRepository
+      .createQueryBuilder('ls')
+      .where('ls.lesson_id = :lessonId', { lessonId })
+      .select('AVG(ls.duration_seconds)', 'avg')
+      .getRawOne<AvgResult>();
+
+    const averageWatchTimeSeconds = parseFloat(avgWatchTimeResult?.avg ?? '0');
+
+    // Calculate completion rate (sessions with 90%+ video progress)
+    const completedSessions = await this.lessonSessionsRepository
+      .createQueryBuilder('ls')
+      .where('ls.lesson_id = :lessonId', { lessonId })
+      .andWhere('ls.video_progress_percent >= 90')
+      .getCount();
+
+    const completionRate =
+      totalViews > 0
+        ? Math.round((completedSessions / totalViews) * 100 * 100) / 100
+        : 0;
+
+    const { directRevenue, packageRevenue } =
+      await this.calculateLessonRevenue(lessonId);
+    const totalRevenue = directRevenue + packageRevenue;
+
+    // Calculate average rating
+    const avgRatingResult = await this.lessonReviewsRepository
+      .createQueryBuilder('lr')
+      .where('lr.lesson_id = :lessonId', { lessonId })
+      .select('AVG(lr.rating)', 'avg')
+      .getRawOne<AvgResult>();
+
+    const averageRating =
+      avgRatingResult?.avg !== null && avgRatingResult?.avg !== undefined
+        ? Math.round(parseFloat(avgRatingResult.avg) * 100) / 100
+        : null;
+
+    // Count total reviews
+    const totalReviews = await this.lessonReviewsRepository.count({
+      where: { lesson_id: lessonId },
+    });
+
+    const analytics: LessonAnalyticsDto = {
+      lesson_id: lessonId,
+      total_purchases: totalPurchases,
+      total_views: totalViews,
+      average_watch_time_seconds: Math.round(averageWatchTimeSeconds),
+      completion_rate: completionRate,
+      revenue: totalRevenue,
+      average_rating: averageRating,
+      total_reviews: totalReviews,
+      revenue_breakdown: {
+        direct_purchases: directRevenue,
+        package_purchases: packageRevenue,
+      },
+      calculated_at: new Date(),
+    };
+
+    // Cache for 5 minutes (300000ms)
+    await this.cacheManager.set(cacheKey, analytics, 300000);
+
+    return analytics;
+  }
+
+  /**
+   * Helper to calculate direct and package revenue for a lesson
+   */
+  private async calculateLessonRevenue(lessonId: string): Promise<{
+    directRevenue: number;
+    packageRevenue: number;
+  }> {
+    // Calculate revenue from direct purchases
+    const directRevenueResult = await this.lessonPurchasesRepository
+      .createQueryBuilder('lp')
+      .where('lp.lesson_id = :lessonId', { lessonId })
+      .select('SUM(lp.price_paid)', 'total')
+      .getRawOne<SumResult>();
+
+    const directRevenue = parseFloat(directRevenueResult?.total ?? '0');
+
+    // Calculate revenue from package purchases (proportional based on lesson price in package)
+    const packageRevenueResult = await this.packagePurchasesRepository
+      .createQueryBuilder('pp')
+      .innerJoin('lesson_packages', 'lp', 'lp.id = pp.package_id')
+      .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = lp.id')
+      .where('lpi.lesson_id = :lessonId', { lessonId })
+      .select('SUM(pp.price_paid)', 'total')
+      .getRawOne<SumResult>();
+
+    // Estimate package revenue contribution (total package revenue / items in package)
+    const packageRevenue = parseFloat(packageRevenueResult?.total ?? '0');
+
+    return { directRevenue, packageRevenue };
+  }
+
+  /**
+   * Get analytics for a specific exam with caching (5-min TTL)
+   * Includes submissions, scores, pass rate, and per-question analysis
+   */
+  public async getExamAnalytics(examId: string): Promise<ExamAnalyticsDto> {
+    const cacheKey = `analytics:exam:${examId}`;
+    const cached = await this.cacheManager.get<ExamAnalyticsDto>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Verify exam exists and get questions for analysis
+    const exam = await this.examsRepository.findOne({
+      where: { id: examId, deleted_at: IsNull() },
+    });
+
+    if (!exam) {
+      throw new NotFoundException(`Exam with ID ${examId} not found`);
+    }
+
+    const { totalSubmissions, inProgressCount, pendingGradingCount } =
+      await this.getExamSubmissionCounts(examId);
+
+    const { averageScore, highestScore, lowestScore } =
+      await this.getExamScoreStats(examId);
+
+    // Calculate pass rate
+    const passRate = await this.calculatePassRate(
+      examId,
+      totalSubmissions,
+      exam.passing_marks,
+    );
+
+    // Get all graded attempts for question analysis
+    const gradedAttempts = await this.examAttemptsRepository.find({
+      where: { exam_id: examId, status: ExamStatus.GRADED },
+      select: ['answers'],
+    });
+
+    // Analyze each question
+    const questionAnalysis: QuestionAnalysisDto[] = this.analyzeExamQuestions(
+      exam,
+      gradedAttempts,
+    );
+
+    // Calculate score distribution (percentage buckets)
+    const scoreDistribution = await this.calculateScoreDistribution(
+      examId,
+      totalSubmissions,
+      exam.total_marks,
+    );
+
+    const analytics: ExamAnalyticsDto = {
+      exam_id: examId,
+      total_submissions: totalSubmissions,
+      in_progress_count: inProgressCount,
+      pending_grading_count: pendingGradingCount,
+      average_score: averageScore,
+      highest_score: highestScore,
+      lowest_score: lowestScore,
+      pass_rate: passRate,
+      question_analysis: questionAnalysis,
+      score_distribution: scoreDistribution,
+      calculated_at: new Date(),
+    };
+
+    // Cache for 5 minutes (300000ms)
+    await this.cacheManager.set(cacheKey, analytics, 300000);
+
+    return analytics;
+  }
+
+  /**
+   * Helper to get exam submission counts
+   */
+  private async getExamSubmissionCounts(examId: string): Promise<{
+    totalSubmissions: number;
+    inProgressCount: number;
+    pendingGradingCount: number;
+  }> {
+    const totalSubmissions = await this.examAttemptsRepository.count({
+      where: { exam_id: examId, status: ExamStatus.GRADED },
+    });
+
+    const inProgressCount = await this.examAttemptsRepository.count({
+      where: { exam_id: examId, status: ExamStatus.IN_PROGRESS },
+    });
+
+    const pendingGradingCount = await this.examAttemptsRepository.count({
+      where: { exam_id: examId, status: ExamStatus.PENDING_GRADING },
+    });
+
+    return { totalSubmissions, inProgressCount, pendingGradingCount };
+  }
+
+  /**
+   * Helper to get exam score statistics
+   */
+  private async getExamScoreStats(examId: string): Promise<{
+    averageScore: number | null;
+    highestScore: number | null;
+    lowestScore: number | null;
+  }> {
+    const scoreStats = await this.examAttemptsRepository
+      .createQueryBuilder('ea')
+      .where('ea.exam_id = :examId', { examId })
+      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
+      .andWhere('ea.total_score IS NOT NULL')
+      .select([
+        'AVG(ea.total_score) as avg_score',
+        'MAX(ea.total_score) as max_score',
+        'MIN(ea.total_score) as min_score',
+      ])
+      .getRawOne<{
+        avg_score: string | null;
+        max_score: string | null;
+        min_score: string | null;
+      }>();
+
+    const averageScore =
+      typeof scoreStats?.avg_score === 'string'
+        ? Math.round(parseFloat(scoreStats.avg_score) * 100) / 100
+        : null;
+    const highestScore =
+      typeof scoreStats?.max_score === 'string'
+        ? parseFloat(scoreStats.max_score)
+        : null;
+    const lowestScore =
+      typeof scoreStats?.min_score === 'string'
+        ? parseFloat(scoreStats.min_score)
+        : null;
+
+    return { averageScore, highestScore, lowestScore };
+  }
+
+  /**
+   * Helper to calculate exam pass rate
+   */
+  private async calculatePassRate(
+    examId: string,
+    totalSubmissions: number,
+    passingMarks: number,
+  ): Promise<number | null> {
+    if (totalSubmissions <= 0) {
+      return null;
+    }
+
+    const passedCount = await this.examAttemptsRepository
+      .createQueryBuilder('ea')
+      .where('ea.exam_id = :examId', { examId })
+      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
+      .andWhere('ea.total_score >= :passingMarks', {
+        passingMarks,
+      })
+      .getCount();
+
+    return Math.round((passedCount / totalSubmissions) * 100 * 100) / 100;
+  }
+
+  /**
+   * Helper to analyze questions in an exam
+   */
+  private analyzeExamQuestions(
+    exam: Exam,
+    gradedAttempts: ExamAttempt[],
+  ): QuestionAnalysisDto[] {
+    return exam.questions.map((question, index) => {
+      let correctAnswers = 0;
+      let wrongAnswers = 0;
+      let totalScore = 0;
+      let scoreCount = 0;
+
+      for (const attempt of gradedAttempts) {
+        const answers = attempt.answers as unknown as AnswerData[];
+        const answer = answers.find((a) => a.question_index === index);
+        if (!answer) {
+          continue;
+        }
+
+        if (question.type === QuestionType.MCQ) {
+          if (answer.is_correct === true) {
+            correctAnswers++;
+          } else {
+            wrongAnswers++;
+          }
+        }
+
+        if (typeof answer.score === 'number') {
+          totalScore += answer.score;
+          scoreCount++;
+        }
+      }
+
+      return {
+        question_index: index,
+        question_type: question.type,
+        correct_answers: correctAnswers,
+        wrong_answers: wrongAnswers,
+        average_score:
+          scoreCount > 0
+            ? Math.round((totalScore / scoreCount) * 100) / 100
+            : null,
+        max_marks: question.marks,
+      };
+    });
+  }
+
+  /**
+   * Helper to calculate score distribution buckets
+   */
+  private async calculateScoreDistribution(
+    examId: string,
+    totalSubmissions: number,
+    totalMarks: number,
+  ): Promise<{
+    '0-20': number;
+    '21-40': number;
+    '41-60': number;
+    '61-80': number;
+    '81-100': number;
+  }> {
+    const scoreDistribution = {
+      '0-20': 0,
+      '21-40': 0,
+      '41-60': 0,
+      '61-80': 0,
+      '81-100': 0,
+    };
+
+    if (totalSubmissions > 0 && totalMarks > 0) {
+      const allScores = await this.examAttemptsRepository.find({
+        where: { exam_id: examId, status: ExamStatus.GRADED },
+        select: ['total_score'],
+      });
+
+      for (const attempt of allScores) {
+        if (typeof attempt.total_score !== 'number') {
+          continue;
+        }
+        const percentage = (attempt.total_score / totalMarks) * 100;
+
+        if (percentage <= 20) {
+          scoreDistribution['0-20']++;
+        } else if (percentage <= 40) {
+          scoreDistribution['21-40']++;
+        } else if (percentage <= 60) {
+          scoreDistribution['41-60']++;
+        } else if (percentage <= 80) {
+          scoreDistribution['61-80']++;
+        } else {
+          scoreDistribution['81-100']++;
+        }
+      }
+    }
+
+    return scoreDistribution;
   }
 
   /**

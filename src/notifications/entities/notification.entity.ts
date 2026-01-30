@@ -1,4 +1,5 @@
 import { User } from '../../users/entities/user.entity';
+import { NotificationStatus } from './notification-status.enum';
 import { NotificationType } from './notification-type.enum';
 import {
   Column,
@@ -53,6 +54,23 @@ export class Notification {
 
   @Column({ type: 'varchar', length: 20, nullable: true, name: 'sms_to' })
   sms_to!: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: NotificationStatus,
+    default: NotificationStatus.PENDING,
+  })
+  @Index('IDX_notifications_status')
+  status!: NotificationStatus;
+
+  @Column({ type: 'int', default: 0 })
+  attempts!: number;
+
+  @Column({ type: 'text', nullable: true, name: 'error_message' })
+  error_message!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'delivered_at' })
+  delivered_at!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

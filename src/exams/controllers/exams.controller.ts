@@ -11,7 +11,7 @@ import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { ExamFilterDto, SubmitExamDto } from '../dto';
+import { ExamFilterDto, ExamPreviewResponseDto, SubmitExamDto } from '../dto';
 import { ExamsService } from '../exams.service';
 
 @ApiTags('Exams')
@@ -97,12 +97,17 @@ export class ExamsController {
       'Returns exam metadata including title, duration, question counts, and passing marks. Does NOT include questions or answers.',
   })
   @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam preview metadata',
+    type: ExamPreviewResponseDto,
+  })
+  @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Exam not found or inactive',
   })
   public async getExamPreview(
     @Param('id', ParseUUIDPipe) examId: string,
-  ): Promise<unknown> {
+  ): Promise<ExamPreviewResponseDto> {
     return await this.examsService.getExamPreview(examId);
   }
 

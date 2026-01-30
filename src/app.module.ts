@@ -1,10 +1,12 @@
 import { CacheModule } from '@nestjs/cache-manager';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -14,6 +16,7 @@ import { AttendanceCodesModule } from './attendance-codes/attendance-codes.modul
 import { AuthModule } from './auth/auth.module';
 // Phase 5: Books & Attendance & Analytics & Cart
 import { BooksModule } from './books/books.module';
+import { BulkOperationsModule } from './bulk-operations/bulk-operations.module';
 import { CallCenterModule } from './callcenter/callcenter.module';
 import { CartModule } from './cart/cart.module';
 import { CommentsModule } from './comments/comments.module';
@@ -52,6 +55,7 @@ import { redisStore } from 'cache-manager-redis-yet';
       envFilePath: '.env',
       validate,
     }),
+    EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true,
@@ -194,6 +198,10 @@ import { redisStore } from 'cache-manager-redis-yet';
     AttendanceModule,
     AnalyticsModule,
     CartModule,
+
+    // Phase 3 Enhancements: Activity Logging & Bulk Operations
+    ActivityLogsModule,
+    BulkOperationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

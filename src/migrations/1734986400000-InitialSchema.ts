@@ -118,7 +118,6 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         "vimeo_embed_html" text,
         "thumbnail_url" character varying,
         "difficulty_level" character varying,
-        "is_published" boolean DEFAULT false,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP,
@@ -128,7 +127,6 @@ export class InitialSchema1734986400000 implements MigrationInterface {
       );
       CREATE INDEX IF NOT EXISTS "IDX_lessons_teacher_id" ON "lessons" ("teacher_id");
       CREATE INDEX IF NOT EXISTS "IDX_lessons_subject_id" ON "lessons" ("subject_id");
-      CREATE INDEX IF NOT EXISTS "IDX_lessons_is_published" ON "lessons" ("is_published");
       CREATE INDEX IF NOT EXISTS "IDX_lessons_deleted_at" ON "lessons" ("deleted_at");
 
       -- Lesson packages table
@@ -142,7 +140,7 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         "subject_id" uuid NOT NULL,
         "price" numeric(10,2) NOT NULL,
         "original_price" numeric(10,2) NOT NULL,
-        "is_published" boolean DEFAULT false,
+        "is_active" boolean DEFAULT true,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP,
@@ -183,7 +181,7 @@ export class InitialSchema1734986400000 implements MigrationInterface {
         "duration_minutes" integer NOT NULL,
         "passing_score" numeric(5,2) NOT NULL,
         "total_points" numeric(10,2) NOT NULL,
-        "is_published" boolean DEFAULT false,
+        "is_active" boolean DEFAULT true,
         "created_at" TIMESTAMP NOT NULL DEFAULT now(),
         "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         "deleted_at" TIMESTAMP,

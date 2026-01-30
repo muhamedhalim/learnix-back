@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -11,6 +13,7 @@ import {
 import {
   ApiBearerAuth,
   ApiOperation,
+  ApiParam,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -21,7 +24,11 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { AttendanceCodesService } from '../attendance-codes.service';
-import { AttendanceCodeFilterDto, GenerateAttendanceCodesDto } from '../dto';
+import {
+  AttendanceCodeFilterDto,
+  GenerateAttendanceCodesDto,
+  UpdateAttendanceCodeDto,
+} from '../dto';
 
 @ApiTags('Admin - Attendance Codes')
 @Controller('admin/attendance-codes')
@@ -92,6 +99,14 @@ export class AdminAttendanceCodesController {
     return { data: stats };
   }
 
+  @Get(':code')
+  @ApiOperation({
+    summary: 'Get attendance code details',
+    description:
+      'Returns detailed information about a specific attendance code.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code details' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   public async findOne(@Param('code') code: string): Promise<{
     data: unknown;
@@ -104,6 +119,128 @@ export class AdminAttendanceCodesController {
     return { data: attendanceCode };
   }
 
+  @Patch(':code')
+  @ApiOperation({
+    summary: 'Update attendance code',
+    description:
+      'Updates an attendance code. Only allows updating expiration date. Cannot update used or deactivated codes.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Code updated successfully',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Cannot update used or deactivated code',
+  })
+  public async updateCode(
+    @Param('code') code: string,
+    @Body() dto: UpdateAttendanceCodeDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const updatedCode = await this.attendanceCodesService.updateCode(code, dto);
+    return {
+      message: 'Purchase code updated successfully',
+      data: {
+        code: updatedCode.code,
+        type: updatedCode.type,
+        item_id: updatedCode.item_id,
+        expires_at: updatedCode.expires_at,
+        is_active: updatedCode.is_active,
+        is_used: updatedCode.is_used,
+      },
+    };
+  }
+
+  @Post(':code/deactivate')
+  @ApiOperation({
+    summary: 'Deactivate attendance code',
+    description:
+      'Deactivates an attendance code, making it unusable without deleting it. Cannot deactivate used codes.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Code deactivated successfully',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Cannot deactivate used or already deactivated code',
+  })
+  public async deactivateCode(
+    @Param('code') code: string,
+  ): Promise<{ message: string; data: unknown }> {
+    const deactivatedCode =
+      await this.attendanceCodesService.deactivateCode(code);
+    return {
+      message: 'Purchase code deactivated successfully',
+      data: {
+        code: deactivatedCode.code,
+        is_active: deactivatedCode.is_active,
+      },
+    };
+  }
+
+  @Post(':code/reactivate')
+  @ApiOperation({
+    summary: 'Reactivate attendance code',
+    description:
+      'Reactivates a previously deactivated attendance code. Cannot reactivate used or expired codes.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Code reactivated successfully',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Cannot reactivate used or expired code',
+  })
+  public async reactivateCode(
+    @Param('code') code: string,
+  ): Promise<{ message: string; data: unknown }> {
+    const reactivatedCode =
+      await this.attendanceCodesService.reactivateCode(code);
+    return {
+      message: 'Purchase code reactivated successfully',
+      data: {
+        code: reactivatedCode.code,
+        is_active: reactivatedCode.is_active,
+      },
+    };
+  }
+
+  @Get(':code/usage')
+  @ApiOperation({
+    summary: 'Get attendance code usage history',
+    description:
+      'Returns usage details for a specific attendance code, including who used it and when.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Code usage history' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
+  public async getCodeUsage(
+    @Param('code') code: string,
+  ): Promise<{ data: unknown }> {
+    const usage = await this.attendanceCodesService.getCodeUsage(code);
+    return { data: usage };
+  }
+
+  @Delete(':code')
+  @ApiOperation({
+    summary: 'Delete attendance code',
+    description:
+      'Permanently deletes an attendance code. Cannot delete used codes.',
+  })
+  @ApiParam({ name: 'code', description: 'The attendance code string' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Code deleted successfully',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Cannot delete used code',

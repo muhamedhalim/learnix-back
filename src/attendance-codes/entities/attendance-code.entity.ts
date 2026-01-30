@@ -31,6 +31,9 @@ export class AttendanceCode {
   @Column({ type: 'boolean', default: false, name: 'is_used' })
   is_used!: boolean;
 
+  @Column({ type: 'boolean', default: true, name: 'is_active' })
+  is_active!: boolean;
+
   @Column({ type: 'uuid', nullable: true, name: 'used_by' })
   used_by!: string | null;
 

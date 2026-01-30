@@ -21,6 +21,7 @@ import {
 import {
   AttendanceCodeFilterDto,
   GenerateAttendanceCodesDto,
+  UpdateAttendanceCodeDto,
   VerifyAttendanceCodeDto,
 } from './dto';
 import { AttendanceCode, AttendanceCodeType } from './entities';
@@ -181,18 +182,21 @@ export class AttendanceCodesService {
     userId: string,
   ): Promise<Payment> {
     return await retryTransaction(this.dataSource, async (manager) => {
-      // Find unused, unexpired code with pessimistic lock
+      // Find unused, unexpired, active code with pessimistic lock
       const code = await manager.findOne(AttendanceCode, {
         where: {
           code: dto.code.toUpperCase(),
           is_used: false,
+          is_active: true,
           expires_at: MoreThan(new Date()),
         },
         lock: { mode: 'pessimistic_write' },
       });
 
       if (!code) {
-        throw new NotFoundException('Invalid or expired purchase code');
+        throw new NotFoundException(
+          'Invalid, expired, or deactivated purchase code',
+        );
       }
 
       // Mark as used
@@ -387,6 +391,162 @@ export class AttendanceCodesService {
       where: { code: code.toUpperCase() },
       relations: ['user', 'creator'],
     });
+  }
+
+  /**
+   * Update a purchase code (admin only)
+   * Only allows updating expiration date
+   */
+  public async updateCode(
+    code: string,
+    dto: UpdateAttendanceCodeDto,
+  ): Promise<AttendanceCode> {
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
+      where: { code: code.toUpperCase() },
+      relations: ['user', 'creator'],
+    });
+
+    if (!attendanceCode) {
+      throw new NotFoundException('Purchase code not found');
+    }
+
+    if (attendanceCode.is_used) {
+      throw new BadRequestException('Cannot update a used purchase code');
+    }
+
+    if (!attendanceCode.is_active) {
+      throw new BadRequestException(
+        'Cannot update a deactivated purchase code',
+      );
+    }
+
+    // Update expiration date if provided
+    if (typeof dto.expires_at === 'string') {
+      const newExpiresAt = new Date(dto.expires_at);
+      if (newExpiresAt <= new Date()) {
+        throw new BadRequestException('Expiration date must be in the future');
+      }
+      attendanceCode.expires_at = newExpiresAt;
+    }
+
+    const updatedCode =
+      await this.attendanceCodesRepository.save(attendanceCode);
+    this.logger.log(`Updated purchase code: ${code}`);
+
+    return updatedCode;
+  }
+
+  /**
+   * Deactivate a purchase code (admin only)
+   * Makes the code unusable without deleting it
+   */
+  public async deactivateCode(code: string): Promise<AttendanceCode> {
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
+      where: { code: code.toUpperCase() },
+      relations: ['user', 'creator'],
+    });
+
+    if (!attendanceCode) {
+      throw new NotFoundException('Purchase code not found');
+    }
+
+    if (attendanceCode.is_used) {
+      throw new BadRequestException('Cannot deactivate a used purchase code');
+    }
+
+    if (!attendanceCode.is_active) {
+      throw new BadRequestException('Purchase code is already deactivated');
+    }
+
+    attendanceCode.is_active = false;
+    const updatedCode =
+      await this.attendanceCodesRepository.save(attendanceCode);
+    this.logger.log(`Deactivated purchase code: ${code}`);
+
+    return updatedCode;
+  }
+
+  /**
+   * Reactivate a deactivated purchase code (admin only)
+   */
+  public async reactivateCode(code: string): Promise<AttendanceCode> {
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
+      where: { code: code.toUpperCase() },
+      relations: ['user', 'creator'],
+    });
+
+    if (!attendanceCode) {
+      throw new NotFoundException('Purchase code not found');
+    }
+
+    if (attendanceCode.is_used) {
+      throw new BadRequestException('Cannot reactivate a used purchase code');
+    }
+
+    if (attendanceCode.is_active) {
+      throw new BadRequestException('Purchase code is already active');
+    }
+
+    // Check if code is expired
+    if (attendanceCode.expires_at < new Date()) {
+      throw new BadRequestException(
+        'Cannot reactivate an expired code. Update the expiration date first.',
+      );
+    }
+
+    attendanceCode.is_active = true;
+    const updatedCode =
+      await this.attendanceCodesRepository.save(attendanceCode);
+    this.logger.log(`Reactivated purchase code: ${code}`);
+
+    return updatedCode;
+  }
+
+  /**
+   * Get usage history for a specific code (admin only)
+   * Returns the student who used the code and purchase details
+   */
+  public async getCodeUsage(code: string): Promise<{
+    code: string;
+    type: AttendanceCodeType;
+    item_id: string;
+    is_used: boolean;
+    is_active: boolean;
+    expires_at: Date;
+    created_at: Date;
+    usage: {
+      used_by: string | null;
+      user_name: string | null;
+      user_email: string | null;
+      used_at: Date | null;
+    } | null;
+  }> {
+    const attendanceCode = await this.attendanceCodesRepository.findOne({
+      where: { code: code.toUpperCase() },
+      relations: ['user'],
+    });
+
+    if (!attendanceCode) {
+      throw new NotFoundException('Purchase code not found');
+    }
+
+    return {
+      code: attendanceCode.code,
+      type: attendanceCode.type,
+      item_id: attendanceCode.item_id,
+      is_used: attendanceCode.is_used,
+      is_active: attendanceCode.is_active,
+      expires_at: attendanceCode.expires_at,
+      created_at: attendanceCode.created_at,
+      usage: attendanceCode.is_used
+        ? {
+            used_by: attendanceCode.used_by,
+            user_name: attendanceCode.user?.name ?? null,
+            user_email: attendanceCode.user?.email ?? null,
+            used_at: attendanceCode.used_at,
+          }
+        : null,
+    };
   }
 
   /**

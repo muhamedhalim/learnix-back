@@ -90,7 +90,12 @@ export class UsersController {
   @Post('me/profile-picture')
   @Throttle({ default: THROTTLE.FILE_UPLOAD })
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload profile picture' })
+  @ApiOperation({
+    summary: 'Upload profile picture',
+    description:
+      'Uploads a profile picture with automatic thumbnail generation (150x150). ' +
+      'Accepts jpg, jpeg, png, and webp files up to 5MB.',
+  })
   public async uploadProfilePicture(
     @Request() req: UserRequest,
     @UploadedFile(
@@ -110,6 +115,21 @@ export class UsersController {
       throw new ForbiddenException('User not authenticated');
     }
     return await this.usersService.uploadProfilePicture(userId, file);
+  }
+
+  @Delete('me/profile-picture')
+  @ApiOperation({
+    summary: 'Delete profile picture',
+    description: 'Deletes the current user profile picture and thumbnail.',
+  })
+  public async deleteProfilePicture(
+    @Request() req: UserRequest,
+  ): Promise<unknown> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+    return await this.usersService.deleteProfilePicture(userId);
   }
 
   @ApiOperation({ summary: 'Delete own account' })

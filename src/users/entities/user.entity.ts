@@ -60,6 +60,9 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   profile_picture_url!: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  profile_picture_thumbnail_url!: string | null;
+
   @Column({ type: 'varchar', unique: true, nullable: true })
   firebase_uid!: string | null;
 

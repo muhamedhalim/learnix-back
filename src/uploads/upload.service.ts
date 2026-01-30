@@ -354,6 +354,144 @@ export class UploadService {
     throw new InternalServerErrorException('Failed to process image upload');
   }
 
+  /**
+   * Upload a profile picture with automatic thumbnail generation
+   * Returns URLs for both the original (max 1920px) and thumbnail (150x150)
+   */
+  public async uploadProfilePicture(file: Express.Multer.File): Promise<{
+    url: string;
+    thumbnailUrl: string;
+    filename: string;
+    thumbnailFilename: string;
+  }> {
+    const uploadStartTime = Date.now();
+    this.logger.log(
+      `Profile picture upload started - Original filename: ${file.originalname}, Size: ${String(file.size)} bytes`,
+    );
+
+    // Basic and dimension validations
+    await this.validateProfilePicture(file);
+
+    try {
+      // Generate unique filename base
+      const filenameBase = randomUUID();
+
+      // Process main image (max 1920px width)
+      const mainImageBuffer = await sharp(file.buffer)
+        .resize({
+          width: this.maxImageWidth,
+          height: undefined,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .jpeg({
+          quality: this.imageQuality,
+          progressive: true,
+        })
+        .toBuffer();
+
+      // Process thumbnail (150x150, center crop)
+      const thumbnailBuffer = await sharp(file.buffer)
+        .resize({
+          width: 150,
+          height: 150,
+          fit: 'cover',
+          position: 'centre',
+        })
+        .jpeg({
+          quality: 85,
+          progressive: true,
+        })
+        .toBuffer();
+
+      // Save main image
+      const filename = `${filenameBase}.jpg`;
+      const filepath = join(this.uploadDir, 'profiles', filename);
+      await writeFile(filepath, mainImageBuffer);
+
+      // Save thumbnail
+      const thumbnailFilename = `${filenameBase}_thumb.jpg`;
+      const thumbnailPath = join(this.uploadDir, 'profiles', thumbnailFilename);
+      await writeFile(thumbnailPath, thumbnailBuffer);
+
+      const processingTime = Date.now() - uploadStartTime;
+      this.logger.log(
+        `Profile picture upload completed in ${String(processingTime)}ms - Filename: ${filename}`,
+      );
+
+      return {
+        url: `/uploads/profiles/${filename}`,
+        thumbnailUrl: `/uploads/profiles/${thumbnailFilename}`,
+        filename,
+        thumbnailFilename,
+      };
+    } catch (error) {
+      this.logger.error(`Profile picture processing failed: ${String(error)}`);
+      throw new InternalServerErrorException(
+        'Failed to process profile picture',
+      );
+    }
+  }
+
+  /**
+   * Validates profile picture file and dimensions
+   */
+  private async validateProfilePicture(
+    file: Express.Multer.File,
+  ): Promise<void> {
+    // Basic validations
+    this.validateFileSize(file, 'profiles');
+    this.validateContentType(file);
+    this.validatePathTraversal(file.originalname);
+
+    // Validate image MIME type
+    const allowedMimeTypes =
+      FILE_LIMITS.ALLOWED_IMAGE_TYPES as readonly string[];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      this.logger.warn(`Upload rejected - Invalid MIME type: ${file.mimetype}`);
+      throw new BadRequestException(
+        `Invalid file type. Only ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')} are allowed`,
+      );
+    }
+
+    // Validate file extension
+    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+    if (
+      fileExtension === undefined ||
+      fileExtension === '' ||
+      !allowedExtensions.includes(fileExtension)
+    ) {
+      throw new BadRequestException(
+        'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
+      );
+    }
+
+    try {
+      const metadata = await sharp(file.buffer).metadata();
+      const { width, height } = metadata;
+
+      // Validate dimensions
+      if (width < 150 || height < 150) {
+        throw new BadRequestException(
+          'Profile picture must be at least 150x150 pixels',
+        );
+      }
+
+      if (width > this.maxImageDimension || height > this.maxImageDimension) {
+        throw new BadRequestException(
+          `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('Failed to validate image dimensions');
+    }
+  }
+
   public async deleteFile(folder: string, filename: string): Promise<void> {
     this.logger.log(
       `Delete file requested - Folder: ${folder}, File: ${filename}`,

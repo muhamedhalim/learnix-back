@@ -12,7 +12,7 @@ export class UpdateUserRegistration1736445601000 implements MigrationInterface {
 
     await queryRunner.query(`
       UPDATE "users"
-      SET "name" = COALESCE(TRIM(CONCAT(first_name, ' ', last_name)), email)
+      SET "name" = COALESCE("full_name", email)
       WHERE "name" IS NULL
     `);
 

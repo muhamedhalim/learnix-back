@@ -1,5 +1,20 @@
-import { Body, Controller, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
@@ -10,6 +25,7 @@ import { UserRole } from '../../users/entities/user-role.enum';
 import { ManualNotificationDto, ManualNotificationResponseDto } from '../dto';
 import { Notification } from '../entities';
 import { NotificationTriggersService } from '../services/notification-triggers.service';
+import { NotificationsService } from '../services/notifications.service';
 import { SmsSenderService } from '../services/sms-sender.service';
 import { Repository } from 'typeorm';
 
@@ -20,6 +36,7 @@ import { Repository } from 'typeorm';
 @Roles('admin')
 export class AdminNotificationsController {
   constructor(
+    private readonly notificationsService: NotificationsService,
     private readonly notificationTriggersService: NotificationTriggersService,
     private readonly smsSenderService: SmsSenderService,
     @InjectRepository(User)
@@ -149,6 +166,73 @@ export class AdminNotificationsController {
         }, {}),
         last_24_hours: last24Hours,
         last_7_days: last7Days,
+      },
+    };
+  }
+
+  @Get(':notificationId')
+  @ApiOperation({
+    summary: 'Get notification details',
+    description:
+      'Returns detailed information about a specific notification including status, attempts, and error messages.',
+  })
+  @ApiParam({
+    name: 'notificationId',
+    description: 'Notification UUID',
+    type: String,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notification details',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Notification not found',
+  })
+  public async getNotificationDetails(
+    @Param('notificationId', ParseUUIDPipe) notificationId: string,
+  ): Promise<{ data: unknown }> {
+    const details =
+      await this.notificationsService.getNotificationDetails(notificationId);
+    return { data: details };
+  }
+
+  @Post(':notificationId/retry')
+  @ApiOperation({
+    summary: 'Retry a failed notification',
+    description:
+      'Retries sending a failed notification. Only notifications with status "failed" can be retried.',
+  })
+  @ApiParam({
+    name: 'notificationId',
+    description: 'Notification UUID',
+    type: String,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notification retry initiated',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Notification not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Notification is not in failed status',
+  })
+  public async retryNotification(
+    @Param('notificationId', ParseUUIDPipe) notificationId: string,
+  ): Promise<{ message: string; data: unknown }> {
+    const notification =
+      await this.notificationsService.retryNotification(notificationId);
+    return {
+      message: 'Notification retry initiated',
+      data: {
+        id: notification.id,
+        status: notification.status,
+        attempts: notification.attempts,
+        sms_sent: notification.sms_sent,
+        error_message: notification.error_message,
       },
     };
   }

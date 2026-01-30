@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { StudentProfile } from '../../students/entities/student-profile.entity';
@@ -10,6 +15,7 @@ import {
 import {
   Notification,
   NotificationSettings,
+  NotificationStatus,
   NotificationType,
 } from '../entities';
 import { SmsSenderService } from './sms-sender.service';
@@ -61,6 +67,10 @@ export class NotificationsService {
       sent_at: now,
       sms_sent: false,
       sms_to: null,
+      status: NotificationStatus.PENDING,
+      attempts: 0,
+      error_message: null,
+      delivered_at: null,
     });
 
     const saved = await this.notificationsRepository.save(notification);
@@ -74,15 +84,131 @@ export class NotificationsService {
   }
 
   /**
+   * Get a notification by ID
+   */
+  public async findOne(notificationId: string): Promise<Notification> {
+    const notification = await this.notificationsRepository.findOne({
+      where: { id: notificationId },
+      relations: ['user'],
+    });
+
+    if (!notification) {
+      throw new NotFoundException(
+        `Notification with ID ${notificationId} not found`,
+      );
+    }
+
+    return notification;
+  }
+
+  /**
+   * Get notification details with user info (admin view)
+   */
+  public async getNotificationDetails(notificationId: string): Promise<{
+    id: string;
+    type: NotificationType;
+    title: string;
+    message: string;
+    data: Record<string, unknown> | null;
+    status: NotificationStatus;
+    attempts: number;
+    error_message: string | null;
+    sms_sent: boolean;
+    sms_to: string | null;
+    sent_at: Date;
+    delivered_at: Date | null;
+    read_at: Date | null;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+    };
+  }> {
+    const notification = await this.findOne(notificationId);
+
+    return {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      data: notification.data,
+      status: notification.status,
+      attempts: notification.attempts,
+      error_message: notification.error_message,
+      sms_sent: notification.sms_sent,
+      sms_to: notification.sms_to,
+      sent_at: notification.sent_at,
+      delivered_at: notification.delivered_at,
+      read_at: notification.read_at,
+      user: {
+        id: notification.user.id,
+        name: notification.user.name,
+        email: notification.user.email,
+      },
+    };
+  }
+
+  /**
+   * Retry a failed notification
+   * Only works for notifications with status=FAILED
+   */
+  public async retryNotification(
+    notificationId: string,
+  ): Promise<Notification> {
+    const notification = await this.notificationsRepository.findOne({
+      where: { id: notificationId },
+    });
+
+    if (!notification) {
+      throw new NotFoundException(
+        `Notification with ID ${notificationId} not found`,
+      );
+    }
+
+    if (notification.status !== NotificationStatus.FAILED) {
+      throw new BadRequestException(
+        `Cannot retry notification with status '${notification.status}'. Only failed notifications can be retried.`,
+      );
+    }
+
+    // Increment attempts and reset status to pending
+    notification.attempts += 1;
+    notification.status = NotificationStatus.PENDING;
+    notification.error_message = null;
+    notification.sent_at = new Date();
+
+    await this.notificationsRepository.save(notification);
+
+    // Attempt to resend SMS
+    await this.trySendSms(notification);
+
+    // Reload and return updated notification
+    const updated = await this.notificationsRepository.findOne({
+      where: { id: notificationId },
+    });
+
+    return updated ?? notification;
+  }
+
+  /**
    * Attempt to send SMS for a notification
+   * Updates status tracking fields based on result
    */
   private async trySendSms(notification: Notification): Promise<void> {
+    // Increment attempts locally
+    const currentAttempts = notification.attempts + 1;
+
     // Get user settings
     const settings = await this.getOrCreateSettings(notification.user_id);
 
     // Check if SMS is enabled and if this notification type should trigger SMS
     if (!settings.sms_enabled) {
       this.logger.debug(`SMS disabled for user ${notification.user_id}`);
+      // Mark as sent (no SMS needed)
+      await this.notificationsRepository.update(notification.id, {
+        status: NotificationStatus.SENT,
+        attempts: currentAttempts,
+      });
       return;
     }
 
@@ -90,6 +216,11 @@ export class NotificationsService {
       this.logger.debug(
         `SMS not enabled for type ${notification.type} for user ${notification.user_id}`,
       );
+      // Mark as sent (no SMS needed for this type)
+      await this.notificationsRepository.update(notification.id, {
+        status: NotificationStatus.SENT,
+        attempts: currentAttempts,
+      });
       return;
     }
 
@@ -100,21 +231,61 @@ export class NotificationsService {
     );
 
     if (parentPhone !== null && parentPhone !== '') {
-      // Send SMS
-      const result = await this.smsSenderService.sendSms(
-        parentPhone,
-        notification.message,
-      );
+      try {
+        // Send SMS
+        const result = await this.smsSenderService.sendSms(
+          parentPhone,
+          notification.message,
+        );
 
-      if (result.success) {
+        if (result.success) {
+          await this.notificationsRepository.update(notification.id, {
+            sms_sent: true,
+            sms_to: parentPhone,
+            status: NotificationStatus.DELIVERED,
+            attempts: currentAttempts,
+            delivered_at: new Date(),
+            error_message: null,
+          });
+          this.logger.log(
+            `SMS delivered for notification ${notification.id} to ${parentPhone}`,
+          );
+        } else {
+          // SMS send returned failure
+          const errorMessage = result.error ?? 'SMS delivery failed';
+          await this.notificationsRepository.update(notification.id, {
+            sms_to: parentPhone,
+            status: NotificationStatus.FAILED,
+            attempts: currentAttempts,
+            error_message: errorMessage,
+          });
+          this.logger.warn(
+            `SMS failed for notification ${notification.id}: ${errorMessage}`,
+          );
+        }
+      } catch (error) {
+        // Exception during SMS send
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
         await this.notificationsRepository.update(notification.id, {
-          sms_sent: true,
           sms_to: parentPhone,
+          status: NotificationStatus.FAILED,
+          attempts: currentAttempts,
+          error_message: errorMessage,
         });
+        this.logger.error(
+          `SMS exception for notification ${notification.id}: ${errorMessage}`,
+        );
       }
     } else {
+      // No parent phone - mark as sent but log warning
+      await this.notificationsRepository.update(notification.id, {
+        status: NotificationStatus.SENT,
+        attempts: currentAttempts,
+        error_message: 'No parent phone number available',
+      });
       this.logger.warn(
-        `No parent phone for user ${notification.user_id}, skipping SMS`,
+        `No parent phone for user ${notification.user_id}, marked as sent`,
       );
     }
   }

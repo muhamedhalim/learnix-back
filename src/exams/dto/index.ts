@@ -16,3 +16,6 @@ export {
   SortOrder,
   StudentExamFilterDto,
 } from './exam-filter.dto';
+
+// Response DTOs
+export { ExamPreviewResponseDto } from './exam-preview-response.dto';

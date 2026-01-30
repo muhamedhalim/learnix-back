@@ -103,6 +103,7 @@ export class UsersService {
         'is_active',
         'role',
         'profile_picture_url',
+        'profile_picture_thumbnail_url',
         'created_at',
         'last_login',
       ],
@@ -121,6 +122,7 @@ export class UsersService {
       is_active: user.is_active,
       role: user.role,
       profile_picture_url: user.profile_picture_url,
+      profile_picture_thumbnail_url: user.profile_picture_thumbnail_url,
       created_at: user.created_at,
       last_login: user.last_login,
     };
@@ -337,25 +339,110 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
+    // Delete old profile picture and thumbnail if they exist
     if (user.profile_picture_url !== null && user.profile_picture_url !== '') {
       const filename = user.profile_picture_url.split('/').pop();
       if (filename !== undefined && filename !== '') {
-        await this.uploadService.deleteFile('profiles', filename);
+        try {
+          await this.uploadService.deleteFile('profiles', filename);
+        } catch {
+          this.logger.warn(`Failed to delete old profile picture: ${filename}`);
+        }
       }
     }
 
-    const { url } = await this.uploadService.uploadFile(file, 'profiles');
+    if (
+      user.profile_picture_thumbnail_url !== null &&
+      user.profile_picture_thumbnail_url !== ''
+    ) {
+      const thumbnailFilename = user.profile_picture_thumbnail_url
+        .split('/')
+        .pop();
+      if (thumbnailFilename !== undefined && thumbnailFilename !== '') {
+        try {
+          await this.uploadService.deleteFile('profiles', thumbnailFilename);
+        } catch {
+          this.logger.warn(
+            `Failed to delete old thumbnail: ${thumbnailFilename}`,
+          );
+        }
+      }
+    }
+
+    // Upload new profile picture with thumbnail generation
+    const { url, thumbnailUrl } =
+      await this.uploadService.uploadProfilePicture(file);
     user.profile_picture_url = url;
+    user.profile_picture_thumbnail_url = thumbnailUrl;
 
     await this.userRepository.save(user);
 
     // Invalidate user profile cache
     await this.invalidateUserCache(userId);
 
+    this.logger.log(`Profile picture uploaded for user ${userId}`);
+
     return {
       message: 'Profile picture uploaded successfully',
       url,
+      thumbnailUrl,
     };
+  }
+
+  /**
+   * Delete user's profile picture
+   */
+  public async deleteProfilePicture(userId: string): Promise<unknown> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    if (user.profile_picture_url === null || user.profile_picture_url === '') {
+      return { message: 'No profile picture to delete' };
+    }
+
+    // Delete main profile picture
+    const filename = user.profile_picture_url.split('/').pop();
+    if (filename !== undefined && filename !== '') {
+      try {
+        await this.uploadService.deleteFile('profiles', filename);
+      } catch {
+        this.logger.warn(`Failed to delete profile picture: ${filename}`);
+      }
+    }
+
+    // Delete thumbnail
+    if (
+      user.profile_picture_thumbnail_url !== null &&
+      user.profile_picture_thumbnail_url !== ''
+    ) {
+      const thumbnailFilename = user.profile_picture_thumbnail_url
+        .split('/')
+        .pop();
+      if (thumbnailFilename !== undefined && thumbnailFilename !== '') {
+        try {
+          await this.uploadService.deleteFile('profiles', thumbnailFilename);
+        } catch {
+          this.logger.warn(`Failed to delete thumbnail: ${thumbnailFilename}`);
+        }
+      }
+    }
+
+    // Clear URLs in database
+    user.profile_picture_url = null;
+    user.profile_picture_thumbnail_url = null;
+    await this.userRepository.save(user);
+
+    // Invalidate user profile cache
+    await this.invalidateUserCache(userId);
+
+    this.logger.log(`Profile picture deleted for user ${userId}`);
+
+    return { message: 'Profile picture deleted successfully' };
   }
 
   /**
