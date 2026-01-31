@@ -2,6 +2,7 @@ import { Controller, Request, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { User } from '../users/entities/user.entity';
+
 import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 
 interface AuthenticatedRequest extends Request {

@@ -8,6 +8,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  DataSource,
+  EntityManager,
+  IsNull,
+  LessThanOrEqual,
+  MoreThan,
+  Repository,
+  SelectQueryBuilder,
+} from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
@@ -28,16 +37,8 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../entities';
+
 import { PaymobService } from './paymob.service';
-import {
-  DataSource,
-  EntityManager,
-  IsNull,
-  LessThanOrEqual,
-  MoreThan,
-  Repository,
-  SelectQueryBuilder,
-} from 'typeorm';
 
 export interface PaymentResponse {
   payment_id: string;
@@ -1032,15 +1033,15 @@ export class PaymentsService {
 
     // Get revenue grouped by period
 
-    const dateFormats = {
-      day: 'YYYY-MM-DD',
+    const dateFormats = new Map<string, string>([
+      ['day', 'YYYY-MM-DD'],
 
-      week: 'IYYY-IW',
+      ['week', 'IYYY-IW'],
 
-      month: 'YYYY-MM',
-    };
+      ['month', 'YYYY-MM'],
+    ]);
 
-    const dateFormat = dateFormats[groupBy];
+    const dateFormat = dateFormats.get(groupBy) ?? 'YYYY-MM-DD';
 
     const periodQuery = this.getTeacherRevenueBaseQuery(
       teacherId,

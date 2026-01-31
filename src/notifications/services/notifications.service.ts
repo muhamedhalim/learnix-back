@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import { StudentProfile } from '../../students/entities/student-profile.entity';
 import {
@@ -18,8 +19,8 @@ import {
   NotificationStatus,
   NotificationType,
 } from '../entities';
+
 import { SmsSenderService } from './sms-sender.service';
-import { Repository } from 'typeorm';
 
 export interface PaginatedNotifications {
   data: Notification[];

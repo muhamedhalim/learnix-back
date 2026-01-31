@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-
 import sanitizeHtml from 'sanitize-html';
 
 /**
@@ -223,8 +222,9 @@ export class SanitizationService {
     const sanitized = { ...obj };
 
     for (const field of fieldsToSanitize) {
-      if (typeof obj[field] === 'string') {
-        const originalValue = obj[field] as string;
+      const value = Reflect.get(obj, field);
+      if (typeof value === 'string') {
+        const originalValue = value;
         let sanitizedValue: string;
 
         switch (level) {
@@ -239,7 +239,7 @@ export class SanitizationService {
             break;
         }
 
-        sanitized[field] = sanitizedValue as T[keyof T];
+        Reflect.set(sanitized, field, sanitizedValue);
       }
     }
 

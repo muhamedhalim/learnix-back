@@ -1,5 +1,3 @@
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { User } from '../../users/entities/user.entity';
 import {
   Check,
   Column,
@@ -12,6 +10,9 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('lesson_reviews')
 @Unique('UQ_lesson_review_lesson_student', ['lesson_id', 'student_id'])

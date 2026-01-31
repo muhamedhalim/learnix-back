@@ -1,5 +1,4 @@
 import { Logger } from '@nestjs/common';
-
 import type { DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -39,8 +38,8 @@ export interface TransactionRetryOptions {
  */
 interface DeadlockCheckResult {
   isDeadlock: boolean;
-  errorCode?: string;
-  errorMessage?: string;
+  errorCode?: string | undefined;
+  errorMessage?: string | undefined;
 }
 
 /**
@@ -163,16 +162,16 @@ function extractErrorMessage(error: unknown): string {
   }
 
   const errorObj = error as Record<string, unknown>;
-  const driverError = errorObj.driverError as
+  const driverError = errorObj['driverError'] as
     | Record<string, unknown>
     | undefined;
 
-  if (typeof errorObj.message === 'string') {
-    return errorObj.message;
+  if (typeof errorObj['message'] === 'string') {
+    return errorObj['message'];
   }
 
-  if (typeof driverError?.message === 'string') {
-    return driverError.message;
+  if (typeof driverError?.['message'] === 'string') {
+    return driverError['message'];
   }
 
   return error instanceof Error ? error.message : 'Unknown error';
@@ -187,11 +186,11 @@ function extractErrorCode(error: unknown): string | number | undefined {
   }
 
   const errorObj = error as Record<string, unknown>;
-  const driverError = errorObj.driverError as
+  const driverError = errorObj['driverError'] as
     | Record<string, unknown>
     | undefined;
 
-  return (errorObj.code ?? driverError?.code ?? errorObj.errno) as
+  return (errorObj['code'] ?? driverError?.['code'] ?? errorObj['errno']) as
     | string
     | number
     | undefined;

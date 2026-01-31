@@ -2,7 +2,7 @@ import type { HttpException, Logger } from '@nestjs/common';
 
 export interface ParsedError {
   message: string;
-  code?: string;
+  code?: string | undefined;
 }
 
 export function parseError(error: unknown): ParsedError {

@@ -1,6 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-import { BillingDataDto } from './billing-data.dto';
 import { Type } from 'class-transformer';
 import {
   IsNotEmpty,
@@ -9,6 +7,8 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+
+import { BillingDataDto } from './billing-data.dto';
 
 export class PurchaseLessonDto {
   @ApiProperty({

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
+
 import {
   AdminNotificationsController,
   NotificationsController,

@@ -1,8 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { ApplicableItem } from '../entities/applicable-item.enum';
 import { Type } from 'class-transformer';
 import { IsEnum, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+
+import { ApplicableItem } from '../entities/applicable-item.enum';
 
 export class VerifyDiscountCodeDto {
   @IsNotEmpty()

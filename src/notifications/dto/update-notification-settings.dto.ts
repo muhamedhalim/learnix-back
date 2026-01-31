@@ -1,5 +1,4 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-
 import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 
 export class UpdateNotificationSettingsDto {

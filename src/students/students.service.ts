@@ -8,6 +8,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Cache } from 'cache-manager';
+import { Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -18,6 +20,7 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+
 import {
   RejectStudentDto,
   StudentFilterDto,
@@ -25,8 +28,6 @@ import {
   UpdateStudentProfileDto,
 } from './dto';
 import { StudentProfile } from './entities/student-profile.entity';
-import type { Cache } from 'cache-manager';
-import { Repository } from 'typeorm';
 
 /**
  * Response type for student profile with user info

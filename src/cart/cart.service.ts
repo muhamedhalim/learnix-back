@@ -5,9 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+
 import {
   AddToCartDto,
   CartItemResponseDto,
@@ -17,7 +19,6 @@ import {
 } from './dto';
 import { Cart } from './entities/cart.entity';
 import { CartItem, CartItemType } from './entities/cart-item.entity';
-import { IsNull, Repository } from 'typeorm';
 
 @Injectable()
 export class CartService {

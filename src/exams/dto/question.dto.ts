@@ -1,6 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { QuestionType } from '../entities';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -11,6 +9,8 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+
+import { QuestionType } from '../entities';
 
 /**
  * DTO for exam questions

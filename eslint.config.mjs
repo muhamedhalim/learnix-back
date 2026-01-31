@@ -1,6 +1,7 @@
 // @ts-check
 import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import security from 'eslint-plugin-security';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -14,6 +15,7 @@ export default tseslint.config(
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
   eslintPluginPrettierRecommended,
+  security.configs.recommended,
 
   {
     languageOptions: {
@@ -23,7 +25,7 @@ export default tseslint.config(
       },
       sourceType: 'module',
       parserOptions: {
-        projectService: true,
+        project: './tsconfig.eslint.json',
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -39,11 +41,11 @@ export default tseslint.config(
         {
           groups: [
             ['^node:'],
-            ['^@nestjs', '^@?\w'],
+            ['^@nestjs', '^@?\\w'],
             ['^@/'],
-            ['^\.\.'],
-            ['^\./'],
-            ['^\u0000'],
+            ['^\\.\\.'],
+            ['^\\.'],
+            ['^\\u0000'],
           ],
         },
       ],
@@ -160,6 +162,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-enum-comparison': 'error',
       '@typescript-eslint/prefer-literal-enum-member': 'error',
       '@typescript-eslint/no-mixed-enums': 'error',
+      '@typescript-eslint/prefer-enum-initializers': 'error',
 
       '@typescript-eslint/no-duplicate-type-constituents': 'error',
       '@typescript-eslint/no-redundant-type-constituents': 'error',
@@ -226,6 +229,10 @@ export default tseslint.config(
         },
       ],
       '@typescript-eslint/prefer-string-starts-ends-with': 'error',
+      '@typescript-eslint/prefer-regexp-exec': 'error',
+
+      // Deprecation detection - catches deprecated API usage
+      '@typescript-eslint/no-deprecated': 'warn',
 
       '@typescript-eslint/naming-convention': [
         'error',
@@ -278,6 +285,23 @@ export default tseslint.config(
       'no-console': 'warn',
       'no-debugger': 'error',
       'no-alert': 'error',
+
+      // Restrict internal module imports
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/internal/*', '**/internal'],
+              message: 'Do not import from internal module paths. Use the public API instead.',
+            },
+            {
+              group: ['src/**/!(index)', '!src/**/index'],
+              message: 'Import from module index files, not internal files directly.',
+            },
+          ],
+        },
+      ],
       'no-var': 'error',
       'prefer-const': 'error',
       'prefer-arrow-callback': 'error',
@@ -312,6 +336,20 @@ export default tseslint.config(
       'max-nested-callbacks': ['error', 3],
       complexity: ['warn', 15],
 
+      // Security rules - critical for backend handling payments/user data
+      'security/detect-object-injection': 'warn',
+      'security/detect-non-literal-regexp': 'warn',
+      'security/detect-possible-timing-attacks': 'warn',
+      'security/detect-non-literal-fs-filename': 'warn',
+      'security/detect-eval-with-expression': 'error',
+      'security/detect-no-csrf-before-method-override': 'error',
+      'security/detect-buffer-noassert': 'error',
+      'security/detect-child-process': 'warn',
+      'security/detect-disable-mustache-escape': 'error',
+      'security/detect-new-buffer': 'error',
+      'security/detect-unsafe-regex': 'error',
+      'security/detect-pseudoRandomBytes': 'warn',
+
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
@@ -328,6 +366,10 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       'max-nested-callbacks': 'off',
+      // Relax security rules in tests - dynamic patterns are common
+      'security/detect-object-injection': 'off',
+      'security/detect-non-literal-regexp': 'off',
+      'security/detect-non-literal-fs-filename': 'off',
     },
   },
 
@@ -364,6 +406,10 @@ export default tseslint.config(
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/explicit-member-accessibility': 'off',
       'no-console': 'off',
+      // Scripts legitimately use dynamic paths and child processes
+      'security/detect-non-literal-fs-filename': 'off',
+      'security/detect-child-process': 'off',
+      'security/detect-object-injection': 'off',
     },
   },
 

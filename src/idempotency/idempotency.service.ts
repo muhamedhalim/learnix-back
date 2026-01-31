@@ -5,7 +5,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
 import { createClient, RedisClientType } from 'redis';
 
 /**

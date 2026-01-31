@@ -1,7 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { ItemType } from '../entities/item-type.enum';
-import { PaymentStatus } from '../entities/payment-status.enum';
 import { Type } from 'class-transformer';
 import {
   IsDateString,
@@ -13,6 +10,9 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+import { ItemType } from '../entities/item-type.enum';
+import { PaymentStatus } from '../entities/payment-status.enum';
 
 export class PaymentFilterDto {
   @ApiProperty({

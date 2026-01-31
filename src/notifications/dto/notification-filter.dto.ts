@@ -1,6 +1,4 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-
-import { NotificationType } from '../entities/notification-type.enum';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -10,6 +8,8 @@ import {
   IsOptional,
   Min,
 } from 'class-validator';
+
+import { NotificationType } from '../entities/notification-type.enum';
 
 export class NotificationFilterDto {
   @ApiPropertyOptional({

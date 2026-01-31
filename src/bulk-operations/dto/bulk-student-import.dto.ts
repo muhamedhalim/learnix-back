@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
 import { IsEmail, IsOptional, IsString, Matches } from 'class-validator';
 
 /**
@@ -36,7 +35,7 @@ export class StudentImportRowDto {
   @Matches(/^01[0125]\d{8}$/, {
     message: 'Parent phone must be Egyptian format (01XXXXXXXXX)',
   })
-  public parent_phone?: string;
+  public parent_phone?: string | undefined;
 
   @ApiPropertyOptional({
     description: 'Grade level (1-12)',
@@ -44,7 +43,7 @@ export class StudentImportRowDto {
   })
   @IsOptional()
   @IsString()
-  public grade_level?: string;
+  public grade_level?: string | undefined;
 }
 
 /**
@@ -70,7 +69,7 @@ export class BulkImportResultDto {
   })
   public errors!: Array<{
     row: number;
-    email?: string;
+    email?: string | undefined;
     errors: string[];
   }>;
 
@@ -109,7 +108,7 @@ export class BulkImportPreviewDto {
   })
   public validation_errors!: Array<{
     row: number;
-    email?: string;
+    email?: string | undefined;
     errors: string[];
   }>;
 }

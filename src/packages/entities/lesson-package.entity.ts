@@ -1,6 +1,4 @@
-import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
-import { User } from '../../users/entities/user.entity';
-import { LessonPackageItem } from './lesson-package-item.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +11,11 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import type { PackagePurchase } from '../../payments/entities/package-purchase.entity';
+import { User } from '../../users/entities/user.entity';
+
+import type { LessonPackageItem } from './lesson-package-item.entity';
 
 @Entity('lesson_packages')
 @Index('IDX_lesson_packages_teacher_id', ['teacher_id'])
@@ -54,10 +57,10 @@ export class LessonPackage {
   @Column('varchar', { length: 500, nullable: true })
   thumbnail!: string | null;
 
-  @OneToMany(() => LessonPackageItem, (item) => item.package, {
+  @OneToMany('LessonPackageItem', 'package', {
     cascade: true,
   })
-  items!: LessonPackageItem[];
+  items!: Relation<LessonPackageItem[]>;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
@@ -69,6 +72,6 @@ export class LessonPackage {
   deleted_at!: Date | null;
 
   // Phase 4: Payment relations
-  @OneToMany(() => PackagePurchase, (purchase) => purchase.package)
-  purchases!: PackagePurchase[];
+  @OneToMany('PackagePurchase', 'package')
+  purchases!: Relation<PackagePurchase[]>;
 }

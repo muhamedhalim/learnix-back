@@ -1,6 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 import { Type } from 'class-transformer';
 import {
   IsDateString,
@@ -10,6 +8,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 
 export class GenerateAttendanceCodesDto {
   @IsEnum(AttendanceCodeType)

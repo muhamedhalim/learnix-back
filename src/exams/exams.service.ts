@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -14,6 +15,7 @@ import {
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+
 import {
   CreateExamDto,
   ExamFilterDto,
@@ -30,7 +32,6 @@ import {
   Question,
   QuestionType,
 } from './entities';
-import { IsNull, Repository } from 'typeorm';
 
 /**
  * Response type for exam with teacher and subject details
@@ -84,7 +85,7 @@ export interface ExamForTaking {
     type: QuestionType;
     question: string;
     question_ar: string;
-    choices?: string[];
+    choices?: string[] | undefined;
     marks: number;
   }>;
 }
@@ -122,11 +123,11 @@ export interface ExamResult {
     question: string;
     question_ar: string;
     your_answer: string;
-    correct_answer?: string;
-    is_correct?: boolean;
+    correct_answer?: string | undefined;
+    is_correct?: boolean | undefined;
     score: number;
     max_marks: number;
-    feedback?: string | null;
+    feedback?: string | null | undefined;
   }>;
   submitted_at: Date;
   graded_at: Date;
@@ -345,7 +346,7 @@ export class ExamsService {
 
     // Map results with stats
     const exams: ExamListItem[] = rawResults.entities.map((exam, index) => {
-      const raw = rawResults.raw[index] as RawExamStats | undefined;
+      const raw = rawResults.raw.at(index) as RawExamStats | undefined;
       const count = parseInt(raw?.submissions_count ?? '0', 10);
       const avg = raw?.average_score;
 
@@ -409,9 +410,9 @@ export class ExamsService {
       total_score: attempt.total_score ?? null,
       status: attempt.status,
       essay_answers: attempt.answers
-        .filter((_, i) => exam.questions[i]?.type === QuestionType.ESSAY)
+        .filter((_, i) => exam.questions.at(i)?.type === QuestionType.ESSAY)
         .map((ans: Answer) => {
-          const q = exam.questions[ans.question_index];
+          const q = exam.questions.at(ans.question_index);
           return {
             question_index: ans.question_index,
             question: q?.question ?? '',
@@ -816,8 +817,8 @@ export class ExamsService {
       index: number;
       type: 'mcq' | 'essay';
       question: string;
-      question_ar?: string;
-      choices?: string[];
+      question_ar?: string | undefined;
+      choices?: string[] | undefined;
       marks: number;
     }>;
     expiration_time: Date;
@@ -954,9 +955,8 @@ export class ExamsService {
     const sortedAnswers = [...dto.answers].sort(
       (a, b) => a.question_index - b.question_index,
     );
-    for (let i = 0; i < sortedAnswers.length; i++) {
-      const ans = sortedAnswers[i];
-      if (!ans || ans.question_index !== i) {
+    for (const [i, ans] of sortedAnswers.entries()) {
+      if (ans.question_index !== i) {
         throw new BadRequestException(
           `Missing or invalid question index. Expected sequential indices 0 to ${String(exam.questions.length - 1)}`,
         );
@@ -1277,12 +1277,7 @@ export class ExamsService {
     const questions: Question[] = [];
     let totalMarks = 0;
 
-    for (let i = 0; i < dtoQuestions.length; i++) {
-      const q = dtoQuestions[i];
-      if (!q) {
-        continue;
-      } // TypeScript guard
-
+    for (const [i, q] of dtoQuestions.entries()) {
       // Validate MCQ questions
       if (q.type === QuestionType.MCQ) {
         this.validateMcqQuestion(q, i);

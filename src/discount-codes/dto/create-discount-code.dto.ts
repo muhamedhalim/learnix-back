@@ -1,7 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { ApplicableItem } from '../entities/applicable-item.enum';
-import { DiscountType } from '../entities/discount-type.enum';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -15,6 +12,9 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+
+import { ApplicableItem } from '../entities/applicable-item.enum';
+import { DiscountType } from '../entities/discount-type.enum';
 
 export class CreateDiscountCodeDto {
   @MaxLength(50)

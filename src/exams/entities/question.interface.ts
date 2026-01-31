@@ -10,8 +10,8 @@ export interface Question {
   type: QuestionType;
   question: string;
   question_ar: string;
-  choices?: string[]; // Only for MCQ (2-6 options)
-  correct_answer?: string; // Only for MCQ (must be in choices)
+  choices?: string[] | undefined; // Only for MCQ (2-6 options)
+  correct_answer?: string | undefined; // Only for MCQ (must be in choices)
   marks: number;
 }
 
@@ -24,7 +24,7 @@ export interface Question {
 export interface Answer {
   question_index: number; // 0-based index into exam.questions
   answer: string; // Student's answer text
-  score?: number | null; // Marks awarded (null for ungraded essays)
-  is_correct?: boolean; // Only for MCQ (auto-calculated)
-  feedback?: string | null; // Only for essays (from teacher)
+  score?: number | null | undefined; // Marks awarded (null for ungraded essays)
+  is_correct?: boolean | undefined; // Only for MCQ (auto-calculated)
+  feedback?: string | null | undefined; // Only for essays (from teacher)
 }

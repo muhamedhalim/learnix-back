@@ -6,13 +6,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import type { JwtPayload } from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
-import { Request } from 'express';
-import type { JwtPayload } from 'jsonwebtoken';
-import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class HybridAuthGuard implements CanActivate {
@@ -90,7 +90,7 @@ export class HybridAuthGuard implements CanActivate {
         : undefined;
 
     const email =
-      typeof payloadObj.email === 'string' ? payloadObj.email : undefined;
+      typeof payloadObj['email'] === 'string' ? payloadObj['email'] : undefined;
 
     if (
       sub === undefined ||

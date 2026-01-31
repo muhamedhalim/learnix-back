@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -27,7 +28,6 @@ import { Notification } from '../entities';
 import { NotificationTriggersService } from '../services/notification-triggers.service';
 import { NotificationsService } from '../services/notifications.service';
 import { SmsSenderService } from '../services/sms-sender.service';
-import { Repository } from 'typeorm';
 
 @ApiTags('Admin - Notifications')
 @ApiBearerAuth('JWT-auth')

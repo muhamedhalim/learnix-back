@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -14,6 +15,7 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+
 import {
   AssignSubjectsDto,
   RejectTeacherDto,
@@ -21,7 +23,6 @@ import {
   UpdateTeacherProfileDto,
 } from './dto';
 import { TeacherProfile } from './entities/teacher-profile.entity';
-import { In, Repository } from 'typeorm';
 
 /**
  * Response type for teacher profile with user info and subjects

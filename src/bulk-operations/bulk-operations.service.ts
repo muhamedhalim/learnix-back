@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as Papa from 'papaparse';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { AttendanceCodesService } from '../attendance-codes/attendance-codes.service';
 import { AttendanceCodeType } from '../attendance-codes/entities';
@@ -15,6 +17,7 @@ import { StudentProfile } from '../students/entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+
 import {
   BulkAttendanceCodesDto,
   BulkAttendanceCodesResultDto,
@@ -27,8 +30,6 @@ import {
   BulkUserActionResultDto,
   StudentImportRowDto,
 } from './dto';
-import * as Papa from 'papaparse';
-import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 /**
  * Interface for parsed CSV row
@@ -67,7 +68,7 @@ export class BulkOperationsService {
     const validRows: StudentImportRowDto[] = [];
     const validationErrors: Array<{
       row: number;
-      email?: string;
+      email?: string | undefined;
       errors: string[];
     }> = [];
 
@@ -80,12 +81,7 @@ export class BulkOperationsService {
 
     let duplicateCount = 0;
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row === undefined) {
-        continue;
-      }
-
+    for (const [i, row] of rows.entries()) {
       const errors = this.validateStudentRow(row);
       const rowNumber = i + 2; // CSV row number (1-indexed, accounting for header)
 
@@ -174,13 +170,7 @@ export class BulkOperationsService {
       const batch = rows.slice(batchStart, batchStart + batchSize);
 
       await this.dataSource.transaction(async (manager) => {
-        for (let i = 0; i < batch.length; i++) {
-          const row = batch[i];
-
-          if (row === undefined) {
-            continue;
-          }
-
+        for (const [i, row] of batch.entries()) {
           const rowNumber = batchStart + i + 2; // CSV row number
 
           const rowResult = await this.processImportRow(
@@ -240,9 +230,11 @@ export class BulkOperationsService {
   ): Promise<{
     success: boolean;
 
-    skipped?: boolean;
+    skipped?: boolean | undefined;
 
-    error?: { row: number; email?: string; errors: string[] };
+    error?:
+      | { row: number; email?: string | undefined; errors: string[] }
+      | undefined;
   }> {
     try {
       // Validate row

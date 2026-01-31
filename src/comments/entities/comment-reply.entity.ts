@@ -1,5 +1,4 @@
-import { User } from '../../users/entities/user.entity';
-import { Comment } from './comment.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +9,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import type { Comment } from './comment.entity';
 
 @Entity('comment_replies')
 @Index('IDX_comment_replies_comment_id', ['comment_id'])
@@ -22,11 +25,11 @@ export class CommentReply {
   @Column({ type: 'uuid', nullable: false, name: 'comment_id' })
   comment_id!: string;
 
-  @ManyToOne(() => Comment, (comment) => comment.replies, {
+  @ManyToOne('Comment', 'replies', {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'comment_id' })
-  comment!: Comment;
+  comment!: Relation<Comment>;
 
   @Column({ type: 'uuid', nullable: false, name: 'teacher_id' })
   teacher_id!: string;

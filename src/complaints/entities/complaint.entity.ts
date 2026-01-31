@@ -1,6 +1,3 @@
-import { User } from '../../users/entities/user.entity';
-import { ComplaintStatus } from '../enums/complaint-status.enum';
-import { ComplaintType } from '../enums/complaint-type.enum';
 import {
   Column,
   CreateDateColumn,
@@ -12,6 +9,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+import { ComplaintStatus } from '../enums/complaint-status.enum';
+import { ComplaintType } from '../enums/complaint-type.enum';
 
 @Entity('complaints')
 @Index('IDX_complaints_student_id', ['student_id'])

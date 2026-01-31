@@ -1,6 +1,4 @@
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { User } from '../../users/entities/user.entity';
-import { CommentReply } from './comment-reply.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +11,11 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { User } from '../../users/entities/user.entity';
+
+import type { CommentReply } from './comment-reply.entity';
 
 @Entity('comments')
 @Index('IDX_comments_lesson_id', ['lesson_id'])
@@ -40,11 +43,11 @@ export class Comment {
   @Column({ type: 'text', nullable: false, name: 'comment_text' })
   comment_text!: string;
 
-  @OneToMany(() => CommentReply, (reply) => reply.comment, {
+  @OneToMany('CommentReply', 'comment', {
     cascade: ['soft-remove'],
     eager: false,
   })
-  replies!: CommentReply[];
+  replies!: Relation<CommentReply[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

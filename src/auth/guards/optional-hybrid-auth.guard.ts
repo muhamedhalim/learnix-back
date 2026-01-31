@@ -5,13 +5,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import type { JwtPayload } from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
-import { Request } from 'express';
-import type { JwtPayload } from 'jsonwebtoken';
-import * as jwt from 'jsonwebtoken';
 
 /**
  * Optional authentication guard that extracts user info when available
@@ -79,8 +79,8 @@ export class OptionalHybridAuthGuard implements CanActivate {
         : undefined;
 
     const email =
-      payloadObj !== null && typeof payloadObj.email === 'string'
-        ? payloadObj.email
+      payloadObj !== null && typeof payloadObj['email'] === 'string'
+        ? payloadObj['email']
         : undefined;
 
     if (sub === undefined || email === undefined) {

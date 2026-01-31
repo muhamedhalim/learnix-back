@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
 import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateVimeoInfoDto {

@@ -1,6 +1,4 @@
-import { LessonPackage } from '../../packages/entities/lesson-package.entity';
-import { User } from '../../users/entities/user.entity';
-import { Payment } from './payment.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +8,11 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import type { LessonPackage } from '../../packages/entities/lesson-package.entity';
+import { User } from '../../users/entities/user.entity';
+
+import { Payment } from './payment.entity';
 
 @Entity('package_purchases')
 @Index('IDX_package_purchases_student_id', ['student_id'])
@@ -29,9 +32,9 @@ export class PackagePurchase {
   @Column({ type: 'uuid', name: 'package_id' })
   package_id!: string;
 
-  @ManyToOne(() => LessonPackage, { onDelete: 'CASCADE' })
+  @ManyToOne('LessonPackage', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'package_id' })
-  package!: LessonPackage;
+  package!: Relation<LessonPackage>;
 
   @Column({ type: 'uuid', name: 'payment_id' })
   payment_id!: string;

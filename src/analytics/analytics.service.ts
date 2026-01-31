@@ -1,6 +1,8 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Cache } from 'cache-manager';
+import { IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
@@ -16,6 +18,7 @@ import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+
 import {
   AdminDashboardDto,
   ExamAnalyticsDto,
@@ -24,8 +27,6 @@ import {
   StudentDashboardDto,
   TeacherDashboardDto,
 } from './dto';
-import type { Cache } from 'cache-manager';
-import { IsNull, Repository } from 'typeorm';
 
 /**
  * Type definitions for raw query results

@@ -1,6 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { GradeLevel } from './create-subject.dto';
 import {
   IsEnum,
   IsOptional,
@@ -8,6 +6,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+import { GradeLevel } from './create-subject.dto';
 
 export class UpdateSubjectDto {
   @ApiProperty({

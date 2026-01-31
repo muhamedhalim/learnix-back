@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -13,11 +14,11 @@ import {
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { Comment } from './entities/comment.entity';
 import { CommentReply } from './entities/comment-reply.entity';
-import { IsNull, Repository } from 'typeorm';
 
 export interface CommentWithReplies {
   id: string;

@@ -163,11 +163,11 @@ function isDeadlockError(error: unknown): boolean {
 
   // Check for PostgreSQL deadlock error code in various error structures
   const errorObj = error as Record<string, unknown>;
-  const driverError = errorObj.driverError as
+  const driverError = errorObj['driverError'] as
     | Record<string, unknown>
     | undefined;
 
-  const errorCode = (errorObj.code ?? driverError?.code) as
+  const errorCode = (errorObj['code'] ?? driverError?.['code']) as
     | string
     | number
     | undefined;

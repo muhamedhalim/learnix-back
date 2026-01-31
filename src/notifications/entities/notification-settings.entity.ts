@@ -1,4 +1,3 @@
-import { User } from '../../users/entities/user.entity';
 import {
   Column,
   CreateDateColumn,
@@ -9,6 +8,8 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
 
 @Entity('notification_settings')
 @Index('IDX_notification_settings_user', ['user_id'], { unique: true })

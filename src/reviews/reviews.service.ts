@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -15,6 +16,7 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+
 import { CreateReviewDto } from './dto/create-review.dto';
 import { LessonReview } from './entities/lesson-review.entity';
 import { TeacherReview } from './entities/teacher-review.entity';
@@ -22,7 +24,6 @@ import {
   ReviewAggregates,
   ReviewWithStudent,
 } from './interfaces/review-aggregates.interface';
-import { Repository } from 'typeorm';
 
 @Injectable()
 export class ReviewsService {

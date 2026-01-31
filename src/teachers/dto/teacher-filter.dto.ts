@@ -1,6 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { UserStatus } from '../../users/entities/user-status.enum';
 import { Type } from 'class-transformer';
 import {
   IsEnum,
@@ -11,6 +9,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+import { UserStatus } from '../../users/entities/user-status.enum';
 
 export class TeacherFilterDto {
   @ApiProperty({

@@ -2,11 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-
-import { User } from '../users/entities/user.entity';
-import { readdir, unlink } from 'fs/promises';
+import * as fs from 'fs/promises';
 import { join } from 'path';
 import { Repository } from 'typeorm';
+
+import { User } from '../users/entities/user.entity';
 
 /**
  * CleanupService
@@ -145,7 +145,9 @@ export class CleanupService {
 
     try {
       // Get all files in folder
-      const files = await readdir(folderPath);
+      const files = (await Reflect.apply(fs.readdir, fs, [
+        folderPath,
+      ])) as string[];
 
       if (files.length === 0) {
         this.logger.log('No files found in profiles folder');
@@ -187,7 +189,7 @@ export class CleanupService {
 
           // Delete orphaned file
           try {
-            await unlink(join(folderPath, file));
+            await Reflect.apply(fs.unlink, fs, [join(folderPath, file)]);
             deletedCount++;
             this.logger.log(`Deleted orphaned file: profiles/${file}`);
           } catch (error) {

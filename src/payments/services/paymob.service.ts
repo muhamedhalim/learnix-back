@@ -4,10 +4,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymobTransactionDto } from '../dto/paymob-webhook.dto';
-import * as crypto from 'crypto';
 
 interface PaymobAuthResponse {
   token: string;

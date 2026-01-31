@@ -5,6 +5,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { redisStore } from 'cache-manager-redis-yet';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -46,7 +47,6 @@ import { UploadModule } from './uploads/upload.module';
 // import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
-import { redisStore } from 'cache-manager-redis-yet';
 
 @Module({
   imports: [
@@ -146,7 +146,7 @@ import { redisStore } from 'cache-manager-redis-yet';
 
         return {
           type: 'postgres',
-          url: databaseUrl,
+          url: databaseUrl ?? '',
           autoLoadEntities: true,
           synchronize: shouldSynchronize,
           logging: !isProduction,
@@ -154,7 +154,7 @@ import { redisStore } from 'cache-manager-redis-yet';
             databaseUrl !== undefined && databaseUrl !== '' && isProduction
               ? {
                   rejectUnauthorized:
-                    process.env.SSL_REJECT_UNAUTHORIZED !== 'false',
+                    process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false',
                 }
               : false,
         };

@@ -8,6 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -16,7 +17,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { AttendanceService } from '../attendance.service';
 import { UpdateSessionDto } from '../dto';
-import type { Request } from 'express';
 
 @ApiTags('Lesson Sessions')
 @Controller('lessons')

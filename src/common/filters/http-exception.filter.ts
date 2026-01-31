@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-
 import { Request, Response } from 'express';
 
 /**
@@ -109,7 +108,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       type = this.getTypeFromStatus(status);
     } else if (exception instanceof Error) {
       // Handle non-HTTP errors - hide sensitive details in production
-      const isProduction = process.env.NODE_ENV === 'production';
+      const isProduction = process.env['NODE_ENV'] === 'production';
       detail = isProduction
         ? 'An unexpected error occurred. Please try again later.'
         : exception.message;
@@ -140,20 +139,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
    * Map HTTP status code to RFC 7807 type URI
    */
   private getTypeFromStatus(status: number): string {
-    const typeMap: Record<number, string> = {
-      400: 'https://httpstatuses.com/400',
-      401: 'https://httpstatuses.com/401',
-      403: 'https://httpstatuses.com/403',
-      404: 'https://httpstatuses.com/404',
-      409: 'https://httpstatuses.com/409',
-      422: 'https://httpstatuses.com/422',
-      429: 'https://httpstatuses.com/429',
-      500: 'https://httpstatuses.com/500',
-      502: 'https://httpstatuses.com/502',
-      503: 'https://httpstatuses.com/503',
-    };
+    const typeMap = new Map<number, string>([
+      [400, 'https://httpstatuses.com/400'],
+      [401, 'https://httpstatuses.com/401'],
+      [403, 'https://httpstatuses.com/403'],
+      [404, 'https://httpstatuses.com/404'],
+      [409, 'https://httpstatuses.com/409'],
+      [422, 'https://httpstatuses.com/422'],
+      [429, 'https://httpstatuses.com/429'],
+      [500, 'https://httpstatuses.com/500'],
+      [502, 'https://httpstatuses.com/502'],
+      [503, 'https://httpstatuses.com/503'],
+    ]);
 
-    return typeMap[status] ?? 'about:blank';
+    return typeMap.get(status) ?? 'about:blank';
   }
 
   /**

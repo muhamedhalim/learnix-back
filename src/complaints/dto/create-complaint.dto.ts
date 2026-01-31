@@ -1,5 +1,6 @@
-import { ComplaintType } from '../enums/complaint-type.enum';
 import { IsEnum, IsOptional, IsUUID, MaxLength } from 'class-validator';
+
+import { ComplaintType } from '../enums/complaint-type.enum';
 
 export class CreateComplaintDto {
   @IsEnum(ComplaintType)

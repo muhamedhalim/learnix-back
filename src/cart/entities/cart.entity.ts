@@ -1,5 +1,4 @@
-import { User } from '../../users/entities/user.entity';
-import { CartItem } from './cart-item.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -11,6 +10,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import type { CartItem } from './cart-item.entity';
 
 /**
  * Cart entity - Stores shopping cart for each user
@@ -29,8 +32,8 @@ export class Cart {
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @OneToMany(() => CartItem, (item) => item.cart, { cascade: true })
-  items!: CartItem[];
+  @OneToMany('CartItem', 'cart', { cascade: true })
+  items!: Relation<CartItem[]>;
 
   @Column({
     type: 'varchar',

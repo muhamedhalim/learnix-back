@@ -1,6 +1,3 @@
-import { User } from '../../users/entities/user.entity';
-import { NotificationStatus } from './notification-status.enum';
-import { NotificationType } from './notification-type.enum';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +7,11 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import { NotificationStatus } from './notification-status.enum';
+import { NotificationType } from './notification-type.enum';
 
 @Entity('notifications')
 @Index('IDX_notifications_user_id', ['user_id'])

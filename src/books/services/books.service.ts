@@ -6,12 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
-import { IsNull, Repository } from 'typeorm';
 
 @Injectable()
 export class BooksService {

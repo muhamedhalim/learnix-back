@@ -10,12 +10,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-
-import { THROTTLE, UPLOAD_FOLDERS } from '../common/constants';
-import { SkipCsrf } from '../common/guards/csrf.guard';
 import type { Response } from 'express';
 import { access } from 'fs/promises';
 import { join } from 'path';
+
+import { THROTTLE, UPLOAD_FOLDERS } from '../common/constants';
+import { SkipCsrf } from '../common/guards/csrf.guard';
 
 @Controller('uploads')
 @Throttle({ default: THROTTLE.DEFAULT })

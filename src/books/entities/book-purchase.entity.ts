@@ -1,6 +1,4 @@
-import { Payment } from '../../payments/entities/payment.entity';
-import { User } from '../../users/entities/user.entity';
-import { Book } from './book.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +8,11 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { Payment } from '../../payments/entities/payment.entity';
+import { User } from '../../users/entities/user.entity';
+
+import type { Book } from './book.entity';
 
 @Entity('book_purchases')
 @Index('IDX_book_purchases_student_book', ['student_id', 'book_id'], {
@@ -31,9 +34,9 @@ export class BookPurchase {
   @Index('IDX_book_purchases_book_id')
   book_id!: string;
 
-  @ManyToOne(() => Book, (book) => book.purchases, { onDelete: 'CASCADE' })
+  @ManyToOne('Book', 'purchases', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'book_id' })
-  book!: Book;
+  book!: Relation<Book>;
 
   @Column({ type: 'uuid', nullable: false, name: 'payment_id' })
   @Index('IDX_book_purchases_payment_id')

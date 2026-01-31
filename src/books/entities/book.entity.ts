@@ -1,6 +1,4 @@
-import { Subject } from '../../subjects/entities/subject.entity';
-import { User } from '../../users/entities/user.entity';
-import { BookPurchase } from './book-purchase.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +11,11 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
+
+import type { BookPurchase } from './book-purchase.entity';
 
 @Entity('books')
 export class Book {
@@ -71,6 +74,6 @@ export class Book {
   @DeleteDateColumn({ name: 'deleted_at' })
   deleted_at!: Date | null;
 
-  @OneToMany(() => BookPurchase, (purchase) => purchase.book)
-  purchases!: BookPurchase[];
+  @OneToMany('BookPurchase', 'book')
+  purchases!: Relation<BookPurchase[]>;
 }

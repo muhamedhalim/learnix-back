@@ -1,6 +1,4 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-
-import type { AttendanceStatus } from '../entities/attendance-record.entity';
 import { Type } from 'class-transformer';
 import {
   IsDateString,
@@ -9,6 +7,8 @@ import {
   IsOptional,
   IsUUID,
 } from 'class-validator';
+
+import type { AttendanceStatus } from '../entities/attendance-record.entity';
 
 export class AttendanceFilterDto {
   @ApiPropertyOptional({

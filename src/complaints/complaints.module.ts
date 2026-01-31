@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { NotificationsModule } from '../notifications/notifications.module';
+
 import { ComplaintsService } from './complaints.service';
 import { ComplaintsAdminController } from './controllers/complaints-admin.controller';
 import { ComplaintsStudentController } from './controllers/complaints-student.controller';

@@ -1,7 +1,4 @@
-import { Subject } from '../../subjects/entities/subject.entity';
-import { User } from '../../users/entities/user.entity';
-import { ExamAttempt } from './exam-attempt.entity';
-import { Question } from './question.interface';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -14,6 +11,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
+
+import type { ExamAttempt } from './exam-attempt.entity';
+import { Question } from './question.interface';
 
 @Entity('exams')
 export class Exam {
@@ -93,6 +96,6 @@ export class Exam {
   deleted_at!: Date | null;
 
   // Relations
-  @OneToMany(() => ExamAttempt, (attempt) => attempt.exam)
-  attempts!: ExamAttempt[];
+  @OneToMany('ExamAttempt', 'exam')
+  attempts!: Relation<ExamAttempt[]>;
 }

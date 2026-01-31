@@ -1,26 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-
-import { PaginationMeta } from '../common/interfaces/pagination.interface';
-import { ActivityLog, AuditLog } from './entities';
 import { Between, Repository } from 'typeorm';
 
+import { PaginationMeta } from '../common/interfaces/pagination.interface';
+
+import { ActivityLog, AuditLog } from './entities';
+
 export interface ActivityLogFilter {
-  from?: string;
-  to?: string;
-  action?: string;
-  resourceType?: string;
-  page?: number;
-  limit?: number;
+  from?: string | undefined;
+  to?: string | undefined;
+  action?: string | undefined;
+  resourceType?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
 }
 
 export interface AuditLogFilter {
-  from?: string;
-  to?: string;
-  action?: string;
-  targetType?: string;
-  page?: number;
-  limit?: number;
+  from?: string | undefined;
+  to?: string | undefined;
+  action?: string | undefined;
+  targetType?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
 }
 
 @Injectable()

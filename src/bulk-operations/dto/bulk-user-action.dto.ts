@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
 import { IsArray, IsEnum, IsUUID } from 'class-validator';
 
 /**

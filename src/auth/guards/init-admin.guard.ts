@@ -7,12 +7,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-
-import { User } from '../../users/entities/user.entity';
-import { UserRole } from '../../users/entities/user-role.enum';
 import { timingSafeEqual } from 'crypto';
 import { Request } from 'express';
 import { Repository } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+import { UserRole } from '../../users/entities/user-role.enum';
 
 @Injectable()
 export class InitAdminGuard implements CanActivate {

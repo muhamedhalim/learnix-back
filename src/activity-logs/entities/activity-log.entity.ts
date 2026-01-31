@@ -1,4 +1,3 @@
-import { User } from '../../users/entities/user.entity';
 import {
   Column,
   CreateDateColumn,
@@ -9,6 +8,8 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
 
 @Entity('activity_logs')
 @Index('IDX_activity_logs_user_id', ['user_id'])

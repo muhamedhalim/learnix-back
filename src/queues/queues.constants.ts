@@ -1,3 +1,5 @@
+import type { ConnectionOptions } from 'bullmq';
+
 /**
  * Queue Names and Configuration Constants
  *
@@ -50,13 +52,9 @@ export const JOB_TYPES = {
  * Build Redis connection object from environment variables
  * Returns undefined if Redis is not configured (for development without Redis)
  */
-function getRedisConnection(): {
-  host: string;
-  port: number;
-  password?: string;
-} {
-  const host = process.env.REDIS_HOST;
-  const port = process.env.REDIS_PORT;
+function getRedisConnection(): ConnectionOptions {
+  const host = process.env['REDIS_HOST'];
+  const port = process.env['REDIS_PORT'];
 
   // If no Redis host configured, return minimal config that will fail gracefully
   if (host === undefined || host === '') {
@@ -66,12 +64,19 @@ function getRedisConnection(): {
     };
   }
 
-  const password = process.env.REDIS_PASSWORD;
+  const password = process.env['REDIS_PASSWORD'];
+
+  if (password !== undefined && password !== '') {
+    return {
+      host,
+      port: port !== undefined && port !== '' ? parseInt(port, 10) : 6379,
+      password,
+    };
+  }
 
   return {
     host,
     port: port !== undefined && port !== '' ? parseInt(port, 10) : 6379,
-    ...(password !== undefined && password !== '' && { password }),
   };
 }
 
@@ -86,12 +91,12 @@ export const DEFAULT_QUEUE_CONFIG = {
   /** Job retry configuration */
   defaultJobOptions: {
     /** Number of retry attempts (from env or default 3) */
-    attempts: parseInt(process.env.QUEUE_MAX_ATTEMPTS ?? '3', 10),
+    attempts: parseInt(process.env['QUEUE_MAX_ATTEMPTS'] ?? '3', 10),
 
     /** Exponential backoff: 5s, 10s, 20s, 40s... */
     backoff: {
       type: 'exponential' as const,
-      delay: parseInt(process.env.QUEUE_BACKOFF_DELAY ?? '5000', 10),
+      delay: parseInt(process.env['QUEUE_BACKOFF_DELAY'] ?? '5000', 10),
     },
 
     /** Remove job from queue after completion (keep failed jobs for debugging) */
@@ -113,7 +118,7 @@ export const DEFAULT_QUEUE_CONFIG = {
  */
 export const WORKER_CONFIG = {
   /** Concurrent jobs per worker (from env or default 5) */
-  concurrency: parseInt(process.env.QUEUE_CONCURRENCY ?? '5', 10),
+  concurrency: parseInt(process.env['QUEUE_CONCURRENCY'] ?? '5', 10),
 
   /** Redis connection (same as queue) */
   connection: DEFAULT_QUEUE_CONFIG.connection,

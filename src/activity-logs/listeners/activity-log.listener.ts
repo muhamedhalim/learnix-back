@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import { ActivityLog, AuditLog } from '../entities';
 import { ActivityEvent } from '../events/activity.events';
 import { AuditEvent } from '../events/audit.events';
-import { Repository } from 'typeorm';
 
 @Injectable()
 export class ActivityLogListener {

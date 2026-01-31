@@ -1,11 +1,11 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcryptjs';
+import { Repository } from 'typeorm';
 
 import { User } from './users/entities/user.entity';
 import { UserRole } from './users/entities/user-role.enum';
-import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
 
 @Injectable()
 export class AppService {

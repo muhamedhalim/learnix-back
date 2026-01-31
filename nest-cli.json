@@ -1,5 +1,40 @@
 {
   "$schema": "https://json.schemastore.org/nest-cli",
   "collection": "@nestjs/schematics",
-  "sourceRoot": "src"
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "builder": "swc",
+    "typeCheck": true,
+    "deleteOutDir": true,
+    "assets": [
+      {
+        "include": "**/*.json",
+        "exclude": "**/tsconfig*.json",
+        "watchAssets": true
+      },
+      {
+        "include": "**/*.hbs",
+        "watchAssets": true
+      },
+      {
+        "include": "templates/**/*",
+        "watchAssets": true
+      }
+    ],
+    "watchAssets": true,
+    "plugins": [
+      {
+        "name": "@nestjs/swagger",
+        "options": {
+          "classValidatorShim": true,
+          "introspectComments": true,
+          "dtoFileNameSuffix": [".dto.ts", ".entity.ts"]
+        }
+      }
+    ]
+  },
+  "generateOptions": {
+    "spec": true,
+    "flat": false
+  }
 }

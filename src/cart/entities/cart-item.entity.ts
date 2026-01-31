@@ -1,4 +1,4 @@
-import { Cart } from './cart.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -8,6 +8,8 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import type { Cart } from './cart.entity';
 
 /**
  * Cart item types
@@ -30,9 +32,9 @@ export class CartItem {
   @Column({ type: 'uuid', name: 'cart_id' })
   cart_id!: string;
 
-  @ManyToOne(() => Cart, (cart) => cart.items, { onDelete: 'CASCADE' })
+  @ManyToOne('Cart', 'items', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'cart_id' })
-  cart!: Cart;
+  cart!: Relation<Cart>;
 
   @Column({
     type: 'enum',

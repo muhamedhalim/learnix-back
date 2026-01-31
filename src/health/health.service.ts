@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
-
-import { existsSync } from 'fs';
-import { statfs } from 'fs/promises';
+import { access, statfs } from 'fs/promises';
 import { DataSource } from 'typeorm';
 
 export interface HealthCheckResult {
@@ -114,7 +112,12 @@ export class HealthService {
    */
   public async getStorageHealth(): Promise<StorageHealthResult> {
     try {
-      const pathExists = existsSync(this.uploadDir);
+      let pathExists = true;
+      try {
+        await access(this.uploadDir);
+      } catch {
+        pathExists = false;
+      }
 
       if (!pathExists) {
         this.logger.warn(`Upload directory does not exist: ${this.uploadDir}`);

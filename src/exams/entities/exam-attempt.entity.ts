@@ -1,7 +1,4 @@
-import { User } from '../../users/entities/user.entity';
-import { Exam } from './exam.entity';
-import { ExamStatus } from './exam-status.enum';
-import { Answer } from './question.interface';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +10,12 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import type { Exam } from './exam.entity';
+import { ExamStatus } from './exam-status.enum';
+import { Answer } from './question.interface';
 
 /**
  * ExamAttempt tracks student submissions and grading progress
@@ -34,9 +37,9 @@ export class ExamAttempt {
   @Column({ type: 'uuid', nullable: false, name: 'exam_id' })
   exam_id!: string;
 
-  @ManyToOne(() => Exam, (exam) => exam.attempts)
+  @ManyToOne('Exam', 'attempts')
   @JoinColumn({ name: 'exam_id' })
-  exam!: Exam;
+  exam!: Relation<Exam>;
 
   @Column({ type: 'uuid', nullable: false, name: 'student_id' })
   student_id!: string;

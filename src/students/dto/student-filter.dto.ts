@@ -1,8 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { UserStatus } from '../../users/entities/user-status.enum';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+
+import { UserStatus } from '../../users/entities/user-status.enum';
 
 export class StudentFilterDto {
   @ApiProperty({

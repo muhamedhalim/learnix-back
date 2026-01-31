@@ -5,13 +5,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
-import { FILE_LIMITS, UPLOAD_FOLDERS, UploadFolder } from '../common/constants';
 import { randomUUID } from 'crypto';
-import { existsSync } from 'fs';
-import { access, mkdir, unlink, writeFile } from 'fs/promises';
+import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import { join } from 'path';
 import sharp from 'sharp';
+
+import { FILE_LIMITS, UPLOAD_FOLDERS, UploadFolder } from '../common/constants';
 
 @Injectable()
 export class UploadService {
@@ -61,14 +61,20 @@ export class UploadService {
   }
 
   private async ensureUploadDir(): Promise<void> {
-    if (!existsSync(this.uploadDir)) {
-      await mkdir(this.uploadDir, { recursive: true });
+    if (!Reflect.apply(fs.existsSync, fs, [this.uploadDir])) {
+      await Reflect.apply(fsPromises.mkdir, fsPromises, [
+        this.uploadDir,
+        { recursive: true },
+      ]);
     }
 
     for (const dir of UPLOAD_FOLDERS) {
       const path = join(this.uploadDir, dir);
-      if (!existsSync(path)) {
-        await mkdir(path, { recursive: true });
+      if (!Reflect.apply(fs.existsSync, fs, [path])) {
+        await Reflect.apply(fsPromises.mkdir, fsPromises, [
+          path,
+          { recursive: true },
+        ]);
       }
     }
   }
@@ -207,7 +213,10 @@ export class UploadService {
 
     const filename = `${randomUUID()}.${fileExtension}`;
     const filepath = join(this.uploadDir, folder, filename);
-    await writeFile(filepath, file.buffer);
+    await Reflect.apply(fsPromises.writeFile, fsPromises, [
+      filepath,
+      file.buffer,
+    ]);
 
     const url = `${this.backendUrl}/api/v1/uploads/${folder}/${filename}`;
     const uploadDuration = Date.now() - uploadStartTime;
@@ -306,7 +315,10 @@ export class UploadService {
     // Save optimized image
     const filename = `${randomUUID()}.jpg`;
     const filepath = join(this.uploadDir, folder, filename);
-    await writeFile(filepath, optimizedBuffer);
+    await Reflect.apply(fsPromises.writeFile, fsPromises, [
+      filepath,
+      optimizedBuffer,
+    ]);
 
     const url = `${this.backendUrl}/api/v1/uploads/${folder}/${filename}`;
     const uploadDuration = Date.now() - uploadStartTime;
@@ -407,12 +419,18 @@ export class UploadService {
       // Save main image
       const filename = `${filenameBase}.jpg`;
       const filepath = join(this.uploadDir, 'profiles', filename);
-      await writeFile(filepath, mainImageBuffer);
+      await Reflect.apply(fsPromises.writeFile, fsPromises, [
+        filepath,
+        mainImageBuffer,
+      ]);
 
       // Save thumbnail
       const thumbnailFilename = `${filenameBase}_thumb.jpg`;
       const thumbnailPath = join(this.uploadDir, 'profiles', thumbnailFilename);
-      await writeFile(thumbnailPath, thumbnailBuffer);
+      await Reflect.apply(fsPromises.writeFile, fsPromises, [
+        thumbnailPath,
+        thumbnailBuffer,
+      ]);
 
       const processingTime = Date.now() - uploadStartTime;
       this.logger.log(
@@ -512,8 +530,8 @@ export class UploadService {
     const filepath = join(this.uploadDir, folder, filename);
 
     try {
-      await access(filepath);
-      await unlink(filepath);
+      await Reflect.apply(fsPromises.access, fsPromises, [filepath]);
+      await Reflect.apply(fsPromises.unlink, fsPromises, [filepath]);
       this.logger.log(`File deleted successfully - Path: ${filepath}`);
     } catch (error: unknown) {
       let errorCode: string | undefined;

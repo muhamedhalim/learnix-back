@@ -6,13 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { BookFilterDto } from '../dto';
 import { Book } from '../entities/book.entity';
 import { BookPurchase } from '../entities/book-purchase.entity';
+
 import { BooksService } from './books.service';
-import { Repository } from 'typeorm';
 
 // Type interfaces for raw query results
 interface BookPurchaseStatsRaw {

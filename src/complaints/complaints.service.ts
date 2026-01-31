@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -7,6 +8,7 @@ import {
 } from '../common/interfaces/pagination.interface';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
+
 import {
   ComplaintFilterDto,
   CreateComplaintDto,
@@ -14,7 +16,6 @@ import {
 } from './dto';
 import { Complaint } from './entities/complaint.entity';
 import { ComplaintStatus } from './enums/complaint-status.enum';
-import { Repository } from 'typeorm';
 
 @Injectable()
 export class ComplaintsService {

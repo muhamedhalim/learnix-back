@@ -41,10 +41,13 @@ export class AttendanceCodesController {
   public async verifyCode(@Param('code') code: string): Promise<{
     data: {
       valid: boolean;
-      type?: string;
-      item_id?: string;
-      isExpired?: boolean;
-      isUsed?: boolean;
+      itemType?: 'lesson' | 'package' | 'book' | undefined;
+      itemId?: string | undefined;
+      itemTitle?: string | undefined;
+      price?: number | undefined;
+      expiresAt?: Date | undefined;
+      isExpired?: boolean | undefined;
+      isUsed?: boolean | undefined;
     };
   }> {
     const verification =

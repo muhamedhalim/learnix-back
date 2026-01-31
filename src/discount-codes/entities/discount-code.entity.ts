@@ -1,5 +1,4 @@
-import { DiscountCodeUsage } from './discount-code-usage.entity';
-import { DiscountType } from './discount-type.enum';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +9,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import type { DiscountCodeUsage } from './discount-code-usage.entity';
+import { DiscountType } from './discount-type.enum';
 
 @Entity('discount_codes')
 @Index('IDX_discount_codes_code', ['code'], { unique: true })
@@ -61,8 +63,8 @@ export class DiscountCode {
   @Column({ type: 'varchar', length: 255, nullable: true })
   description!: string | null;
 
-  @OneToMany(() => DiscountCodeUsage, (usage) => usage.discount_code)
-  usages!: DiscountCodeUsage[];
+  @OneToMany('DiscountCodeUsage', 'discount_code')
+  usages!: Relation<DiscountCodeUsage[]>;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

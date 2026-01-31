@@ -1,5 +1,3 @@
-import { Subject } from '../../subjects/entities/subject.entity';
-import { User } from '../../users/entities/user.entity';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +11,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('teacher_profiles')
 export class TeacherProfile {

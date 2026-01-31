@@ -1,8 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { AnswerDto } from './question.dto';
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsArray, IsUUID, ValidateNested } from 'class-validator';
+
+import { AnswerDto } from './question.dto';
 
 /**
  * DTO for submitting exam answers

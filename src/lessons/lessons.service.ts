@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { VIDEO_URL_PATTERNS } from '../common/constants';
 import {
@@ -14,6 +15,7 @@ import {
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+
 import {
   CreateLessonDto,
   LessonFilterDto,
@@ -21,7 +23,6 @@ import {
   UpdateVimeoInfoDto,
 } from './dto';
 import { Lesson } from './entities/lesson.entity';
-import { Repository, SelectQueryBuilder } from 'typeorm';
 
 /**
  * Response type for lesson with teacher and subject details

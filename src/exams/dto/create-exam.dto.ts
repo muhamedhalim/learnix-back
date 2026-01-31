@@ -1,6 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
-import { QuestionDto } from './question.dto';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -13,6 +11,8 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+
+import { QuestionDto } from './question.dto';
 
 export class CreateExamDto {
   @MaxLength(255)

@@ -1,8 +1,8 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as admin from 'firebase-admin';
 
 import { logAndThrow } from '../common/utils/error-handler.util';
-import * as admin from 'firebase-admin';
 
 @Injectable()
 export class FirebaseService {

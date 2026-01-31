@@ -1,5 +1,3 @@
-import { User } from '../../users/entities/user.entity';
-import { AttendanceCodeType } from './attendance-code-type.enum';
 import {
   Column,
   CreateDateColumn,
@@ -9,6 +7,10 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import { AttendanceCodeType } from './attendance-code-type.enum';
 
 @Entity('attendance_codes')
 @Index('IDX_attendance_codes_code', ['code'], { unique: true })

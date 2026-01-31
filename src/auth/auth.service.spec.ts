@@ -4,15 +4,16 @@ import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import * as bcrypt from 'bcryptjs';
+import type { Repository } from 'typeorm';
 
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+
 import { AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
-import * as bcrypt from 'bcryptjs';
-import type { Repository } from 'typeorm';
 
 interface RegisterResponse {
   message: string;

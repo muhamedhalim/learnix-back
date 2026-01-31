@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
 import {
   IsEmail,
   IsOptional,
@@ -56,14 +55,4 @@ export class UpdateUserDto {
   @IsString()
   @MaxLength(1000)
   public bio?: string;
-
-  public password_hash?: never;
-  public points?: never;
-  public firebase_uid?: never;
-  public roles?: never;
-  public is_active?: never;
-  public id?: never;
-  public created_at?: never;
-  public updated_at?: never;
-  public deleted_at?: never;
 }

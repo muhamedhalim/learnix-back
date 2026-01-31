@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -13,6 +14,7 @@ import {
 } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
+
 import {
   AddLessonsDto,
   CreatePackageDto,
@@ -23,7 +25,6 @@ import {
 } from './dto';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
-import { DataSource, IsNull, Repository } from 'typeorm';
 
 export interface PackageWithDetails {
   id: string;

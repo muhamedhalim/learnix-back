@@ -1,5 +1,3 @@
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { User } from '../../users/entities/user.entity';
 import {
   Column,
   CreateDateColumn,
@@ -9,6 +7,9 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { Lesson } from '../../lessons/entities/lesson.entity';
+import { User } from '../../users/entities/user.entity';
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 

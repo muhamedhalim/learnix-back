@@ -1,4 +1,3 @@
-import { User } from '../../users/entities/user.entity';
 import {
   Column,
   CreateDateColumn,
@@ -8,6 +7,8 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
 
 @Entity('audit_logs')
 @Index('IDX_audit_logs_admin_id', ['admin_id'])

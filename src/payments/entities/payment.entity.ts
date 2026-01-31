@@ -1,7 +1,3 @@
-import { User } from '../../users/entities/user.entity';
-import { ItemType } from './item-type.enum';
-import { PaymentMethod } from './payment-method.enum';
-import { PaymentStatus } from './payment-status.enum';
 import {
   Column,
   CreateDateColumn,
@@ -12,6 +8,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+
+import { ItemType } from './item-type.enum';
+import { PaymentMethod } from './payment-method.enum';
+import { PaymentStatus } from './payment-status.enum';
 
 @Entity('payments')
 @Index('IDX_payments_user_id', ['user_id'])

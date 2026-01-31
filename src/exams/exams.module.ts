@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
+
 import {
   ExamsController,
   StudentExamsController,

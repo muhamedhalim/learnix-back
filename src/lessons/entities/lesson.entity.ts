@@ -1,6 +1,4 @@
-import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
-import { Subject } from '../../subjects/entities/subject.entity';
-import { User } from '../../users/entities/user.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -13,6 +11,10 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import type { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
+import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('lessons')
 export class Lesson {
@@ -123,6 +125,6 @@ export class Lesson {
   deleted_at!: Date | null;
 
   // Phase 4: Payment relations
-  @OneToMany(() => LessonPurchase, (purchase) => purchase.lesson)
-  purchases!: LessonPurchase[];
+  @OneToMany('LessonPurchase', 'lesson')
+  purchases!: Relation<LessonPurchase[]>;
 }

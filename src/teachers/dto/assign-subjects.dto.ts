@@ -1,5 +1,4 @@
 import { ApiProperty } from '@nestjs/swagger';
-
 import { ArrayMaxSize } from 'class-validator';
 
 export class AssignSubjectsDto {

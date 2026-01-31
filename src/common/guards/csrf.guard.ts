@@ -6,7 +6,6 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-
 import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 
@@ -137,7 +136,7 @@ export class CsrfGuard implements CanActivate {
     response.cookie(this.csrfCookieName, newToken, {
       httpOnly: false, // Must be accessible to JavaScript for reading
       signed: true, // Sign cookie with COOKIE_SECRET to prevent tampering
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: process.env['NODE_ENV'] === 'production', // HTTPS only in production
       sameSite: 'none', // Allow cross-site cookies (required for datastic.org -> railway.app)
       partitioned: true, // Required for Chrome's Privacy Sandbox (future-proofing)
       maxAge: 24 * 60 * 60 * 1000, // 24 hours

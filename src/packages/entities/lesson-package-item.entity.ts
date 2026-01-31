@@ -1,5 +1,4 @@
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { LessonPackage } from './lesson-package.entity';
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -10,6 +9,10 @@ import {
   PrimaryGeneratedColumn,
   Unique,
 } from 'typeorm';
+
+import { Lesson } from '../../lessons/entities/lesson.entity';
+
+import type { LessonPackage } from './lesson-package.entity';
 
 @Entity('lesson_package_items')
 @Index('IDX_lesson_package_items_package_id', ['package_id'])
@@ -22,9 +25,9 @@ export class LessonPackageItem {
   @Column('uuid')
   package_id!: string;
 
-  @ManyToOne(() => LessonPackage, (pkg) => pkg.items, { onDelete: 'CASCADE' })
+  @ManyToOne('LessonPackage', 'items', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'package_id' })
-  package!: LessonPackage;
+  package!: Relation<LessonPackage>;
 
   @Column('uuid')
   lesson_id!: string;

@@ -7,6 +7,7 @@ import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
 // Controllers
 import { PaymentsController } from './controllers/payments.controller';

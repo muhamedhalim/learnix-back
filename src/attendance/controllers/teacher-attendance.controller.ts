@@ -18,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -28,7 +29,6 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 import { AttendanceService } from '../attendance.service';
 import { AttendanceFilterDto, MarkAttendanceDto } from '../dto';
 import type { AttendanceStatus } from '../entities';
-import { IsNull, Repository } from 'typeorm';
 
 @ApiTags('Teacher Attendance')
 @Controller('teacher/lessons')

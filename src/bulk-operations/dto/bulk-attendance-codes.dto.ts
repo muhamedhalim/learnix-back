@@ -1,5 +1,4 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
 import { Transform } from 'class-transformer';
 import {
   IsDateString,
@@ -87,7 +86,7 @@ export class BulkAttendanceCodesResultDto {
   public price!: number;
 
   @ApiPropertyOptional({ description: 'Expiration date if set' })
-  public expires_at?: Date;
+  public expires_at?: Date | undefined;
 
   @ApiProperty({ description: 'Usage limit per code' })
   public quantity_per_code!: number;

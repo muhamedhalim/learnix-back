@@ -5,6 +5,7 @@ import { AttendanceCodesModule } from '../attendance-codes/attendance-codes.modu
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { User } from '../users/entities/user.entity';
+
 import { BulkOperationsController } from './bulk-operations.controller';
 import { BulkOperationsService } from './bulk-operations.service';
 

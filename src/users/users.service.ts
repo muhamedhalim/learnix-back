@@ -8,14 +8,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-
-import { UploadService } from '../uploads/upload.service';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { User } from './entities/user.entity';
-import { UserRole } from './entities/user-role.enum';
 import type { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
 import { Repository } from 'typeorm';
+
+import { UploadService } from '../uploads/upload.service';
+
+import { UpdateUserDto } from './dto/update-user.dto';
+import { User } from './entities/user.entity';
+import { UserRole } from './entities/user-role.enum';
 
 @Injectable()
 export class UsersService {

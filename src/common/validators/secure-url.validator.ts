@@ -9,7 +9,7 @@ export function IsSecureUrl(
       name: 'isSecureUrl',
       target: object.constructor,
       propertyName: propertyName.toString(),
-      options: validationOptions,
+      ...(validationOptions ? { options: validationOptions } : {}),
       validator: {
         validate(value: unknown) {
           if (typeof value !== 'string') {

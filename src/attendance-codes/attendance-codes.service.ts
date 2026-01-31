@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as crypto from 'crypto';
+import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
@@ -18,6 +20,7 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../payments/entities';
+
 import {
   AttendanceCodeFilterDto,
   GenerateAttendanceCodesDto,
@@ -25,8 +28,6 @@ import {
   VerifyAttendanceCodeDto,
 } from './dto';
 import { AttendanceCode, AttendanceCodeType } from './entities';
-import * as crypto from 'crypto';
-import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
 @Injectable()
 export class AttendanceCodesService {
@@ -99,13 +100,10 @@ export class AttendanceCodesService {
     let code = '';
     const randomBytesArray = crypto.randomBytes(8);
 
-    for (let i = 0; i < 8; i++) {
-      const byteValue = randomBytesArray[i];
-      if (byteValue !== undefined) {
-        const charIndex = byteValue % chars.length;
-        const char = chars.charAt(charIndex);
-        code += char;
-      }
+    for (const byteValue of randomBytesArray) {
+      const charIndex = byteValue % chars.length;
+      const char = chars.charAt(charIndex);
+      code += char;
     }
 
     return code;
@@ -117,13 +115,13 @@ export class AttendanceCodesService {
    */
   public async verifyCodePublic(code: string): Promise<{
     valid: boolean;
-    itemType?: 'lesson' | 'package' | 'book';
-    itemId?: string;
-    itemTitle?: string;
-    price?: number;
-    expiresAt?: Date;
-    isExpired?: boolean;
-    isUsed?: boolean;
+    itemType?: 'lesson' | 'package' | 'book' | undefined;
+    itemId?: string | undefined;
+    itemTitle?: string | undefined;
+    price?: number | undefined;
+    expiresAt?: Date | undefined;
+    isExpired?: boolean | undefined;
+    isUsed?: boolean | undefined;
   }> {
     // Find code (no lock needed for read-only operation)
     const attendanceCode = await this.attendanceCodesRepository.findOne({

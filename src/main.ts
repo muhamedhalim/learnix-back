@@ -15,14 +15,14 @@ import { NestFactory } from '@nestjs/core';
 import { Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-
-import { AppModule } from './app.module';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { CsrfGuard } from './common/guards/csrf.guard';
 import cookieParser from 'cookie-parser';
 import basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
 import { join } from 'path';
+
+import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { CsrfGuard } from './common/guards/csrf.guard';
 
 const logger = new Logger('Bootstrap');
 
@@ -30,8 +30,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Protect Bull Board with basic authentication (Issue #13)
-  const bullBoardUser = process.env.BULL_BOARD_USER ?? 'admin';
-  const bullBoardPassword = process.env.BULL_BOARD_PASSWORD;
+  const bullBoardUser = process.env['BULL_BOARD_USER'] ?? 'admin';
+  const bullBoardPassword = process.env['BULL_BOARD_PASSWORD'];
 
   if (bullBoardPassword === undefined || bullBoardPassword === '') {
     logger.warn(
@@ -48,7 +48,7 @@ async function bootstrap(): Promise<void> {
 
     app.use('/admin/queues', authMiddleware);
     logger.log('Bull Board protected with basic authentication');
-  } else if (process.env.NODE_ENV !== 'production') {
+  } else if (process.env['NODE_ENV'] !== 'production') {
     logger.warn(
       'WARNING: Bull Board running WITHOUT authentication in development',
     );
@@ -56,7 +56,8 @@ async function bootstrap(): Promise<void> {
 
   // Enable cookie parsing for CSRF protection (Double Submit Cookie pattern)
   // Use a secret for signing cookies
-  const cookieSecret = process.env.COOKIE_SECRET ?? process.env.JWT_SECRET;
+  const cookieSecret =
+    process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'];
   if (cookieSecret === undefined || cookieSecret === '') {
     logger.error(
       'ERROR: COOKIE_SECRET or JWT_SECRET must be set for signed cookies',
@@ -100,8 +101,10 @@ async function bootstrap(): Promise<void> {
   });
 
   const allowedOrigins =
-    process.env.CORS_ORIGINS !== undefined && process.env.CORS_ORIGINS !== ''
-      ? process.env.CORS_ORIGINS.split(',')
+    process.env['CORS_ORIGINS'] !== undefined &&
+    process.env['CORS_ORIGINS'] !== ''
+      ? process.env['CORS_ORIGINS']
+          .split(',')
           .map((origin) => origin.trim())
           .filter((origin) => {
             try {
@@ -122,7 +125,7 @@ async function bootstrap(): Promise<void> {
 
   app.enableCors({
     origin: (origin: string | undefined, callback) => {
-      const isProduction = process.env.NODE_ENV === 'production';
+      const isProduction = process.env['NODE_ENV'] === 'production';
 
       if (origin === undefined) {
         if (isProduction) {
@@ -231,8 +234,8 @@ async function bootstrap(): Promise<void> {
 
   // Ensure we parse PORT as a number and bind to 0.0.0.0 so Railway's proxy can reach the process
   const port =
-    process.env.PORT !== undefined && process.env.PORT !== ''
-      ? Number(process.env.PORT)
+    process.env['PORT'] !== undefined && process.env['PORT'] !== ''
+      ? Number(process.env['PORT'])
       : 3000;
   await app.listen(port, '0.0.0.0');
 

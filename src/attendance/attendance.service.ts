@@ -5,17 +5,18 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
+
 import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
 import {
   AttendanceRecord,
   AttendanceStatus,
 } from './entities/attendance-record.entity';
 import { LessonSession } from './entities/lesson-session.entity';
-import { IsNull, Repository } from 'typeorm';
 
 const AUTO_ATTENDANCE_THRESHOLD = 80; // 80% video watch = auto present
 

@@ -1,11 +1,12 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module, OnModuleInit } from '@nestjs/common';
-
-import { IdempotencyModule } from '../idempotency/idempotency.module';
-import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullBoardModule } from '@bull-board/nestjs';
+
+import { IdempotencyModule } from '../idempotency/idempotency.module';
+
+import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
 
 /**
  * Queues Module

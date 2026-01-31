@@ -2,12 +2,12 @@ import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
 import { User } from './users/entities/user.entity';
-import { DataSource } from 'typeorm';
 
 describe('AppController', () => {
   let appController: AppController;
