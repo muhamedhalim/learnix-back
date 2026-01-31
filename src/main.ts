@@ -1,14 +1,5 @@
-import * as crypto from 'crypto';
-import type { NextFunction, Request, Response } from 'express';
-
-// Crypto polyfill for serverless environments (if needed)
-// Note: Modern Node.js (16+) includes crypto on globalThis by default
-// Keeping import for backward compatibility
-Object.defineProperty(globalThis, 'crypto', {
-  value: crypto,
-  writable: false,
-  configurable: false,
-});
+// CRITICAL: Import polyfills FIRST before any other imports
+import './polyfills';
 
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -16,6 +7,7 @@ import { Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
 import basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
 import { join } from 'path';

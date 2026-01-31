@@ -40,12 +40,18 @@ export default tseslint.config(
         'error',
         {
           groups: [
-            ['^node:'],
-            ['^@nestjs', '^@?\\w'],
-            ['^@/'],
-            ['^\\.\\.'],
-            ['^\\.'],
+            // Side-effect imports (like import './polyfills') MUST come first
             ['^\\u0000'],
+            // Node.js built-in modules
+            ['^node:'],
+            // NestJS and external packages starting with @
+            ['^@nestjs', '^@?\\w'],
+            // Alias imports (starting with @/)
+            ['^@/'],
+            // Parent imports (../)
+            ['^\\.\\.'],
+            // Relative imports (./)
+            ['^\\.'],
           ],
         },
       ],

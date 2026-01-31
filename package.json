@@ -139,5 +139,9 @@
   "overrides": {
     "lodash": "^4.17.23",
     "fast-xml-parser": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   }
 }

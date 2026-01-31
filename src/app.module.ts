@@ -1,3 +1,6 @@
+// CRITICAL: Import polyfills FIRST to ensure crypto is globally available before TypeORM initializes
+import './polyfills';
+
 import { CacheModule } from '@nestjs/cache-manager';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
