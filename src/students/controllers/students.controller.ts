@@ -74,6 +74,7 @@ export class StudentsController {
   /**
    * Get a single approved student by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',

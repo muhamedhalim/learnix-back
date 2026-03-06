@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -103,6 +104,15 @@ export class StudentExamsController {
    * Start an exam attempt
    * Creates IN_PROGRESS attempt and returns questions WITHOUT correct answers
    */
+  @Post(':id/start')
+  @ApiOperation({
+    summary: 'Start an exam attempt',
+    description: 'Creates a new exam attempt and returns questions without correct answers.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam attempt started successfully',
+  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Exam already submitted',

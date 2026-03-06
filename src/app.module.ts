@@ -40,6 +40,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PackagesModule } from './packages/packages.module';
 // Phase 4: Payments & Notifications
 import { PaymentsModule } from './payments/payments.module';
+import { ReportsModule } from './reports/reports.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { StudentsModule } from './students/students.module';
 // Phase 1 Foundation: Core educational platform modules
@@ -200,6 +201,7 @@ import { UsersModule } from './users/users.module';
     BooksModule,
     AttendanceModule,
     AnalyticsModule,
+    ReportsModule,
     CartModule,
 
     // Phase 3 Enhancements: Activity Logging & Bulk Operations

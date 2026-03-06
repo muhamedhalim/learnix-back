@@ -1,10 +1,14 @@
 import {
+  Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
+  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,8 +22,16 @@ import {
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { LessonFilterDto } from '../dto';
+import type { UserRequest } from '../../common/interfaces/user-request.interface';
+import {
+  AllProgressResponseDto,
+  LessonFilterDto,
+  LessonProgressNullableResponseDto,
+  LessonProgressResponseDto,
+  UpdateProgressDto,
+} from '../dto';
 import { LessonsService } from '../lessons.service';
+import { ProgressService } from '../progress.service';
 
 @ApiTags('Student Lessons')
 @Controller('student/lessons')
@@ -27,7 +39,10 @@ import { LessonsService } from '../lessons.service';
 @Roles('student')
 @ApiBearerAuth('JWT-auth')
 export class StudentLessonsController {
-  constructor(private readonly lessonsService: LessonsService) {}
+  constructor(
+    private readonly lessonsService: LessonsService,
+    private readonly progressService: ProgressService,
+  ) {}
 
   /**
    * Browse available lessons
@@ -120,5 +135,108 @@ export class StudentLessonsController {
       lesson,
       access: accessInfo,
     };
+  }
+
+  /**
+   * Update progress for a lesson
+   * Records the student's watch progress
+   */
+  @Post(':lessonId/progress')
+  @ApiOperation({
+    summary: 'Update lesson progress',
+    description:
+      'Records or updates the student watch progress for a specific lesson. Uses upsert pattern.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Progress updated successfully',
+    type: LessonProgressResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Lesson not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid progress data',
+  })
+  public async updateProgress(
+    @Request() req: UserRequest,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Body() dto: UpdateProgressDto,
+  ): Promise<LessonProgressResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    const progress = await this.progressService.updateProgress(
+      userId,
+      lessonId,
+      dto.watchedDuration,
+      dto.totalDuration,
+    );
+
+    return {
+      message: 'Progress updated successfully',
+      data: progress,
+    };
+  }
+
+  /**
+   * Get progress for a specific lesson
+   * Returns the student's watch progress or null if no progress exists
+   */
+  @Get(':lessonId/progress')
+  @ApiOperation({
+    summary: 'Get lesson progress',
+    description:
+      'Returns the student watch progress for a specific lesson, or null if no progress exists.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Progress data or null',
+    type: LessonProgressNullableResponseDto,
+  })
+  public async getProgress(
+    @Request() req: UserRequest,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+  ): Promise<LessonProgressNullableResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    const progress = await this.progressService.getProgress(userId, lessonId);
+
+    return { data: progress };
+  }
+
+  /**
+   * Get all progress records for the student
+   * Returns all lessons with their watch progress
+   */
+  @Get('my/progress')
+  @ApiOperation({
+    summary: 'Get all lesson progress',
+    description:
+      'Returns all lessons with their watch progress for the current student.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Array of progress records',
+    type: AllProgressResponseDto,
+  })
+  public async getAllProgress(
+    @Request() req: UserRequest,
+  ): Promise<AllProgressResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    const progressRecords = await this.progressService.getAllProgress(userId);
+
+    return { data: progressRecords };
   }
 }

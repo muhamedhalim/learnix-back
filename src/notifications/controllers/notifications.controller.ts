@@ -3,6 +3,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -49,6 +50,7 @@ export class NotificationsController {
     };
   }
 
+  @Get('unread/count')
   @ApiResponse({
     status: 200,
     description: 'Returns unread notification count',
@@ -63,6 +65,7 @@ export class NotificationsController {
     };
   }
 
+  @Post(':id/read')
   @ApiResponse({
     status: 404,
     description: 'Notification not found',
@@ -81,6 +84,7 @@ export class NotificationsController {
     };
   }
 
+  @Post('read-all')
   @ApiResponse({
     status: 200,
     description: 'All notifications marked as read',

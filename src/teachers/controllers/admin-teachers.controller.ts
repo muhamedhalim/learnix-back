@@ -143,6 +143,7 @@ export class AdminTeachersController {
   /**
    * Get a single teacher by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
@@ -156,6 +157,7 @@ export class AdminTeachersController {
   /**
    * Get teacher statistics
    */
+  @Get(':id/stats')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
@@ -209,6 +211,8 @@ export class AdminTeachersController {
   /**
    * Reject a pending teacher
    */
+  @Post(':id/reject')
+  @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Rejection reason is required',
@@ -227,6 +231,8 @@ export class AdminTeachersController {
   /**
    * Assign subjects to a teacher
    */
+  @Post(':id/subjects')
+  @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'One or more subjects not found',

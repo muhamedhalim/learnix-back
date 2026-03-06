@@ -14,6 +14,7 @@ import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+import { SessionsService } from '../users/sessions.service';
 
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -28,6 +29,7 @@ export class AuthService {
     private readonly userRepository: Repository<User>,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly sessionsService: SessionsService,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
@@ -69,7 +71,11 @@ export class AuthService {
     };
   }
 
-  public async login(loginDto: LoginDto): Promise<unknown> {
+  public async login(
+    loginDto: LoginDto,
+    deviceInfo: string | null = null,
+    ipAddress: string | null = null,
+  ): Promise<unknown> {
     const { email, password } = loginDto;
 
     const user = await this.userRepository
@@ -133,7 +139,19 @@ export class AuthService {
 
     // Generate and store refresh token
     const refreshToken = this.generateRefreshToken();
-    await this.storeRefreshToken(user.id, refreshToken);
+    const { tokenId, expiresAt } = await this.storeRefreshToken(
+      user.id,
+      refreshToken,
+    );
+
+    // Create session record for device tracking
+    await this.sessionsService.createSession({
+      userId: user.id,
+      refreshTokenId: tokenId,
+      deviceInfo,
+      ipAddress,
+      expiresAt,
+    });
 
     // Return new response format with status
     return {
@@ -200,11 +218,12 @@ export class AuthService {
 
   /**
    * Store refresh token for a user with indexed token_id for fast lookup
+   * Returns tokenId and expiresAt for session creation
    */
   private async storeRefreshToken(
     userId: string,
     refreshToken: string,
-  ): Promise<void> {
+  ): Promise<{ tokenId: string; expiresAt: Date }> {
     const hashedToken = await this.hashRefreshToken(refreshToken);
     const tokenId = this.generateTokenId(refreshToken);
     const refreshExpiresIn =
@@ -220,6 +239,8 @@ export class AuthService {
     });
 
     this.logger.debug(`Refresh token stored for user ${userId}`);
+
+    return { tokenId, expiresAt };
   }
 
   /**
@@ -340,7 +361,15 @@ export class AuthService {
 
     // Generate new refresh token (token rotation for security)
     const newRefreshToken = this.generateRefreshToken();
-    await this.storeRefreshToken(user.id, newRefreshToken);
+    const { tokenId: newTokenId, expiresAt: newExpiresAt } =
+      await this.storeRefreshToken(user.id, newRefreshToken);
+
+    // Update session with new token ID (token rotation)
+    await this.sessionsService.updateSessionTokenId(
+      tokenId,
+      newTokenId,
+      newExpiresAt,
+    );
 
     this.logger.log(`Token refreshed - User: ${user.email} (ID: ${user.id})`);
 
@@ -357,7 +386,12 @@ export class AuthService {
   /**
    * Logout user by clearing refresh token and token_id
    */
-  public async logout(userId: string): Promise<void> {
+  public async logout(userId: string, refreshTokenId?: string): Promise<void> {
+    // Delete the session if refreshTokenId is provided
+    if (refreshTokenId !== undefined && refreshTokenId !== '') {
+      await this.sessionsService.deleteSessionByTokenId(refreshTokenId);
+    }
+
     await this.userRepository.update(userId, {
       refresh_token: null,
       refresh_token_id: null,
@@ -365,5 +399,20 @@ export class AuthService {
     });
 
     this.logger.log(`User logged out - ID: ${userId}`);
+  }
+
+  /**
+   * Logout user from all devices by deleting all sessions
+   */
+  public async logoutAll(userId: string): Promise<void> {
+    await this.sessionsService.deleteAllUserSessions(userId);
+
+    await this.userRepository.update(userId, {
+      refresh_token: null,
+      refresh_token_id: null,
+      refresh_token_expires_at: null,
+    });
+
+    this.logger.log(`User logged out from all devices - ID: ${userId}`);
   }
 }

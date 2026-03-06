@@ -105,6 +105,7 @@ export class AppService {
 
     const admin = this.userRepository.create({
       name: 'Admin User',
+      username: 'admin',
       email: adminEmail,
       phone: '01000000000', // Default admin phone
       password_hash: hashedPassword,

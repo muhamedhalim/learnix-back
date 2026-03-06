@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -34,6 +35,7 @@ import { PaymentsService } from '../services/payments.service';
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
+  @Post('purchase/lesson')
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
     description: 'Not authenticated',
@@ -49,6 +51,7 @@ export class PaymentsController {
     };
   }
 
+  @Post('purchase/package')
   @ApiResponse({
     status: HttpStatus.UNAUTHORIZED,
     description: 'Not authenticated',
@@ -64,6 +67,7 @@ export class PaymentsController {
     };
   }
 
+  @Post('reopen/:id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
@@ -84,6 +88,7 @@ export class PaymentsController {
     };
   }
 
+  @Get('my-purchases')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Purchase history retrieved successfully',
@@ -119,6 +124,7 @@ export class PaymentsController {
     };
   }
 
+  @Get('my-packages')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Purchased packages retrieved successfully',
@@ -133,6 +139,7 @@ export class PaymentsController {
     };
   }
 
+  @Get('access/:id')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Access status retrieved successfully',

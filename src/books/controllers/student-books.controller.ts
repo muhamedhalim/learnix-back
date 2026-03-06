@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -82,6 +83,8 @@ export class StudentBooksController {
   /**
    * Check if book is purchased
    */
+  @Get(':id/access')
+  @ApiOperation({ summary: 'Check if current student has access to a book' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Access status returned',
@@ -104,6 +107,8 @@ export class StudentBooksController {
   /**
    * Get download URL for a purchased book
    */
+  @Get(':id/download')
+  @ApiOperation({ summary: 'Get secure download URL for a purchased book' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
@@ -128,6 +133,8 @@ export class StudentBooksController {
    * Note: This endpoint initiates the purchase flow.
    * For full payment integration, it should redirect to PaymentsService.
    */
+  @Post('purchase')
+  @ApiOperation({ summary: 'Initiate book purchase' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',

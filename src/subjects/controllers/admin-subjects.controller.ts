@@ -1,10 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -110,6 +113,7 @@ export class AdminSubjectsController {
    * Update an existing subject
    * Admin only
    */
+  @Put(':id')
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Subject with this title already exists',
@@ -129,6 +133,7 @@ export class AdminSubjectsController {
    * Delete a subject (soft delete)
    * Admin only
    */
+  @Delete(':id')
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Cannot delete subject with existing lessons',
@@ -146,6 +151,7 @@ export class AdminSubjectsController {
    * Get all subjects with counts (admin dashboard)
    * Admin only
    */
+  @Get('counts')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Subjects with counts retrieved successfully',

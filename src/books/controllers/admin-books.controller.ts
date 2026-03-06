@@ -1,9 +1,11 @@
 import {
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -118,6 +120,8 @@ export class AdminBooksController {
   /**
    * Hard delete a book
    */
+  @Delete(':id/permanent')
+  @ApiOperation({ summary: 'Permanently delete a book (admin)' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
@@ -134,6 +138,8 @@ export class AdminBooksController {
   /**
    * Restore a soft-deleted book
    */
+  @Post(':id/restore')
+  @ApiOperation({ summary: 'Restore a soft-deleted book (admin)' })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Book is not deleted',

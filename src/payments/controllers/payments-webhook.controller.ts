@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Logger,
+  Post,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -29,6 +30,7 @@ export class PaymentsWebhookController {
     private readonly idempotencyService: IdempotencyService,
   ) {}
 
+  @Post()
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
   public async handlePaymobWebhook(
     @Body() dto: PaymobWebhookDto,
@@ -142,6 +144,7 @@ export class PaymentsWebhookController {
     return result;
   }
 
+  @Post('callback')
   @ApiOperation({
     summary: 'Alternative Paymob callback URL',
     description:

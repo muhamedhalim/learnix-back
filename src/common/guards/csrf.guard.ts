@@ -132,13 +132,15 @@ export class CsrfGuard implements CanActivate {
     // Generate new token
     const newToken = this.generateToken();
 
+    const isProduction = process.env['NODE_ENV'] === 'production';
+
     // Set signed cookie with secure options
     response.cookie(this.csrfCookieName, newToken, {
       httpOnly: false, // Must be accessible to JavaScript for reading
       signed: true, // Sign cookie with COOKIE_SECRET to prevent tampering
-      secure: process.env['NODE_ENV'] === 'production', // HTTPS only in production
-      sameSite: 'none', // Allow cross-site cookies (required for datastic.org -> railway.app)
-      partitioned: true, // Required for Chrome's Privacy Sandbox (future-proofing)
+      secure: isProduction, // HTTPS only in production
+      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain prod, 'lax' for local dev
+      partitioned: isProduction, // Only use partitioned in production with SameSite=None
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/',
     });

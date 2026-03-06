@@ -1,4 +1,4 @@
-import { Body, Controller, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
@@ -17,6 +17,7 @@ import { NotificationsService } from '../services/notifications.service';
 export class NotificationSettingsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
+  @Get()
   @ApiResponse({
     status: 200,
     description: 'Returns notification settings',
@@ -33,6 +34,7 @@ export class NotificationSettingsController {
     };
   }
 
+  @Put()
   @ApiResponse({
     status: 200,
     description: 'Notification settings updated',

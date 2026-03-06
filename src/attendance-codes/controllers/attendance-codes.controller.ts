@@ -1,13 +1,30 @@
-import { Body, Controller, Get, HttpStatus, Param } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
+import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { AttendanceCodesService } from '../attendance-codes.service';
 import { VerifyAttendanceCodeDto } from '../dto';
 
 @ApiTags('Attendance Codes')
 @Controller('attendance-codes')
+@ApiBearerAuth('JWT-auth')
 export class AttendanceCodesController {
   constructor(
     private readonly attendanceCodesService: AttendanceCodesService,
@@ -57,6 +74,13 @@ export class AttendanceCodesController {
     };
   }
 
+  @Post('redeem')
+  @UseGuards(HybridAuthGuard, RolesGuard)
+  @Roles('student')
+  @ApiOperation({
+    summary: 'Redeem an attendance code (student)',
+    description: 'Redeems an attendance code and grants access to the associated item.',
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Invalid or expired code',

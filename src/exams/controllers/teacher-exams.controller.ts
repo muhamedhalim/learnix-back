@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
+  Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -42,6 +45,11 @@ export class TeacherExamsController {
   /**
    * Create a new exam
    */
+  @Post()
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Exam created successfully',
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
@@ -167,6 +175,11 @@ export class TeacherExamsController {
   /**
    * Grade an essay question
    */
+  @Post(':id/grade')
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Essay graded successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only grade your own exams',
@@ -182,6 +195,11 @@ export class TeacherExamsController {
   /**
    * Update an exam
    */
+  @Put(':id')
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam updated successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own exams',
@@ -201,6 +219,11 @@ export class TeacherExamsController {
   /**
    * Delete an exam
    */
+  @Delete(':id')
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam deleted successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own exams',

@@ -83,6 +83,7 @@ export class TeacherPaymentsController {
   /**
    * Get revenue by lesson
    */
+  @Get('lessons')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by lesson retrieved',
@@ -109,6 +110,7 @@ export class TeacherPaymentsController {
   /**
    * Get revenue by package
    */
+  @Get('packages')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by package retrieved',

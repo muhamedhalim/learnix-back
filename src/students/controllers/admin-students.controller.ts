@@ -5,6 +5,8 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -139,6 +141,7 @@ export class AdminStudentsController {
   /**
    * Get a single student by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
@@ -152,6 +155,7 @@ export class AdminStudentsController {
   /**
    * Get student statistics
    */
+  @Get(':id/stats')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Student not found',
@@ -168,6 +172,7 @@ export class AdminStudentsController {
   /**
    * Approve a pending student
    */
+  @Post(':id/approve')
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Student is already approved',
@@ -189,6 +194,7 @@ export class AdminStudentsController {
   /**
    * Reject a pending student
    */
+  @Post(':id/reject')
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Rejection reason is required',
@@ -207,6 +213,7 @@ export class AdminStudentsController {
   /**
    * Update student's grade level
    */
+  @Patch(':id/grade-level')
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid grade level',

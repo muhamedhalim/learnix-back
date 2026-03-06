@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   HttpStatus,
   Param,
   ParseIntPipe,
@@ -20,6 +21,7 @@ export class SubjectsController {
    * Get all subjects with pagination and optional search
    * Public endpoint - no authentication required
    */
+  @Get()
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of subjects retrieved successfully',
@@ -32,6 +34,7 @@ export class SubjectsController {
    * Get a single subject by ID
    * Public endpoint - no authentication required
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
@@ -46,6 +49,7 @@ export class SubjectsController {
    * Get teachers who teach a specific subject
    * Public endpoint - no authentication required
    */
+  @Get(':id/teachers')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',

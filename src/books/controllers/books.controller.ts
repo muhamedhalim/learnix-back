@@ -77,6 +77,7 @@ export class BooksController {
   /**
    * Get a single book by ID (public)
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',

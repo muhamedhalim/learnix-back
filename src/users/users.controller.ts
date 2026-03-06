@@ -18,7 +18,12 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
@@ -29,6 +34,11 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import type { UserRequest } from '../common/interfaces/user-request.interface';
 
 import { UpdateUserDto } from './dto/update-user.dto';
+import type {
+  DeleteSessionResponseDto,
+  UserSessionListResponseDto,
+} from './dto/user-session.dto';
+import { SessionsService } from './sessions.service';
 import { UsersService } from './users.service';
 
 @ApiTags('Users')
@@ -36,7 +46,10 @@ import { UsersService } from './users.service';
 @UseGuards(HybridAuthGuard)
 @ApiBearerAuth('JWT-auth')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly sessionsService: SessionsService,
+  ) {}
 
   @Get()
   @UseGuards(RolesGuard)
@@ -46,6 +59,7 @@ export class UsersController {
     return await this.usersService.findAll(pagination.page, pagination.limit);
   }
 
+  @Get('me')
   @ApiOperation({ summary: 'Get current user profile' })
   public async getProfile(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
@@ -65,6 +79,7 @@ export class UsersController {
     return await this.usersService.findOne(id);
   }
 
+  @Put('me')
   @ApiOperation({ summary: 'Update own profile' })
   public async updateProfile(
     @Request() req: UserRequest,
@@ -133,6 +148,59 @@ export class UsersController {
     return await this.usersService.deleteProfilePicture(userId);
   }
 
+  @Get('me/sessions')
+  @ApiOperation({
+    summary: 'List active sessions',
+    description:
+      'Returns all active sessions for the current user across all devices.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Array of active sessions',
+  })
+  public async getUserSessions(
+    @Request() req: UserRequest,
+  ): Promise<UserSessionListResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+    const sessions = await this.sessionsService.getUserSessions(userId, null);
+    return { data: sessions };
+  }
+
+  @Delete('me/sessions/:sessionId')
+  @ApiOperation({
+    summary: 'Delete a specific session',
+    description:
+      'Ends a specific session, logging out that device. Cannot delete the current session.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Session deleted successfully',
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      'Cannot delete current session or session belonging to another user',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Session not found',
+  })
+  public async deleteSession(
+    @Request() req: UserRequest,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ): Promise<DeleteSessionResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException('User not authenticated');
+    }
+    await this.sessionsService.deleteSession(userId, sessionId, null);
+    return { message: 'Session deleted successfully' };
+  }
+
+  @Delete('me')
   @ApiOperation({ summary: 'Delete own account' })
   public async deleteOwnAccount(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;

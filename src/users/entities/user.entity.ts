@@ -16,8 +16,18 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Column({ unique: true, nullable: false })
+  @Index('IDX_users_username')
+  username!: string;
+
   @Column({ type: 'varchar', nullable: false })
   name!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  first_name!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  last_name!: string | null;
 
   @Column({ unique: true, nullable: false })
   @Index('IDX_users_email')

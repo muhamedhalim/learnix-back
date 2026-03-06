@@ -1,10 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -107,6 +111,7 @@ export class TeacherPackagesController {
   /**
    * Create a new package
    */
+  @Post()
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Invalid input data',
@@ -125,6 +130,7 @@ export class TeacherPackagesController {
   /**
    * Get a single package by ID (must be owner)
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
@@ -139,6 +145,7 @@ export class TeacherPackagesController {
   /**
    * Update a package
    */
+  @Put(':id')
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own packages',
@@ -158,6 +165,7 @@ export class TeacherPackagesController {
   /**
    * Delete a package
    */
+  @Delete(':id')
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own packages',
@@ -175,6 +183,7 @@ export class TeacherPackagesController {
   /**
    * Add lessons to a package
    */
+  @Post(':id/lessons')
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Lessons already in package',
@@ -198,6 +207,7 @@ export class TeacherPackagesController {
   /**
    * Remove lessons from a package
    */
+  @Delete(':id/lessons')
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only modify your own packages',
@@ -221,6 +231,7 @@ export class TeacherPackagesController {
   /**
    * Toggle package active status
    */
+  @Patch(':id/active')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',

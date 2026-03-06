@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -35,6 +37,8 @@ export class CartController {
   /**
    * Add item to cart (student only)
    */
+  @Post('items')
+  @ApiOperation({ summary: 'Add lesson or package to cart' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson or package not found',
@@ -53,6 +57,8 @@ export class CartController {
   /**
    * Get cart (student only)
    */
+  @Get()
+  @ApiOperation({ summary: 'Get current student cart' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Cart retrieved successfully',
@@ -96,6 +102,8 @@ export class CartController {
   /**
    * Checkout cart (student only)
    */
+  @Post('checkout')
+  @ApiOperation({ summary: 'Process cart checkout and payment' })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
     description: 'Cart is empty or invalid payment method',

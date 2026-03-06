@@ -11,18 +11,20 @@ import {
   TeacherLessonsController,
 } from './controllers';
 import { Lesson } from './entities/lesson.entity';
+import { LessonProgress } from './entities/lesson-progress.entity';
 import { LessonsService } from './lessons.service';
+import { ProgressService } from './progress.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Lesson, User, Subject])],
+  imports: [TypeOrmModule.forFeature([Lesson, LessonProgress, User, Subject])],
   controllers: [
     LessonsController,
     TeacherLessonsController,
     StudentLessonsController,
     AdminLessonsController,
   ],
-  providers: [LessonsService],
-  exports: [LessonsService, TypeOrmModule],
+  providers: [LessonsService, ProgressService],
+  exports: [LessonsService, ProgressService, TypeOrmModule],
 })
 export class LessonsModule implements OnModuleInit {
   public onModuleInit(): void {

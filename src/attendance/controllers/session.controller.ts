@@ -4,10 +4,12 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
@@ -29,6 +31,8 @@ export class SessionController {
   /**
    * Enter a lesson (start session tracking)
    */
+  @Post(':id/enter')
+  @ApiOperation({ summary: 'Start a lesson tracking session' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
@@ -61,6 +65,8 @@ export class SessionController {
    * Exit a lesson (end session tracking)
    * Triggers auto-attendance if 80%+ video watched
    */
+  @Post(':id/exit')
+  @ApiOperation({ summary: 'End a lesson tracking session' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Active session not found',
@@ -106,6 +112,8 @@ export class SessionController {
   /**
    * Update session progress (during playback)
    */
+  @Patch('sessions/:sessionId/progress')
+  @ApiOperation({ summary: 'Update session progress (during playback)' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Progress updated',

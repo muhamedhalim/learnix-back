@@ -1,11 +1,14 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -45,6 +48,12 @@ export class TeacherAttendanceController {
   /**
    * Mark attendance for a student in a lesson
    */
+  @Post(':lessonId/attendance')
+  @ApiOperation({ summary: 'Manually mark student attendance' })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Attendance marked successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
@@ -73,6 +82,12 @@ export class TeacherAttendanceController {
   /**
    * Update attendance record
    */
+  @Patch(':lessonId/attendance/:id')
+  @ApiOperation({ summary: 'Update an existing attendance record' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Attendance updated successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
@@ -103,6 +118,12 @@ export class TeacherAttendanceController {
   /**
    * Delete attendance record
    */
+  @Delete(':lessonId/attendance/:id')
+  @ApiOperation({ summary: 'Delete an attendance record' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Attendance deleted successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only manage attendance for your own lessons',
@@ -180,6 +201,12 @@ export class TeacherAttendanceController {
   /**
    * Get attendance statistics for a lesson
    */
+  @Get(':lessonId/attendance/stats')
+  @ApiOperation({ summary: 'Get attendance stats for a lesson' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Stats retrieved successfully',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only view stats for your own lessons',

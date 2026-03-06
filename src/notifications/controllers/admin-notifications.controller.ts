@@ -45,6 +45,7 @@ export class AdminNotificationsController {
     private readonly notificationsRepository: Repository<Notification>,
   ) {}
 
+  @Post('manual')
   @ApiResponse({
     status: 201,
     description: 'Notifications sent',
@@ -105,6 +106,7 @@ export class AdminNotificationsController {
     };
   }
 
+  @Get('stats')
   @ApiResponse({
     status: 200,
     description: 'Returns notification statistics',

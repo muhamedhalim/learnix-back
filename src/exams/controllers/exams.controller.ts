@@ -5,17 +5,29 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
+import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { ExamFilterDto, ExamPreviewResponseDto, SubmitExamDto } from '../dto';
 import { ExamsService } from '../exams.service';
 
 @ApiTags('Exams')
 @Controller('exams')
+@ApiBearerAuth('JWT-auth')
 export class ExamsController {
   constructor(private readonly examsService: ExamsService) {}
 
@@ -115,6 +127,17 @@ export class ExamsController {
    * Get exam for taking (student only)
    * Returns exam without correct answers
    */
+  @Get(':id/take')
+  @UseGuards(HybridAuthGuard, RolesGuard)
+  @Roles('student')
+  @ApiOperation({
+    summary: 'Get exam for taking (student)',
+    description: 'Returns exam questions without correct answers for the authenticated student.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Exam questions for taking',
+  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'You have already submitted this exam',
@@ -130,6 +153,17 @@ export class ExamsController {
    * Submit exam answers (student only)
    * Auto-grades MCQ questions immediately
    */
+  @Post(':id/submit')
+  @UseGuards(HybridAuthGuard, RolesGuard)
+  @Roles('student')
+  @ApiOperation({
+    summary: 'Submit exam answers (student)',
+    description: 'Submits exam answers for the authenticated student. Auto-grades MCQ questions immediately.',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Exam submitted and graded successfully',
+  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'You have already submitted this exam',

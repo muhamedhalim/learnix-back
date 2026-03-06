@@ -114,6 +114,7 @@ export class AdminPackagesController {
   /**
    * Get a single package by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',
@@ -127,6 +128,7 @@ export class AdminPackagesController {
   /**
    * Get package statistics
    */
+  @Get(':id/stats')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Package not found',

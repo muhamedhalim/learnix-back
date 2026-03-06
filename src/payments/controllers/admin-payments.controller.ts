@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -90,6 +91,7 @@ export class AdminPaymentsController {
     };
   }
 
+  @Get('lesson-purchases')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lesson purchases retrieved successfully',
@@ -104,6 +106,7 @@ export class AdminPaymentsController {
     );
   }
 
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Payment not found',
@@ -118,6 +121,7 @@ export class AdminPaymentsController {
     return { data: payment };
   }
 
+  @Post(':id/extend')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Purchase not found',

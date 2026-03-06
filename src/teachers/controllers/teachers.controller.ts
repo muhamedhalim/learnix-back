@@ -81,6 +81,7 @@ export class TeachersController {
   /**
    * Get a single approved teacher by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',

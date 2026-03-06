@@ -110,6 +110,7 @@ export class TeacherProfileController {
    * Get current teacher's stats
    * Returns lesson count, student count, earnings, etc.
    */
+  @Get('stats')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher profile not found',

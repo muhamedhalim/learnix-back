@@ -110,38 +110,40 @@ export class StudentProfileController {
       profile,
     };
   }
+/**
+ * Get current student's stats
+ * Returns lesson count, exam count, average score, etc.
+ */
+@Get('stats')
+@ApiResponse({
+  status: HttpStatus.NOT_FOUND,
+  description: 'Student profile not found',
+})
+public async getStats(
+  @GetUser() user: JwtPayload,
+): Promise<{ stats: unknown }> {
+  // First get the student profile to get the studentId
+  const profile = await this.studentsService.findStudentProfile(user.userId);
+  const stats = await this.studentsService.getStudentStats(profile.id);
+  return {
+    stats,
+  };
+}
 
-  /**
-   * Get current student's stats
-   * Returns lesson count, exam count, average score, etc.
-   */
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Student profile not found',
-  })
-  public async getStats(
-    @GetUser() user: JwtPayload,
-  ): Promise<{ stats: unknown }> {
-    // First get the student profile to get the studentId
-    const profile = await this.studentsService.findStudentProfile(user.userId);
-    const stats = await this.studentsService.getStudentStats(profile.id);
-    return {
-      stats,
-    };
-  }
+/**
+ * Update notification settings
+ * Students can configure their notification preferences
+ */
+@Put('notifications')
+@ApiResponse({
+  status: HttpStatus.BAD_REQUEST,
+  description: 'Invalid notification settings',
+})
+public async updateNotifications(
+  @GetUser() user: JwtPayload,
+  @Body() updateDto: UpdateStudentNotificationSettingsDto,
+): Promise<{ message: string; profile: unknown }> {
 
-  /**
-   * Update notification settings
-   * Students can configure their notification preferences
-   */
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid notification settings',
-  })
-  public async updateNotifications(
-    @GetUser() user: JwtPayload,
-    @Body() updateDto: UpdateStudentNotificationSettingsDto,
-  ): Promise<{ message: string; profile: unknown }> {
     const profile = await this.studentsService.updateNotificationSettings(
       user.userId,
       updateDto,

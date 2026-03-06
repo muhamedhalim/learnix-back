@@ -1,10 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -94,6 +97,12 @@ export class TeacherBooksController {
   /**
    * Create a new book
    */
+  @Post()
+  @ApiOperation({ summary: 'Create a new book' })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Book created successfully',
+  })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Book with this title already exists',
@@ -112,6 +121,8 @@ export class TeacherBooksController {
   /**
    * Get a single book by ID (must be owner)
    */
+  @Get(':id')
+  @ApiOperation({ summary: 'Get book details (owner only)' })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
@@ -135,6 +146,8 @@ export class TeacherBooksController {
   /**
    * Update a book
    */
+  @Put(':id')
+  @ApiOperation({ summary: 'Update a book' })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own books',
@@ -154,6 +167,8 @@ export class TeacherBooksController {
   /**
    * Delete a book (soft delete)
    */
+  @Delete(':id')
+  @ApiOperation({ summary: 'Soft-delete a book' })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own books',
@@ -171,6 +186,8 @@ export class TeacherBooksController {
   /**
    * Get my book revenue
    */
+  @Get('revenue')
+  @ApiOperation({ summary: 'Get total revenue from books' })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue summary retrieved',

@@ -1,5 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
+import nestjsTyped from '@darraghor/eslint-plugin-nestjs-typed';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import security from 'eslint-plugin-security';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
@@ -16,6 +17,7 @@ export default tseslint.config(
   ...tseslint.configs.stylisticTypeChecked,
   eslintPluginPrettierRecommended,
   security.configs.recommended,
+  ...nestjsTyped.configs.flatRecommended,
 
   {
     languageOptions: {
@@ -239,6 +241,19 @@ export default tseslint.config(
 
       // Deprecation detection - catches deprecated API usage
       '@typescript-eslint/no-deprecated': 'warn',
+
+      // Additional strictness - previously missing rules
+      '@typescript-eslint/no-useless-constructor': 'error',
+      '@typescript-eslint/prefer-as-const': 'error',
+      '@typescript-eslint/no-inferrable-types': ['error', {
+        ignoreParameters: true,
+        ignoreProperties: true,
+      }],
+      '@typescript-eslint/unified-signatures': 'error',
+      '@typescript-eslint/method-signature-style': ['error', 'property'],
+      '@typescript-eslint/no-import-type-side-effects': 'error',
+      '@typescript-eslint/consistent-generic-constructors': ['error', 'constructor'],
+      '@typescript-eslint/no-unnecessary-template-expression': 'error',
 
       '@typescript-eslint/naming-convention': [
         'error',

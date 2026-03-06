@@ -102,6 +102,7 @@ export class LessonsController {
   /**
    * Get a single lesson by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',

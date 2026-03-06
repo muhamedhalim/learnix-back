@@ -74,6 +74,7 @@ export class AdminAttendanceCodesController {
     };
   }
 
+  @Get()
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of attendance codes',

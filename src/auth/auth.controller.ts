@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Post,
   Req,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -19,16 +20,30 @@ import { RegisterDto } from './dto/register.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Post('register')
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async register(@Body() registerDto: RegisterDto): Promise<unknown> {
     return await this.authService.register(registerDto);
   }
 
+  @Post('login')
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async login(@Body() loginDto: LoginDto): Promise<unknown> {
-    return await this.authService.login(loginDto);
+  public async login(
+    @Body() loginDto: LoginDto,
+    @Req() request: Request,
+  ): Promise<unknown> {
+    const deviceInfo = request.headers['user-agent'] ?? null;
+    const ipAddress =
+      (request.headers['x-forwarded-for'] as string | undefined)?.split(
+        ',',
+      )[0] ??
+      request.ip ??
+      null;
+
+    return await this.authService.login(loginDto, deviceInfo, ipAddress);
   }
 
+  @Post('refresh')
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async refresh(
     @Body() refreshTokenDto: RefreshTokenDto,
@@ -36,6 +51,7 @@ export class AuthController {
     return await this.authService.refresh(refreshTokenDto.refresh_token);
   }
 
+  @Post('logout')
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   public async logout(@Req() request: Request): Promise<{ message: string }> {
     const { userId } = request.user as { userId: string };
