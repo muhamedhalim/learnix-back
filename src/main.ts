@@ -1,14 +1,14 @@
-// CRITICAL: Import polyfills FIRST before any other imports
 import './polyfills';
 
-import { Logger, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { Reflector } from '@nestjs/core';
+import {
+  Logger,
+  ValidationPipe,
+} from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
 import cookieParser from 'cookie-parser';
-import type { NextFunction, Request, Response } from 'express';
-import basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
 import { join } from 'path';
 
@@ -18,140 +18,94 @@ import { CsrfGuard } from './common/guards/csrf.guard';
 
 const logger = new Logger('Bootstrap');
 
+function getAllowedOrigins(): string[] {
+  const env = process.env['CORS_ORIGINS'];
+
+  if (env && env.length > 0) {
+    return env
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+  }
+
+  return [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'https://*.vercel.app',
+  ];
+}
+
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: process.env['NODE_ENV'] === 'production'
+      ? ['error', 'warn', 'log']
+      : ['debug', 'log', 'warn', 'error'],
+  });
 
-  // Protect Bull Board with basic authentication (Issue #13)
-  const bullBoardUser = process.env['BULL_BOARD_USER'] ?? 'admin';
-  const bullBoardPassword = process.env['BULL_BOARD_PASSWORD'];
+  const isProd = process.env['NODE_ENV'] === 'production';
 
-  if (bullBoardPassword === undefined || bullBoardPassword === '') {
-    logger.warn(
-      'WARNING: BULL_BOARD_PASSWORD not set. Bull Board will be inaccessible in production.',
-    );
-  }
+  app.set('trust proxy', 1);
 
-  if (bullBoardPassword !== undefined && bullBoardPassword !== '') {
-    const authMiddleware = basicAuth({
-      users: { [bullBoardUser]: bullBoardPassword },
-      challenge: true,
-      realm: 'Bull Board Admin',
-    }) as unknown as (req: Request, res: Response, next: NextFunction) => void;
-
-    app.use('/admin/queues', authMiddleware);
-    logger.log('Bull Board protected with basic authentication');
-  } else if (process.env['NODE_ENV'] !== 'production') {
-    logger.warn(
-      'WARNING: Bull Board running WITHOUT authentication in development',
-    );
-  }
-
-  // Enable cookie parsing for CSRF protection (Double Submit Cookie pattern)
-  // Use a secret for signing cookies
   const cookieSecret =
-    process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'];
-  if (cookieSecret === undefined || cookieSecret === '') {
-    logger.error(
-      'ERROR: COOKIE_SECRET or JWT_SECRET must be set for signed cookies',
-    );
+    process.env['COOKIE_SECRET'] || process.env['JWT_SECRET'];
+
+  if (!cookieSecret) {
+    logger.error('COOKIE_SECRET or JWT_SECRET is required');
     process.exit(1);
   }
+
   app.use(cookieParser(cookieSecret));
 
-  // Security headers with Helmet
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"], // Required for Swagger UI
-          scriptSrc: ["'self'", "'unsafe-inline'"], // Required for Swagger UI
-          imgSrc: ["'self'", 'data:', 'https:'],
-        },
-      },
-      hsts: {
-        maxAge: 31536000, // 1 year
-        includeSubDomains: true,
-        preload: true,
-      },
-      frameguard: {
-        action: 'deny', // X-Frame-Options: DENY (clickjacking protection)
-      },
-      noSniff: true, // X-Content-Type-Options: nosniff
-      xssFilter: true, // X-XSS-Protection: 1; mode=block (legacy browsers)
-      referrerPolicy: {
-        policy: 'strict-origin-when-cross-origin',
-      },
-      // Allow cross-origin resource loading for images/uploads
-      // This fixes ERR_BLOCKED_BY_RESPONSE.NotSameOrigin for thumbnails
       crossOriginResourcePolicy: { policy: 'cross-origin' },
+
+      contentSecurityPolicy: isProd
+        ? {
+            directives: {
+              defaultSrc: ["'self'"],
+              imgSrc: ["'self'", 'data:', 'https:'],
+              scriptSrc: ["'self'"],
+              styleSrc: ["'self'"],
+            },
+          }
+        : false, // IMPORTANT: disable CSP in dev (fix Swagger + HMR issues)
     }),
   );
 
-  app.useStaticAssets(join('/app/uploads'), {
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
 
-  const allowedOrigins =
-    process.env['CORS_ORIGINS'] !== undefined &&
-    process.env['CORS_ORIGINS'] !== ''
-      ? process.env['CORS_ORIGINS']
-          .split(',')
-          .map((origin) => origin.trim())
-          .filter((origin) => {
-            try {
-              new URL(origin);
-              return true;
-            } catch {
-              logger.error(`Invalid CORS origin: ${origin}`);
-              return false;
-            }
-          })
-      : [
-          'http://localhost:3000',
-          'http://localhost:5173',
-          'https://dodline.vercel.app',
-        ];
+  const allowedOrigins = getAllowedOrigins();
 
-  logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
+  logger.log(`Allowed CORS Origins: ${allowedOrigins.join(', ')}`);
 
   app.enableCors({
-    origin: (origin: string | undefined, callback) => {
-      const isProduction = process.env['NODE_ENV'] === 'production';
+    origin: (origin, callback) => {
+      // allow server-to-server / postman / health checks
+      if (!origin) return callback(null, true);
 
-      if (origin === undefined) {
-        if (isProduction) {
-          logger.warn(
-            'Request with no origin header (likely health check or direct API call)',
-          );
-        }
-        callback(null, true);
-        return;
-      }
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.vercel.app');
 
-      // Check if origin is in allowed list
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      }
-      // Allow all Vercel preview deployments (*.vercel.app)
-      else if (origin.endsWith('.vercel.app')) {
-        logger.log(`Accepting Vercel preview deployment: ${origin}`);
-        callback(null, true);
-      } else {
-        logger.warn(`Blocked CORS request from: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
+      if (isAllowed) return callback(null, true);
+
+      logger.warn(`CORS BLOCKED: ${origin}`);
+      return callback(null, false);
     },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+
+    credentials: true,
+
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+
     allowedHeaders: [
       'Content-Type',
       'Authorization',
-      'Firebase-Auth-Token',
-      'X-Requested-With',
-      'X-CSRF-Token', // Required for CSRF protection
+      'X-CSRF-Token',
     ],
-    credentials: true, // Required for cookies
-    optionsSuccessStatus: 200,
   });
 
   app.useGlobalPipes(
@@ -165,77 +119,59 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Register RFC 7807 global exception filter for standardized error responses
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // Enable CSRF protection globally (Double Submit Cookie pattern)
-  // Uses SameSite=Lax cookies as primary defense + token validation for state-changing requests
   app.useGlobalGuards(new CsrfGuard(new Reflector()));
 
   app.setGlobalPrefix('api/v1');
 
-  const config = new DocumentBuilder()
-    .setTitle('backend center')
-    .setDescription(
-      'Comprehensive backend API for backend center e-learning platform',
-    )
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .build();
+  if (!isProd || process.env['ENABLE_SWAGGER'] === 'true') {
+    const config = new DocumentBuilder()
+      .setTitle('E-Learning Platform API')
+      .setDescription('Backend API Documentation')
+      .setVersion('1.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+        'JWT',
+      )
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document, {
-    customSiteTitle: 'backend center API Documentation',
-    customfavIcon: '/favicon.ico',
-    customCss: '.swagger-ui .topbar { display: none }',
-  });
+    const document = SwaggerModule.createDocument(app, config);
 
-  // Lightweight debug logger for root/health checks only
-  app.use((req: Request, _res: Response, next: NextFunction) => {
-    if (req.url === '/' || req.url.startsWith('/api/v1/health')) {
-      logger.log(`[INCOMING] ${req.method} ${req.url}`);
-    }
-    next();
-  });
+    SwaggerModule.setup('api', app, document, {
+      customSiteTitle: 'API Docs',
+    });
+  }
 
-  // Simple root endpoint for Railway healthcheck
-  app.use('/', (req: Request, res: Response, next: NextFunction): void => {
-    if (req.url === '/' && req.method === 'GET') {
-      res.status(200).json({
+  app.use((req: { method: string; url: string; }, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { status: string; service: string; version: string; docs: string; health: string; timestamp: string; }): any; new(): any; }; }; }, next: () => void) => {
+    if (req.method === 'GET' && req.url === '/') {
+      return res.status(200).json({
         status: 'ok',
-        message: 'E-Learning Platform API',
-        version: '1.0.0',
+        service: 'E-Learning API',
+        version: '1.0',
         docs: '/api',
         health: '/api/v1/health',
         timestamp: new Date().toISOString(),
       });
-      return;
     }
-    next(); // ensure other routes still work
+
+    next();
   });
 
-  // Ensure we parse PORT as a number and bind to 0.0.0.0 so Railway's proxy can reach the process
-  const port =
-    process.env['PORT'] !== undefined && process.env['PORT'] !== ''
-      ? Number(process.env['PORT'])
-      : 3000;
+  const port = Number(process.env['PORT']) || 3000;
+
   await app.listen(port, '0.0.0.0');
 
-  logger.log(`Application is running on: 0.0.0.0:${String(port)}`);
-  logger.log(`Swagger documentation: http://0.0.0.0:${String(port)}/api`);
+  logger.log(`🚀 Server running on http://0.0.0.0:${port}`);
+  logger.log(`📘 Swagger: http://0.0.0.0:${port}/api`);
 }
 
-bootstrap().catch((error: unknown) => {
-  logger.error('ERROR: Error starting application:', error);
+
+bootstrap().catch((err) => {
+  logger.error('❌ Fatal Bootstrap Error:', err);
   process.exit(1);
 });
