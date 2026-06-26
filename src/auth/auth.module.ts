@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -33,6 +33,7 @@ import { JwtStrategy } from './jwt.strategy';
     }),
     UsersModule,
     FirebaseModule,
+    forwardRef(() => import('../students/students.module').then(m => m.StudentsModule)),
   ],
   controllers: [AuthController, FirebaseAuthController],
   providers: [

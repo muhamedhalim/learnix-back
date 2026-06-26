@@ -27,7 +27,7 @@ import { CallCenterUpdateStudentDto } from './dto/update-student.dto';
 @Controller('callcenter')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('call_center')
-@ApiBearerAuth('JWT')
+@ApiBearerAuth('JWT-auth')
 export class CallCenterController {
   constructor(
     private readonly studentsService: StudentsService,

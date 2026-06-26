@@ -14,7 +14,7 @@ import { join } from 'path';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { CsrfGuard } from './common/guards/csrf.guard';
+// import { CsrfGuard } from './common/guards/csrf.guard';
 
 const logger = new Logger('Bootstrap');
 
@@ -121,7 +121,7 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  app.useGlobalGuards(new CsrfGuard(new Reflector()));
+  // app.useGlobalGuards(new CsrfGuard(new Reflector()));
 
   app.setGlobalPrefix('api/v1');
 
@@ -136,7 +136,7 @@ async function bootstrap(): Promise<void> {
           scheme: 'bearer',
           bearerFormat: 'JWT',
         },
-        'JWT',
+        'JWT-auth',
       )
       .build();
 

@@ -33,7 +33,7 @@ interface AuthRequest extends Request {
 @Controller('admin/complaints')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
-@ApiBearerAuth('JWT')
+@ApiBearerAuth('JWT-auth')
 export class ComplaintsAdminController {
   constructor(private readonly complaintsService: ComplaintsService) {}
 

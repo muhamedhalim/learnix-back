@@ -1,8 +1,10 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -11,6 +13,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Repository } from 'typeorm';
 
+import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
@@ -30,6 +33,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly sessionsService: SessionsService,
+    @Inject(forwardRef(() => StudentsService))
+    private readonly studentsService: StudentsService,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
@@ -50,7 +55,13 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
 
+    // Auto-generate username from email prefix + random suffix for uniqueness
+    const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+    const randomSuffix = crypto.randomBytes(3).toString('hex');
+    const username = `${emailPrefix}_${randomSuffix}`;
+
     const newUser = this.userRepository.create({
+      username,
       name: name.trim(),
       email,
       phone,
@@ -62,6 +73,13 @@ export class AuthService {
     });
 
     const savedUser = await this.userRepository.save(newUser);
+
+    // Create student profile
+    await this.studentsService.createStudentProfile(
+      savedUser.id,
+      parentPhone ?? '', // Provide empty string if undefined (or maybe throw if required, but it's optional in register)
+      undefined, // Grade level is unknown at registration
+    );
 
     // Return pending approval message instead of tokens
     // Use the UUID directly as the user identifier

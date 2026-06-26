@@ -31,7 +31,7 @@ interface AuthRequest extends Request {
 @Controller('student')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('student')
-@ApiBearerAuth('JWT')
+@ApiBearerAuth('JWT-auth')
 export class ReviewsStudentController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
