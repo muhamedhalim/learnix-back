@@ -15,7 +15,7 @@ import { CommentsService } from '../comments.service';
 @Controller('admin/comments/:commentId')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
-@ApiBearerAuth('JWT')
+@ApiBearerAuth('JWT-auth')
 export class CommentsAdminController {
   constructor(private readonly commentsService: CommentsService) {}
 

@@ -31,7 +31,7 @@ interface AuthRequest extends Request {
 @Controller('student/lessons/:lessonId/comments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('student')
-@ApiBearerAuth('JWT')
+@ApiBearerAuth('JWT-auth')
 export class CommentsStudentController {
   constructor(private readonly commentsService: CommentsService) {}
 

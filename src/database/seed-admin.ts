@@ -1,41 +1,50 @@
 import { NestFactory } from '@nestjs/core';
-
 import { AppModule } from '../app.module';
-import { AppService } from '../app.service';
+import { Logger } from '@nestjs/common';
 
 /**
  * Admin Seeding Script
- *
- * This script initializes the first admin user using credentials defined in the .env file.
- * Usage: npm run seed:admin
- *
- * Requirements:
- * - ADMIN_INIT_EMAIL in .env
- * - ADMIN_INIT_PASSWORD in .env
+ * Production-safe version
  */
 async function bootstrap() {
-  console.log('--- Admin User Seeding ---');
+  const logger = new Logger('AdminSeeder');
 
-  const app = await NestFactory.createApplicationContext(AppModule);
-  const appService = app.get(AppService);
+  logger.log('--- Admin User Seeding Started ---');
+
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn', 'log'],
+  });
 
   try {
-    const result = await appService.initAdmin();
+    const adminService = app.get('ADMIN_SEEDER_SERVICE');
 
-    if (result.success) {
-      console.log('\u001B[32m%s\u001B[0m', `SUCCESS: ${result.message}`);
-      result.results.forEach((msg) => console.log(`- ${msg}`));
+    if (!adminService) {
+      throw new Error(
+        'ADMIN_SEEDER_SERVICE not registered in DI container',
+      );
+    }
+
+    const result = await adminService.initAdmin();
+
+    if (result?.success) {
+      logger.log(`SUCCESS: ${result.message}`);
+
+      if (Array.isArray(result.results)) {
+        result.results.forEach((msg: string) => logger.log(`- ${msg}`));
+      }
     } else {
-      console.log('\u001B[33m%s\u001B[0m', `NOTICE: ${result.message}`);
-      result.results.forEach((msg) => console.log(`- ${msg}`));
+      logger.warn(`NOTICE: ${result?.message ?? 'Unknown result'}`);
+
+      if (Array.isArray(result?.results)) {
+        result.results.forEach((msg: string) => logger.warn(`- ${msg}`));
+      }
     }
   } catch (error: any) {
-    console.error('\u001B[31m%s\u001B[0m', 'ERROR: Admin seeding failed');
-    console.error(`Reason: ${error.message || error}`);
+    logger.error('Admin seeding failed', error?.stack || error?.message);
     process.exitCode = 1;
   } finally {
     await app.close();
-    console.log('--------------------------');
+    logger.log('--- Seeder Finished ---');
   }
 }
 

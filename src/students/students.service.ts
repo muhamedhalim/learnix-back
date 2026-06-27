@@ -358,7 +358,7 @@ export class StudentsService {
    */
   public async findStudentById(id: string): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
-      where: { id },
+      where: [{ id }, { user_id: id }],
       relations: ['user'],
     });
 
@@ -380,7 +380,7 @@ export class StudentsService {
     notes?: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
-      where: { id: profileId },
+      where: [{ id: profileId }, { user_id: profileId }],
       relations: ['user'],
     });
 
@@ -417,7 +417,7 @@ export class StudentsService {
     dto: RejectStudentDto,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
-      where: { id: profileId },
+      where: [{ id: profileId }, { user_id: profileId }],
       relations: ['user'],
     });
 
@@ -449,7 +449,7 @@ export class StudentsService {
     gradeLevel: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
-      where: { id: profileId },
+      where: [{ id: profileId }, { user_id: profileId }],
       relations: ['user'],
     });
 
@@ -470,7 +470,7 @@ export class StudentsService {
    */
   public async getStudentStats(profileId: string): Promise<StudentStats> {
     const profile = await this.studentProfilesRepository.findOne({
-      where: { id: profileId },
+      where: [{ id: profileId }, { user_id: profileId }],
     });
 
     if (!profile) {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -7,9 +7,10 @@ import { Repository } from 'typeorm';
 
 import { User } from './users/entities/user.entity';
 import { UserRole } from './users/entities/user-role.enum';
+import { UserStatus } from './users/entities/user-status.enum';
 
 @Injectable()
-export class AppService {
+export class AppService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AppService.name);
   private readonly startTime: number;
 
@@ -19,6 +20,14 @@ export class AppService {
     private readonly userRepository: Repository<User>,
   ) {
     this.startTime = Date.now();
+  }
+
+  public async onApplicationBootstrap() {
+    try {
+      await this.initAdmin();
+    } catch (error) {
+      this.logger.warn(`Admin auto-initialization skipped: ${error.message}`);
+    }
   }
 
   public getHello(): string {
@@ -108,9 +117,10 @@ export class AppService {
       name: 'Admin User',
       username: 'admin',
       email: adminEmail,
-      phone: '01000000000', // Default admin phone
+      phone: '01099999999', // Default admin phone (changed to avoid conflicts)
       password_hash: hashedPassword,
       role: UserRole.ADMIN,
+      status: UserStatus.APPROVED, // Explicitly set status to APPROVED
       is_active: true,
     });
 
