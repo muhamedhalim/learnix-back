@@ -251,7 +251,7 @@ export class ReportsService {
       .createQueryBuilder('bp')
       .innerJoin('bp.book', 'book')
       .where('book.teacher_id = :teacherId', { teacherId })
-      .andWhere('bp.created_at BETWEEN :start AND :end', {
+      .andWhere('bp.purchased_at BETWEEN :start AND :end', {
         start: startDate,
         end: endDate,
       })
@@ -293,7 +293,7 @@ export class ReportsService {
       .createQueryBuilder('ls')
       .innerJoin('ls.lesson', 'lesson')
       .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('ls.enter_time BETWEEN :start AND :end', {
+      .andWhere('ls.entered_at BETWEEN :start AND :end', {
         start: startDate,
         end: endDate,
       })
@@ -321,7 +321,7 @@ export class ReportsService {
       .createQueryBuilder('ls')
       .innerJoin('ls.lesson', 'lesson')
       .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('ls.enter_time BETWEEN :start AND :end', {
+      .andWhere('ls.entered_at BETWEEN :start AND :end', {
         start: startDate,
         end: endDate,
       })
@@ -533,7 +533,7 @@ export class ReportsService {
       }),
       this.lessonSessionsRepository
         .createQueryBuilder('ls')
-        .where('ls.enter_time BETWEEN :start AND :end', {
+        .where('ls.entered_at BETWEEN :start AND :end', {
           start: startDate,
           end: endDate,
         })
@@ -578,7 +578,7 @@ export class ReportsService {
         .getRawOne<SumResult>(),
       this.bookPurchasesRepository
         .createQueryBuilder('bp')
-        .where('bp.created_at BETWEEN :start AND :end', {
+        .where('bp.purchased_at BETWEEN :start AND :end', {
           start: startDate,
           end: endDate,
         })
@@ -627,7 +627,7 @@ export class ReportsService {
       await Promise.all([
         this.lessonSessionsRepository
           .createQueryBuilder('ls')
-          .where('ls.enter_time BETWEEN :start AND :end', {
+          .where('ls.entered_at BETWEEN :start AND :end', {
             start: startDate,
             end: endDate,
           })
@@ -641,7 +641,7 @@ export class ReportsService {
           .getCount(),
         this.lessonSessionsRepository
           .createQueryBuilder('ls')
-          .where('ls.enter_time BETWEEN :start AND :end', {
+          .where('ls.entered_at BETWEEN :start AND :end', {
             start: startDate,
             end: endDate,
           })
@@ -649,7 +649,7 @@ export class ReportsService {
           .getRawOne<AvgResult>(),
         this.lessonSessionsRepository
           .createQueryBuilder('ls')
-          .where('ls.enter_time BETWEEN :start AND :end', {
+          .where('ls.entered_at BETWEEN :start AND :end', {
             start: startDate,
             end: endDate,
           })

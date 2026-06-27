@@ -968,11 +968,11 @@ export class PaymentsService {
       });
 
     if (fromDate !== undefined && fromDate !== '') {
-      query.andWhere('payment.paid_at >= :fromDate', { fromDate });
+      query.andWhere('payment.created_at >= :fromDate', { fromDate });
     }
 
     if (toDate !== undefined && toDate !== '') {
-      query.andWhere('payment.paid_at <= :toDate', { toDate });
+      query.andWhere('payment.created_at <= :toDate', { toDate });
     }
 
     return query;
@@ -1053,7 +1053,7 @@ export class PaymentsService {
 
     const periodResults = await periodQuery
 
-      .select(`TO_CHAR(payment.paid_at, '${dateFormat}')`, 'period')
+      .select(`TO_CHAR(payment.created_at, '${dateFormat}')`, 'period')
 
       .addSelect('SUM(lp.price_paid)', 'revenue')
 

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   HttpCode,
@@ -77,7 +78,7 @@ export class BulkOperationsController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ data: BulkImportPreviewDto }> {
     if (!file) {
-      throw new Error('No file uploaded');
+      throw new BadRequestException('No file uploaded');
     }
 
     const csvContent = file.buffer.toString('utf-8');
@@ -124,7 +125,7 @@ export class BulkOperationsController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ data: BulkImportResultDto }> {
     if (!file) {
-      throw new Error('No file uploaded');
+      throw new BadRequestException('No file uploaded');
     }
 
     const csvContent = file.buffer.toString('utf-8');

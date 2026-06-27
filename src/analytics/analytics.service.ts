@@ -809,8 +809,8 @@ export class AnalyticsService {
 
     const bookRevenue = await this.bookPurchasesRepository
       .createQueryBuilder('bp')
-      .where('bp.created_at >= :start', { start: startOfMonth })
-      .andWhere('bp.created_at < :end', { end: endOfMonth })
+      .where('bp.purchased_at >= :start', { start: startOfMonth })
+      .andWhere('bp.purchased_at < :end', { end: endOfMonth })
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
