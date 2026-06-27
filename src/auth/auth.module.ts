@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { FirebaseModule } from '../firebase/firebase.module';
+import { StudentsModule } from '../students/students.module';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
@@ -32,7 +33,7 @@ import { JwtStrategy } from './jwt.strategy';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     TypeOrmModule.forFeature([User]),
     UsersModule,
-    forwardRef(() => import('../students/students.module').then(m => m.StudentsModule)),
+    forwardRef(() => StudentsModule),
   ],
   controllers: [AuthController, FirebaseAuthController],
   providers: [

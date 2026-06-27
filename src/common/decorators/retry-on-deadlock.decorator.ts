@@ -81,11 +81,11 @@ export function RetryOnDeadlock(
     target: object,
     propertyKey: string | symbol,
     descriptor: PropertyDescriptor,
-  ) {
+  ): void {
     const originalMethod = descriptor.value as (
       ...args: unknown[]
     ) => Promise<unknown>;
-    const newDescriptor = { ...descriptor , async value (
+    descriptor.value = async function (
       this: unknown,
       ...args: unknown[]
     ): Promise<unknown> {
@@ -127,10 +127,7 @@ export function RetryOnDeadlock(
 
       // Should never reach here, but throw last error as fallback
       throw lastError;
-    },};
-
-
-    return newDescriptor;
+    };
   };
 }
 

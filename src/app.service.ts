@@ -26,7 +26,7 @@ export class AppService implements OnApplicationBootstrap {
     try {
       await this.initAdmin();
     } catch (error) {
-      this.logger.warn(`Admin auto-initialization skipped: ${error.message}`);
+      this.logger.warn(`Admin auto-initialization skipped: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

@@ -57,7 +57,7 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
 
     // Auto-generate username from email prefix + random suffix for uniqueness
-    const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+    const emailPrefix = (email.split('@')[0] ?? '').replace(/[^a-zA-Z0-9_]/g, '_');
     const randomSuffix = crypto.randomBytes(3).toString('hex');
     const username = `${emailPrefix}_${randomSuffix}`;
 
