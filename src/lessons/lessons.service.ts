@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { VIDEO_URL_PATTERNS } from '../common/constants';
@@ -15,7 +16,6 @@ import {
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import {
   CreateLessonDto,
   LessonFilterDto,

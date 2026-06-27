@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RenamePurchaseCodesToAttendanceCodes1768610000000
-  implements MigrationInterface
-{
+export class RenamePurchaseCodesToAttendanceCodes1768610000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Rename the table
     await queryRunner.query(`

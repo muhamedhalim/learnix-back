@@ -10,7 +10,7 @@ import { DiscountCode, DiscountCodeUsage } from './entities';
 
 @Module({
   imports: [TypeOrmModule.forFeature([DiscountCode, DiscountCodeUsage])],
-  controllers: [DiscountCodesController, AdminDiscountCodesController],
+  controllers: [AdminDiscountCodesController, DiscountCodesController],
   providers: [DiscountCodesService],
   exports: [DiscountCodesService],
 })

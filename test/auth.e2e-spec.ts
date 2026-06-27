@@ -1,8 +1,10 @@
+import type { Server } from 'node:http';
+
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
-import type { Server } from 'http';
+
 import * as request from 'supertest';
 import { DataSource } from 'typeorm';
 

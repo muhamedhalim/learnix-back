@@ -9,7 +9,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import { AttendanceCodeType } from './attendance-code-type.enum';
 
 @Entity('attendance_codes')

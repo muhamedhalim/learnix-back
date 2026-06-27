@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
 import { Cart } from './entities/cart.entity';

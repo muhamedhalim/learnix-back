@@ -7,13 +7,13 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.build.json && nest build --builder swc",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write .",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "start:migrate:prod": "npm run migration:run:prod && npm run start:prod",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint . --fix --cache && prettier --check .",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
@@ -81,6 +81,7 @@
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^7.1.18",
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.0",
@@ -102,9 +103,18 @@
     "@types/supertest": "^6.0.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import-x": "^4.16.1",
+    "eslint-plugin-jest": "^29.15.0",
+    "eslint-plugin-n": "^17.24.0",
+    "eslint-plugin-no-secrets": "^2.3.3",
     "eslint-plugin-prettier": "^5.2.2",
+    "eslint-plugin-promise": "^7.2.1",
+    "eslint-plugin-regexp": "^3.0.0",
     "eslint-plugin-security": "^3.0.1",
     "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-sonarjs": "^4.0.1",
+    "eslint-plugin-unicorn": "^63.0.0",
     "globals": "^16.0.0",
     "jest": "^30.0.0",
     "prettier": "^3.4.2",
@@ -139,7 +149,11 @@
   },
   "overrides": {
     "lodash": "^4.17.23",
-    "fast-xml-parser": "^5.3.3"
+    "fast-xml-parser": "^5.3.3",
+    "@angular-devkit/core": {
+      "ajv": "8.18.0"
+    },
+    "@tootallnate/once": "3.0.1"
   },
   "engines": {
     "node": ">=20.0.0",

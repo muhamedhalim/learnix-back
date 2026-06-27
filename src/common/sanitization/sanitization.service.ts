@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+
 import sanitizeHtml from 'sanitize-html';
 
 /**
@@ -32,7 +33,7 @@ export class SanitizationService {
 
     if (this.containsHtml(dirty) && dirty !== clean) {
       this.logger.warn(
-        `Stripped HTML from strict input: ${dirty.substring(0, 50)}...`,
+        `Stripped HTML from strict input: ${dirty.slice(0, 50)}...`,
       );
     }
 
@@ -250,7 +251,7 @@ export class SanitizationService {
    * Check if a string contains HTML tags
    */
   private containsHtml(str: string): boolean {
-    return /<[^>]*>/g.test(str);
+    return /<[^>]*>/.test(str);
   }
 
   /**

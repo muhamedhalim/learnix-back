@@ -1,3 +1,5 @@
+import * as crypto from 'node:crypto';
+
 import {
   ConflictException,
   Injectable,
@@ -7,15 +9,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
 import { Repository } from 'typeorm';
 
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import { SessionsService } from '../users/sessions.service';
-
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -252,7 +253,7 @@ export class AuthService {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
-    const value = parseInt(match[1], 10);
+    const value = Number.parseInt(match[1], 10);
     const unit = match[2];
     const now = new Date();
 

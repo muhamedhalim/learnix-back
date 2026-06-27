@@ -1,3 +1,6 @@
+import { access } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import {
   BadRequestException,
   Controller,
@@ -23,9 +26,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+
 import type { Response } from 'express';
-import { access } from 'fs/promises';
-import { join } from 'path';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -35,7 +37,6 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { SkipCsrf } from '../common/guards/csrf.guard';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import type {
   FileDeleteResponseDto,
   FileDetailsDto,

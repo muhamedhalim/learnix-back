@@ -54,19 +54,19 @@ export class AdminDashboardDto {
 
   @ApiProperty({
     description: 'Total revenue from all completed transactions',
-    example: 125000.5,
+    example: 125_000.5,
   })
   public totalRevenue!: number;
 
   @ApiProperty({
     description: 'Revenue earned this month',
-    example: 15000.0,
+    example: 15_000,
   })
   public revenueThisMonth!: number;
 
   @ApiProperty({
     description: 'Revenue earned last month',
-    example: 12500.0,
+    example: 12_500,
   })
   public revenueLastMonth!: number;
 }

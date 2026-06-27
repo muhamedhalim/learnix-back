@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Payment } from '../payments/entities/payment.entity';
 import { Subject } from '../subjects/entities/subject.entity';
-
 import {
   AdminBooksController,
   BooksController,
@@ -16,12 +15,12 @@ import { BookPurchasesService, BooksService } from './services';
 @Module({
   imports: [TypeOrmModule.forFeature([Book, BookPurchase, Subject, Payment])],
   controllers: [
-    BooksController,
-    TeacherBooksController,
-    StudentBooksController,
     AdminBooksController,
+    BooksController,
+    StudentBooksController,
+    TeacherBooksController,
   ],
-  providers: [BooksService, BookPurchasesService],
-  exports: [BooksService, BookPurchasesService],
+  providers: [BookPurchasesService, BooksService],
+  exports: [BookPurchasesService, BooksService],
 })
 export class BooksModule {}

@@ -19,7 +19,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-
 import { AnalyticsService } from './analytics.service';
 import {
   AdminDashboardDto,
@@ -43,7 +42,8 @@ export class AnalyticsController {
   @Roles('admin')
   @ApiOperation({
     summary: 'Get admin dashboard statistics',
-    description: 'Returns platform-wide statistics for the admin dashboard. Admin only.',
+    description:
+      'Returns platform-wide statistics for the admin dashboard. Admin only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -66,7 +66,8 @@ export class AnalyticsController {
   @Roles('teacher')
   @ApiOperation({
     summary: 'Get teacher dashboard statistics',
-    description: 'Returns statistics for the authenticated teacher dashboard. Teacher only.',
+    description:
+      'Returns statistics for the authenticated teacher dashboard. Teacher only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -91,7 +92,8 @@ export class AnalyticsController {
   @Roles('student')
   @ApiOperation({
     summary: 'Get student dashboard statistics',
-    description: 'Returns statistics for the authenticated student dashboard. Student only.',
+    description:
+      'Returns statistics for the authenticated student dashboard. Student only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,

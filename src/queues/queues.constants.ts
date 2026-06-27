@@ -69,14 +69,14 @@ function getRedisConnection(): ConnectionOptions {
   if (password !== undefined && password !== '') {
     return {
       host,
-      port: port !== undefined && port !== '' ? parseInt(port, 10) : 6379,
+      port: port !== undefined && port !== '' ? Number.parseInt(port, 10) : 6379,
       password,
     };
   }
 
   return {
     host,
-    port: port !== undefined && port !== '' ? parseInt(port, 10) : 6379,
+    port: port !== undefined && port !== '' ? Number.parseInt(port, 10) : 6379,
   };
 }
 
@@ -91,12 +91,12 @@ export const DEFAULT_QUEUE_CONFIG = {
   /** Job retry configuration */
   defaultJobOptions: {
     /** Number of retry attempts (from env or default 3) */
-    attempts: parseInt(process.env['QUEUE_MAX_ATTEMPTS'] ?? '3', 10),
+    attempts: Number.parseInt(process.env['QUEUE_MAX_ATTEMPTS'] ?? '3', 10),
 
     /** Exponential backoff: 5s, 10s, 20s, 40s... */
     backoff: {
       type: 'exponential' as const,
-      delay: parseInt(process.env['QUEUE_BACKOFF_DELAY'] ?? '5000', 10),
+      delay: Number.parseInt(process.env['QUEUE_BACKOFF_DELAY'] ?? '5000', 10),
     },
 
     /** Remove job from queue after completion (keep failed jobs for debugging) */
@@ -118,7 +118,7 @@ export const DEFAULT_QUEUE_CONFIG = {
  */
 export const WORKER_CONFIG = {
   /** Concurrent jobs per worker (from env or default 5) */
-  concurrency: parseInt(process.env['QUEUE_CONCURRENCY'] ?? '5', 10),
+  concurrency: Number.parseInt(process.env['QUEUE_CONCURRENCY'] ?? '5', 10),
 
   /** Redis connection (same as queue) */
   connection: DEFAULT_QUEUE_CONFIG.connection,
@@ -153,7 +153,7 @@ export const QUEUE_CONFIGS = {
       ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
       priority: 3, // Medium priority
       /** Images can be large - longer timeout */
-      timeout: 60000, // 60 seconds
+      timeout: 60_000, // 60 seconds
     },
   },
 

@@ -5,12 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
-
 import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
 import {
   AttendanceRecord,

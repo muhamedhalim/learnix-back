@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { createClient, RedisClientType } from 'redis';
 
 /**
@@ -73,7 +74,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(IdempotencyService.name);
 
   // TTL for idempotency keys: 24 hours in seconds
-  private readonly idempotencyTtl = 86400;
+  private readonly idempotencyTtl = 86_400;
 
   private redisClient?: RedisClientType;
 

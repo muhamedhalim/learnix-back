@@ -8,7 +8,7 @@ export class CallCenterUpdateStudentDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^01[0125][0-9]{8}$/, { message: 'Invalid Egyptian phone number' })
+  @Matches(/^01[0125]\d{8}$/, { message: 'Invalid Egyptian phone number' })
   public phone?: string;
 
   @IsOptional()
@@ -18,6 +18,6 @@ export class CallCenterUpdateStudentDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^01[0125][0-9]{8}$/, { message: 'Invalid Egyptian phone number' })
+  @Matches(/^01[0125]\d{8}$/, { message: 'Invalid Egyptian phone number' })
   public parent_phone?: string;
 }

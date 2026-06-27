@@ -1,11 +1,11 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module, OnModuleInit } from '@nestjs/common';
+
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullBoardModule } from '@bull-board/nestjs';
 
 import { IdempotencyModule } from '../idempotency/idempotency.module';
-
 import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
 
 /**
@@ -32,16 +32,36 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
     /**
      * Import IdempotencyModule for webhook deduplication
      */
-    IdempotencyModule,
+    BullBoardModule.forRoot({
+      route: '/admin/queues',
+      adapter: ExpressAdapter,
+    }),
 
     /**
      * Register all BullMQ queues
      * Each queue gets its own configuration from QUEUE_CONFIGS
      */
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.WEBHOOK_FULFILLMENT,
+      adapter: BullMQAdapter,
+    }),
+
     BullModule.forRoot({
       connection: QUEUE_CONFIGS[QUEUE_NAMES.WEBHOOK_FULFILLMENT].connection,
     }),
 
+    /**
+     * Bull Board Admin UI
+     * Provides visual dashboard for monitoring queues
+     */
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.EMAIL,
+      adapter: BullMQAdapter,
+    }),
+
+    /**
+     * Register queues with Bull Board for monitoring
+     */
     BullModule.registerQueue(
       {
         name: QUEUE_NAMES.WEBHOOK_FULFILLMENT,
@@ -60,27 +80,7 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
         ...QUEUE_CONFIGS[QUEUE_NAMES.FILE_CLEANUP],
       },
     ),
-
-    /**
-     * Bull Board Admin UI
-     * Provides visual dashboard for monitoring queues
-     */
-    BullBoardModule.forRoot({
-      route: '/admin/queues',
-      adapter: ExpressAdapter,
-    }),
-
-    /**
-     * Register queues with Bull Board for monitoring
-     */
-    BullBoardModule.forFeature({
-      name: QUEUE_NAMES.WEBHOOK_FULFILLMENT,
-      adapter: BullMQAdapter,
-    }),
-    BullBoardModule.forFeature({
-      name: QUEUE_NAMES.EMAIL,
-      adapter: BullMQAdapter,
-    }),
+    IdempotencyModule,
     BullBoardModule.forFeature({
       name: QUEUE_NAMES.IMAGE_PROCESSING,
       adapter: BullMQAdapter,

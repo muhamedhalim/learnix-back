@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 import { IsNotEmpty, IsObject, IsOptional, MaxLength } from 'class-validator';
 
 import { NotificationType } from '../entities/notification-type.enum';

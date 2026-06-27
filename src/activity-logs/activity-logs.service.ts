@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Between, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
-
 import { ActivityLog, AuditLog } from './entities';
 
 export interface ActivityLogFilter {
@@ -232,7 +232,7 @@ export class ActivityLogsService {
 
     const actionsByType: Record<string, number> = {};
     for (const result of actionsByTypeResults) {
-      actionsByType[result.action] = parseInt(result.count, 10);
+      actionsByType[result.action] = Number.parseInt(result.count, 10);
     }
 
     // Get recent activity (last 10)

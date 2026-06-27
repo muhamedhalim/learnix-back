@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
-
 import {
   AdminTeachersController,
   TeacherProfileController,
@@ -15,9 +14,9 @@ import { TeachersService } from './teachers.service';
 @Module({
   imports: [TypeOrmModule.forFeature([TeacherProfile, User, Subject])],
   controllers: [
-    TeachersController,
-    TeacherProfileController,
     AdminTeachersController,
+    TeacherProfileController,
+    TeachersController,
   ],
   providers: [TeachersService],
   exports: [TeachersService, TypeOrmModule],

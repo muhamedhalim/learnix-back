@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateUploadedFilesTable1768626000000
-  implements MigrationInterface
-{
+export class CreateUploadedFilesTable1768626000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create uploaded_files table
     await queryRunner.query(`

@@ -1,0 +1,16 @@
+# Artifacts
+dist
+node_modules
+coverage
+logs
+
+# Build files
+package-lock.json
+*.tsbuildinfo
+metadata.ts
+
+# Config/Sensitive
+.env
+.env.*
+.gitignore
+.prettierignore

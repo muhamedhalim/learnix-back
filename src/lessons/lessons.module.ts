@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
-
 import {
   AdminLessonsController,
   LessonsController,
@@ -18,10 +17,10 @@ import { ProgressService } from './progress.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Lesson, LessonProgress, User, Subject])],
   controllers: [
-    LessonsController,
-    TeacherLessonsController,
-    StudentLessonsController,
     AdminLessonsController,
+    LessonsController,
+    StudentLessonsController,
+    TeacherLessonsController,
   ],
   providers: [LessonsService, ProgressService],
   exports: [LessonsService, ProgressService, TypeOrmModule],

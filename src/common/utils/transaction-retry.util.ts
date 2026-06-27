@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+
 import type { DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -227,14 +228,14 @@ function checkDeadlockError(error: unknown): DeadlockCheckResult {
   if (errorMessage.toLowerCase().includes('deadlock detected')) {
     return {
       isDeadlock: true,
-      errorCode: errorCode !== undefined ? String(errorCode) : 'unknown',
+      errorCode: errorCode === undefined ? 'unknown' : String(errorCode),
       errorMessage,
     };
   }
 
   return {
     isDeadlock: false,
-    errorCode: errorCode !== undefined ? String(errorCode) : undefined,
+    errorCode: errorCode === undefined ? undefined : String(errorCode),
     errorMessage,
   };
 }

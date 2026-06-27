@@ -6,13 +6,13 @@ import {
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+
 import type { Repository } from 'typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import type { User } from '../users/entities/user.entity';
-
 import { CommentsService } from './comments.service';
 import { Comment } from './entities/comment.entity';
 import { CommentReply } from './entities/comment-reply.entity';

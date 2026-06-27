@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import * as Papa from 'papaparse';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
@@ -17,7 +18,6 @@ import { StudentProfile } from '../students/entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-
 import {
   BulkAttendanceCodesDto,
   BulkAttendanceCodesResultDto,
@@ -676,7 +676,7 @@ export class BulkOperationsService {
 
     if (typeof row.email !== 'string' || row.email.trim() === '') {
       errors.push('Email is required');
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
+    } else if (!/^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(row.email)) {
       errors.push('Invalid email format');
     }
 
@@ -708,7 +708,7 @@ export class BulkOperationsService {
     }
 
     if (typeof row.grade_level === 'string' && row.grade_level.trim() !== '') {
-      const grade = parseInt(row.grade_level, 10);
+      const grade = Number.parseInt(row.grade_level, 10);
 
       if (isNaN(grade) || grade < 1 || grade > 12) {
         errors.push('Grade level must be between 1 and 12');

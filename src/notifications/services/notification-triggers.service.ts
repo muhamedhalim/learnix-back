@@ -1,10 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { ExamAttempt } from '../../exams/entities';
-import { ItemType, Payment } from '../../payments/entities';
-import { LessonPurchase } from '../../payments/entities';
+import { ItemType, LessonPurchase,Payment  } from '../../payments/entities';
 import { NotificationType } from '../entities';
-
 import { NotificationsService } from './notifications.service';
 
 /**
@@ -62,7 +60,7 @@ export class NotificationTriggersService {
 
     const finalAmount =
       typeof payment.final_amount === 'string'
-        ? parseFloat(payment.final_amount)
+        ? Number.parseFloat(payment.final_amount)
         : payment.final_amount;
 
     if (finalAmount === 0) {
@@ -85,7 +83,7 @@ export class NotificationTriggersService {
       const marks = totalMarks ?? attempt.exam.total_marks;
       const totalScore =
         typeof attempt.total_score === 'string'
-          ? parseFloat(attempt.total_score)
+          ? Number.parseFloat(attempt.total_score)
           : attempt.total_score;
       const score = totalScore ?? 0;
       const percentage = Math.round((score / marks) * 100);

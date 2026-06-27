@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class UpdateExamAttemptsNullableSubmitted1768618000000
-  implements MigrationInterface
-{
+export class UpdateExamAttemptsNullableSubmitted1768618000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Make submitted_at nullable to support IN_PROGRESS attempts
     await queryRunner.query(`

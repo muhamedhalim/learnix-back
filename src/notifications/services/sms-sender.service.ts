@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import twilio from 'twilio';
 
 export interface SmsResult {
@@ -42,7 +43,7 @@ export class SmsSenderService {
    */
   private formatPhoneNumber(phone: string): string {
     // Remove any spaces, dashes, or parentheses
-    const cleaned = phone.replace(/[\s\-()]/g, '');
+    const cleaned = phone.replaceAll(/[\s\-()]/g, '');
 
     // Already in international format
     if (cleaned.startsWith('+20')) {
@@ -121,9 +122,9 @@ export class SmsSenderService {
     const results = await Promise.all(
       recipients.map(
         async ({ phone, message }) =>
-          await this.sendSms(phone, message).catch((err: unknown) => ({
+          await this.sendSms(phone, message).catch((error: unknown) => ({
             success: false,
-            error: err instanceof Error ? err.message : 'Unknown error',
+            error: error instanceof Error ? error.message : 'Unknown error',
           })),
       ),
     );

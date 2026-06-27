@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import type { CartItem } from './cart-item.entity';
 
 /**

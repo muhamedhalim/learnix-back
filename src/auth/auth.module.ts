@@ -7,7 +7,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { FirebaseModule } from '../firebase/firebase.module';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
-
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { FirebaseAuthController } from './firebase-auth.controller';
@@ -19,36 +18,36 @@ import { JwtStrategy } from './jwt.strategy';
 @Global()
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
-    PassportModule.register({ defaultStrategy: 'jwt' }),
+    FirebaseModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET') ?? '',
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRATION') ?? '15m',
+          expiresIn: (configService.get<string>('JWT_EXPIRATION') ?? '15m') as any,
         },
       }),
       inject: [ConfigService],
     }),
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    TypeOrmModule.forFeature([User]),
     UsersModule,
-    FirebaseModule,
   ],
   controllers: [AuthController, FirebaseAuthController],
   providers: [
     AuthService,
-    JwtStrategy,
     FirebaseAuthGuard,
     HybridAuthGuard,
+    JwtStrategy,
     OptionalHybridAuthGuard,
   ],
   exports: [
     AuthService,
-    JwtStrategy,
-    PassportModule,
     FirebaseAuthGuard,
     HybridAuthGuard,
+    JwtStrategy,
     OptionalHybridAuthGuard,
+    PassportModule,
   ],
 })
 export class AuthModule {}

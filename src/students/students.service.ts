@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
 
@@ -20,7 +21,6 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-
 import {
   RejectStudentDto,
   StudentFilterDto,
@@ -167,7 +167,7 @@ export class StudentsService {
     };
 
     // Cache for 5 minutes (300 seconds)
-    await this.cacheManager.set(cacheKey, profileWithDetails, 300000);
+    await this.cacheManager.set(cacheKey, profileWithDetails, 300_000);
 
     return profileWithDetails;
   }

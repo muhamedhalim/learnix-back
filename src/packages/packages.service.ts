@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { DataSource, IsNull, Repository } from 'typeorm';
 
 import {
@@ -14,7 +15,6 @@ import {
 } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
-
 import {
   AddLessonsDto,
   CreatePackageDto,
@@ -303,8 +303,8 @@ export class PackagesService {
     const lessonIds = dto.lessons.map((l) => l.lessonId);
     await this.validateLessonsOwnership(lessonIds, teacherId);
 
-    const existingLessonIds = pkg.items.map((item) => item.lesson_id);
-    const duplicates = lessonIds.filter((id) => existingLessonIds.includes(id));
+    const existingLessonIds = new Set(pkg.items.map((item) => item.lesson_id));
+    const duplicates = lessonIds.filter((id) => existingLessonIds.has(id));
     if (duplicates.length > 0) {
       throw new ConflictException(
         `Lessons already in package: ${duplicates.join(', ')}`,
@@ -377,7 +377,7 @@ export class PackagesService {
       .select('SUM(lesson.price)', 'total')
       .getRawOne<{ total: string | null }>()) ?? { total: null };
 
-    const originalPrice = result.total !== null ? parseFloat(result.total) : 0;
+    const originalPrice = result.total === null ? 0 : Number.parseFloat(result.total);
 
     await this.packagesRepository.update(packageId, {
       original_price: originalPrice,
@@ -410,7 +410,7 @@ export class PackagesService {
       for (const [lessonId, orderIndex] of Object.entries(orderMap)) {
         await manager.update(
           LessonPackageItem,
-          { package_id: packageId, lesson_id: parseInt(lessonId) },
+          { package_id: packageId, lesson_id: Number.parseInt(lessonId) },
           { order_index: orderIndex },
         );
       }
@@ -478,8 +478,8 @@ export class PackagesService {
       .getMany();
 
     if (lessons.length !== lessonIds.length) {
-      const foundIds = lessons.map((l) => l.id);
-      const missing = lessonIds.filter((id) => !foundIds.includes(id));
+      const foundIds = new Set(lessons.map((l) => l.id));
+      const missing = lessonIds.filter((id) => !foundIds.has(id));
       throw new NotFoundException(`Lessons not found: ${missing.join(', ')}`);
     }
 
@@ -497,11 +497,11 @@ export class PackagesService {
   private mapToPackageWithDetails(pkg: LessonPackage): PackageWithDetails {
     const originalPrice =
       pkg.original_price !== null && pkg.original_price !== 0
-        ? parseFloat(pkg.original_price.toString())
+        ? Number.parseFloat(pkg.original_price.toString())
         : null;
-    const price = parseFloat(pkg.price.toString());
+    const price = Number.parseFloat(pkg.price.toString());
     const savings =
-      originalPrice !== null ? Math.max(0, originalPrice - price) : null;
+      originalPrice === null ? null : Math.max(0, originalPrice - price);
 
     const sortedItems = [...pkg.items].sort(
       (a, b) => a.order_index - b.order_index,
@@ -529,7 +529,7 @@ export class PackagesService {
         id: item.lesson.id,
         title: item.lesson.title,
         title_ar: item.lesson.title_ar,
-        price: parseFloat(item.lesson.price.toString()),
+        price: Number.parseFloat(item.lesson.price.toString()),
         duration: item.lesson.duration,
         order_index: item.order_index,
       })),

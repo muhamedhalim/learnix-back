@@ -1,6 +1,7 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import type { Cache } from 'cache-manager';
 import { Between, IsNull, Repository } from 'typeorm';
 
@@ -19,7 +20,6 @@ import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import type {
   PlatformReportDto,
   RevenueBreakdownDto,
@@ -127,7 +127,7 @@ export class ReportsService {
       exams,
     };
 
-    await this.cacheManager.set(cacheKey, report, 300000);
+    await this.cacheManager.set(cacheKey, report, 300_000);
     return report;
   }
 
@@ -172,7 +172,7 @@ export class ReportsService {
       needsImprovement,
     };
 
-    await this.cacheManager.set(cacheKey, report, 300000);
+    await this.cacheManager.set(cacheKey, report, 300_000);
     return report;
   }
 
@@ -211,7 +211,7 @@ export class ReportsService {
       engagement,
     };
 
-    await this.cacheManager.set(cacheKey, report, 600000);
+    await this.cacheManager.set(cacheKey, report, 600_000);
     return report;
   }
 
@@ -258,9 +258,9 @@ export class ReportsService {
       .select('SUM(bp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    const lessons = parseFloat(lessonRevenue?.total ?? '0');
-    const packages = parseFloat(packageRevenue?.total ?? '0');
-    const books = parseFloat(bookRevenue?.total ?? '0');
+    const lessons = Number.parseFloat(lessonRevenue?.total ?? '0');
+    const packages = Number.parseFloat(packageRevenue?.total ?? '0');
+    const books = Number.parseFloat(bookRevenue?.total ?? '0');
 
     return { total: lessons + packages + books, lessons, books, packages };
   }
@@ -301,9 +301,9 @@ export class ReportsService {
       .getRawOne<CountResult>();
 
     return {
-      total: parseInt(totalStudents?.count ?? '0', 10),
-      newInPeriod: parseInt(newStudents?.count ?? '0', 10),
-      active: parseInt(activeStudents?.count ?? '0', 10),
+      total: Number.parseInt(totalStudents?.count ?? '0', 10),
+      newInPeriod: Number.parseInt(newStudents?.count ?? '0', 10),
+      active: Number.parseInt(activeStudents?.count ?? '0', 10),
     };
   }
 
@@ -400,7 +400,7 @@ export class ReportsService {
     const scoreBySubject = new Map<string, number>();
     for (const score of examScores) {
       if (score.avg_score !== null) {
-        scoreBySubject.set(score.subject_id, parseFloat(score.avg_score));
+        scoreBySubject.set(score.subject_id, Number.parseFloat(score.avg_score));
       }
     }
     return scoreBySubject;
@@ -547,7 +547,7 @@ export class ReportsService {
       teachers,
       admins,
       newUsers,
-      activeUsers: parseInt(activeUsersResult?.count ?? '0', 10),
+      activeUsers: Number.parseInt(activeUsersResult?.count ?? '0', 10),
     };
   }
 
@@ -586,9 +586,9 @@ export class ReportsService {
         .getRawOne<SumResult>(),
     ]);
 
-    const lessonsRevenue = parseFloat(lessonRevenue?.total ?? '0');
-    const packagesRevenue = parseFloat(packageRevenue?.total ?? '0');
-    const booksRevenue = parseFloat(bookRevenue?.total ?? '0');
+    const lessonsRevenue = Number.parseFloat(lessonRevenue?.total ?? '0');
+    const packagesRevenue = Number.parseFloat(packageRevenue?.total ?? '0');
+    const booksRevenue = Number.parseFloat(bookRevenue?.total ?? '0');
 
     return {
       totalRevenue: lessonsRevenue + packagesRevenue + booksRevenue,
@@ -664,7 +664,7 @@ export class ReportsService {
       lessonViews,
       examAttempts,
       averageSessionDuration: Math.round(
-        parseFloat(avgSessionDuration?.avg ?? '0'),
+        Number.parseFloat(avgSessionDuration?.avg ?? '0'),
       ),
       completionRate,
     };
@@ -689,6 +689,6 @@ export class ReportsService {
     if (result?.avg === null || result?.avg === undefined) {
       return null;
     }
-    return Math.round(parseFloat(result.avg) * 100) / 100;
+    return Math.round(Number.parseFloat(result.avg) * 100) / 100;
   }
 }

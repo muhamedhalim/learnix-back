@@ -3,8 +3,9 @@
  * Loads .env.test environment variables before running E2E tests
  */
 
+import { join } from 'node:path';
+
 import { config } from 'dotenv';
-import { join } from 'path';
 
 // Load .env.test file
 config({ path: join(__dirname, '..', '.env.test') });

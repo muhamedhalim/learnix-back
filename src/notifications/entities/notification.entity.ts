@@ -9,7 +9,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import { NotificationStatus } from './notification-status.enum';
 import { NotificationType } from './notification-type.enum';
 

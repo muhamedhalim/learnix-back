@@ -21,7 +21,7 @@ export class EnvironmentVariables {
 
   @IsNumber()
   @Min(1000)
-  @Max(65535)
+  @Max(65_535)
   @IsOptional()
   @Type(() => Number)
   public PORT = 3000;

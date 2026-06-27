@@ -1,7 +1,9 @@
+import { access, statfs } from 'node:fs/promises';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { access, statfs } from 'fs/promises';
+
 import { DataSource } from 'typeorm';
 
 export interface HealthCheckResult {
@@ -158,10 +160,10 @@ export class HealthService {
         storage: {
           path: this.uploadDir,
           exists: true,
-          totalSpace: parseFloat(toGB(totalSpace)),
-          freeSpace: parseFloat(toGB(freeSpace)),
-          usedSpace: parseFloat(toGB(usedSpace)),
-          usedPercentage: parseFloat(usedPercentage.toFixed(2)),
+          totalSpace: Number.parseFloat(toGB(totalSpace)),
+          freeSpace: Number.parseFloat(toGB(freeSpace)),
+          usedSpace: Number.parseFloat(toGB(usedSpace)),
+          usedPercentage: Number.parseFloat(usedPercentage.toFixed(2)),
         },
       };
 

@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class UpdateLessonPackagesSchema1767909768104
-  implements MigrationInterface
-{
+export class UpdateLessonPackagesSchema1767909768104 implements MigrationInterface {
   public name = 'UpdateLessonPackagesSchema1767909768104';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

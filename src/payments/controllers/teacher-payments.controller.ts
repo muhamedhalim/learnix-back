@@ -54,10 +54,10 @@ export class TeacherPaymentsController {
     description: 'Revenue summary retrieved',
     schema: {
       example: {
-        total_revenue: 15000,
+        total_revenue: 15_000,
         revenue_by_period: [
           { period: '2025-01', revenue: 5000, sales: 10 },
-          { period: '2025-02', revenue: 10000, sales: 20 },
+          { period: '2025-02', revenue: 10_000, sales: 20 },
         ],
         top_lessons: [
           { lesson_id: 1, lesson_title: 'Math 101', revenue: 3000, sales: 6 },

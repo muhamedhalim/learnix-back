@@ -14,7 +14,6 @@ import {
 
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
-
 import type { ExamAttempt } from './exam-attempt.entity';
 import { Question } from './question.interface';
 

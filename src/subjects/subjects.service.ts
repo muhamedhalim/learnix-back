@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository } from 'typeorm';
 
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
-
 import { CreateSubjectDto, SubjectFilterDto, UpdateSubjectDto } from './dto';
 import { Subject } from './entities/subject.entity';
 import { SubjectWithCounts } from './interfaces';

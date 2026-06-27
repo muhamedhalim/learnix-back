@@ -9,7 +9,7 @@ import { ActivityLogListener } from './listeners/activity-log.listener';
 @Module({
   imports: [TypeOrmModule.forFeature([ActivityLog, AuditLog])],
   controllers: [ActivityLogsController],
-  providers: [ActivityLogsService, ActivityLogListener],
+  providers: [ActivityLogListener, ActivityLogsService],
   exports: [ActivityLogsService],
 })
 export class ActivityLogsModule {}

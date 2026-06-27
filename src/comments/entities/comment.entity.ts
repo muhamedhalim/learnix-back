@@ -14,7 +14,6 @@ import {
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { User } from '../../users/entities/user.entity';
-
 import type { CommentReply } from './comment-reply.entity';
 
 @Entity('comments')

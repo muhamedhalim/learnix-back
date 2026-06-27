@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
-
 import { CommentsService } from './comments.service';
 import { CommentsAdminController } from './controllers/comments-admin.controller';
 import { CommentsPublicController } from './controllers/comments-public.controller';
@@ -24,10 +23,10 @@ import { Comment, CommentReply } from './entities';
   ],
   providers: [CommentsService],
   controllers: [
+    CommentsAdminController,
     CommentsPublicController,
     CommentsStudentController,
     CommentsTeacherController,
-    CommentsAdminController,
   ],
   exports: [CommentsService],
 })

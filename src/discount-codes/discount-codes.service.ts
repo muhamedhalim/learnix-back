@@ -6,10 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { EntityManager, IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
-
 import {
   CreateDiscountCodeDto,
   DiscountFilterDto,
@@ -106,13 +106,13 @@ export class DiscountCodesService {
   ): void {
     if (dto.valid_from !== undefined || dto.valid_until !== undefined) {
       const validFrom =
-        dto.valid_from !== undefined
-          ? new Date(dto.valid_from)
-          : discountCode.valid_from;
+        dto.valid_from === undefined
+          ? discountCode.valid_from
+          : new Date(dto.valid_from);
       const validUntil =
-        dto.valid_until !== undefined
-          ? new Date(dto.valid_until)
-          : discountCode.valid_until;
+        dto.valid_until === undefined
+          ? discountCode.valid_until
+          : new Date(dto.valid_until);
 
       if (validUntil <= validFrom) {
         throw new BadRequestException('valid_until must be after valid_from');
@@ -337,7 +337,7 @@ export class DiscountCodesService {
     // Check minimum purchase amount
     const minAmount =
       typeof code.min_purchase_amount === 'string'
-        ? parseFloat(code.min_purchase_amount)
+        ? Number.parseFloat(code.min_purchase_amount)
         : code.min_purchase_amount;
     if (dto.amount < minAmount) {
       return {
@@ -350,7 +350,7 @@ export class DiscountCodesService {
     let discountAmount = 0;
     const discountValue =
       typeof code.discount_value === 'string'
-        ? parseFloat(code.discount_value)
+        ? Number.parseFloat(code.discount_value)
         : code.discount_value;
     if (code.discount_type === DiscountType.PERCENTAGE) {
       discountAmount = (dto.amount * discountValue) / 100;
@@ -452,7 +452,7 @@ export class DiscountCodesService {
     const totalDiscountGiven = usages.reduce((sum, u) => {
       const amount =
         typeof u.discount_amount === 'string'
-          ? parseFloat(u.discount_amount)
+          ? Number.parseFloat(u.discount_amount)
           : u.discount_amount;
       return sum + amount;
     }, 0);
@@ -464,7 +464,7 @@ export class DiscountCodesService {
       users: usages.map((u) => {
         const amount =
           typeof u.discount_amount === 'string'
-            ? parseFloat(u.discount_amount)
+            ? Number.parseFloat(u.discount_amount)
             : u.discount_amount;
         return {
           user_id: u.user_id,

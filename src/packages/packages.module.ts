@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
-
 import {
   AdminPackagesController,
   PackagesController,
@@ -18,9 +17,9 @@ import { PackagesService } from './packages.service';
     TypeOrmModule.forFeature([LessonPackage, LessonPackageItem, Lesson, User]),
   ],
   controllers: [
+    AdminPackagesController,
     PackagesController,
     TeacherPackagesController,
-    AdminPackagesController,
   ],
   providers: [PackagesService],
   exports: [PackagesService, TypeOrmModule],

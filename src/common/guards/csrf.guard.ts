@@ -1,3 +1,5 @@
+import * as crypto from 'node:crypto';
+
 import {
   CanActivate,
   ExecutionContext,
@@ -6,7 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import * as crypto from 'crypto';
+
 import { Request, Response } from 'express';
 
 /**

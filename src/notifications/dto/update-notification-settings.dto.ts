@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
 import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
 
 export class UpdateNotificationSettingsDto {
@@ -32,7 +33,7 @@ export class UpdateNotificationSettingsDto {
   })
   @IsString()
   @IsOptional()
-  @Matches(/^01[0125][0-9]{8}$/, {
+  @Matches(/^01[0125]\d{8}$/, {
     message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
   public parent_phone_override?: string;

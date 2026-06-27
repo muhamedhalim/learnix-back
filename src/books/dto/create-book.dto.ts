@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 import { Type } from 'class-transformer';
 import {
   IsNotEmpty,
@@ -56,7 +57,7 @@ export class CreateBookDto {
 
   @ApiProperty({
     description: 'Book price in EGP',
-    example: 150.0,
+    example: 150,
     minimum: 0,
   })
   @IsNumber()

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 import { IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
 export class UpdateLessonVideoDto {

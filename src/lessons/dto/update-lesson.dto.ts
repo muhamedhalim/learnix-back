@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
   IsBoolean,
   IsInt,
@@ -62,7 +63,7 @@ export class UpdateLessonDto {
 
   @ApiProperty({
     description: 'Lesson price in EGP',
-    example: 75.0,
+    example: 75,
     required: false,
     minimum: 0,
   })

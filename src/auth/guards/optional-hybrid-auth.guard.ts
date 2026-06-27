@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { Request } from 'express';
 import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
@@ -41,7 +42,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
       if (part === undefined || part === '') {
         return null;
       }
-      const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      const b64 = part.replaceAll('-', '+').replaceAll('_', '/');
       const buff = Buffer.from(b64, 'base64');
       return JSON.parse(buff.toString()) as Record<string, unknown>;
     } catch {

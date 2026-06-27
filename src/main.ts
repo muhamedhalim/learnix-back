@@ -1,16 +1,17 @@
 // CRITICAL: Import polyfills FIRST before any other imports
 import './polyfills';
 
+import { join } from 'node:path';
+
 import { Logger, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { Reflector } from '@nestjs/core';
+import { NestFactory, Reflector  } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import basicAuth from 'express-basic-auth';
 import helmet from 'helmet';
-import { join } from 'path';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -70,7 +71,7 @@ async function bootstrap(): Promise<void> {
         },
       },
       hsts: {
-        maxAge: 31536000, // 1 year
+        maxAge: 31_536_000, // 1 year
         includeSubDomains: true,
         preload: true,
       },

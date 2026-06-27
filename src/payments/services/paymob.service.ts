@@ -1,10 +1,11 @@
+import * as crypto from 'node:crypto';
+
 import {
   Injectable,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
 
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymobTransactionDto } from '../dto/paymob-webhook.dto';
@@ -153,7 +154,7 @@ export class PaymobService {
             shipping_method: 'NA',
           },
           currency: 'EGP',
-          integration_id: parseInt(this.integrationId, 10),
+          integration_id: Number.parseInt(this.integrationId, 10),
         }),
       });
 
@@ -260,8 +261,8 @@ export class PaymobService {
       this.logger.warn(
         `HMAC verification failed for transaction ${obj.id.toString()}`,
       );
-      this.logger.debug(`Expected: ${calculatedHmac.substring(0, 20)}...`);
-      this.logger.debug(`Received: ${receivedHmac.substring(0, 20)}...`);
+      this.logger.debug(`Expected: ${calculatedHmac.slice(0, 20)}...`);
+      this.logger.debug(`Received: ${receivedHmac.slice(0, 20)}...`);
     }
 
     return isValid;

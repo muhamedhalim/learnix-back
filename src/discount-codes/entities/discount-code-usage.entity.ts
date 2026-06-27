@@ -12,7 +12,6 @@ import {
 
 import { Payment } from '../../payments/entities/payment.entity';
 import { User } from '../../users/entities/user.entity';
-
 import type { DiscountCode } from './discount-code.entity';
 
 @Entity('discount_code_usage')

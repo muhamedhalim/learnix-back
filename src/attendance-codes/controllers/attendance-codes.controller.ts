@@ -79,7 +79,8 @@ export class AttendanceCodesController {
   @Roles('student')
   @ApiOperation({
     summary: 'Redeem an attendance code (student)',
-    description: 'Redeems an attendance code and grants access to the associated item.',
+    description:
+      'Redeems an attendance code and grants access to the associated item.',
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,

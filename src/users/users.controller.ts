@@ -32,7 +32,6 @@ import { FILE_LIMITS, THROTTLE } from '../common/constants';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { UserRequest } from '../common/interfaces/user-request.interface';
-
 import { UpdateUserDto } from './dto/update-user.dto';
 import type {
   DeleteSessionResponseDto,

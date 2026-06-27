@@ -1,9 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 import { Table, TableIndex } from 'typeorm';
 
-export class CreateUserSessionsTable1768624000000
-  implements MigrationInterface
-{
+export class CreateUserSessionsTable1768624000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({

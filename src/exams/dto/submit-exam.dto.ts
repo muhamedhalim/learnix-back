@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsArray, IsUUID, ValidateNested } from 'class-validator';
 

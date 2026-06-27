@@ -1,8 +1,10 @@
+import type { Server } from 'node:http';
+
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
-import type { Server } from 'http';
+
 import * as request from 'supertest';
 import { DataSource } from 'typeorm';
 
@@ -42,7 +44,7 @@ describe('Security (e2e)', () => {
     await request(app.getHttpServer() as Server)
       .post('/api/v1/auth/register')
       .send(testUser);
-  }, 30000);
+  }, 30_000);
 
   afterAll(async () => {
     // Clean up test user
@@ -50,7 +52,7 @@ describe('Security (e2e)', () => {
       testUser.email,
     ]);
     await app.close();
-  }, 10000);
+  }, 10_000);
 
   describe('Input Sanitization', () => {
     describe('SQL Injection Protection', () => {

@@ -1,3 +1,5 @@
+import * as crypto from 'node:crypto';
+
 import {
   BadRequestException,
   Injectable,
@@ -5,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import * as crypto from 'crypto';
+
 import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
@@ -20,7 +22,6 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../payments/entities';
-
 import {
   AttendanceCodeFilterDto,
   GenerateAttendanceCodesDto,
@@ -304,7 +305,7 @@ export class AttendanceCodesService {
       const { lesson } = item;
 
       const accessDays =
-        lesson.available_for_days !== 0 ? lesson.available_for_days : 7;
+        lesson.available_for_days === 0 ? 7 : lesson.available_for_days;
       const accessGrantedAt = new Date();
       const accessExpiresAt = new Date(accessGrantedAt);
       accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
@@ -330,8 +331,8 @@ export class AttendanceCodesService {
   public async findAll(
     filter: AttendanceCodeFilterDto,
   ): Promise<{ data: AttendanceCode[]; meta: PaginationMeta }> {
-    const page = filter.page !== 0 ? filter.page : 1;
-    const limit = filter.limit !== 0 ? filter.limit : 20;
+    const page = filter.page === 0 ? 1 : filter.page;
+    const limit = filter.limit === 0 ? 20 : filter.limit;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.attendanceCodesRepository

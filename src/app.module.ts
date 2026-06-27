@@ -8,6 +8,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { redisStore } from 'cache-manager-redis-yet';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
@@ -54,13 +55,6 @@ import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-      validate,
-    }),
-    EventEmitterModule.forRoot(),
-    ScheduleModule.forRoot(),
     CacheModule.registerAsync({
       isGlobal: true,
       imports: [ConfigModule],
@@ -93,7 +87,7 @@ import { UsersModule } from './users/users.module';
           const store = await redisStore({
             url: redisUrl,
             socket: {
-              connectTimeout: 10000,
+              connectTimeout: 10_000,
             },
           });
 
@@ -113,6 +107,15 @@ import { UsersModule } from './users/users.module';
         }
       },
     }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      validate,
+    }),
+    EventEmitterModule.forRoot(),
+    SanitizationModule,
+    ScheduleModule.forRoot(),
+    AuthModule,
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -122,7 +125,7 @@ import { UsersModule } from './users/users.module';
         name: 'strict',
         ...THROTTLE.STRICT,
       },
-    ]),
+    ]), // For AppService admin init
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -163,12 +166,10 @@ import { UsersModule } from './users/users.module';
               : false,
         };
       },
-    }),
-    TypeOrmModule.forFeature([User]), // For AppService admin init
-    SanitizationModule, // Global XSS protection
+    }), // Global XSS protection
     // TEMPORARILY DISABLED: Redis not available for development
     // QueuesModule, // BullMQ job queues
-    AuthModule,
+    TypeOrmModule.forFeature([User]),
     UsersModule,
     FirebaseModule,
     UploadModule,

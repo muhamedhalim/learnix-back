@@ -9,9 +9,7 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  * - lesson_purchases: student_id, lesson_id, (student_id, lesson_id), access_expires_at
  * - exam_attempts: exam_id, student_id, status, UNIQUE(exam_id, student_id)
  */
-export class VerifyProfileAggregationIndexes1768611000000
-  implements MigrationInterface
-{
+export class VerifyProfileAggregationIndexes1768611000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Verify composite index exists on lesson_purchases
     // This index optimizes queries in findStudentProfile() for lesson aggregation

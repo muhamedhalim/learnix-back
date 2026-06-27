@@ -107,7 +107,8 @@ export class StudentExamsController {
   @Post(':id/start')
   @ApiOperation({
     summary: 'Start an exam attempt',
-    description: 'Creates a new exam attempt and returns questions without correct answers.',
+    description:
+      'Creates a new exam attempt and returns questions without correct answers.',
   })
   @ApiResponse({
     status: HttpStatus.OK,

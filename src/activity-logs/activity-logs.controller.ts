@@ -11,7 +11,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-
 import { ActivityLogsService } from './activity-logs.service';
 import { ActivityLogFilterDto, AuditLogFilterDto } from './dto';
 
@@ -196,7 +195,7 @@ export class ActivityLogsController {
   ): Promise<{ data: unknown }> {
     const stats = await this.activityLogsService.getUserActivityStats(
       userId,
-      days !== undefined ? parseInt(days, 10) : 30,
+      days === undefined ? 30 : Number.parseInt(days, 10),
     );
     return { data: stats };
   }

@@ -11,7 +11,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import type { Comment } from './comment.entity';
 
 @Entity('comment_replies')

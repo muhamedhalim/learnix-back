@@ -4,7 +4,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
-
 import {
   AdminStudentsController,
   StudentProfileController,
@@ -23,9 +22,9 @@ import { StudentsService } from './students.service';
     ]),
   ],
   controllers: [
-    StudentsController,
-    StudentProfileController,
     AdminStudentsController,
+    StudentProfileController,
+    StudentsController,
   ],
   providers: [StudentsService],
   exports: [StudentsService, TypeOrmModule],

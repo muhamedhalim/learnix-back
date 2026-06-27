@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository } from 'typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
@@ -163,7 +164,7 @@ export class AdminNotificationsController {
         sms_sent: smsSent,
         sms_enabled: this.smsSenderService.isConfigured(),
         by_type: typeStats.reduce<Record<string, number>>((acc, item) => {
-          acc[item.type] = parseInt(item.count);
+          acc[item.type] = Number.parseInt(item.count);
           return acc;
         }, {}),
         last_24_hours: last24Hours,

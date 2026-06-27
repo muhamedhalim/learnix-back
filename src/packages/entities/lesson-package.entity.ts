@@ -14,7 +14,6 @@ import {
 
 import type { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { User } from '../../users/entities/user.entity';
-
 import type { LessonPackageItem } from './lesson-package-item.entity';
 
 @Entity('lesson_packages')

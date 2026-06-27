@@ -14,7 +14,6 @@ import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
-
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 

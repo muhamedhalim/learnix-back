@@ -4,13 +4,13 @@ import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+
 import * as bcrypt from 'bcryptjs';
 import type { Repository } from 'typeorm';
 
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-
 import { AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
@@ -159,8 +159,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(mockUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
       jwtService.sign.mockReturnValue('access_token');
@@ -182,8 +181,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(null),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
 
       await expect(service.login(loginDto)).rejects.toThrow(
@@ -198,8 +196,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(mockUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
 
@@ -220,11 +217,10 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(firebaseUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
 
-      const error = await service.login(loginDto).catch((err: unknown) => err);
+      const error = await service.login(loginDto).catch((error_: unknown) => error_);
 
       expect(error).toBeInstanceOf(UnauthorizedException);
       expect((error as UnauthorizedException).message).toContain(
@@ -244,8 +240,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(pendingUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
@@ -269,8 +264,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(rejectedUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
@@ -297,8 +291,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
       jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hashed_token' as never);
@@ -323,8 +316,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
 
@@ -349,8 +341,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(expiredUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
@@ -375,8 +366,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(inactiveUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
@@ -393,8 +383,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
       jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hashed_token' as never);
@@ -431,8 +420,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(pendingUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 
@@ -460,8 +448,7 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(rejectedUser),
       };
 
-      userRepository.createQueryBuilder = jest
-        .fn()
+      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
         .mockReturnValue(queryBuilder);
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
 

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
   IsInt,
   IsOptional,
@@ -52,7 +53,7 @@ export class UpdateTeacherProfileDto {
   })
   @IsString()
   @IsOptional()
-  @Matches(/^01[0125][0-9]{8}$/, {
+  @Matches(/^01[0125]\d{8}$/, {
     message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
   })
   public phone?: string;

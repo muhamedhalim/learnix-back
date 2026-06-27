@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateLessonProgressTable1768625000000
-  implements MigrationInterface
-{
+export class CreateLessonProgressTable1768625000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create lesson_progress table
     await queryRunner.query(`

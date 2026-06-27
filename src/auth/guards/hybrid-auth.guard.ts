@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { Request } from 'express';
 import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
@@ -35,7 +36,7 @@ export class HybridAuthGuard implements CanActivate {
         return null;
       }
 
-      const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      const b64 = part.replaceAll('-', '+').replaceAll('_', '/');
       const buff = Buffer.from(b64, 'base64');
       const parsed = JSON.parse(buff.toString()) as Record<string, unknown>;
       return parsed;
@@ -60,10 +61,10 @@ export class HybridAuthGuard implements CanActivate {
     let verified: JwtPayload | string;
     try {
       verified = jwt.verify(token, jwtSecret);
-    } catch (verifyErr) {
+    } catch (error) {
       this.logger.warn(
         `JWT verification threw an error: ${
-          verifyErr instanceof Error ? verifyErr.message : String(verifyErr)
+          error instanceof Error ? error.message : String(error)
         }`,
       );
       throw new UnauthorizedException('Invalid authentication token');
@@ -123,12 +124,12 @@ export class HybridAuthGuard implements CanActivate {
       }
       Object.assign(request, { user });
       return true;
-    } catch (validateErr) {
+    } catch (error) {
       this.logger.warn(
         `AuthService.validateUser failed: ${
-          validateErr instanceof Error
-            ? validateErr.message
-            : String(validateErr)
+          error instanceof Error
+            ? error.message
+            : String(error)
         }`,
       );
       throw new UnauthorizedException('Invalid authentication token');
@@ -171,13 +172,13 @@ export class HybridAuthGuard implements CanActivate {
       const user = await this.usersService.syncFirebaseUser(decodedToken);
       Object.assign(request, { user });
       return true;
-    } catch (firebaseErr) {
+    } catch (error) {
       // Log details and fall back to JWT
       this.logger.warn(
         `Firebase verification failed: ${
-          firebaseErr instanceof Error
-            ? firebaseErr.message
-            : String(firebaseErr)
+          error instanceof Error
+            ? error.message
+            : String(error)
         } — falling back to JWT verification.`,
       );
 

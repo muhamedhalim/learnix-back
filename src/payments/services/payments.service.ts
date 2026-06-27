@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import {
   DataSource,
   EntityManager,
@@ -37,7 +38,6 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../entities';
-
 import { PaymobService } from './paymob.service';
 
 export interface PaymentResponse {
@@ -926,17 +926,17 @@ export class PaymentsService {
 
     return {
       total_revenue:
-        result.total_revenue !== null ? parseFloat(result.total_revenue) : 0,
+        result.total_revenue === null ? 0 : Number.parseFloat(result.total_revenue),
 
       total_payments:
-        result.total_payments !== null
-          ? parseInt(result.total_payments, 10)
-          : 0,
+        result.total_payments === null
+          ? 0
+          : Number.parseInt(result.total_payments, 10),
 
       total_discounts:
-        result.total_discounts !== null
-          ? parseFloat(result.total_discounts)
-          : 0,
+        result.total_discounts === null
+          ? 0
+          : Number.parseFloat(result.total_discounts),
     };
   }
 
@@ -1094,7 +1094,7 @@ export class PaymentsService {
       .getRawMany<TeacherTopLessonsRaw>();
 
     return {
-      total_revenue: totalResult.total !== null ? Number(totalResult.total) : 0,
+      total_revenue: totalResult.total === null ? 0 : Number(totalResult.total),
 
       revenue_by_period: periodResults.map((r) => ({
         period: r.period,

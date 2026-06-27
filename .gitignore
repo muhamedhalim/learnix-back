@@ -47,6 +47,8 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+.eslintcache
+.prettiercache
 
 # Runtime data
 pids

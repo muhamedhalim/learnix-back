@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { IsNull, Repository } from 'typeorm';
 
 import {
@@ -15,7 +16,6 @@ import {
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import {
   CreateExamDto,
   ExamFilterDto,
@@ -347,13 +347,13 @@ export class ExamsService {
     // Map results with stats
     const exams: ExamListItem[] = rawResults.entities.map((exam, index) => {
       const raw = rawResults.raw.at(index) as RawExamStats | undefined;
-      const count = parseInt(raw?.submissions_count ?? '0', 10);
+      const count = Number.parseInt(raw?.submissions_count ?? '0', 10);
       const avg = raw?.average_score;
 
       return {
         ...this.mapToExamWithDetails(exam),
-        submissions_count: !isNaN(count) ? count : 0,
-        average_score: avg !== undefined ? parseFloat(avg) : null,
+        submissions_count: isNaN(count) ? 0 : count,
+        average_score: avg === undefined ? null : Number.parseFloat(avg),
       };
     });
 
@@ -419,7 +419,7 @@ export class ExamsService {
             question_ar: q?.question_ar ?? '',
             answer: ans.answer,
             marks: q?.marks ?? 0,
-            score: ans.score !== undefined ? ans.score : null,
+            score: ans.score === undefined ? null : ans.score,
             feedback: ans.feedback ?? null,
           };
         }),
@@ -527,7 +527,7 @@ export class ExamsService {
       : ExamStatus.PENDING_GRADING;
     const mcqScore = Number(attempt.score_mcq);
     const totalScore = allEssaysGraded
-      ? (!isNaN(mcqScore) ? mcqScore : 0) + scoreEssay
+      ? (isNaN(mcqScore) ? 0 : mcqScore) + scoreEssay
       : null;
     const gradedAt = allEssaysGraded ? new Date() : attempt.graded_at;
 
@@ -1052,7 +1052,7 @@ export class ExamsService {
 
     const { exam } = attempt;
     const rawTotalScore = Number(attempt.total_score);
-    const totalScore = !isNaN(rawTotalScore) ? rawTotalScore : 0;
+    const totalScore = isNaN(rawTotalScore) ? 0 : rawTotalScore;
     const percentage = (totalScore / exam.total_marks) * 100;
     const passed = totalScore >= exam.passing_marks;
 
@@ -1071,7 +1071,7 @@ export class ExamsService {
             ? question.correct_answer
             : undefined,
         is_correct: ans.is_correct,
-        score: !isNaN(rawScore) ? rawScore : 0,
+        score: isNaN(rawScore) ? 0 : rawScore,
         max_marks: question?.marks ?? 0,
         feedback: ans.feedback,
       };

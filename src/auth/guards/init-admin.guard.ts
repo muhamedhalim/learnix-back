@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
+
 import {
   CanActivate,
   ExecutionContext,
@@ -7,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { timingSafeEqual } from 'crypto';
+
 import { Request } from 'express';
 import { Repository } from 'typeorm';
 

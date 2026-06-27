@@ -11,7 +11,6 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
-
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 

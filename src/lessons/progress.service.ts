@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { IsNull, Repository } from 'typeorm';
 
 import type { LessonProgressDto } from './dto/lesson-progress.dto';
@@ -69,14 +70,7 @@ export class ProgressService {
       where: { student_id: studentId, lesson_id: lessonId },
     });
 
-    if (progress !== null) {
-      // Update existing progress
-      progress.watched_duration = watchedDuration;
-      progress.total_duration = totalDuration;
-      progress.progress_percent = progressPercent;
-      progress.completed = completed;
-      progress.last_watched_at = new Date();
-    } else {
+    if (progress === null) {
       // Create new progress record
       progress = this.progressRepository.create({
         student_id: studentId,
@@ -87,6 +81,13 @@ export class ProgressService {
         completed,
         last_watched_at: new Date(),
       });
+    } else {
+      // Update existing progress
+      progress.watched_duration = watchedDuration;
+      progress.total_duration = totalDuration;
+      progress.progress_percent = progressPercent;
+      progress.completed = completed;
+      progress.last_watched_at = new Date();
     }
 
     const savedProgress = await this.progressRepository.save(progress);
@@ -185,6 +186,6 @@ export class ProgressService {
       return 0;
     }
 
-    return Math.round(parseFloat(result.avgProgress));
+    return Math.round(Number.parseFloat(result.avgProgress));
   }
 }

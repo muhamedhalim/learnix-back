@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddIsActiveToAttendanceCodes1768619000000
-  implements MigrationInterface
-{
+export class AddIsActiveToAttendanceCodes1768619000000 implements MigrationInterface {
   public name = 'AddIsActiveToAttendanceCodes1768619000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

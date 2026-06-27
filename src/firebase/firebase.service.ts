@@ -1,5 +1,6 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import * as admin from 'firebase-admin';
 
 import { logAndThrow } from '../common/utils/error-handler.util';
@@ -43,7 +44,7 @@ export class FirebaseService {
         }
 
         // Replace escaped newlines (\\n) with actual newlines (\n)
-        formattedKey = formattedKey.replace(/\\n/g, '\n');
+        formattedKey = formattedKey.replaceAll(String.raw`\n`, '\n');
 
         // Basic validation logging (redacted)
         if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {

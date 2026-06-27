@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { In, Repository } from 'typeorm';
 
 import {
@@ -15,7 +16,6 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-
 import {
   AssignSubjectsDto,
   RejectTeacherDto,
@@ -362,8 +362,8 @@ export class TeachersService {
     });
 
     if (subjects.length !== dto.subjectIds.length) {
-      const foundIds = subjects.map((s) => s.id);
-      const missingIds = dto.subjectIds.filter((id) => !foundIds.includes(id));
+      const foundIds = new Set(subjects.map((s) => s.id));
+      const missingIds = dto.subjectIds.filter((id) => !foundIds.has(id));
       throw new BadRequestException(
         `Subjects not found: ${missingIds.join(', ')}`,
       );

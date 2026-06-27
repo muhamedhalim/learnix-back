@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+
 import { Transform } from 'class-transformer';
 import {
   IsDateString,
@@ -47,7 +48,7 @@ export class ActivityLogFilterDto {
     default: 1,
   })
   @IsOptional()
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   public page?: number;
@@ -57,7 +58,7 @@ export class ActivityLogFilterDto {
     default: 50,
   })
   @IsOptional()
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   @Max(100)
@@ -102,7 +103,7 @@ export class AuditLogFilterDto {
     default: 1,
   })
   @IsOptional()
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   public page?: number;
@@ -112,7 +113,7 @@ export class AuditLogFilterDto {
     default: 50,
   })
   @IsOptional()
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   @Max(100)

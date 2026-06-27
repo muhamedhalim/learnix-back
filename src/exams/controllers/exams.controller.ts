@@ -132,7 +132,8 @@ export class ExamsController {
   @Roles('student')
   @ApiOperation({
     summary: 'Get exam for taking (student)',
-    description: 'Returns exam questions without correct answers for the authenticated student.',
+    description:
+      'Returns exam questions without correct answers for the authenticated student.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -158,7 +159,8 @@ export class ExamsController {
   @Roles('student')
   @ApiOperation({
     summary: 'Submit exam answers (student)',
-    description: 'Submits exam answers for the authenticated student. Auto-grades MCQ questions immediately.',
+    description:
+      'Submits exam answers for the authenticated student. Auto-grades MCQ questions immediately.',
   })
   @ApiResponse({
     status: HttpStatus.CREATED,

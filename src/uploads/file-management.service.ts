@@ -6,13 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { IsNull, Repository } from 'typeorm';
 
 import { Book } from '../books/entities/book.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import type {
   FileDetailsDto,
   FileReferenceDto,

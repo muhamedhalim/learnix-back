@@ -1,8 +1,6 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddProfilePictureThumbnail1768620000000
-  implements MigrationInterface
-{
+export class AddProfilePictureThumbnail1768620000000 implements MigrationInterface {
   public name = 'AddProfilePictureThumbnail1768620000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

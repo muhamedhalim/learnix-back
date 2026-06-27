@@ -10,7 +10,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import { ItemType } from './item-type.enum';
 import { PaymentMethod } from './payment-method.enum';
 import { PaymentStatus } from './payment-status.enum';

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository } from 'typeorm';
 
 import { StudentProfile } from '../../students/entities/student-profile.entity';
@@ -19,7 +20,6 @@ import {
   NotificationStatus,
   NotificationType,
 } from '../entities';
-
 import { SmsSenderService } from './sms-sender.service';
 
 export interface PaginatedNotifications {
@@ -496,7 +496,7 @@ export class NotificationsService {
     }
     if (dto.parent_phone_override !== undefined) {
       settings.parent_phone_override =
-        dto.parent_phone_override !== '' ? dto.parent_phone_override : null;
+        dto.parent_phone_override === '' ? null : dto.parent_phone_override;
     }
     if (dto.notify_parent_on_attendance !== undefined) {
       settings.notify_parent_on_attendance = dto.notify_parent_on_attendance;

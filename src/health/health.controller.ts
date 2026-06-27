@@ -9,7 +9,6 @@ import {
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-
 import { HealthService } from './health.service';
 
 @ApiTags('Health')
@@ -91,10 +90,10 @@ export class HealthController {
         storage: {
           path: '/app/uploads',
           exists: true,
-          totalSpace: 10.0,
+          totalSpace: 10,
           freeSpace: 7.5,
           usedSpace: 2.5,
-          usedPercentage: 25.0,
+          usedPercentage: 25,
         },
       },
     },
@@ -110,10 +109,10 @@ export class HealthController {
         storage: {
           path: '/app/uploads',
           exists: true,
-          totalSpace: 10.0,
+          totalSpace: 10,
           freeSpace: 0.5,
           usedSpace: 9.5,
-          usedPercentage: 95.0,
+          usedPercentage: 95,
         },
       },
     },

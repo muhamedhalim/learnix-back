@@ -7,7 +7,6 @@ import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
 // Controllers
 import { PaymentsController } from './controllers/payments.controller';
@@ -21,6 +20,9 @@ import { PaymobService } from './services/paymob.service';
 
 @Module({
   imports: [
+    forwardRef(() => DiscountCodesModule),
+    ConfigModule,
+    IdempotencyModule,
     TypeOrmModule.forFeature([
       Payment,
       LessonPurchase,
@@ -28,14 +30,11 @@ import { PaymobService } from './services/paymob.service';
       Lesson,
       LessonPackage,
     ]),
-    ConfigModule,
-    IdempotencyModule,
-    forwardRef(() => DiscountCodesModule),
   ],
   controllers: [
+    AdminPaymentsController,
     PaymentsController,
     PaymentsWebhookController,
-    AdminPaymentsController,
     TeacherPaymentsController,
   ],
   providers: [PaymentsService, PaymobService],

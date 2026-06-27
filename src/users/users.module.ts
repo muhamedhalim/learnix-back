@@ -2,7 +2,6 @@ import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { UploadModule } from '../uploads/upload.module';
-
 import { User } from './entities/user.entity';
 import { UserSession } from './entities/user-session.entity';
 import { SessionsService } from './sessions.service';
@@ -13,8 +12,8 @@ import { UsersService } from './users.service';
 @Module({
   imports: [TypeOrmModule.forFeature([User, UserSession]), UploadModule],
   controllers: [UsersController],
-  providers: [UsersService, SessionsService],
-  exports: [UsersService, SessionsService],
+  providers: [SessionsService, UsersService],
+  exports: [SessionsService, UsersService],
 })
 export class UsersModule implements OnModuleInit {
   public onModuleInit(): void {

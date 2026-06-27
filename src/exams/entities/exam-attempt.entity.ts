@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
-
 import type { Exam } from './exam.entity';
 import { ExamStatus } from './exam-status.enum';
 import { Answer } from './question.interface';

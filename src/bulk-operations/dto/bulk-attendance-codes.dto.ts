@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
 import { Transform } from 'class-transformer';
 import {
   IsDateString,
@@ -35,7 +36,7 @@ export class BulkAttendanceCodesDto {
     minimum: 1,
     maximum: 1000,
   })
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   @Max(1000)
@@ -55,7 +56,7 @@ export class BulkAttendanceCodesDto {
     default: 1,
   })
   @IsOptional()
-  @Transform(({ value }): number => parseInt(String(value), 10))
+  @Transform(({ value }): number => Number.parseInt(String(value), 10))
   @IsInt()
   @Min(1)
   @Max(100)

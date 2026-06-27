@@ -11,7 +11,6 @@ import {
 } from 'typeorm';
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
-
 import type { LessonPackage } from './lesson-package.entity';
 
 @Entity('lesson_package_items')

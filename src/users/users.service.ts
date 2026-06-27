@@ -8,12 +8,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import type { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
 import { Repository } from 'typeorm';
 
 import { UploadService } from '../uploads/upload.service';
-
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.enum';
@@ -129,7 +129,7 @@ export class UsersService {
     };
 
     // Cache for 10 minutes (600000 milliseconds)
-    await this.cacheManager.set(cacheKey, userProfile, 600000);
+    await this.cacheManager.set(cacheKey, userProfile, 600_000);
     this.logger.debug(`Cached user ${id} for 10 minutes`);
 
     return userProfile;

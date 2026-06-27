@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+
 import {
   IsNotEmpty,
   IsOptional,
@@ -21,7 +22,7 @@ export class RegisterDto {
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+  @Matches(/^01[0-2,5]\d{8}$/, {
     message:
       'Phone must be a valid Egyptian phone number (11 digits starting with 01)',
   })
@@ -37,7 +38,7 @@ export class RegisterDto {
   })
   @IsString()
   @IsOptional()
-  @Matches(/^01[0-2,5]{1}[0-9]{8}$/, {
+  @Matches(/^01[0-2,5]\d{8}$/, {
     message:
       'Parent phone must be a valid Egyptian phone number (11 digits starting with 01)',
   })

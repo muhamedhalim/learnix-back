@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import { Repository } from 'typeorm';
 
 import {
@@ -16,7 +17,6 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-
 import { CreateReviewDto } from './dto/create-review.dto';
 import { LessonReview } from './entities/lesson-review.entity';
 import { TeacherReview } from './entities/teacher-review.entity';
@@ -248,7 +248,7 @@ export class ReviewsService {
     });
 
     return {
-      average_rating: parseFloat((totalRating / reviews.length).toFixed(2)),
+      average_rating: Number.parseFloat((totalRating / reviews.length).toFixed(2)),
       total_reviews: reviews.length,
       rating_distribution: distribution,
     };
@@ -393,7 +393,7 @@ export class ReviewsService {
     });
 
     return {
-      average_rating: parseFloat((totalRating / reviews.length).toFixed(2)),
+      average_rating: Number.parseFloat((totalRating / reviews.length).toFixed(2)),
       total_reviews: reviews.length,
       rating_distribution: distribution,
     };

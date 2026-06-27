@@ -11,7 +11,6 @@ import {
 
 import { Payment } from '../../payments/entities/payment.entity';
 import { User } from '../../users/entities/user.entity';
-
 import type { Book } from './book.entity';
 
 @Entity('book_purchases')

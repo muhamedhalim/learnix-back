@@ -54,7 +54,7 @@ export function assertIsArray<T>(
   itemValidator?: (item: unknown) => item is T,
 ): asserts value is T[] {
   if (!Array.isArray(value)) {
-    throw new Error('Expected an array');
+    throw new TypeError('Expected an array');
   }
   if (itemValidator) {
     value.forEach((item, index) => {

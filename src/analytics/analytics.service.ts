@@ -1,6 +1,7 @@
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+
 import type { Cache } from 'cache-manager';
 import { IsNull, Repository } from 'typeorm';
 
@@ -18,7 +19,6 @@ import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-
 import {
   AdminDashboardDto,
   ExamAnalyticsDto,
@@ -165,7 +165,7 @@ export class AnalyticsService {
     };
 
     // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300000);
+    await this.cacheManager.set(cacheKey, stats, 300_000);
 
     return stats;
   }
@@ -203,7 +203,7 @@ export class AnalyticsService {
       .select('COUNT(DISTINCT lp.student_id)', 'count')
       .getRawOne<CountResult>();
 
-    const totalStudents = parseInt(lessonStudents?.count ?? '0', 10);
+    const totalStudents = Number.parseInt(lessonStudents?.count ?? '0', 10);
 
     // Calculate revenue from lesson and package purchases
     const lessonRevenue = await this.lessonPurchasesRepository
@@ -223,8 +223,8 @@ export class AnalyticsService {
       .getRawOne<SumResult>();
 
     const revenue =
-      parseFloat(lessonRevenue?.total ?? '0') +
-      parseFloat(packageRevenue?.total ?? '0');
+      Number.parseFloat(lessonRevenue?.total ?? '0') +
+      Number.parseFloat(packageRevenue?.total ?? '0');
 
     // Calculate revenue this month
     const startOfMonth = new Date();
@@ -250,8 +250,8 @@ export class AnalyticsService {
       .getRawOne<SumResult>();
 
     const revenueThisMonth =
-      parseFloat(lessonRevenueThisMonth?.total ?? '0') +
-      parseFloat(packageRevenueThisMonth?.total ?? '0');
+      Number.parseFloat(lessonRevenueThisMonth?.total ?? '0') +
+      Number.parseFloat(packageRevenueThisMonth?.total ?? '0');
 
     // TODO: Implement ratings when ratings system is added
     const averageRating = null;
@@ -269,7 +269,7 @@ export class AnalyticsService {
     };
 
     // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300000);
+    await this.cacheManager.set(cacheKey, stats, 300_000);
 
     return stats;
   }
@@ -330,7 +330,7 @@ export class AnalyticsService {
 
     const averageScore =
       avgScore?.avg !== null && avgScore?.avg !== undefined
-        ? parseFloat(avgScore.avg)
+        ? Number.parseFloat(avgScore.avg)
         : null;
 
     // Count lessons with active access (not expired)
@@ -352,7 +352,7 @@ export class AnalyticsService {
     };
 
     // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300000);
+    await this.cacheManager.set(cacheKey, stats, 300_000);
 
     return stats;
   }
@@ -395,7 +395,7 @@ export class AnalyticsService {
       .select('COUNT(DISTINCT pp.id)', 'count')
       .getRawOne<CountResult>();
 
-    const packagePurchases = parseInt(packagePurchasesResult?.count ?? '0', 10);
+    const packagePurchases = Number.parseInt(packagePurchasesResult?.count ?? '0', 10);
     const totalPurchases = directPurchases + packagePurchases;
 
     // Count total views (lesson sessions)
@@ -410,7 +410,7 @@ export class AnalyticsService {
       .select('AVG(ls.duration_seconds)', 'avg')
       .getRawOne<AvgResult>();
 
-    const averageWatchTimeSeconds = parseFloat(avgWatchTimeResult?.avg ?? '0');
+    const averageWatchTimeSeconds = Number.parseFloat(avgWatchTimeResult?.avg ?? '0');
 
     // Calculate completion rate (sessions with 90%+ video progress)
     const completedSessions = await this.lessonSessionsRepository
@@ -437,7 +437,7 @@ export class AnalyticsService {
 
     const averageRating =
       avgRatingResult?.avg !== null && avgRatingResult?.avg !== undefined
-        ? Math.round(parseFloat(avgRatingResult.avg) * 100) / 100
+        ? Math.round(Number.parseFloat(avgRatingResult.avg) * 100) / 100
         : null;
 
     // Count total reviews
@@ -462,7 +462,7 @@ export class AnalyticsService {
     };
 
     // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, analytics, 300000);
+    await this.cacheManager.set(cacheKey, analytics, 300_000);
 
     return analytics;
   }
@@ -481,7 +481,7 @@ export class AnalyticsService {
       .select('SUM(lp.price_paid)', 'total')
       .getRawOne<SumResult>();
 
-    const directRevenue = parseFloat(directRevenueResult?.total ?? '0');
+    const directRevenue = Number.parseFloat(directRevenueResult?.total ?? '0');
 
     // Calculate revenue from package purchases (proportional based on lesson price in package)
     const packageRevenueResult = await this.packagePurchasesRepository
@@ -493,7 +493,7 @@ export class AnalyticsService {
       .getRawOne<SumResult>();
 
     // Estimate package revenue contribution (total package revenue / items in package)
-    const packageRevenue = parseFloat(packageRevenueResult?.total ?? '0');
+    const packageRevenue = Number.parseFloat(packageRevenueResult?.total ?? '0');
 
     return { directRevenue, packageRevenue };
   }
@@ -565,7 +565,7 @@ export class AnalyticsService {
     };
 
     // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, analytics, 300000);
+    await this.cacheManager.set(cacheKey, analytics, 300_000);
 
     return analytics;
   }
@@ -619,15 +619,15 @@ export class AnalyticsService {
 
     const averageScore =
       typeof scoreStats?.avg_score === 'string'
-        ? Math.round(parseFloat(scoreStats.avg_score) * 100) / 100
+        ? Math.round(Number.parseFloat(scoreStats.avg_score) * 100) / 100
         : null;
     const highestScore =
       typeof scoreStats?.max_score === 'string'
-        ? parseFloat(scoreStats.max_score)
+        ? Number.parseFloat(scoreStats.max_score)
         : null;
     const lowestScore =
       typeof scoreStats?.min_score === 'string'
-        ? parseFloat(scoreStats.min_score)
+        ? Number.parseFloat(scoreStats.min_score)
         : null;
 
     return { averageScore, highestScore, lowestScore };
@@ -776,9 +776,9 @@ export class AnalyticsService {
       .getRawOne<SumResult>();
 
     return (
-      parseFloat(lessonRevenue?.total ?? '0') +
-      parseFloat(packageRevenue?.total ?? '0') +
-      parseFloat(bookRevenue?.total ?? '0')
+      Number.parseFloat(lessonRevenue?.total ?? '0') +
+      Number.parseFloat(packageRevenue?.total ?? '0') +
+      Number.parseFloat(bookRevenue?.total ?? '0')
     );
   }
 
@@ -815,9 +815,9 @@ export class AnalyticsService {
       .getRawOne<SumResult>();
 
     return (
-      parseFloat(lessonRevenue?.total ?? '0') +
-      parseFloat(packageRevenue?.total ?? '0') +
-      parseFloat(bookRevenue?.total ?? '0')
+      Number.parseFloat(lessonRevenue?.total ?? '0') +
+      Number.parseFloat(packageRevenue?.total ?? '0') +
+      Number.parseFloat(bookRevenue?.total ?? '0')
     );
   }
 }

@@ -30,13 +30,13 @@ export class TeacherDashboardDto {
 
   @ApiProperty({
     description: 'Total revenue earned by this teacher',
-    example: 35000.0,
+    example: 35_000,
   })
   public revenue!: number;
 
   @ApiProperty({
     description: 'Revenue earned this month',
-    example: 5000.0,
+    example: 5000,
   })
   public revenueThisMonth!: number;
 
