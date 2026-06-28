@@ -116,6 +116,43 @@ export class EnvironmentVariables {
   @IsOptional()
   public PAYMOB_HMAC_SECRET?: string;
 
+  // SMTP / Email delivery (optional — when unset, password-reset emails are
+  // logged instead of sent, and the reset token is returned in the response in
+  // non-production environments so the flow remains testable).
+  @IsString()
+  @IsOptional()
+  public SMTP_HOST?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public SMTP_PORT?: number;
+
+  @IsString()
+  @IsOptional()
+  public SMTP_SECURE?: string;
+
+  @IsString()
+  @IsOptional()
+  public SMTP_USER?: string;
+
+  @IsString()
+  @IsOptional()
+  public SMTP_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAIL_FROM?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAIL_FROM_NAME?: string;
+
+  // Password reset token lifetime (duration string, e.g. "1h", "30m"). Default 1h.
+  @IsString()
+  @IsOptional()
+  public PASSWORD_RESET_EXPIRATION?: string;
+
   // Application URLs
   @IsString()
   @IsOptional()

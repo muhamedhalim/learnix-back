@@ -8,9 +8,12 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import type { Repository } from 'typeorm';
 
+import { MailService } from '../mail/mail.service';
+import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+import { SessionsService } from '../users/sessions.service';
 import { AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
@@ -77,6 +80,28 @@ describe('AuthService', () => {
         {
           provide: ConfigService,
           useValue: mockConfigService,
+        },
+        {
+          provide: SessionsService,
+          useValue: {
+            createSession: jest.fn(),
+            updateSessionTokenId: jest.fn(),
+            deleteSessionByTokenId: jest.fn(),
+            deleteAllUserSessions: jest.fn(),
+          },
+        },
+        {
+          provide: StudentsService,
+          useValue: {
+            createStudentProfile: jest.fn(),
+          },
+        },
+        {
+          provide: MailService,
+          useValue: {
+            sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
+            isConfigured: jest.fn().mockReturnValue(false),
+          },
         },
       ],
     }).compile();

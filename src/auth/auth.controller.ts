@@ -13,9 +13,11 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
 import { AuthService } from './auth.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('Authentication')
@@ -52,6 +54,40 @@ export class AuthController {
     @Body() refreshTokenDto: RefreshTokenDto,
   ): Promise<unknown> {
     return await this.authService.refresh(refreshTokenDto.refresh_token);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request a password reset',
+    description:
+      'Sends a single-use password reset link to the account email. Always returns a generic success message to prevent account enumeration.',
+  })
+  @ApiResponse({ status: 200, description: 'Generic acknowledgement returned' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  public async forgotPassword(
+    @Body() forgotPasswordDto: ForgotPasswordDto,
+  ): Promise<{ message: string; resetToken?: string }> {
+    return await this.authService.forgotPassword(forgotPasswordDto.email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset a password using a reset token',
+    description:
+      'Validates the single-use reset token and sets a new password. Revokes all active sessions on success.',
+  })
+  @ApiResponse({ status: 200, description: 'Password reset successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid or expired reset token' })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  public async resetPassword(
+    @Body() resetPasswordDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
+    return await this.authService.resetPassword(
+      resetPasswordDto.token,
+      resetPasswordDto.newPassword,
+    );
   }
 
   @Post('logout')

@@ -91,6 +91,20 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   refresh_token_expires_at!: Date | null;
 
+  // Password reset fields (mirrors the refresh-token storage strategy):
+  //  - password_reset_token: bcrypt hash of the raw token (never stored in clear)
+  //  - password_reset_token_id: SHA-256 of the raw token for O(1) indexed lookup
+  //  - password_reset_expires_at: short-lived expiry; presence of a hash = single-use pending reset
+  @Column({ type: 'text', nullable: true, select: false })
+  password_reset_token!: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Index('IDX_users_password_reset_token_id')
+  password_reset_token_id!: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  password_reset_expires_at!: Date | null;
+
   // Timestamps
   @CreateDateColumn()
   created_at!: Date;

@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -15,6 +16,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
+import { MailService } from '../mail/mail.service';
 import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -34,6 +36,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly sessionsService: SessionsService,
+    private readonly mailService: MailService,
     @Inject(forwardRef(() => StudentsService))
     private readonly studentsService: StudentsService,
   ) {
@@ -400,6 +403,153 @@ export class AuthService {
       role: user.role,
       userId: user.id,
     };
+  }
+
+  public async forgotPassword(
+    email: string,
+  ): Promise<{ message: string; resetToken?: string }> {
+    const genericMessage =
+      'If an account exists for that email, a password reset link has been sent.';
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password_hash')
+      .where('user.email = :email', { email: normalizedEmail })
+      .getOne();
+
+    // Silently no-op for unknown, inactive, or Firebase-only accounts.
+    if (
+      !user ||
+      !user.is_active ||
+      user.password_hash === null ||
+      user.password_hash === ''
+    ) {
+      this.logger.log(
+        `Password reset requested for non-eligible account: ${normalizedEmail}`,
+      );
+      return { message: genericMessage };
+    }
+
+    // Generate + store a fresh single-use token (overwrites any previous one).
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenId = this.generateTokenId(rawToken);
+    const hashedToken = await bcrypt.hash(rawToken, this.bcryptRounds);
+    const expiration =
+      this.configService.get<string>('PASSWORD_RESET_EXPIRATION') ?? '1h';
+    const expiresAt = this.calculateTokenExpiration(expiration);
+
+    await this.userRepository.update(user.id, {
+      password_reset_token: hashedToken,
+      password_reset_token_id: tokenId,
+      password_reset_expires_at: expiresAt,
+    });
+
+    const frontendUrl = (
+      this.configService.get<string>('FRONTEND_URL') ?? ''
+    ).replace(/\/+$/, '');
+    const resetUrl = `${frontendUrl}/auth/reset-password?token=${rawToken}`;
+
+    await this.mailService.sendPasswordResetEmail(
+      user.email,
+      user.name,
+      resetUrl,
+      this.humanizeDuration(expiration),
+    );
+
+    this.logger.log(`Password reset token issued for user ${user.id}`);
+
+    const isProduction =
+      this.configService.get<string>('NODE_ENV') === 'production';
+
+    return isProduction
+      ? { message: genericMessage }
+      : { message: genericMessage, resetToken: rawToken };
+  }
+
+  public async resetPassword(
+    token: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    const invalidTokenError = new BadRequestException(
+      'This password reset link is invalid or has expired. Please request a new one.',
+    );
+
+    const tokenId = this.generateTokenId(token);
+
+    const user = await this.userRepository
+      .createQueryBuilder('user')
+      .addSelect('user.password_reset_token')
+      .where('user.password_reset_token_id = :tokenId', { tokenId })
+      .andWhere('user.password_reset_token IS NOT NULL')
+      .getOne();
+
+    if (user?.password_reset_token == null) {
+      throw invalidTokenError;
+    }
+
+    const isValid = await bcrypt.compare(token, user.password_reset_token);
+    if (!isValid) {
+      this.logger.warn(`Password reset token mismatch for user ${user.id}`);
+      throw invalidTokenError;
+    }
+
+    if (
+      !user.password_reset_expires_at ||
+      user.password_reset_expires_at < new Date()
+    ) {
+      this.logger.warn(`Expired password reset token used for user ${user.id}`);
+      // Consume the stale token so it cannot be retried.
+      await this.userRepository.update(user.id, {
+        password_reset_token: null,
+        password_reset_token_id: null,
+        password_reset_expires_at: null,
+      });
+      throw invalidTokenError;
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, this.bcryptRounds);
+
+    // Set new password, consume the reset token, and revoke refresh credentials.
+    await this.userRepository.update(user.id, {
+      password_hash: hashedPassword,
+      password_reset_token: null,
+      password_reset_token_id: null,
+      password_reset_expires_at: null,
+      refresh_token: null,
+      refresh_token_id: null,
+      refresh_token_expires_at: null,
+    });
+
+    // Drop all device sessions — force re-login everywhere after a reset.
+    await this.sessionsService.deleteAllUserSessions(user.id);
+
+    this.logger.log(`Password reset completed for user ${user.id}`);
+
+    return {
+      message:
+        'Your password has been reset successfully. You can now sign in with your new password.',
+    };
+  }
+
+  /**
+   * Render a duration string (e.g. "1h", "30m") as a human-readable label.
+   */
+  private humanizeDuration(duration: string): string {
+    const match = /^(\d+)([dhms])$/.exec(duration);
+    if (!match?.[1] || !match[2]) {
+      return duration;
+    }
+    const value = Number.parseInt(match[1], 10);
+    const units: Record<string, string> = {
+      d: 'day',
+      h: 'hour',
+      m: 'minute',
+      s: 'second',
+    };
+    const unit = units[match[2]] ?? '';
+    return `${value} ${unit}${value === 1 ? '' : 's'}`;
   }
 
   /**

@@ -36,6 +36,7 @@ import { FirebaseModule } from './firebase/firebase.module';
 import { HealthModule } from './health/health.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { LessonsModule } from './lessons/lessons.module';
+import { MailModule } from './mail/mail.module';
 import { NotificationsModule } from './notifications/notifications.module';
 // Phase 2: Core Features
 import { PackagesModule } from './packages/packages.module';
@@ -172,6 +173,7 @@ import { UsersModule } from './users/users.module';
     TypeOrmModule.forFeature([User]),
     UsersModule,
     FirebaseModule,
+    MailModule,
     UploadModule,
     HealthModule,
 
