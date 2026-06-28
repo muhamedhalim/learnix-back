@@ -405,6 +405,9 @@ export class StudentsService {
       this.logger.log(`Student ${profileId} approved with notes: ${notes}`);
     }
 
+    // Refresh the cached admin dashboard so counters reflect the new status.
+    await this.cacheManager.del('dashboard:admin');
+
     return this.mapToProfileWithDetails(profile);
   }
 
@@ -437,6 +440,9 @@ export class StudentsService {
 
     // TODO: Send notification to student/parent about rejection
     // TODO: Log audit trail for rejection action
+
+    // Refresh the cached admin dashboard so counters reflect the new status.
+    await this.cacheManager.del('dashboard:admin');
 
     return this.mapToProfileWithDetails(profile);
   }

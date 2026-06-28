@@ -25,6 +25,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import {
   ApproveTeacherDto,
   AssignSubjectsDto,
+  PromoteTeacherDto,
   RejectTeacherDto,
   TeacherFilterDto,
 } from '../dto';
@@ -168,6 +169,40 @@ export class AdminTeachersController {
     const stats = await this.teachersService.getTeacherStats(id);
     return {
       stats,
+    };
+  }
+
+  /**
+   * Promote an existing student account into a teacher
+   */
+  @Post('promote')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Promote a student to teacher',
+    description:
+      'Converts an existing STUDENT account into a TEACHER: changes the role, marks the account approved, removes the student profile, and creates a teacher profile. Admin only.',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Student promoted to teacher successfully',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'User not found' })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Account is not a student',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: 'User is already a teacher',
+  })
+  public async promote(@Body() dto: PromoteTeacherDto): Promise<unknown> {
+    const teacher = await this.teachersService.promoteStudentToTeacher(
+      dto.user_id,
+      dto,
+    );
+    return {
+      message: 'Student promoted to teacher successfully',
+      data: teacher,
     };
   }
 

@@ -1,23 +1,30 @@
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { In, Repository } from 'typeorm';
+import type { Cache } from 'cache-manager';
+
+import { DataSource, In, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
   AssignSubjectsDto,
+  PromoteTeacherDto,
   RejectTeacherDto,
   TeacherFilterDto,
   UpdateTeacherProfileDto,
@@ -62,6 +69,8 @@ export interface TeacherStats {
 
 @Injectable()
 export class TeachersService {
+  private readonly logger = new Logger(TeachersService.name);
+
   constructor(
     @InjectRepository(TeacherProfile)
     private readonly teacherProfilesRepository: Repository<TeacherProfile>,
@@ -69,7 +78,18 @@ export class TeachersService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    private readonly dataSource: DataSource,
+    @Inject(CACHE_MANAGER)
+    private readonly cacheManager: Cache,
   ) {}
+
+  /**
+   * Invalidate the cached admin dashboard so counters reflect role/status
+   * changes immediately (the analytics service caches it for 5 minutes).
+   */
+  private async invalidateAdminDashboard(): Promise<void> {
+    await this.cacheManager.del('dashboard:admin');
+  }
 
   /**
    * Get a teacher's own profile by user ID
@@ -303,6 +323,8 @@ export class TeachersService {
     // Suppress unused variable warning until audit_logs table is implemented
     void notes;
 
+    await this.invalidateAdminDashboard();
+
     return this.mapToProfileWithDetails(profile);
   }
 
@@ -335,6 +357,8 @@ export class TeachersService {
 
     // TODO: Send notification to teacher about rejection
     // TODO: Log audit trail for rejection action
+
+    await this.invalidateAdminDashboard();
 
     return this.mapToProfileWithDetails(profile);
   }
@@ -456,6 +480,88 @@ export class TeachersService {
     });
 
     return await this.teacherProfilesRepository.save(profile);
+  }
+
+  /**
+   * Promote an existing STUDENT account into a TEACHER.
+   *
+   * Atomic (single transaction): flips the role to TEACHER, marks the account
+   * APPROVED so it can log in immediately, soft-removes the student profile so
+   * the user leaves the students list, and creates (or restores) the teacher
+   * profile so the user appears in the teachers list.
+   */
+  public async promoteStudentToTeacher(
+    userId: string,
+    dto: PromoteTeacherDto,
+  ): Promise<TeacherProfileWithDetails> {
+    const profileId = await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(User);
+      const studentRepo = manager.getRepository(StudentProfile);
+      const teacherRepo = manager.getRepository(TeacherProfile);
+
+      const user = await userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException(`User with ID ${userId} not found`);
+      }
+      if (user.role === UserRole.TEACHER) {
+        throw new ConflictException('User is already a teacher');
+      }
+      if (user.role !== UserRole.STUDENT) {
+        throw new BadRequestException(
+          'Only student accounts can be promoted to teacher',
+        );
+      }
+
+      // 1) Role + status so the user can log in and route as a teacher.
+      user.role = UserRole.TEACHER;
+      user.status = UserStatus.APPROVED;
+      user.rejection_reason = null;
+      await userRepo.save(user);
+
+      // 2) Remove the student profile (soft delete) → leaves the students list.
+      const studentProfile = await studentRepo.findOne({
+        where: { user_id: userId },
+      });
+      if (studentProfile) {
+        await studentRepo.softRemove(studentProfile);
+      }
+
+      // 3) Create (or restore) the teacher profile → enters the teachers list.
+      const existing = await teacherRepo.findOne({
+        where: { user_id: userId },
+        withDeleted: true,
+      });
+
+      let profile: TeacherProfile;
+      if (existing) {
+        existing.deleted_at = null;
+        existing.qualifications =
+          dto.qualifications ?? existing.qualifications ?? 'Pending review';
+        existing.years_of_experience =
+          dto.years_of_experience ?? existing.years_of_experience ?? 0;
+        existing.bio = dto.bio ?? existing.bio ?? null;
+        profile = await teacherRepo.save(existing);
+      } else {
+        profile = await teacherRepo.save(
+          teacherRepo.create({
+            user_id: userId,
+            qualifications: dto.qualifications ?? 'Pending review',
+            years_of_experience: dto.years_of_experience ?? 0,
+            bio: dto.bio ?? null,
+            rating: 0,
+            total_ratings: 0,
+          }),
+        );
+      }
+
+      return profile.id;
+    });
+
+    this.logger.log(`User ${userId} promoted to TEACHER (profile ${profileId})`);
+
+    await this.invalidateAdminDashboard();
+
+    return this.findTeacherById(profileId);
   }
 
   /**
