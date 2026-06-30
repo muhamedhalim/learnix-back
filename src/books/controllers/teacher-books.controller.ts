@@ -119,6 +119,20 @@ export class TeacherBooksController {
   }
 
   /**
+   * Get my book revenue
+   * Declared before ':id' so "revenue" is not captured by the :id param route.
+   */
+  @Get('revenue')
+  @ApiOperation({ summary: 'Get total revenue from books' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Revenue summary retrieved',
+  })
+  public async getRevenue(@GetUser() user: JwtPayload): Promise<unknown> {
+    return await this.bookPurchasesService.getTeacherBookRevenue(user.userId);
+  }
+
+  /**
    * Get a single book by ID (must be owner)
    */
   @Get(':id')
@@ -183,16 +197,4 @@ export class TeacherBooksController {
     };
   }
 
-  /**
-   * Get my book revenue
-   */
-  @Get('revenue')
-  @ApiOperation({ summary: 'Get total revenue from books' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Revenue summary retrieved',
-  })
-  public async getRevenue(@GetUser() user: JwtPayload): Promise<unknown> {
-    return await this.bookPurchasesService.getTeacherBookRevenue(user.userId);
-  }
 }

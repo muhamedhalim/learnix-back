@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Post,
   Put,
   Query,
   UseGuards,
@@ -100,6 +102,11 @@ export class TeacherLessonsController {
   /**
    * Create a new lesson
    */
+  @Post()
+  @ApiOperation({
+    summary: 'Create a new lesson',
+    description: 'Creates a lesson owned by the authenticated teacher.',
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Subject not found',
@@ -118,6 +125,11 @@ export class TeacherLessonsController {
   /**
    * Get a single lesson by ID (must be owner)
    */
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get one of my lessons',
+    description: "Returns a single lesson by ID for the authenticated teacher.",
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
@@ -137,6 +149,11 @@ export class TeacherLessonsController {
   /**
    * Update a lesson
    */
+  @Put(':id')
+  @ApiOperation({
+    summary: 'Update one of my lessons',
+    description: 'Updates a lesson owned by the authenticated teacher.',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only update your own lessons',
@@ -156,6 +173,11 @@ export class TeacherLessonsController {
   /**
    * Delete a lesson
    */
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Delete one of my lessons',
+    description: 'Deletes a lesson owned by the authenticated teacher.',
+  })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'You can only delete your own lessons',
