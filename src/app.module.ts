@@ -37,6 +37,7 @@ import { HealthModule } from './health/health.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { LessonsModule } from './lessons/lessons.module';
 import { MailModule } from './mail/mail.module';
+import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
 // Phase 2: Core Features
 import { PackagesModule } from './packages/packages.module';
@@ -174,6 +175,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     FirebaseModule,
     MailModule,
+    StorageModule,
     UploadModule,
     HealthModule,
 

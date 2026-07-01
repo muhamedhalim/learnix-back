@@ -14,6 +14,7 @@ import {
 
 import type { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { User } from '../../users/entities/user.entity';
+import { CourseStatus } from './course-status.enum';
 import type { LessonPackageItem } from './lesson-package-item.entity';
 
 @Entity('lesson_packages')
@@ -21,6 +22,7 @@ import type { LessonPackageItem } from './lesson-package-item.entity';
 @Index('IDX_lesson_packages_is_active', ['is_active'])
 @Index('IDX_lesson_packages_price', ['price'])
 @Index('IDX_lesson_packages_created_at', ['created_at'])
+@Index('IDX_lesson_packages_status', ['status'])
 export class LessonPackage {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -55,6 +57,37 @@ export class LessonPackage {
 
   @Column('varchar', { length: 500, nullable: true })
   thumbnail!: string | null;
+
+  // ── Course CMS fields (additive) ───────────────────────────────────────────
+  @Column({
+    type: 'enum',
+    enum: CourseStatus,
+    default: CourseStatus.DRAFT,
+  })
+  status!: CourseStatus;
+
+  @Column('boolean', { default: false })
+  featured!: boolean;
+
+  @Column('varchar', { length: 100, nullable: true })
+  category!: string | null;
+
+  /** Free-form tags (stored as a Postgres text[]). */
+  @Column('text', { array: true, nullable: true })
+  tags!: string[] | null;
+
+  /** Teacher-estimated total duration in minutes. */
+  @Column('int', { nullable: true })
+  estimated_duration!: number | null;
+
+  /** When the course was (last) published. */
+  @Column('timestamptz', { nullable: true })
+  published_at!: Date | null;
+
+  /** When a draft course should auto-publish (scheduled publishing). */
+  @Column('timestamptz', { nullable: true })
+  @Index('IDX_lesson_packages_scheduled_publish_at')
+  scheduled_publish_at!: Date | null;
 
   @OneToMany('LessonPackageItem', 'package', {
     cascade: true,

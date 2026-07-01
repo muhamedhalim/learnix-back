@@ -15,6 +15,7 @@ import {
 } from '@nestjs/swagger';
 
 import { PackageFilterDto } from '../dto';
+import { CourseStatus } from '../entities/course-status.enum';
 import { PackagesService } from '../packages.service';
 
 @ApiTags('Packages')
@@ -93,8 +94,13 @@ export class PackagesController {
       hasPrevPage: boolean;
     };
   }> {
-    const filterWithActive = Object.assign({}, filter, { is_active: true });
-    return await this.packagesService.findAll(filterWithActive);
+    // Public catalogue: only PUBLISHED, active courses. Forced values are
+    // applied last so a client cannot override them via query params.
+    const publicFilter = Object.assign({}, filter, {
+      is_active: true,
+      status: CourseStatus.PUBLISHED,
+    });
+    return await this.packagesService.findAll(publicFilter);
   }
 
   /**
@@ -150,9 +156,11 @@ export class PackagesController {
       hasPrevPage: boolean;
     };
   }> {
+    // Public teacher storefront: only their PUBLISHED, active courses.
     return await this.packagesService.findByTeacher(teacherId, {
       ...filter,
       is_active: true,
+      status: CourseStatus.PUBLISHED,
     });
   }
 }

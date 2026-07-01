@@ -12,6 +12,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { CourseStatus } from '../entities/course-status.enum';
+
 export enum PackageSortBy {
   PRICE = 'price',
   TITLE = 'title',
@@ -72,6 +74,14 @@ export class PackageFilterDto {
     return value as boolean | undefined;
   })
   public is_active?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Filter by publishing status',
+    enum: CourseStatus,
+  })
+  @IsOptional()
+  @IsEnum(CourseStatus)
+  public status?: CourseStatus;
 
   @ApiPropertyOptional({
     description: 'Sort by field',

@@ -2,7 +2,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,7 +15,44 @@ import {
   Min,
 } from 'class-validator';
 
+import { CourseStatus } from '../entities/course-status.enum';
+
 export class UpdatePackageDto {
+  @ApiPropertyOptional({ enum: CourseStatus, description: 'Publishing state' })
+  @IsOptional()
+  @IsEnum(CourseStatus)
+  public status?: CourseStatus;
+
+  @ApiPropertyOptional({ description: 'Feature this course' })
+  @IsOptional()
+  @IsBoolean()
+  public featured?: boolean;
+
+  @ApiPropertyOptional({ description: 'Free-form category', maxLength: 100 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  public category?: string;
+
+  @ApiPropertyOptional({ description: 'Tags', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  public tags?: string[];
+
+  @ApiPropertyOptional({ description: 'Estimated duration in minutes', minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  public estimated_duration?: number;
+
+  @ApiPropertyOptional({
+    description: 'Auto-publish this draft at the given time (ISO 8601)',
+  })
+  @IsOptional()
+  @IsDateString()
+  public scheduled_publish_at?: string;
   @ApiPropertyOptional({
     description: 'Package title in English',
     example: 'Complete Math Package',

@@ -3,11 +3,13 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 
 import {
   PaginatedResponse,
@@ -17,12 +19,17 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
 import {
   AddLessonsDto,
+  CreateChapterDto,
   CreatePackageDto,
   PackageFilterDto,
   PackageSortBy,
   RemoveLessonsDto,
+  ReorderCurriculumDto,
+  UpdateChapterDto,
   UpdatePackageDto,
 } from './dto';
+import { CourseChapter } from './entities/course-chapter.entity';
+import { CourseStatus } from './entities/course-status.enum';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 
@@ -42,6 +49,13 @@ export interface PackageWithDetails {
   original_price: number | null;
   savings: number | null;
   is_active: boolean;
+  status: CourseStatus;
+  featured: boolean;
+  category: string | null;
+  tags: string[] | null;
+  estimated_duration: number | null;
+  published_at: Date | null;
+  scheduled_publish_at: Date | null;
   thumbnail: string | null;
   lessons_count: number;
   lessons: Array<{
@@ -51,6 +65,7 @@ export interface PackageWithDetails {
     price: number;
     duration: number | null;
     order_index: number;
+    chapter_id: string | null;
   }>;
   created_at: Date;
   updated_at: Date;
@@ -64,11 +79,15 @@ export interface PackageStats {
 
 @Injectable()
 export class PackagesService {
+  private readonly logger = new Logger(PackagesService.name);
+
   constructor(
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
     @InjectRepository(LessonPackageItem)
     private readonly packageItemsRepository: Repository<LessonPackageItem>,
+    @InjectRepository(CourseChapter)
+    private readonly chaptersRepository: Repository<CourseChapter>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(User)
@@ -94,6 +113,8 @@ export class PackagesService {
     const pkg = this.packagesRepository.create(
       Object.assign({}, dto, {
         teacher_id: teacherId,
+        // Course can be single-language: fall back to `title` for `title_ar`.
+        title_ar: dto.title_ar ?? dto.title,
         is_active: true,
         original_price: null,
       }),
@@ -115,6 +136,7 @@ export class PackagesService {
       minPrice,
       maxPrice,
       is_active: isActive,
+      status,
       sortBy = PackageSortBy.CREATED_AT,
       order = 'desc',
       page = 1,
@@ -149,6 +171,10 @@ export class PackagesService {
 
     if (isActive !== undefined) {
       queryBuilder.andWhere('package.is_active = :isActive', { isActive });
+    }
+
+    if (status !== undefined) {
+      queryBuilder.andWhere('package.status = :status', { status });
     }
 
     const sortColumn =
@@ -523,6 +549,13 @@ export class PackagesService {
       original_price: originalPrice,
       savings,
       is_active: pkg.is_active,
+      status: pkg.status,
+      featured: pkg.featured,
+      category: pkg.category,
+      tags: pkg.tags,
+      estimated_duration: pkg.estimated_duration,
+      published_at: pkg.published_at,
+      scheduled_publish_at: pkg.scheduled_publish_at,
       thumbnail: pkg.thumbnail,
       lessons_count: sortedItems.length,
       lessons: sortedItems.map((item) => ({
@@ -532,9 +565,182 @@ export class PackagesService {
         price: Number.parseFloat(item.lesson.price.toString()),
         duration: item.lesson.duration,
         order_index: item.order_index,
+        chapter_id: item.chapter_id,
       })),
       created_at: pkg.created_at,
       updated_at: pkg.updated_at,
     };
+  }
+
+  /* ===================== Course CMS: chapters & status ===================== */
+
+  /** Verify the package exists and belongs to the teacher. */
+  private async assertOwnership(
+    packageId: string,
+    teacherId: string,
+  ): Promise<LessonPackage> {
+    const pkg = await this.packagesRepository.findOne({
+      where: { id: packageId, deleted_at: IsNull() },
+    });
+    if (!pkg) {
+      throw new NotFoundException(`Course with ID ${packageId} not found`);
+    }
+    if (pkg.teacher_id !== teacherId) {
+      throw new ForbiddenException('You can only manage your own courses');
+    }
+    return pkg;
+  }
+
+  public async listChapters(
+    packageId: string,
+    teacherId: string,
+  ): Promise<CourseChapter[]> {
+    await this.assertOwnership(packageId, teacherId);
+    return this.chaptersRepository.find({
+      where: { package_id: packageId },
+      order: { order_index: 'ASC' },
+    });
+  }
+
+  public async createChapter(
+    packageId: string,
+    teacherId: string,
+    dto: CreateChapterDto,
+  ): Promise<CourseChapter> {
+    await this.assertOwnership(packageId, teacherId);
+    const orderIndex =
+      dto.order_index ??
+      (await this.chaptersRepository.count({
+        where: { package_id: packageId },
+      }));
+    const chapter = this.chaptersRepository.create({
+      package_id: packageId,
+      title: dto.title,
+      order_index: orderIndex,
+    });
+    return this.chaptersRepository.save(chapter);
+  }
+
+  public async updateChapter(
+    packageId: string,
+    chapterId: string,
+    teacherId: string,
+    dto: UpdateChapterDto,
+  ): Promise<CourseChapter> {
+    await this.assertOwnership(packageId, teacherId);
+    const chapter = await this.chaptersRepository.findOne({
+      where: { id: chapterId, package_id: packageId },
+    });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+    Object.assign(chapter, dto);
+    return this.chaptersRepository.save(chapter);
+  }
+
+  public async deleteChapter(
+    packageId: string,
+    chapterId: string,
+    teacherId: string,
+  ): Promise<void> {
+    await this.assertOwnership(packageId, teacherId);
+    const chapter = await this.chaptersRepository.findOne({
+      where: { id: chapterId, package_id: packageId },
+    });
+    if (!chapter) {
+      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+    }
+    // Lessons keep their place; FK ON DELETE SET NULL clears their chapter_id.
+    await this.chaptersRepository.softRemove(chapter);
+  }
+
+  /**
+   * Persist the whole curriculum order (lesson positions + chapter membership,
+   * and optional chapter ordering) atomically.
+   */
+  public async reorderCurriculum(
+    packageId: string,
+    teacherId: string,
+    dto: ReorderCurriculumDto,
+  ): Promise<PackageWithDetails> {
+    await this.assertOwnership(packageId, teacherId);
+
+    // Validate referenced chapters belong to this course.
+    const chapterIds = new Set(
+      dto.items
+        .map((i) => i.chapter_id)
+        .filter((c): c is string => typeof c === 'string'),
+    );
+    (dto.chapters ?? []).forEach((c) => chapterIds.add(c.id));
+    if (chapterIds.size > 0) {
+      const owned = await this.chaptersRepository.count({
+        where: { package_id: packageId, id: In([...chapterIds]) },
+      });
+      if (owned !== chapterIds.size) {
+        throw new BadRequestException(
+          'One or more chapters do not belong to this course',
+        );
+      }
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const itemRepo = manager.getRepository(LessonPackageItem);
+      const chapterRepo = manager.getRepository(CourseChapter);
+
+      for (const item of dto.items) {
+        await itemRepo.update(
+          { package_id: packageId, lesson_id: item.lesson_id },
+          { order_index: item.order_index, chapter_id: item.chapter_id ?? null },
+        );
+      }
+      for (const ch of dto.chapters ?? []) {
+        await chapterRepo.update(
+          { id: ch.id, package_id: packageId },
+          { order_index: ch.order_index },
+        );
+      }
+    });
+
+    return this.findOne(packageId);
+  }
+
+  public async updateStatus(
+    packageId: string,
+    teacherId: string,
+    status: CourseStatus,
+  ): Promise<PackageWithDetails> {
+    const pkg = await this.assertOwnership(packageId, teacherId);
+    pkg.status = status;
+    // Keep the legacy is_active flag consistent with the new status.
+    pkg.is_active = status === CourseStatus.PUBLISHED;
+    if (status === CourseStatus.PUBLISHED && pkg.published_at === null) {
+      pkg.published_at = new Date();
+    }
+    await this.packagesRepository.save(pkg);
+    return this.findOne(packageId);
+  }
+
+  /**
+   * Auto-publish any draft course whose scheduled time has arrived.
+   * Runs every 5 minutes.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  public async publishScheduledCourses(): Promise<void> {
+    const due = await this.packagesRepository
+      .createQueryBuilder('package')
+      .where('package.status = :status', { status: CourseStatus.DRAFT })
+      .andWhere('package.scheduled_publish_at IS NOT NULL')
+      .andWhere('package.scheduled_publish_at <= :now', { now: new Date() })
+      .andWhere('package.deleted_at IS NULL')
+      .getMany();
+
+    for (const pkg of due) {
+      pkg.status = CourseStatus.PUBLISHED;
+      pkg.is_active = true;
+      pkg.published_at = new Date();
+      pkg.scheduled_publish_at = null;
+      await this.packagesRepository.save(pkg);
+      this.logger.log(`Scheduled course ${pkg.id} auto-published`);
+    }
   }
 }

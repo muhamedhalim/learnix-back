@@ -10,13 +10,14 @@ import { UploadedFile } from './entities/uploaded-file.entity';
 import { FileManagementService } from './file-management.service';
 import { UploadService } from './upload.service';
 import { UploadsController } from './uploads.controller';
+import { TeacherUploadsController } from './teacher-uploads.controller';
 
 @Module({
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([UploadedFile, User, Lesson, Book]),
   ],
-  controllers: [UploadsController],
+  controllers: [UploadsController, TeacherUploadsController],
   providers: [CleanupService, FileManagementService, UploadService],
   exports: [CleanupService, FileManagementService, UploadService],
 })

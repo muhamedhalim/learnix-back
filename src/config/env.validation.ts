@@ -99,6 +99,17 @@ export class EnvironmentVariables {
   @IsOptional()
   public BUNNY_STREAM_API_KEY?: string;
 
+  // Pull-zone hostname for Bunny Stream HLS playback + posters,
+  // e.g. "vz-xxxxxxxx-xxx.b-cdn.net". Optional: when unset, the iframe embed
+  // URL is used for playback and Bunny posters are not stored.
+  @IsString()
+  @IsOptional()
+  public BUNNY_STREAM_CDN_HOSTNAME?: string;
+
+  @IsString()
+  @IsOptional()
+  public BUNNY_STREAM_PULL_ZONE?: string;
+
   // Paymob (optional until payment features are implemented)
   @IsString()
   @IsOptional()

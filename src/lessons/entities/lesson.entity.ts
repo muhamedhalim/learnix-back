@@ -15,6 +15,7 @@ import {
 import type { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
+import { LessonStatus } from './lesson-status.enum';
 
 @Entity('lessons')
 export class Lesson {
@@ -83,6 +84,40 @@ export class Lesson {
   })
   bunny_library_id!: string | null;
 
+  /**
+   * Bunny Stream encoding lifecycle, mirrored from Bunny's numeric status:
+   * 'created' | 'uploading' | 'processing' | 'ready' | 'failed'.
+   * Null when the lesson has no Bunny-managed video (e.g. legacy URL only).
+   */
+  @Column({
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+    name: 'bunny_video_status',
+  })
+  bunny_video_status!: string | null;
+
+  /** Source video width in pixels, retrieved from Bunny after encoding. */
+  @Column({ type: 'int', nullable: true, name: 'video_width' })
+  video_width!: number | null;
+
+  /** Source video height in pixels, retrieved from Bunny after encoding. */
+  @Column({ type: 'int', nullable: true, name: 'video_height' })
+  video_height!: number | null;
+
+  /** CDN URL of the Bunny-generated poster/thumbnail for the video. */
+  @Column({
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+    name: 'video_thumbnail',
+  })
+  video_thumbnail!: string | null;
+
+  /** Stored video size in bytes, retrieved from Bunny after encoding. */
+  @Column({ type: 'bigint', nullable: true, name: 'video_size_bytes' })
+  video_size_bytes!: number | null;
+
   // Legacy Vimeo fields (for backward compatibility during migration)
   @Column({
     type: 'varchar',
@@ -114,6 +149,16 @@ export class Lesson {
 
   @Column({ type: 'int', default: 0, name: 'students_count' })
   students_count!: number;
+
+  // Publishing state within a course (additive; existing lessons → published).
+  @Column({
+    type: 'enum',
+    enum: LessonStatus,
+    default: LessonStatus.PUBLISHED,
+    name: 'status',
+  })
+  @Index('IDX_lessons_status')
+  status!: LessonStatus;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

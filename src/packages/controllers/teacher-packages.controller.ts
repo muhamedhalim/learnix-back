@@ -27,9 +27,13 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import {
   AddLessonsDto,
+  CreateChapterDto,
   CreatePackageDto,
   PackageFilterDto,
   RemoveLessonsDto,
+  ReorderCurriculumDto,
+  UpdateChapterDto,
+  UpdateCourseStatusDto,
   UpdatePackageDto,
 } from '../dto';
 import { PackagesService } from '../packages.service';
@@ -252,5 +256,94 @@ export class TeacherPackagesController {
         : 'Package deactivated successfully',
       package: pkg,
     };
+  }
+
+  /* ===================== Course CMS: chapters & status ===================== */
+
+  @Get(':id/chapters')
+  @ApiOperation({ summary: 'List a course\'s chapters' })
+  public async listChapters(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ data: unknown[] }> {
+    const data = await this.packagesService.listChapters(id, user.userId);
+    return { data };
+  }
+
+  @Post(':id/chapters')
+  @ApiOperation({ summary: 'Create a chapter in a course' })
+  public async createChapter(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateChapterDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const chapter = await this.packagesService.createChapter(
+      id,
+      user.userId,
+      dto,
+    );
+    return { message: 'Chapter created successfully', data: chapter };
+  }
+
+  @Patch(':id/chapters/:chapterId')
+  @ApiOperation({ summary: 'Rename or reorder a chapter' })
+  public async updateChapter(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('chapterId', ParseUUIDPipe) chapterId: string,
+    @Body() dto: UpdateChapterDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const chapter = await this.packagesService.updateChapter(
+      id,
+      chapterId,
+      user.userId,
+      dto,
+    );
+    return { message: 'Chapter updated successfully', data: chapter };
+  }
+
+  @Delete(':id/chapters/:chapterId')
+  @ApiOperation({ summary: 'Delete a chapter (its lessons become top-level)' })
+  public async deleteChapter(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('chapterId', ParseUUIDPipe) chapterId: string,
+  ): Promise<{ message: string }> {
+    await this.packagesService.deleteChapter(id, chapterId, user.userId);
+    return { message: 'Chapter deleted successfully' };
+  }
+
+  @Patch(':id/curriculum')
+  @ApiOperation({
+    summary: 'Persist curriculum order (lesson positions, chapter membership)',
+  })
+  public async reorderCurriculum(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderCurriculumDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const course = await this.packagesService.reorderCurriculum(
+      id,
+      user.userId,
+      dto,
+    );
+    return { message: 'Curriculum updated successfully', data: course };
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({
+    summary: 'Update course publishing status (draft/published/hidden/archived)',
+  })
+  public async updateStatus(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCourseStatusDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const course = await this.packagesService.updateStatus(
+      id,
+      user.userId,
+      dto.status,
+    );
+    return { message: 'Course status updated successfully', data: course };
   }
 }

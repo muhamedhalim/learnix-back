@@ -26,6 +26,7 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import {
+  CreateBunnyUploadDto,
   CreateLessonDto,
   LessonFilterDto,
   UpdateLessonDto,
@@ -216,6 +217,81 @@ export class TeacherLessonsController {
       dto.video_url,
       dto.duration,
     );
+  }
+
+  /* ===================== Bunny Stream — direct (TUS) upload ===================== */
+
+  /**
+   * Provision a Bunny Stream video and return short-lived TUS credentials.
+   * The client uploads the file directly to Bunny; the API key never leaves
+   * the server. Replaces any existing video on the lesson.
+   */
+  @Post(':id/video/bunny')
+  @ApiOperation({
+    summary: 'Create a Bunny Stream upload session',
+    description:
+      'Creates a video object in the Bunny Stream library for this lesson and returns presigned TUS upload credentials. The Bunny API key stays on the server.',
+  })
+  public async createBunnyUpload(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateBunnyUploadDto,
+  ): Promise<unknown> {
+    return await this.lessonsService.createBunnyUpload(
+      id,
+      user.userId,
+      dto.title,
+    );
+  }
+
+  /**
+   * Poll the encoding status of the lesson's Bunny video and persist the
+   * latest metadata (duration, resolution, poster, size, status).
+   */
+  @Get(':id/video/status')
+  @ApiOperation({
+    summary: 'Get Bunny Stream video status',
+    description:
+      "Fetches and stores the lesson video's encoding status and metadata from Bunny Stream.",
+  })
+  public async getBunnyStatus(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.lessonsService.refreshBunnyStatus(id, user.userId);
+  }
+
+  /**
+   * Signal that the client finished transferring the file to Bunny.
+   */
+  @Post(':id/video/uploaded')
+  @ApiOperation({
+    summary: 'Mark Bunny upload as transferred',
+    description:
+      'Flips the stored status to processing once the client completes the TUS upload, before encoding finishes.',
+  })
+  public async markBunnyUploaded(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.lessonsService.markBunnyUploaded(id, user.userId);
+  }
+
+  /**
+   * Delete the lesson's Bunny Stream video and clear stored video metadata.
+   */
+  @Delete(':id/video/bunny')
+  @ApiOperation({
+    summary: 'Delete the Bunny Stream video',
+    description:
+      'Removes the video from Bunny Stream and clears the stored video metadata on the lesson.',
+  })
+  public async deleteBunnyVideo(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    await this.lessonsService.removeBunnyVideo(id, user.userId);
+    return { message: 'Video removed successfully' };
   }
 
   /**

@@ -9,21 +9,41 @@ import {
   StudentLessonsController,
   TeacherLessonsController,
 } from './controllers';
+import { TeacherLessonContentController } from './controllers/teacher-lesson-content.controller';
+import { BunnyStreamService } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
+import { LessonAttachment } from './entities/lesson-attachment.entity';
+import { LessonHomework } from './entities/lesson-homework.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
+import { LessonContentService } from './lesson-content.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Lesson, LessonProgress, User, Subject])],
+  imports: [
+    TypeOrmModule.forFeature([
+      Lesson,
+      LessonProgress,
+      LessonAttachment,
+      LessonHomework,
+      User,
+      Subject,
+    ]),
+  ],
   controllers: [
     AdminLessonsController,
     LessonsController,
     StudentLessonsController,
     TeacherLessonsController,
+    TeacherLessonContentController,
   ],
-  providers: [LessonsService, ProgressService],
-  exports: [LessonsService, ProgressService, TypeOrmModule],
+  providers: [
+    LessonsService,
+    ProgressService,
+    LessonContentService,
+    BunnyStreamService,
+  ],
+  exports: [LessonsService, ProgressService, BunnyStreamService, TypeOrmModule],
 })
 export class LessonsModule implements OnModuleInit {
   public onModuleInit(): void {

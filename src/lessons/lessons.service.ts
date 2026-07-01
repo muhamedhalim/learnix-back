@@ -22,6 +22,10 @@ import {
   UpdateLessonDto,
   UpdateVimeoInfoDto,
 } from './dto';
+import {
+  BunnyStreamService,
+  BunnyVideoMetadata,
+} from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 
 /**
@@ -50,6 +54,11 @@ export interface LessonWithDetails {
   video_platform: 'bunny' | 'vimeo';
   bunny_video_id: string | null;
   bunny_library_id: string | null;
+  bunny_video_status: string | null;
+  video_width: number | null;
+  video_height: number | null;
+  video_thumbnail: string | null;
+  video_size_bytes: number | null;
   // Legacy Vimeo fields (backward compatibility)
   vimeo_video_id: string | null;
   vimeo_embed_url: string | null;
@@ -80,6 +89,7 @@ export class LessonsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    private readonly bunnyStream: BunnyStreamService,
   ) {}
 
   /**
@@ -415,6 +425,11 @@ export class LessonsService {
       throw new ForbiddenException('You can only delete your own lessons');
     }
 
+    // Clean up the Bunny Stream asset so deleted lessons don't leak storage.
+    if (lesson.bunny_video_id) {
+      await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
+    }
+
     await this.lessonsRepository.softDelete(lessonId);
   }
 
@@ -675,6 +690,147 @@ export class LessonsService {
     };
   }
 
+  /* ============================================================
+   * Bunny Stream — secure direct (TUS) upload orchestration
+   * ============================================================ */
+
+  private async findOwnedLesson(
+    lessonId: string,
+    teacherId: string,
+  ): Promise<Lesson> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+    if (!lesson) {
+      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+    }
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException('You can only update your own lessons');
+    }
+    return lesson;
+  }
+
+  /**
+   * Provision a Bunny Stream video for a lesson and return short-lived TUS
+   * credentials for the client to upload directly to Bunny. If the lesson
+   * already has a Bunny video, the previous asset is deleted first (replace),
+   * so no orphaned videos accumulate.
+   */
+  public async createBunnyUpload(
+    lessonId: string,
+    teacherId: string,
+    title?: string,
+  ): Promise<{
+    videoId: string;
+    libraryId: string;
+    tus: ReturnType<BunnyStreamService['createTusCredentials']>;
+  }> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+
+    // Replace: remove the previous Bunny video so we never leak assets.
+    if (lesson.bunny_video_id) {
+      await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
+    }
+
+    const { videoId, libraryId } = await this.bunnyStream.createVideo(
+      title ?? lesson.title,
+    );
+
+    lesson.video_platform = 'bunny';
+    lesson.bunny_video_id = videoId;
+    lesson.bunny_library_id = libraryId;
+    lesson.bunny_video_status = 'created';
+    lesson.video_url = this.bunnyStream.buildEmbedUrl(videoId);
+    // Reset stale metadata from any replaced video.
+    lesson.video_thumbnail = null;
+    lesson.video_width = null;
+    lesson.video_height = null;
+    lesson.video_size_bytes = null;
+    await this.lessonsRepository.save(lesson);
+
+    return {
+      videoId,
+      libraryId,
+      tus: this.bunnyStream.createTusCredentials(videoId),
+    };
+  }
+
+  /**
+   * Fetch the current encoding state from Bunny and persist it on the lesson
+   * (duration, resolution, poster, size, status). Used for polling after upload.
+   */
+  public async refreshBunnyStatus(
+    lessonId: string,
+    teacherId: string,
+  ): Promise<BunnyVideoMetadata & { lessonId: string }> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    if (!lesson.bunny_video_id) {
+      throw new BadRequestException('This lesson has no Bunny Stream video.');
+    }
+
+    const meta = await this.bunnyStream.getVideo(lesson.bunny_video_id);
+
+    lesson.bunny_video_status = meta.status;
+    lesson.video_url = meta.embedUrl;
+    if (meta.durationSeconds != null) lesson.duration = meta.durationSeconds;
+    if (meta.width != null) lesson.video_width = meta.width;
+    if (meta.height != null) lesson.video_height = meta.height;
+    if (meta.sizeBytes != null) lesson.video_size_bytes = meta.sizeBytes;
+    if (meta.thumbnailUrl) lesson.video_thumbnail = meta.thumbnailUrl;
+    await this.lessonsRepository.save(lesson);
+
+    return { ...meta, lessonId: lesson.id };
+  }
+
+  /**
+   * Mark the upload as transferred (client finished the TUS PATCH). We flip the
+   * stored status to 'processing' so the UI reflects Bunny's transcoding stage
+   * immediately, then polling takes over.
+   */
+  public async markBunnyUploaded(
+    lessonId: string,
+    teacherId: string,
+  ): Promise<{ status: string }> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    if (lesson.bunny_video_status === 'created') {
+      lesson.bunny_video_status = 'processing';
+      await this.lessonsRepository.save(lesson);
+    }
+    return { status: lesson.bunny_video_status ?? 'processing' };
+  }
+
+  /** Remove the lesson's Bunny video (from Bunny + clear stored metadata). */
+  public async removeBunnyVideo(
+    lessonId: string,
+    teacherId: string,
+  ): Promise<void> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    if (lesson.bunny_video_id) {
+      await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
+    }
+    lesson.bunny_video_id = null;
+    lesson.bunny_library_id = null;
+    lesson.bunny_video_status = null;
+    lesson.video_url = null;
+    lesson.video_thumbnail = null;
+    lesson.video_width = null;
+    lesson.video_height = null;
+    lesson.video_size_bytes = null;
+    await this.lessonsRepository.save(lesson);
+  }
+
+  /**
+   * Guard: a lesson may only be published once its Bunny video has finished
+   * encoding. Lessons with no Bunny video are unaffected.
+   */
+  public assertVideoReadyForPublish(lesson: Lesson): void {
+    if (lesson.bunny_video_id && lesson.bunny_video_status !== 'ready') {
+      throw new BadRequestException(
+        'Video is still processing. You can publish once it is ready.',
+      );
+    }
+  }
+
   /**
    * Helper method to map Lesson entity to response type
    */
@@ -702,6 +858,14 @@ export class LessonsService {
       video_platform: lesson.video_platform,
       bunny_video_id: lesson.bunny_video_id,
       bunny_library_id: lesson.bunny_library_id,
+      bunny_video_status: lesson.bunny_video_status,
+      video_width: lesson.video_width,
+      video_height: lesson.video_height,
+      video_thumbnail: lesson.video_thumbnail,
+      video_size_bytes:
+        lesson.video_size_bytes == null
+          ? null
+          : Number(lesson.video_size_bytes),
       // Legacy Vimeo fields (backward compatibility)
       vimeo_video_id: lesson.vimeo_video_id,
       vimeo_embed_url: lesson.vimeo_embed_url,

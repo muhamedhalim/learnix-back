@@ -38,6 +38,14 @@ export class LessonPackageItem {
   @Column('int', { default: 0 })
   order_index!: number;
 
+  /**
+   * Optional chapter this lesson belongs to within the course.
+   * Null = top-level (flat curriculum / Option B).
+   */
+  @Column('uuid', { nullable: true })
+  @Index('IDX_lesson_package_items_chapter_id')
+  chapter_id!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
 }
