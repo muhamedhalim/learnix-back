@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,10 +10,14 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiConsumes,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -22,11 +27,11 @@ import {
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { FILE_LIMITS } from '../../common/constants';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import {
-  CreateBunnyUploadDto,
   CreateLessonDto,
   LessonFilterDto,
   UpdateLessonDto,
@@ -35,6 +40,14 @@ import {
   UpdateVimeoUrlDto,
 } from '../dto';
 import { LessonsService } from '../lessons.service';
+
+/** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
+interface MulterFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
 
 @ApiTags('Teacher Lessons')
 @Controller('teacher/lessons')
@@ -219,29 +232,49 @@ export class TeacherLessonsController {
     );
   }
 
-  /* ===================== Bunny Stream — direct (TUS) upload ===================== */
+  /* ===================== Bunny Stream — backend-proxied upload ===================== */
 
   /**
-   * Provision a Bunny Stream video and return short-lived TUS credentials.
-   * The client uploads the file directly to Bunny; the API key never leaves
-   * the server. Replaces any existing video on the lesson.
+   * Upload a lesson video. The browser sends the local file to THIS backend
+   * (multipart), and the backend streams it on to Bunny Stream — the frontend
+   * never talks to Bunny and the API key never leaves the server. Replaces any
+   * existing video on the lesson.
    */
-  @Post(':id/video/bunny')
+  @Post(':id/video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: FILE_LIMITS.VIDEO_MAX_SIZE },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Create a Bunny Stream upload session',
+    summary: 'Upload a lesson video (proxied to Bunny Stream)',
     description:
-      'Creates a video object in the Bunny Stream library for this lesson and returns presigned TUS upload credentials. The Bunny API key stays on the server.',
+      'Accepts a local video file, forwards it to the Bunny Stream library, and stores only Bunny metadata. Replaces any existing video. The Bunny API key never reaches the client.',
   })
-  public async createBunnyUpload(
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'No file provided or unsupported/oversized video',
+  })
+  public async uploadVideo(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: CreateBunnyUploadDto,
+    @UploadedFile() file?: MulterFile,
   ): Promise<unknown> {
-    return await this.lessonsService.createBunnyUpload(
-      id,
-      user.userId,
-      dto.title,
-    );
+    if (!file) {
+      throw new BadRequestException('No video file provided.');
+    }
+    if (!file.mimetype?.startsWith('video/')) {
+      throw new BadRequestException(
+        'Unsupported file type. Please upload a video file (MP4, MOV, WebM, …).',
+      );
+    }
+    if (file.size > FILE_LIMITS.VIDEO_MAX_SIZE) {
+      throw new BadRequestException(
+        `Video is too large (max ${Math.round(FILE_LIMITS.VIDEO_MAX_SIZE / (1024 * 1024))} MB).`,
+      );
+    }
+    return await this.lessonsService.uploadBunnyVideo(id, user.userId, file);
   }
 
   /**
@@ -259,22 +292,6 @@ export class TeacherLessonsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
     return await this.lessonsService.refreshBunnyStatus(id, user.userId);
-  }
-
-  /**
-   * Signal that the client finished transferring the file to Bunny.
-   */
-  @Post(':id/video/uploaded')
-  @ApiOperation({
-    summary: 'Mark Bunny upload as transferred',
-    description:
-      'Flips the stored status to processing once the client completes the TUS upload, before encoding finishes.',
-  })
-  public async markBunnyUploaded(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
-    return await this.lessonsService.markBunnyUploaded(id, user.userId);
   }
 
   /**

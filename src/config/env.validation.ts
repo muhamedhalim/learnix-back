@@ -95,9 +95,15 @@ export class EnvironmentVariables {
   @IsOptional()
   public BUNNY_STREAM_LIBRARY_ID?: string;
 
+  // Library API key for Stream operations (create/upload/delete video). Accepts
+  // either name; BUNNY_API_KEY is used when BUNNY_STREAM_API_KEY is unset.
   @IsString()
   @IsOptional()
   public BUNNY_STREAM_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  public BUNNY_API_KEY?: string;
 
   // Pull-zone hostname for Bunny Stream HLS playback + posters,
   // e.g. "vz-xxxxxxxx-xxx.b-cdn.net". Optional: when unset, the iframe embed
@@ -109,6 +115,13 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   public BUNNY_STREAM_PULL_ZONE?: string;
+
+  // Library "Token Authentication Key" used to sign short-lived playback URLs
+  // (distinct from the API key). Required for secure video streaming; when
+  // unset, the signed-url endpoint returns 503.
+  @IsString()
+  @IsOptional()
+  public BUNNY_STREAM_TOKEN_KEY?: string;
 
   // Paymob (optional until payment features are implemented)
   @IsString()

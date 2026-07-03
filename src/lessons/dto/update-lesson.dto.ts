@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 
 import {
   IsBoolean,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -11,7 +12,19 @@ import {
   Min,
 } from 'class-validator';
 
+import { LessonStatus } from '../entities/lesson-status.enum';
+
 export class UpdateLessonDto {
+  @ApiProperty({
+    description:
+      'Publishing state of the lesson. Publishing requires the Bunny video (if any) to be fully encoded.',
+    enum: LessonStatus,
+    required: false,
+  })
+  @IsEnum(LessonStatus)
+  @IsOptional()
+  public status?: LessonStatus;
+
   @ApiProperty({
     description: 'Lesson title in English',
     example: 'Introduction to Algebra - Updated',

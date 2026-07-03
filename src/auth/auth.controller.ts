@@ -9,9 +9,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import type { Request } from 'express';
 
+import { THROTTLE } from '../common/constants';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -26,12 +28,14 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async register(@Body() registerDto: RegisterDto): Promise<unknown> {
     return await this.authService.register(registerDto);
   }
 
   @Post('login')
+  @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async login(
     @Body() loginDto: LoginDto,
@@ -57,6 +61,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Throttle({ default: THROTTLE.AUTH })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Request a password reset',
@@ -72,6 +77,7 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Throttle({ default: THROTTLE.AUTH })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Reset a password using a reset token',

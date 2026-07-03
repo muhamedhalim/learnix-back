@@ -6,7 +6,8 @@ import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { redisStore } from 'cache-manager-redis-yet';
@@ -118,16 +119,16 @@ import { UsersModule } from './users/users.module';
     SanitizationModule,
     ScheduleModule.forRoot(),
     AuthModule,
+    // Single global backstop tier. Do NOT add stricter named tiers here — the
+    // global ThrottlerGuard enforces EVERY named config on EVERY route, so a
+    // strict entry would rate-limit the whole API. Sensitive routes tighten
+    // limits per-route via @Throttle({ default: THROTTLE.<TIER> }).
     ThrottlerModule.forRoot([
       {
         name: 'default',
-        ...THROTTLE.DEFAULT,
+        ...THROTTLE.GLOBAL,
       },
-      {
-        name: 'strict',
-        ...THROTTLE.STRICT,
-      },
-    ]), // For AppService admin init
+    ]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -214,6 +215,11 @@ import { UsersModule } from './users/users.module';
     BulkOperationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Enforce the ThrottlerModule limits globally — without this guard the
+    // rate-limit configuration above is inert.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

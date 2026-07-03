@@ -15,6 +15,7 @@ import {
 import { Lesson } from './entities/lesson.entity';
 import { LessonAttachment } from './entities/lesson-attachment.entity';
 import { LessonHomework } from './entities/lesson-homework.entity';
+import { LessonNote } from './entities/lesson-note.entity';
 
 @Injectable()
 export class LessonContentService {
@@ -25,6 +26,8 @@ export class LessonContentService {
     private readonly attachmentsRepository: Repository<LessonAttachment>,
     @InjectRepository(LessonHomework)
     private readonly homeworkRepository: Repository<LessonHomework>,
+    @InjectRepository(LessonNote)
+    private readonly notesRepository: Repository<LessonNote>,
   ) {}
 
   private async assertOwnedLesson(
@@ -53,6 +56,51 @@ export class LessonContentService {
       where: { lesson_id: lessonId },
       order: { created_at: 'ASC' },
     });
+  }
+
+  /**
+   * Raw attachments read with NO ownership check. Callers (viewer routes) must
+   * authorize first via LessonsService.assertViewerAccess.
+   */
+  public async getAttachmentsForLesson(
+    lessonId: string,
+  ): Promise<LessonAttachment[]> {
+    return this.attachmentsRepository.find({
+      where: { lesson_id: lessonId },
+      order: { created_at: 'ASC' },
+    });
+  }
+
+  /* ===================== Personal notes ===================== */
+
+  /** The caller's private note for a lesson, or null if none saved yet. */
+  public async getNote(
+    userId: string,
+    lessonId: string,
+  ): Promise<LessonNote | null> {
+    return this.notesRepository.findOne({
+      where: { user_id: userId, lesson_id: lessonId },
+    });
+  }
+
+  /** Create-or-update the caller's private note for a lesson. */
+  public async upsertNote(
+    userId: string,
+    lessonId: string,
+    content: string,
+  ): Promise<LessonNote> {
+    const existing = await this.getNote(userId, lessonId);
+    if (existing) {
+      existing.content = content;
+      return this.notesRepository.save(existing);
+    }
+    return this.notesRepository.save(
+      this.notesRepository.create({
+        user_id: userId,
+        lesson_id: lessonId,
+        content,
+      }),
+    );
   }
 
   public async addAttachment(

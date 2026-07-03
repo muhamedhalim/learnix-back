@@ -3,7 +3,7 @@ import './polyfills';
 import { join } from 'node:path';
 
 import { Logger, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
@@ -12,7 +12,7 @@ import helmet from 'helmet';
 
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-// import { CsrfGuard } from './common/guards/csrf.guard';
+import { CsrfGuard } from './common/guards/csrf.guard';
 
 const logger = new Logger('Bootstrap');
 
@@ -134,7 +134,7 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // app.useGlobalGuards(new CsrfGuard(new Reflector()));
+  app.useGlobalGuards(new CsrfGuard(new Reflector()));
 
   app.setGlobalPrefix('api/v1');
 

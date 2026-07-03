@@ -20,17 +20,6 @@ export interface BunnyCreatedVideo {
   libraryId: string;
 }
 
-export interface BunnyTusCredentials {
-  /** TUS endpoint to POST/PATCH the file to. */
-  endpoint: string;
-  libraryId: string;
-  videoId: string;
-  /** sha256(libraryId + apiKey + expire + videoId). Never includes the key. */
-  signature: string;
-  /** Unix seconds when the signature expires. */
-  expire: number;
-}
-
 export interface BunnyVideoMetadata {
   status: BunnyVideoStatus;
   /** Encoding progress 0–100 while processing. */
@@ -56,13 +45,10 @@ interface BunnyVideoResponse {
   thumbnailFileName?: string;
 }
 
-const SIGNATURE_TTL_SECONDS = 60 * 60 * 2; // 2h window for large uploads.
-
 @Injectable()
 export class BunnyStreamService {
   private readonly logger = new Logger(BunnyStreamService.name);
   private readonly apiBase = 'https://video.bunnycdn.com/library';
-  private readonly tusEndpoint = 'https://video.bunnycdn.com/tusupload';
 
   constructor(private readonly config: ConfigService) {}
 
@@ -76,7 +62,14 @@ export class BunnyStreamService {
   }
 
   private get apiKey(): string {
-    return this.config.get<string>('BUNNY_STREAM_API_KEY') ?? '';
+    // Bunny Stream operations authenticate with the library's API key. Accept
+    // either env name so existing deployments (BUNNY_STREAM_API_KEY) and the
+    // current config (BUNNY_API_KEY) both work.
+    return (
+      this.config.get<string>('BUNNY_STREAM_API_KEY') ??
+      this.config.get<string>('BUNNY_API_KEY') ??
+      ''
+    );
   }
 
   /** Pull-zone hostname for HLS playback + posters, e.g. `vz-xxxx.b-cdn.net`. */
@@ -104,8 +97,25 @@ export class BunnyStreamService {
     };
   }
 
+  /** Library "Token Authentication Key" (distinct from the API key). */
+  private get tokenKey(): string {
+    return this.config.get<string>('BUNNY_STREAM_TOKEN_KEY') ?? '';
+  }
+
   public buildEmbedUrl(videoId: string): string {
     return `https://iframe.mediadelivery.net/embed/${this.libraryId}/${videoId}`;
+  }
+
+  public generateSignedEmbedUrl(
+    videoId: string,
+    ttlSeconds = 60 * 60,
+  ): string | null {
+    if (!this.tokenKey) return null;
+    const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const token = createHash('sha256')
+      .update(`${this.tokenKey}${videoId}${expires}`)
+      .digest('hex');
+    return `${this.buildEmbedUrl(videoId)}?token=${token}&expires=${expires}`;
   }
 
   public buildPlaybackUrl(videoId: string): string {
@@ -124,10 +134,6 @@ export class BunnyStreamService {
     return `https://${this.cdnHostname}/${videoId}/${file}`;
   }
 
-  /**
-   * Create a video object in the library. Returns its guid; the actual bytes
-   * are uploaded by the client via TUS using {@link createTusCredentials}.
-   */
   public async createVideo(title: string): Promise<BunnyCreatedVideo> {
     this.assertConfigured();
     const res = await fetch(`${this.apiBase}/${this.libraryId}/videos`, {
@@ -146,19 +152,26 @@ export class BunnyStreamService {
     return { videoId: data.guid, libraryId: this.libraryId };
   }
 
-  public createTusCredentials(videoId: string): BunnyTusCredentials {
+  public async uploadVideo(videoId: string, body: Buffer): Promise<void> {
     this.assertConfigured();
-    const expire = Math.floor(Date.now() / 1000) + SIGNATURE_TTL_SECONDS;
-    const signature = createHash('sha256')
-      .update(`${this.libraryId}${this.apiKey}${expire}${videoId}`)
-      .digest('hex');
-    return {
-      endpoint: this.tusEndpoint,
-      libraryId: this.libraryId,
-      videoId,
-      signature,
-      expire,
-    };
+    const res = await fetch(
+      `${this.apiBase}/${this.libraryId}/videos/${videoId}`,
+      {
+        method: 'PUT',
+        headers: {
+          AccessKey: this.apiKey,
+          accept: 'application/json',
+          'content-type': 'application/octet-stream',
+        },
+        body: new Uint8Array(body),
+      },
+    );
+    if (!res.ok) {
+      this.logger.error(`Bunny uploadVideo failed (${res.status}) ${videoId}`);
+      throw new ServiceUnavailableException(
+        'Failed to upload the video to Bunny Stream.',
+      );
+    }
   }
 
   /** Fetch + normalize the current state of a video from Bunny Stream. */

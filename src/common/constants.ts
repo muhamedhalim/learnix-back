@@ -30,6 +30,11 @@ export const DOCKER = {
 } as const;
 
 export const THROTTLE = {
+  // Global per-IP backstop enforced by the app-wide ThrottlerGuard. Generous on
+  // purpose: one dashboard view fires many API calls, so this exists to blunt
+  // floods/DoS — not to police normal navigation. Sensitive routes tighten it
+  // with per-route @Throttle overrides using the tiers below.
+  GLOBAL: { ttl: 60_000, limit: 300 }, // 300 requests per minute per IP
   DEFAULT: { ttl: 60_000, limit: 5 }, // 5 requests per minute (hardened from 10)
   STRICT: { ttl: 60_000, limit: 3 }, // 3 requests per minute for expensive operations
   AUTH: { ttl: 300_000, limit: 5 }, // 5 auth attempts per 5 minutes (prevents brute force)

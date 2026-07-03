@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -22,11 +23,13 @@ import {
   UpdateLessonDto,
   UpdateVimeoInfoDto,
 } from './dto';
+import { PaymentsService } from '../payments/services/payments.service';
 import {
   BunnyStreamService,
   BunnyVideoMetadata,
 } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
+import { LessonStatus } from './entities/lesson-status.enum';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -67,6 +70,7 @@ export interface LessonWithDetails {
   is_group: boolean;
   available_for_days: number;
   students_count: number;
+  status: LessonStatus;
   created_at: Date;
   updated_at: Date;
 }
@@ -90,6 +94,7 @@ export class LessonsService {
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
     private readonly bunnyStream: BunnyStreamService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   /**
@@ -404,6 +409,13 @@ export class LessonsService {
     if (dto.available_for_days !== undefined) {
       updates.available_for_days = dto.available_for_days;
     }
+    if (dto.status !== undefined) {
+      // Publishing requires the Bunny video (if any) to be fully encoded.
+      if (dto.status === LessonStatus.PUBLISHED) {
+        this.assertVideoReadyForPublish(lesson);
+      }
+      updates.status = dto.status;
+    }
     Object.assign(lesson, updates);
   }
 
@@ -711,20 +723,19 @@ export class LessonsService {
   }
 
   /**
-   * Provision a Bunny Stream video for a lesson and return short-lived TUS
-   * credentials for the client to upload directly to Bunny. If the lesson
-   * already has a Bunny video, the previous asset is deleted first (replace),
-   * so no orphaned videos accumulate.
+   * Upload a lesson video through the backend to Bunny Stream (the browser
+   * never talks to Bunny directly). The server creates the Bunny video, streams
+   * the bytes to it, and stores only Bunny metadata. If the lesson already has
+   * a video, the previous asset is replaced so no orphans accumulate. On upload
+   * failure the empty Bunny video is cleaned up and the lesson is left
+   * video-less so the client can retry.
    */
-  public async createBunnyUpload(
+  public async uploadBunnyVideo(
     lessonId: string,
     teacherId: string,
+    file: { buffer: Buffer; originalname: string; size: number },
     title?: string,
-  ): Promise<{
-    videoId: string;
-    libraryId: string;
-    tus: ReturnType<BunnyStreamService['createTusCredentials']>;
-  }> {
+  ): Promise<{ videoId: string; libraryId: string; status: string }> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
 
     // Replace: remove the previous Bunny video so we never leak assets.
@@ -733,26 +744,41 @@ export class LessonsService {
     }
 
     const { videoId, libraryId } = await this.bunnyStream.createVideo(
-      title ?? lesson.title,
+      title ?? file.originalname ?? lesson.title,
     );
 
+    // Persist the pending video before the (slow) byte transfer so a crash
+    // mid-upload still leaves a tracked, cleanable reference.
     lesson.video_platform = 'bunny';
     lesson.bunny_video_id = videoId;
     lesson.bunny_library_id = libraryId;
-    lesson.bunny_video_status = 'created';
+    lesson.bunny_video_status = 'uploading';
     lesson.video_url = this.bunnyStream.buildEmbedUrl(videoId);
-    // Reset stale metadata from any replaced video.
     lesson.video_thumbnail = null;
     lesson.video_width = null;
     lesson.video_height = null;
-    lesson.video_size_bytes = null;
+    lesson.video_size_bytes = file.size;
     await this.lessonsRepository.save(lesson);
 
-    return {
-      videoId,
-      libraryId,
-      tus: this.bunnyStream.createTusCredentials(videoId),
-    };
+    try {
+      await this.bunnyStream.uploadVideo(videoId, file.buffer);
+    } catch (err) {
+      // Roll back to a clean, video-less lesson so the teacher can retry.
+      await this.bunnyStream.deleteVideo(videoId);
+      lesson.bunny_video_id = null;
+      lesson.bunny_library_id = null;
+      lesson.bunny_video_status = null;
+      lesson.video_url = null;
+      lesson.video_size_bytes = null;
+      await this.lessonsRepository.save(lesson);
+      throw err;
+    }
+
+    // Bytes delivered — Bunny now encodes. Status polling takes over.
+    lesson.bunny_video_status = 'processing';
+    await this.lessonsRepository.save(lesson);
+
+    return { videoId, libraryId, status: 'processing' };
   }
 
   /**
@@ -782,23 +808,6 @@ export class LessonsService {
     return { ...meta, lessonId: lesson.id };
   }
 
-  /**
-   * Mark the upload as transferred (client finished the TUS PATCH). We flip the
-   * stored status to 'processing' so the UI reflects Bunny's transcoding stage
-   * immediately, then polling takes over.
-   */
-  public async markBunnyUploaded(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<{ status: string }> {
-    const lesson = await this.findOwnedLesson(lessonId, teacherId);
-    if (lesson.bunny_video_status === 'created') {
-      lesson.bunny_video_status = 'processing';
-      await this.lessonsRepository.save(lesson);
-    }
-    return { status: lesson.bunny_video_status ?? 'processing' };
-  }
-
   /** Remove the lesson's Bunny video (from Bunny + clear stored metadata). */
   public async removeBunnyVideo(
     lessonId: string,
@@ -817,6 +826,68 @@ export class LessonsService {
     lesson.video_height = null;
     lesson.video_size_bytes = null;
     await this.lessonsRepository.save(lesson);
+  }
+
+  /**
+   * Single viewer-access policy for protected lesson content (video playback,
+   * attachments, notes): the owning teacher, any admin, or a student with an
+   * active lesson purchase / package enrolment. Returns the lesson so callers
+   * avoid a second fetch.
+   */
+  public async assertViewerAccess(
+    lessonId: string,
+    userId: string,
+    role: string,
+  ): Promise<Lesson> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId },
+    });
+    if (!lesson) {
+      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+    }
+
+    const isOwner = lesson.teacher_id === userId;
+    const isAdmin = role === UserRole.ADMIN;
+    const hasAccess =
+      isOwner ||
+      isAdmin ||
+      (await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId));
+
+    if (!hasAccess) {
+      throw new ForbiddenException(
+        'You must enrol in this course to access this lesson.',
+      );
+    }
+    return lesson;
+  }
+
+  /**
+   * Issue a short-lived, token-signed playback URL for a lesson's video.
+   * Access is gated by {@link assertViewerAccess}; the Bunny Stream API/token
+   * keys never leave the server — only the signed URL does.
+   */
+  public async getSignedPlaybackUrl(
+    lessonId: string,
+    userId: string,
+    role: string,
+    ttlSeconds = 60 * 60,
+  ): Promise<{ signedUrl: string; expiresIn: number }> {
+    const lesson = await this.assertViewerAccess(lessonId, userId, role);
+    if (!lesson.bunny_video_id || lesson.bunny_video_status !== 'ready') {
+      throw new BadRequestException('This lesson has no ready video.');
+    }
+
+    const signedUrl = this.bunnyStream.generateSignedEmbedUrl(
+      lesson.bunny_video_id,
+      ttlSeconds,
+    );
+    if (!signedUrl) {
+      throw new ServiceUnavailableException(
+        'Secure video playback is not configured on the server.',
+      );
+    }
+
+    return { signedUrl, expiresIn: ttlSeconds };
   }
 
   /**
@@ -874,6 +945,7 @@ export class LessonsService {
       is_group: lesson.is_group,
       available_for_days: lesson.available_for_days,
       students_count: lesson.students_count,
+      status: lesson.status,
       created_at: lesson.created_at,
       updated_at: lesson.updated_at,
     };

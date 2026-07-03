@@ -1,12 +1,16 @@
 import {
+  Body,
   Controller,
   Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -14,18 +18,109 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { LessonFilterDto } from '../dto';
+import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { LessonFilterDto, UpsertNoteDto } from '../dto';
+import { LessonContentService } from '../lesson-content.service';
 import { LessonsService } from '../lessons.service';
 
 @ApiTags('Lessons')
 @Controller('lessons')
 export class LessonsController {
-  constructor(private readonly lessonsService: LessonsService) {}
+  constructor(
+    private readonly lessonsService: LessonsService,
+    private readonly lessonContentService: LessonContentService,
+  ) {}
 
   /**
-   * Get all lessons (public listing)
-   * Supports search, filtering, sorting, and pagination
+   * Attachments for a lesson, gated by the same viewer policy as playback
+   * (owning teacher / admin / enrolled student).
    */
+  @Get(':id/attachments')
+  @UseGuards(HybridAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'List lesson attachments (viewer)',
+    description:
+      'Returns downloadable resources for a lesson. Restricted to the owning teacher, admins, or enrolled students.',
+  })
+  public async getAttachments(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
+    return await this.lessonContentService.getAttachmentsForLesson(id);
+  }
+
+  /**
+   * The caller's private note for a lesson (null when none saved yet).
+   */
+  @Get(':id/note')
+  @UseGuards(HybridAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get my note for a lesson',
+    description:
+      "Returns the caller's private study note for this lesson, or null.",
+  })
+  public async getNote(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
+    const note = await this.lessonContentService.getNote(user.userId, id);
+    return { data: note };
+  }
+
+  /**
+   * Create or update the caller's private note for a lesson.
+   */
+  @Put(':id/note')
+  @UseGuards(HybridAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Save my note for a lesson',
+    description: "Upserts the caller's private study note for this lesson.",
+  })
+  public async saveNote(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertNoteDto,
+  ): Promise<unknown> {
+    await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
+    const note = await this.lessonContentService.upsertNote(
+      user.userId,
+      id,
+      dto.content,
+    );
+    return { data: note };
+  }
+
+  @Get(':id/signed-url')
+  @UseGuards(HybridAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Get a signed playback URL for a lesson video',
+    description:
+      'Returns a short-lived Bunny Stream token-signed URL. Restricted to the owning teacher, admins, or enrolled students.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Signed playback URL' })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Not enrolled in this course',
+  })
+  public async getSignedUrl(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ signedUrl: string; expiresIn: number }> {
+    return await this.lessonsService.getSignedPlaybackUrl(
+      id,
+      user.userId,
+      user.role,
+    );
+  }
+
   @Get()
   @ApiOperation({
     summary: 'Get all lessons',

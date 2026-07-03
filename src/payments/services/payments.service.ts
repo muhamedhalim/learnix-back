@@ -706,6 +706,39 @@ export class PaymentsService {
   }
 
   /**
+   * Whether a student may access a lesson through a purchase — either an active
+   * individual lesson purchase (7-day window) or a package (course) enrolment
+   * that contains the lesson (package purchases are permanent). Used to gate
+   * signed video playback. Does not cover teacher-owner / admin access, which
+   * the caller checks separately.
+   */
+  public async hasLessonPlaybackAccess(
+    userId: string,
+    lessonId: string,
+  ): Promise<boolean> {
+    const lessonPurchase = await this.lessonPurchasesRepository.findOne({
+      where: {
+        student_id: userId,
+        lesson_id: lessonId,
+        access_expires_at: MoreThan(new Date()),
+      },
+    });
+    if (lessonPurchase) return true;
+
+    // Enrolled via any package whose curriculum includes this lesson.
+    const packageEnrolments = await this.packagePurchasesRepository
+      .createQueryBuilder('purchase')
+      .innerJoin('purchase.package', 'package')
+      .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', {
+        lessonId,
+      })
+      .where('purchase.student_id = :userId', { userId })
+      .getCount();
+
+    return packageEnrolments > 0;
+  }
+
+  /**
    * Get student's purchase history
    */
   public async getMyPurchases(

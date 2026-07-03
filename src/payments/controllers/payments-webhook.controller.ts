@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { PaymobWebhookDto } from '../dto/paymob-webhook.dto';
@@ -21,6 +22,9 @@ interface WebhookResponse {
 
 @ApiTags('Payments - Webhook')
 @Controller('payments/webhook')
+// Paymob calls this from its own servers; legitimacy is verified via HMAC, and
+// rate-limiting it could silently drop payment confirmations.
+@SkipThrottle()
 export class PaymentsWebhookController {
   private readonly logger = new Logger(PaymentsWebhookController.name);
 
