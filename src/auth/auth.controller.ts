@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
@@ -37,15 +28,10 @@ export class AuthController {
   @Post('login')
   @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async login(
-    @Body() loginDto: LoginDto,
-    @Req() request: Request,
-  ): Promise<unknown> {
+  public async login(@Body() loginDto: LoginDto, @Req() request: Request): Promise<unknown> {
     const deviceInfo = request.headers['user-agent'] ?? null;
     const ipAddress =
-      (request.headers['x-forwarded-for'] as string | undefined)?.split(
-        ',',
-      )[0] ??
+      (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0] ??
       request.ip ??
       null;
 
@@ -53,10 +39,13 @@ export class AuthController {
   }
 
   @Post('refresh')
+  // Tighten from the 300/min global backstop to limit refresh-token brute-force
+  // / abuse. Uses the 5/min DEFAULT tier (not the stricter 5-per-5-min AUTH
+  // tier) because refresh legitimately fires on every access-token expiry and
+  // can burst across tabs/devices — 5/min still cuts the attack surface ~60x.
+  @Throttle({ default: THROTTLE.DEFAULT })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async refresh(
-    @Body() refreshTokenDto: RefreshTokenDto,
-  ): Promise<unknown> {
+  public async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<unknown> {
     return await this.authService.refresh(refreshTokenDto.refresh_token);
   }
 

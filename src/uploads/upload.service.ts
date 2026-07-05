@@ -1,7 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import * as fs from 'node:fs';
-import * as fsPromises from 'node:fs/promises';
-import { join } from 'node:path';
 
 import {
   BadRequestException,
@@ -13,13 +10,19 @@ import { ConfigService } from '@nestjs/config';
 
 import sharp from 'sharp';
 
-import { FILE_LIMITS, UPLOAD_FOLDERS, UploadFolder } from '../common/constants';
+import { FILE_LIMITS, UploadFolder } from '../common/constants';
+import { StorageService } from '../storage/storage.service';
 
+/**
+ * Validates, optimizes (Sharp) and persists non-video uploads. Persistence is
+ * delegated to the centralized {@link StorageService} (Cloudflare R2 in
+ * production) — this service owns validation + image processing only, and never
+ * touches the local filesystem. Lesson videos are handled separately by the
+ * Bunny Stream pipeline and never pass through here.
+ */
 @Injectable()
 export class UploadService {
   private readonly logger = new Logger(UploadService.name);
-  private readonly uploadDir: string;
-  private readonly backendUrl: string;
 
   // Image optimization settings
   private readonly maxImageWidth = 1920;
@@ -28,57 +31,16 @@ export class UploadService {
   private readonly minImageHeight = 300;
   private readonly maxImageDimension = 8000;
 
-  constructor(private readonly configService: ConfigService) {
-    // Read UPLOAD_DIR from environment variable
-    this.uploadDir =
-      this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
+  /** Optional hard cap on resource size from env (falls back to FILE_LIMITS). */
+  private readonly resourceMaxBytes: number;
 
-    // Read BACKEND_URL from environment variable
-    const url = this.configService.get<string>('BACKEND_URL') ?? '';
-    this.backendUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-
-    // Validate critical environment variables in production
-    const nodeEnv = this.configService.get<string>('NODE_ENV');
-    if (nodeEnv === 'production') {
-      const uploadDir = this.configService.get<string>('UPLOAD_DIR');
-      if (uploadDir === undefined || uploadDir === '') {
-        throw new Error(
-          'CRITICAL: UPLOAD_DIR environment variable is not set in production',
-        );
-      }
-      const backendUrl = this.configService.get<string>('BACKEND_URL');
-      if (backendUrl === undefined || backendUrl === '') {
-        throw new Error(
-          'CRITICAL: BACKEND_URL environment variable is not set in production',
-        );
-      }
-      // Note: Returning absolute URLs couples service to deployment environment
-      // Consider returning relative URLs (/uploads/folder/file.jpg) for better portability
-    }
-
-    this.logger.log(`Upload directory configured: ${this.uploadDir}`);
-    this.logger.log(`Backend URL configured: ${this.backendUrl}`);
-
-    void this.ensureUploadDir();
-  }
-
-  private async ensureUploadDir(): Promise<void> {
-    if (!Reflect.apply(fs.existsSync, fs, [this.uploadDir])) {
-      await Reflect.apply(fsPromises.mkdir, fsPromises, [
-        this.uploadDir,
-        { recursive: true },
-      ]);
-    }
-
-    for (const dir of UPLOAD_FOLDERS) {
-      const path = join(this.uploadDir, dir);
-      if (!Reflect.apply(fs.existsSync, fs, [path])) {
-        await Reflect.apply(fsPromises.mkdir, fsPromises, [
-          path,
-          { recursive: true },
-        ]);
-      }
-    }
+  constructor(
+    private readonly storageService: StorageService,
+    private readonly configService: ConfigService,
+  ) {
+    const envMax = Number.parseInt(this.configService.get<string>('UPLOAD_MAX_BYTES') ?? '', 10);
+    this.resourceMaxBytes =
+      Number.isFinite(envMax) && envMax > 0 ? envMax : FILE_LIMITS.RESOURCE_MAX_SIZE;
   }
 
   public async uploadFile(
@@ -90,34 +52,22 @@ export class UploadService {
       `Upload started - Original filename: ${file.originalname}, Size: ${String(file.size)} bytes, Folder: ${folder}`,
     );
 
-    // Basic validations
     this.validateFileSize(file, folder);
     this.validateContentType(file);
 
-    // Handle resource folder uploads (non-image files)
+    // Non-image resources (PDF/doc/zip/…) skip Sharp and store as-is.
     if (folder === 'resources') {
-      const resourceResult = await this.handleResourceUpload(
-        file,
-        folder,
-        uploadStartTime,
-      );
+      const resourceResult = await this.handleResourceUpload(file, folder);
       if (resourceResult !== null) {
         return resourceResult;
       }
     }
 
-    // Handle image uploads (thumbnails/profiles or resources with images)
     return await this.handleImageUpload(file, folder, uploadStartTime);
   }
 
-  private validateFileSize(
-    file: Express.Multer.File,
-    folder: UploadFolder,
-  ): void {
-    const maxSize =
-      folder === 'resources'
-        ? FILE_LIMITS.RESOURCE_MAX_SIZE // 500MB for resources
-        : FILE_LIMITS.THUMBNAIL_MAX_SIZE; // 5MB for thumbnails/profiles
+  private validateFileSize(file: Express.Multer.File, folder: UploadFolder): void {
+    const maxSize = folder === 'resources' ? this.resourceMaxBytes : FILE_LIMITS.THUMBNAIL_MAX_SIZE; // 5MB for thumbnails/profiles
 
     if (file.size > maxSize) {
       this.logger.warn(
@@ -136,14 +86,8 @@ export class UploadService {
   }
 
   private validatePathTraversal(filename: string): void {
-    if (
-      filename.includes('..') ||
-      filename.includes('/') ||
-      filename.includes('\\')
-    ) {
-      this.logger.error(
-        `Upload rejected - Path traversal attempt: ${filename}`,
-      );
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      this.logger.error(`Upload rejected - Path traversal attempt: ${filename}`);
       throw new BadRequestException('Invalid filename');
     }
   }
@@ -151,7 +95,6 @@ export class UploadService {
   private async handleResourceUpload(
     file: Express.Multer.File,
     folder: string,
-    uploadStartTime: number,
   ): Promise<{ url: string; filename: string } | null> {
     this.validatePathTraversal(file.originalname);
 
@@ -199,35 +142,26 @@ export class UploadService {
       fileExtension === '' ||
       !allowedResourceExtensions.includes(fileExtension)
     ) {
-      this.logger.warn(
-        `Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`,
-      );
+      this.logger.warn(`Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`);
       throw new BadRequestException('Invalid file extension for resources.');
     }
 
-    // For non-image resources, save directly without Sharp processing
-    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(
-      fileExtension,
-    );
+    // Images fall through to Sharp processing.
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(fileExtension);
     if (isImage) {
-      return null; // Let handleImageUpload process it
+      return null;
     }
 
     const filename = `${randomUUID()}.${fileExtension}`;
-    const filepath = join(this.uploadDir, folder, filename);
-    await Reflect.apply(fsPromises.writeFile, fsPromises, [
-      filepath,
-      file.buffer,
-    ]);
+    const stored = await this.storageService.upload({
+      buffer: file.buffer,
+      path: `${folder}/${filename}`,
+      contentType: file.mimetype,
+      visibility: 'public',
+    });
 
-    const url = `${this.backendUrl}/api/v1/uploads/${folder}/${filename}`;
-    const uploadDuration = Date.now() - uploadStartTime;
-
-    this.logger.log(
-      `Upload successful (non-image) - URL: ${url}, Duration: ${String(uploadDuration)}ms`,
-    );
-
-    return { url, filename };
+    this.logger.log(`Upload successful (non-image) - key: ${stored.path}`);
+    return { url: stored.url, filename };
   }
 
   private async handleImageUpload(
@@ -235,9 +169,7 @@ export class UploadService {
     folder: string,
     uploadStartTime: number,
   ): Promise<{ url: string; filename: string }> {
-    // Validate image MIME type
-    const allowedMimeTypes =
-      FILE_LIMITS.ALLOWED_IMAGE_TYPES as readonly string[];
+    const allowedMimeTypes = FILE_LIMITS.ALLOWED_IMAGE_TYPES as readonly string[];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       this.logger.warn(`Upload rejected - Invalid MIME type: ${file.mimetype}`);
       throw new BadRequestException(
@@ -245,10 +177,8 @@ export class UploadService {
       );
     }
 
-    // Validate path traversal
     this.validatePathTraversal(file.originalname);
 
-    // Validate file extension
     const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
     const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
 
@@ -257,9 +187,7 @@ export class UploadService {
       fileExtension === '' ||
       !allowedExtensions.includes(fileExtension)
     ) {
-      this.logger.warn(
-        `Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`,
-      );
+      this.logger.warn(`Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`);
       throw new BadRequestException(
         'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
       );
@@ -279,7 +207,6 @@ export class UploadService {
   ): Promise<{ url: string; filename: string }> {
     const metadata = await sharp(file.buffer).metadata();
 
-    // Validate dimensions
     if (metadata.width === 0 || metadata.height === 0) {
       this.logger.error('Upload failed - Unable to read image dimensions');
       throw new BadRequestException('Invalid image file');
@@ -287,11 +214,6 @@ export class UploadService {
 
     this.validateImageDimensions(metadata.width, metadata.height);
 
-    this.logger.log(
-      `Image validation passed - Dimensions: ${String(metadata.width)}x${String(metadata.height)}, Format: ${metadata.format}`,
-    );
-
-    // Optimize image
     const optimizedBuffer = await sharp(file.buffer)
       .resize({
         width: this.maxImageWidth,
@@ -299,53 +221,34 @@ export class UploadService {
         fit: 'inside',
         withoutEnlargement: true,
       })
-      .jpeg({
-        quality: this.imageQuality,
-        progressive: true,
-      })
+      .jpeg({ quality: this.imageQuality, progressive: true })
       .toBuffer();
 
-    const compressionRatio = (
-      ((file.size - optimizedBuffer.length) / file.size) *
-      100
-    ).toFixed(2);
-
-    this.logger.log(
-      `Image optimized - Original: ${String(file.size)} bytes, Optimized: ${String(optimizedBuffer.length)} bytes, Saved: ${compressionRatio}%`,
-    );
-
-    // Save optimized image
     const filename = `${randomUUID()}.jpg`;
-    const filepath = join(this.uploadDir, folder, filename);
-    await Reflect.apply(fsPromises.writeFile, fsPromises, [
-      filepath,
-      optimizedBuffer,
-    ]);
-
-    const url = `${this.backendUrl}/api/v1/uploads/${folder}/${filename}`;
-    const uploadDuration = Date.now() - uploadStartTime;
+    const stored = await this.storageService.upload({
+      buffer: optimizedBuffer,
+      path: `${folder}/${filename}`,
+      contentType: 'image/jpeg',
+      visibility: 'public',
+    });
 
     this.logger.log(
-      `Upload successful - URL: ${url}, Duration: ${String(uploadDuration)}ms`,
+      `Upload successful - key: ${stored.path}, Duration: ${String(Date.now() - uploadStartTime)}ms`,
     );
 
-    return { url, filename };
+    return { url: stored.url, filename };
   }
 
   private validateImageDimensions(width: number, height: number): void {
     if (width < this.minImageWidth || height < this.minImageHeight) {
-      this.logger.warn(
-        `Upload rejected - Image too small: ${String(width)}x${String(height)} (min: ${String(this.minImageWidth)}x${String(this.minImageHeight)})`,
-      );
+      this.logger.warn(`Upload rejected - Image too small: ${String(width)}x${String(height)}`);
       throw new BadRequestException(
         `Image dimensions too small. Minimum size: ${String(this.minImageWidth)}x${String(this.minImageHeight)}px`,
       );
     }
 
     if (width > this.maxImageDimension || height > this.maxImageDimension) {
-      this.logger.warn(
-        `Upload rejected - Image too large: ${String(width)}x${String(height)} (max: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)})`,
-      );
+      this.logger.warn(`Upload rejected - Image too large: ${String(width)}x${String(height)}`);
       throw new BadRequestException(
         `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
       );
@@ -369,8 +272,8 @@ export class UploadService {
   }
 
   /**
-   * Upload a profile picture with automatic thumbnail generation
-   * Returns URLs for both the original (max 1920px) and thumbnail (150x150)
+   * Upload a profile picture with automatic thumbnail generation.
+   * Returns public URLs for both the optimized original and the 150x150 thumb.
    */
   public async uploadProfilePicture(file: Express.Multer.File): Promise<{
     url: string;
@@ -379,94 +282,69 @@ export class UploadService {
     thumbnailFilename: string;
   }> {
     const uploadStartTime = Date.now();
-    this.logger.log(
-      `Profile picture upload started - Original filename: ${file.originalname}, Size: ${String(file.size)} bytes`,
-    );
+    this.logger.log(`Profile picture upload started - Size: ${String(file.size)} bytes`);
 
-    // Basic and dimension validations
     await this.validateProfilePicture(file);
 
     try {
-      // Generate unique filename base
       const filenameBase = randomUUID();
 
-      // Process main image (max 1920px width)
-      const mainImageBuffer = await sharp(file.buffer)
-        .resize({
-          width: this.maxImageWidth,
-          height: undefined,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .jpeg({
-          quality: this.imageQuality,
-          progressive: true,
-        })
-        .toBuffer();
+      const [mainImageBuffer, thumbnailBuffer] = await Promise.all([
+        sharp(file.buffer)
+          .resize({
+            width: this.maxImageWidth,
+            height: undefined,
+            fit: 'inside',
+            withoutEnlargement: true,
+          })
+          .jpeg({ quality: this.imageQuality, progressive: true })
+          .toBuffer(),
+        sharp(file.buffer)
+          .resize({ width: 150, height: 150, fit: 'cover', position: 'centre' })
+          .jpeg({ quality: 85, progressive: true })
+          .toBuffer(),
+      ]);
 
-      // Process thumbnail (150x150, center crop)
-      const thumbnailBuffer = await sharp(file.buffer)
-        .resize({
-          width: 150,
-          height: 150,
-          fit: 'cover',
-          position: 'centre',
-        })
-        .jpeg({
-          quality: 85,
-          progressive: true,
-        })
-        .toBuffer();
-
-      // Save main image
       const filename = `${filenameBase}.jpg`;
-      const filepath = join(this.uploadDir, 'profiles', filename);
-      await Reflect.apply(fsPromises.writeFile, fsPromises, [
-        filepath,
-        mainImageBuffer,
-      ]);
-
-      // Save thumbnail
       const thumbnailFilename = `${filenameBase}_thumb.jpg`;
-      const thumbnailPath = join(this.uploadDir, 'profiles', thumbnailFilename);
-      await Reflect.apply(fsPromises.writeFile, fsPromises, [
-        thumbnailPath,
-        thumbnailBuffer,
+
+      const [main, thumb] = await Promise.all([
+        this.storageService.upload({
+          buffer: mainImageBuffer,
+          path: `profiles/${filename}`,
+          contentType: 'image/jpeg',
+          visibility: 'public',
+        }),
+        this.storageService.upload({
+          buffer: thumbnailBuffer,
+          path: `profiles/${thumbnailFilename}`,
+          contentType: 'image/jpeg',
+          visibility: 'public',
+        }),
       ]);
 
-      const processingTime = Date.now() - uploadStartTime;
       this.logger.log(
-        `Profile picture upload completed in ${String(processingTime)}ms - Filename: ${filename}`,
+        `Profile picture uploaded in ${String(Date.now() - uploadStartTime)}ms - ${filename}`,
       );
 
       return {
-        url: `/uploads/profiles/${filename}`,
-        thumbnailUrl: `/uploads/profiles/${thumbnailFilename}`,
+        url: main.url,
+        thumbnailUrl: thumb.url,
         filename,
         thumbnailFilename,
       };
     } catch (error) {
       this.logger.error(`Profile picture processing failed: ${String(error)}`);
-      throw new InternalServerErrorException(
-        'Failed to process profile picture',
-      );
+      throw new InternalServerErrorException('Failed to process profile picture');
     }
   }
 
-  /**
-   * Validates profile picture file and dimensions
-   */
-  private async validateProfilePicture(
-    file: Express.Multer.File,
-  ): Promise<void> {
-    // Basic validations
+  private async validateProfilePicture(file: Express.Multer.File): Promise<void> {
     this.validateFileSize(file, 'profiles');
     this.validateContentType(file);
     this.validatePathTraversal(file.originalname);
 
-    // Validate image MIME type
-    const allowedMimeTypes =
-      FILE_LIMITS.ALLOWED_IMAGE_TYPES as readonly string[];
+    const allowedMimeTypes = FILE_LIMITS.ALLOWED_IMAGE_TYPES as readonly string[];
     if (!allowedMimeTypes.includes(file.mimetype)) {
       this.logger.warn(`Upload rejected - Invalid MIME type: ${file.mimetype}`);
       throw new BadRequestException(
@@ -474,7 +352,6 @@ export class UploadService {
       );
     }
 
-    // Validate file extension
     const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
     const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
 
@@ -492,11 +369,8 @@ export class UploadService {
       const metadata = await sharp(file.buffer).metadata();
       const { width, height } = metadata;
 
-      // Validate dimensions
       if (width < 150 || height < 150) {
-        throw new BadRequestException(
-          'Profile picture must be at least 150x150 pixels',
-        );
+        throw new BadRequestException('Profile picture must be at least 150x150 pixels');
       }
 
       if (width > this.maxImageDimension || height > this.maxImageDimension) {
@@ -512,10 +386,12 @@ export class UploadService {
     }
   }
 
+  /**
+   * Delete a previously uploaded asset. `folder`/`filename` map to the storage
+   * object key `${folder}/${filename}`.
+   */
   public async deleteFile(folder: string, filename: string): Promise<void> {
-    this.logger.log(
-      `Delete file requested - Folder: ${folder}, File: ${filename}`,
-    );
+    this.logger.log(`Delete file requested - ${folder}/${filename}`);
 
     if (
       folder.includes('..') ||
@@ -523,35 +399,11 @@ export class UploadService {
       filename.includes('/') ||
       filename.includes('\\')
     ) {
-      this.logger.error(
-        `Delete rejected - Path traversal attempt: ${folder}/${filename}`,
-      );
+      this.logger.error(`Delete rejected - Path traversal attempt: ${folder}/${filename}`);
       throw new BadRequestException('Invalid file path');
     }
 
-    const filepath = join(this.uploadDir, folder, filename);
-
-    try {
-      await Reflect.apply(fsPromises.access, fsPromises, [filepath]);
-      await Reflect.apply(fsPromises.unlink, fsPromises, [filepath]);
-      this.logger.log(`File deleted successfully - Path: ${filepath}`);
-    } catch (error: unknown) {
-      let errorCode: string | undefined;
-      if (error !== null && typeof error === 'object' && 'code' in error) {
-        const errorWithCode = error as { code: unknown };
-        if (typeof errorWithCode.code === 'string') {
-          errorCode = errorWithCode.code;
-        }
-      }
-
-      if (errorCode === 'ENOENT') {
-        this.logger.warn(`File not found for deletion: ${filepath}`);
-        return;
-      }
-      this.logger.error(
-        `Failed to delete file: ${filepath} - Error code: ${String(errorCode)}`,
-      );
-      throw new InternalServerErrorException('Failed to delete file');
-    }
+    await this.storageService.delete(`${folder}/${filename}`);
+    this.logger.log(`File deleted - ${folder}/${filename}`);
   }
 }

@@ -18,6 +18,16 @@ import { AuthService } from './auth.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
 
+// bcryptjs 3.x ships an ESM-style export map; under ts-jest's __importStar
+// interop the namespace object is non-configurable, so `jest.spyOn(bcrypt, …)`
+// throws "Cannot redefine property". Mock the module explicitly instead — the
+// service only uses hash + compare.
+jest.mock('bcryptjs', () => ({
+  hash: jest.fn(),
+  compare: jest.fn(),
+  genSalt: jest.fn(),
+}));
+
 interface RegisterResponse {
   message: string;
   userId: string;
@@ -147,7 +157,7 @@ describe('AuthService', () => {
 
       userRepository.create.mockReturnValue(newUser);
       userRepository.save.mockResolvedValue(newUser);
-      jest.spyOn(bcrypt, 'hash').mockResolvedValue('hashed_password' as never);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
 
       const result = await service.register(registerDto);
 
@@ -164,9 +174,7 @@ describe('AuthService', () => {
       userRepository.findOne.mockResolvedValue(mockUser as User);
 
       await expect(service.register(registerDto)).rejects.toThrow(
-        new ConflictException(
-          'Registration failed. Please try different credentials.',
-        ),
+        new ConflictException('Registration failed. Please try different credentials.'),
       );
     });
   });
@@ -184,9 +192,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(mockUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       jwtService.sign.mockReturnValue('access_token');
 
       const result = await service.login(loginDto);
@@ -206,7 +216,9 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(null),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
 
       await expect(service.login(loginDto)).rejects.toThrow(
@@ -221,9 +233,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(mockUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(service.login(loginDto)).rejects.toThrow(
         new UnauthorizedException('Invalid credentials'),
@@ -242,7 +256,9 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(firebaseUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
 
       const error = await service.login(loginDto).catch((error_: unknown) => error_);
@@ -265,9 +281,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(pendingUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.login(loginDto);
 
@@ -289,9 +307,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(rejectedUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.login(loginDto)).rejects.toThrow(
         new UnauthorizedException('Account rejected: Invalid documents'),
@@ -316,10 +336,12 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
-      jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hashed_token' as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_token');
       jwtService.sign.mockReturnValue('new_access_token');
 
       const result = await service.refresh(refreshToken);
@@ -341,9 +363,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(service.refresh('invalid_token')).rejects.toThrow(
         new UnauthorizedException('Invalid refresh token'),
@@ -351,13 +375,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for expired refresh token', async () => {
-      const expiredUser: User = Object.assign(
-        new User(),
-        userWithRefreshToken,
-        {
-          refresh_token_expires_at: new Date(Date.now() - 1000),
-        },
-      );
+      const expiredUser: User = Object.assign(new User(), userWithRefreshToken, {
+        refresh_token_expires_at: new Date(Date.now() - 1000),
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -366,9 +386,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(expiredUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.refresh(refreshToken)).rejects.toThrow(
         new UnauthorizedException('Refresh token expired'),
@@ -376,13 +398,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for inactive user', async () => {
-      const inactiveUser: User = Object.assign(
-        new User(),
-        userWithRefreshToken,
-        {
-          is_active: false,
-        },
-      );
+      const inactiveUser: User = Object.assign(new User(), userWithRefreshToken, {
+        is_active: false,
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -391,9 +409,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(inactiveUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.refresh(refreshToken)).rejects.toThrow(
         new UnauthorizedException('User account is inactive'),
@@ -408,10 +428,12 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(userWithRefreshToken),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
-      jest.spyOn(bcrypt, 'hash').mockResolvedValue('new_hashed_token' as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_token');
       jwtService.sign.mockReturnValue('new_access_token');
 
       const result = await service.refresh(refreshToken);
@@ -430,13 +452,9 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException for pending user on refresh', async () => {
-      const pendingUser: User = Object.assign(
-        new User(),
-        userWithRefreshToken,
-        {
-          status: UserStatus.PENDING,
-        },
-      );
+      const pendingUser: User = Object.assign(new User(), userWithRefreshToken, {
+        status: UserStatus.PENDING,
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -445,26 +463,22 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(pendingUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.refresh(refreshToken)).rejects.toThrow(
-        new UnauthorizedException(
-          'Your account is under review. Please wait for admin approval.',
-        ),
+        new UnauthorizedException('Your account is under review. Please wait for admin approval.'),
       );
     });
 
     it('should throw UnauthorizedException for rejected user on refresh', async () => {
-      const rejectedUser: User = Object.assign(
-        new User(),
-        userWithRefreshToken,
-        {
-          status: UserStatus.REJECTED,
-          rejection_reason: 'Invalid documents',
-        },
-      );
+      const rejectedUser: User = Object.assign(new User(), userWithRefreshToken, {
+        status: UserStatus.REJECTED,
+        rejection_reason: 'Invalid documents',
+      });
 
       const queryBuilder = {
         addSelect: jest.fn().mockReturnThis(),
@@ -473,9 +487,11 @@ describe('AuthService', () => {
         getOne: jest.fn().mockResolvedValue(rejectedUser),
       };
 
-      jest.spyOn(userRepository, 'createQueryBuilder').mockImplementation()
+      jest
+        .spyOn(userRepository, 'createQueryBuilder')
+        .mockImplementation()
         .mockReturnValue(queryBuilder);
-      jest.spyOn(bcrypt, 'compare').mockResolvedValue(true as never);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       await expect(service.refresh(refreshToken)).rejects.toThrow(
         new UnauthorizedException('Account rejected: Invalid documents'),

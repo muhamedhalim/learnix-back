@@ -134,13 +134,10 @@ export class ReportsService {
   /**
    * Get student progress report
    */
-  public async getStudentProgressReport(
-    studentId: string,
-  ): Promise<StudentProgressReportDto> {
+  public async getStudentProgressReport(studentId: string): Promise<StudentProgressReportDto> {
     const cacheKey = `report:student:${studentId}`;
 
-    const cached =
-      await this.cacheManager.get<StudentProgressReportDto>(cacheKey);
+    const cached = await this.cacheManager.get<StudentProgressReportDto>(cacheKey);
     if (cached) {
       this.logger.debug(`Cache hit for student report: ${studentId}`);
       return cached;
@@ -179,10 +176,7 @@ export class ReportsService {
   /**
    * Get platform-wide report with date range filtering (Admin only)
    */
-  public async getPlatformReport(
-    from?: Date,
-    to?: Date,
-  ): Promise<PlatformReportDto> {
+  public async getPlatformReport(from?: Date, to?: Date): Promise<PlatformReportDto> {
     const { startDate, endDate } = this.normalizeDateRange(from, to);
     const cacheKey = `report:platform:${startDate.toISOString()}:${endDate.toISOString()}`;
 
@@ -382,18 +376,13 @@ export class ReportsService {
 
   // ====================== STUDENT REPORT HELPERS ======================
 
-  private async buildScoreBySubjectMap(
-    studentId: string,
-  ): Promise<Map<string, number>> {
+  private async buildScoreBySubjectMap(studentId: string): Promise<Map<string, number>> {
     const examScores = await this.examAttemptsRepository
       .createQueryBuilder('ea')
       .innerJoin('ea.exam', 'exam')
       .where('ea.student_id = :studentId', { studentId })
       .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
-      .select([
-        'exam.subject_id as subject_id',
-        'AVG(ea.total_score) as avg_score',
-      ])
+      .select(['exam.subject_id as subject_id', 'AVG(ea.total_score) as avg_score'])
       .groupBy('exam.subject_id')
       .getRawMany<SubjectScoreResult>();
 
@@ -411,33 +400,43 @@ export class ReportsService {
     progressRecords: LessonProgress[],
     scoreBySubject: Map<string, number>,
   ): Promise<SubjectProgressDto[]> {
-    const subjectProgress: SubjectProgressDto[] = [];
+    if (subjects.length === 0) return [];
 
-    for (const subject of subjects) {
-      const subjectLessons = await this.lessonsRepository.count({
-        where: { subject_id: subject.id, deleted_at: IsNull() },
-      });
+    // Lesson counts for ALL subjects in a single grouped query (avoids one
+    // COUNT per subject — an N+1 on the student progress report).
+    const countRows = await this.lessonsRepository
+      .createQueryBuilder('lesson')
+      .select('lesson.subject_id', 'subject_id')
+      .addSelect('COUNT(*)', 'count')
+      .where('lesson.deleted_at IS NULL')
+      .andWhere('lesson.subject_id IN (:...ids)', {
+        ids: subjects.map((s) => s.id),
+      })
+      .groupBy('lesson.subject_id')
+      .getRawMany<{ subject_id: string; count: string }>();
 
+    const lessonCountBySubject = new Map<string, number>(
+      countRows.map((r) => [r.subject_id, Number.parseInt(r.count, 10)]),
+    );
+
+    return subjects.map((subject) => {
+      const subjectLessons = lessonCountBySubject.get(subject.id) ?? 0;
       const completedLessons = progressRecords.filter(
         (p) => p.completed && p.lesson.subject_id === subject.id,
       ).length;
 
       const progressPercent =
-        subjectLessons > 0
-          ? Math.round((completedLessons / subjectLessons) * 100)
-          : 0;
+        subjectLessons > 0 ? Math.round((completedLessons / subjectLessons) * 100) : 0;
 
-      subjectProgress.push({
+      return {
         subjectId: subject.id,
         subjectName: subject.name,
         lessonsCompleted: completedLessons,
         lessonsTotal: subjectLessons,
         averageScore: scoreBySubject.get(subject.id) ?? null,
         progressPercent,
-      });
-    }
-
-    return subjectProgress;
+      };
+    });
   }
 
   private analyzeStudentProgress(subjectProgress: SubjectProgressDto[]): {
@@ -460,9 +459,7 @@ export class ReportsService {
     }
 
     const overallProgress =
-      subjectsWithProgress > 0
-        ? Math.round(totalProgressSum / subjectsWithProgress)
-        : 0;
+      subjectsWithProgress > 0 ? Math.round(totalProgressSum / subjectsWithProgress) : 0;
 
     return {
       overallProgress,
@@ -479,19 +476,13 @@ export class ReportsService {
     if (sp.averageScore !== null && sp.averageScore >= 80) {
       strengths.push(`${sp.subjectName}: ${sp.averageScore.toFixed(0)}% avg`);
     } else if (sp.averageScore !== null && sp.averageScore < 60) {
-      needsImprovement.push(
-        `${sp.subjectName}: ${sp.averageScore.toFixed(0)}% avg (below 60%)`,
-      );
+      needsImprovement.push(`${sp.subjectName}: ${sp.averageScore.toFixed(0)}% avg (below 60%)`);
     }
 
     if (sp.progressPercent >= 80 && sp.lessonsTotal > 0) {
-      strengths.push(
-        `${sp.subjectName}: ${sp.lessonsCompleted}/${sp.lessonsTotal} lessons`,
-      );
+      strengths.push(`${sp.subjectName}: ${sp.lessonsCompleted}/${sp.lessonsTotal} lessons`);
     } else if (sp.progressPercent < 30 && sp.lessonsTotal > 5) {
-      needsImprovement.push(
-        `${sp.subjectName}: Only ${sp.progressPercent}% progress`,
-      );
+      needsImprovement.push(`${sp.subjectName}: Only ${sp.progressPercent}% progress`);
     }
   }
 
@@ -507,39 +498,34 @@ export class ReportsService {
   }> {
     const { startDate, endDate } = range;
 
-    const [
-      totalUsers,
-      students,
-      teachers,
-      admins,
-      newUsers,
-      activeUsersResult,
-    ] = await Promise.all([
-      this.usersRepository.count({ where: { deleted_at: IsNull() } }),
-      this.usersRepository.count({
-        where: { role: UserRole.STUDENT, deleted_at: IsNull() },
-      }),
-      this.usersRepository.count({
-        where: { role: UserRole.TEACHER, deleted_at: IsNull() },
-      }),
-      this.usersRepository.count({
-        where: { role: UserRole.ADMIN, deleted_at: IsNull() },
-      }),
-      this.usersRepository.count({
-        where: {
-          created_at: Between(startDate, endDate),
-          deleted_at: IsNull(),
-        },
-      }),
-      this.lessonSessionsRepository
-        .createQueryBuilder('ls')
-        .where('ls.entered_at BETWEEN :start AND :end', {
-          start: startDate,
-          end: endDate,
-        })
-        .select('COUNT(DISTINCT ls.student_id)', 'count')
-        .getRawOne<CountResult>(),
-    ]);
+    const [totalUsers, students, teachers, admins, newUsers, activeUsersResult] = await Promise.all(
+      [
+        this.usersRepository.count({ where: { deleted_at: IsNull() } }),
+        this.usersRepository.count({
+          where: { role: UserRole.STUDENT, deleted_at: IsNull() },
+        }),
+        this.usersRepository.count({
+          where: { role: UserRole.TEACHER, deleted_at: IsNull() },
+        }),
+        this.usersRepository.count({
+          where: { role: UserRole.ADMIN, deleted_at: IsNull() },
+        }),
+        this.usersRepository.count({
+          where: {
+            created_at: Between(startDate, endDate),
+            deleted_at: IsNull(),
+          },
+        }),
+        this.lessonSessionsRepository
+          .createQueryBuilder('ls')
+          .where('ls.entered_at BETWEEN :start AND :end', {
+            start: startDate,
+            end: endDate,
+          })
+          .select('COUNT(DISTINCT ls.student_id)', 'count')
+          .getRawOne<CountResult>(),
+      ],
+    );
 
     return {
       totalUsers,
@@ -604,13 +590,12 @@ export class ReportsService {
     totalExams: number;
     totalPackages: number;
   }> {
-    const [totalLessons, totalBooks, totalExams, totalPackages] =
-      await Promise.all([
-        this.lessonsRepository.count({ where: { deleted_at: IsNull() } }),
-        this.booksRepository.count({ where: { deleted_at: IsNull() } }),
-        this.examsRepository.count({ where: { deleted_at: IsNull() } }),
-        this.packagesRepository.count({ where: { deleted_at: IsNull() } }),
-      ]);
+    const [totalLessons, totalBooks, totalExams, totalPackages] = await Promise.all([
+      this.lessonsRepository.count({ where: { deleted_at: IsNull() } }),
+      this.booksRepository.count({ where: { deleted_at: IsNull() } }),
+      this.examsRepository.count({ where: { deleted_at: IsNull() } }),
+      this.packagesRepository.count({ where: { deleted_at: IsNull() } }),
+    ]);
 
     return { totalLessons, totalBooks, totalExams, totalPackages };
   }
@@ -623,39 +608,38 @@ export class ReportsService {
   }> {
     const { startDate, endDate } = range;
 
-    const [lessonViews, examAttempts, avgSessionDuration, completedSessions] =
-      await Promise.all([
-        this.lessonSessionsRepository
-          .createQueryBuilder('ls')
-          .where('ls.entered_at BETWEEN :start AND :end', {
-            start: startDate,
-            end: endDate,
-          })
-          .getCount(),
-        this.examAttemptsRepository
-          .createQueryBuilder('ea')
-          .where('ea.created_at BETWEEN :start AND :end', {
-            start: startDate,
-            end: endDate,
-          })
-          .getCount(),
-        this.lessonSessionsRepository
-          .createQueryBuilder('ls')
-          .where('ls.entered_at BETWEEN :start AND :end', {
-            start: startDate,
-            end: endDate,
-          })
-          .select('AVG(ls.duration_seconds)', 'avg')
-          .getRawOne<AvgResult>(),
-        this.lessonSessionsRepository
-          .createQueryBuilder('ls')
-          .where('ls.entered_at BETWEEN :start AND :end', {
-            start: startDate,
-            end: endDate,
-          })
-          .andWhere('ls.video_progress_percent >= 90')
-          .getCount(),
-      ]);
+    const [lessonViews, examAttempts, avgSessionDuration, completedSessions] = await Promise.all([
+      this.lessonSessionsRepository
+        .createQueryBuilder('ls')
+        .where('ls.entered_at BETWEEN :start AND :end', {
+          start: startDate,
+          end: endDate,
+        })
+        .getCount(),
+      this.examAttemptsRepository
+        .createQueryBuilder('ea')
+        .where('ea.created_at BETWEEN :start AND :end', {
+          start: startDate,
+          end: endDate,
+        })
+        .getCount(),
+      this.lessonSessionsRepository
+        .createQueryBuilder('ls')
+        .where('ls.entered_at BETWEEN :start AND :end', {
+          start: startDate,
+          end: endDate,
+        })
+        .select('AVG(ls.duration_seconds)', 'avg')
+        .getRawOne<AvgResult>(),
+      this.lessonSessionsRepository
+        .createQueryBuilder('ls')
+        .where('ls.entered_at BETWEEN :start AND :end', {
+          start: startDate,
+          end: endDate,
+        })
+        .andWhere('ls.video_progress_percent >= 90')
+        .getCount(),
+    ]);
 
     const completionRate =
       lessonViews > 0 ? Math.round((completedSessions / lessonViews) * 100) : 0;
@@ -663,9 +647,7 @@ export class ReportsService {
     return {
       lessonViews,
       examAttempts,
-      averageSessionDuration: Math.round(
-        Number.parseFloat(avgSessionDuration?.avg ?? '0'),
-      ),
+      averageSessionDuration: Math.round(Number.parseFloat(avgSessionDuration?.avg ?? '0')),
       completionRate,
     };
   }

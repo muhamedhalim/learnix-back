@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { StorageService } from '../../storage/storage.service';
 import { BookFilterDto } from '../dto';
 import { Book } from '../entities/book.entity';
 import { BookPurchase } from '../entities/book-purchase.entity';
@@ -37,6 +38,7 @@ export class BookPurchasesService {
     @InjectRepository(BookPurchase)
     private readonly purchasesRepository: Repository<BookPurchase>,
     private readonly booksService: BooksService,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -71,9 +73,7 @@ export class BookPurchasesService {
     // Increment book purchase count
     await this.booksService.incrementPurchaseCount(bookId);
 
-    this.logger.log(
-      `Book purchased: book ${bookId} by student ${studentId}, payment ${paymentId}`,
-    );
+    this.logger.log(`Book purchased: book ${bookId} by student ${studentId}, payment ${paymentId}`);
 
     return await this.findPurchaseById(saved.id);
   }
@@ -114,10 +114,9 @@ export class BookPurchasesService {
 
     // Apply search filter
     if (filter.search !== undefined && filter.search !== '') {
-      query.andWhere(
-        '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
+      query.andWhere('(book.title ILIKE :search OR book.title_ar ILIKE :search)', {
+        search: `%${filter.search}%`,
+      });
     }
 
     // Apply subject filter
@@ -159,20 +158,25 @@ export class BookPurchasesService {
     studentId: string,
     bookId: string,
   ): Promise<{ download_url: string; book: Book }> {
-    // Check if student purchased this book
+    // Authorize FIRST: only a student who purchased the book gets a URL.
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
 
     if (!purchase) {
       throw new ForbiddenException('You have not purchased this book');
     }
 
-    // Get book details
     const book = await this.booksService.findOne(bookId);
 
-    return {
-      download_url: book.book_file,
-      book,
-    };
+    // Issue a short-lived, non-guessable signed URL rather than handing out a
+    // permanent path. For book PDFs stored as private R2 objects this is the
+    // ONLY way to retrieve them; the URL expires (SIGNED_URL_EXPIRES_SECONDS)
+    // and cannot be reused indefinitely or shared long-term.
+    const key = this.storageService.toKey(book.book_file);
+    const download_url = await this.storageService.getSignedUrl(key);
+
+    this.logger.log(`Signed book download issued: book ${bookId}, student ${studentId}`);
+
+    return { download_url, book };
   }
 
   /**
@@ -212,10 +216,9 @@ export class BookPurchasesService {
 
     // Apply search filter
     if (filter.search !== undefined && filter.search !== '') {
-      query.andWhere(
-        '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
+      query.andWhere('(book.title ILIKE :search OR book.title_ar ILIKE :search)', {
+        search: `%${filter.search}%`,
+      });
     }
 
     // Apply subject filter

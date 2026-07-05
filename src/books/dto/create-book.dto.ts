@@ -1,14 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { Type } from 'class-transformer';
-import {
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateBookDto {
   @MaxLength(255)
@@ -49,9 +42,11 @@ export class CreateBookDto {
   public cover_image?: string;
 
   @ApiProperty({
-    description: 'Book file URL (PDF from upload)',
-    example: '/uploads/resources/book.pdf',
+    description:
+      'Private storage key for the book PDF, returned by POST /teacher/uploads/book-file. Stored as a key (not a public URL); downloads are served via short-lived signed URLs after purchase.',
+    example: 'books/6f1c4f8e-....pdf',
   })
+  @IsString()
   @IsNotEmpty()
   public book_file!: string;
 

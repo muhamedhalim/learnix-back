@@ -20,6 +20,13 @@ import { PaymentStatus } from './payment-status.enum';
 @Index('IDX_payments_item_type', ['item_type'])
 @Index('IDX_payments_created_at', ['created_at'])
 @Index('IDX_payments_user_status', ['user_id', 'status'])
+// Guarantees at most one in-flight (pending/processing) payment per user+item,
+// so concurrent "Pay" clicks / refresh-during-payment cannot open two gateway
+// orders for the same purchase (double-charge protection). Partial unique index.
+@Index('UQ_payments_open_per_user_item', ['user_id', 'item_type', 'item_id'], {
+  unique: true,
+  where: "status IN ('pending', 'processing')",
+})
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

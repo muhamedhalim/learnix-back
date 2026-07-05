@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { StorageService } from '../../storage/storage.service';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
@@ -23,6 +24,7 @@ export class BooksService {
     private readonly booksRepository: Repository<Book>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -35,9 +37,7 @@ export class BooksService {
     });
 
     if (!subject) {
-      throw new NotFoundException(
-        `Subject with ID ${dto.subject_id} not found`,
-      );
+      throw new NotFoundException(`Subject with ID ${dto.subject_id} not found`);
     }
 
     // Check for duplicate title by same teacher
@@ -53,9 +53,7 @@ export class BooksService {
       throw new ConflictException('You already have a book with this title');
     }
 
-    const book = this.booksRepository.create(
-      Object.assign({}, dto, { teacher_id: teacherId }),
-    );
+    const book = this.booksRepository.create(Object.assign({}, dto, { teacher_id: teacherId }));
 
     const saved = await this.booksRepository.save(book);
     this.logger.log(`Book created: ${saved.id} by teacher ${teacherId}`);
@@ -84,10 +82,9 @@ export class BooksService {
 
     // Apply filters
     if (filter.search != null && filter.search !== '') {
-      query.andWhere(
-        '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
+      query.andWhere('(book.title ILIKE :search OR book.title_ar ILIKE :search)', {
+        search: `%${filter.search}%`,
+      });
     }
 
     if (filter.subject_id != null && filter.subject_id !== '') {
@@ -172,11 +169,7 @@ export class BooksService {
   /**
    * Update a book (teacher must own it)
    */
-  public async update(
-    id: string,
-    teacherId: string,
-    dto: UpdateBookDto,
-  ): Promise<Book> {
+  public async update(id: string, teacherId: string, dto: UpdateBookDto): Promise<Book> {
     const book = await this.findOne(id);
 
     // Ownership validation
@@ -185,19 +178,13 @@ export class BooksService {
     }
 
     // If updating subject, validate it exists
-    if (
-      dto.subject_id != null &&
-      dto.subject_id !== '' &&
-      dto.subject_id !== book.subject_id
-    ) {
+    if (dto.subject_id != null && dto.subject_id !== '' && dto.subject_id !== book.subject_id) {
       const subject = await this.subjectsRepository.findOne({
         where: { id: dto.subject_id, deleted_at: IsNull() },
       });
 
       if (!subject) {
-        throw new NotFoundException(
-          `Subject with ID ${dto.subject_id} not found`,
-        );
+        throw new NotFoundException(`Subject with ID ${dto.subject_id} not found`);
       }
     }
 
@@ -216,8 +203,25 @@ export class BooksService {
       }
     }
 
+    // Capture old asset refs before mutation so replaced files can be purged
+    // from storage (avoid orphaned objects / leaked storage).
+    const oldBookFile = book.book_file;
+    const oldCover = book.cover_image;
+
     Object.assign(book, dto);
     await this.booksRepository.save(book);
+
+    if (dto.book_file != null && dto.book_file !== oldBookFile) {
+      await this.storageService.tryDelete(this.storageService.toKey(oldBookFile));
+    }
+    if (
+      dto.cover_image != null &&
+      oldCover != null &&
+      oldCover !== '' &&
+      dto.cover_image !== oldCover
+    ) {
+      await this.storageService.tryDelete(this.storageService.toKey(oldCover));
+    }
 
     this.logger.log(`Book updated: ${id} by teacher ${teacherId}`);
 
@@ -245,6 +249,14 @@ export class BooksService {
   public async hardDelete(id: string): Promise<void> {
     const book = await this.findOneAdmin(id);
     await this.booksRepository.remove(book);
+
+    // Permanent delete → purge the underlying storage objects (private PDF +
+    // public cover) so nothing is left orphaned in R2.
+    await this.storageService.tryDelete(this.storageService.toKey(book.book_file));
+    if (book.cover_image != null && book.cover_image !== '') {
+      await this.storageService.tryDelete(this.storageService.toKey(book.cover_image));
+    }
+
     this.logger.log(`Book hard deleted: ${id}`);
   }
 
@@ -275,10 +287,7 @@ export class BooksService {
   /**
    * Check if teacher owns the book
    */
-  public async checkOwnership(
-    bookId: string,
-    teacherId: string,
-  ): Promise<boolean> {
+  public async checkOwnership(bookId: string, teacherId: string): Promise<boolean> {
     const book = await this.findOne(bookId);
     return book.teacher_id === teacherId;
   }
@@ -304,10 +313,9 @@ export class BooksService {
 
     // Apply filters
     if (filter.search != null && filter.search !== '') {
-      query.andWhere(
-        '(book.title ILIKE :search OR book.title_ar ILIKE :search)',
-        { search: `%${filter.search}%` },
-      );
+      query.andWhere('(book.title ILIKE :search OR book.title_ar ILIKE :search)', {
+        search: `%${filter.search}%`,
+      });
     }
 
     if (filter.subject_id != null && filter.subject_id !== '') {

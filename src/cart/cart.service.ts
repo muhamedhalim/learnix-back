@@ -1,22 +1,16 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
+  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-import {
-  AddToCartDto,
-  CartItemResponseDto,
-  CartResponseDto,
-  CheckoutCartDto,
-  PaymentMethod,
-} from './dto';
+import { AddToCartDto, CartItemResponseDto, CartResponseDto, CheckoutCartDto } from './dto';
 import { Cart } from './entities/cart.entity';
 import { CartItem, CartItemType } from './entities/cart-item.entity';
 
@@ -37,10 +31,7 @@ export class CartService {
    * Add item to cart
    * Creates cart if doesn't exist, checks for duplicates, fetches price
    */
-  public async addToCart(
-    userId: string,
-    dto: AddToCartDto,
-  ): Promise<CartResponseDto> {
+  public async addToCart(userId: string, dto: AddToCartDto): Promise<CartResponseDto> {
     // Find or create cart
     let cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
@@ -100,20 +91,20 @@ export class CartService {
       };
     }
 
-    // Fetch item details and build response
-    const items: CartItemResponseDto[] = [];
+    // Resolve all item titles in a fixed number of queries (2, run in parallel)
+    // instead of one query per cart item — avoids an N+1 on this hot path
+    // (findCart also runs after every add / remove / clear).
+    const titles = await this.resolveItemTitles(cart.items);
 
-    for (const item of cart.items) {
-      const itemTitle = await this.getItemTitle(item.item_type, item.item_id);
-
-      items.push({
-        id: item.id,
-        itemType: item.item_type,
-        itemId: item.item_id,
-        itemTitle,
-        price: item.price,
-      });
-    }
+    const items: CartItemResponseDto[] = cart.items.map((item) => ({
+      id: item.id,
+      itemType: item.item_type,
+      itemId: item.item_id,
+      itemTitle:
+        titles.get(item.item_id) ??
+        (item.item_type === CartItemType.LESSON ? 'Unknown Lesson' : 'Unknown Package'),
+      price: item.price,
+    }));
 
     const subtotal = items.reduce((sum, item) => sum + item.price, 0);
     const discountAmount = cart.discount_amount;
@@ -132,10 +123,7 @@ export class CartService {
   /**
    * Remove item from cart
    */
-  public async removeItem(
-    userId: string,
-    itemId: string,
-  ): Promise<CartResponseDto> {
+  public async removeItem(userId: string, itemId: string): Promise<CartResponseDto> {
     const cart = await this.cartsRepository.findOne({
       where: { user_id: userId },
       relations: ['items'],
@@ -158,94 +146,33 @@ export class CartService {
   }
 
   /**
-   * Checkout cart
-   * Note: This is a placeholder - actual payment integration with Paymob
-   * and attendance codes should be done via existing PaymentsService
+   * Checkout cart.
+   *
+   * NOT YET IMPLEMENTED. Multi-item cart checkout requires a payment design that
+   * does not exist yet: the Payment schema models a single item per payment, so
+   * a cart of N items needs either a "cart order" concept (Paymob charges one
+   * order) or a bulk attendance-code redemption + bulk access grant.
+   *
+   * The previous placeholder was actively harmful: it returned a fake Paymob URL
+   * and, for the attendance-code path, CLEARED THE CART and reported success
+   * without redeeming the code or granting any access (silent data loss + a lie
+   * to the user). Until the real flow is built we fail honestly with 501 so the
+   * client shows an error instead of a false success; students purchase items
+   * individually through the payments endpoints in the meantime.
    */
-  public async checkout(
-    userId: string,
-    dto: CheckoutCartDto,
+  public checkout(
+    _userId: string,
+    _dto: CheckoutCartDto,
   ): Promise<{ message: string; data: unknown }> {
-    const cart = await this.cartsRepository.findOne({
-      where: { user_id: userId },
-      relations: ['items'],
-    });
-
-    if (!cart || cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
-    }
-
-    // TODO: Implement actual checkout logic
-    // 1. Calculate subtotal: cart.items.reduce((sum, item) => sum + Number(item.price), 0)
-    // 2. Validate discount code via DiscountCodesService if provided
-    // 3. Calculate total: subtotal - discountAmount
-    // 4. Create payment transaction via PaymentsService or redeem attendance code
-
-    // Apply discount code if provided (placeholder for now)
-    if (dto.discountCode != null && dto.discountCode !== '') {
-      cart.discount_code = dto.discountCode;
-      // TODO: Validate and apply discount code
-    }
-
-    // Process payment based on method
-    if (dto.paymentMethod === PaymentMethod.PAYMOB) {
-      // TODO: Create Paymob payment intent via PaymentsService
-      // const transaction = await this.paymentsService.createCartCheckout(userId, cart.items, total, discountAmount);
-      // Return payment URL for redirect
-
-      return {
-        message: 'Payment initiated - redirect to Paymob',
-        data: {
-          paymentUrl: 'https://paymob.example.com/checkout/placeholder',
-          transactionId: 'placeholder-transaction-id',
-        },
-      };
-    }
-    // PaymentMethod.ATTENDANCE_CODE
-    if (dto.attendanceCode == null || dto.attendanceCode === '') {
-      throw new BadRequestException(
-        'Attendance code required for this payment method',
-      );
-    }
-
-    // TODO: Verify and redeem attendance code via AttendanceCodesService
-    // const code = await this.attendanceCodesService.verifyAndRedeem(dto.attendanceCode, userId);
-    // Grant access to all cart items via PaymentsService
-    // await this.paymentsService.grantBulkAccess(userId, cart.items);
-
-    // Clear cart after successful checkout
-    await this.clearCart(userId);
-
-    return {
-      message: 'Checkout successful with attendance code',
-      data: {
-        attendanceCode: dto.attendanceCode,
-        itemsGranted: cart.items.length,
-      },
-    };
-  }
-
-  /**
-   * Clear cart (called after successful checkout)
-   */
-  public async clearCart(userId: string): Promise<void> {
-    const cart = await this.cartsRepository.findOne({
-      where: { user_id: userId },
-    });
-
-    if (cart) {
-      // Cascade delete will remove all cart items
-      await this.cartsRepository.remove(cart);
-    }
+    throw new NotImplementedException(
+      'Cart checkout is not available yet. Please purchase items individually.',
+    );
   }
 
   /**
    * Helper: Get item price by type and ID
    */
-  private async getItemPrice(
-    itemType: CartItemType,
-    itemId: string,
-  ): Promise<number> {
+  private async getItemPrice(itemType: CartItemType, itemId: string): Promise<number> {
     if (itemType === CartItemType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
@@ -270,24 +197,36 @@ export class CartService {
   }
 
   /**
-   * Helper: Get item title by type and ID
+   * Resolve titles for a set of cart items in bulk. Groups by type and issues at
+   * most two `IN (...)` queries (lessons + packages) in parallel, returning a
+   * Map keyed by item id. O(1) round-trips regardless of cart size.
    */
-  private async getItemTitle(
-    itemType: CartItemType,
-    itemId: string,
-  ): Promise<string> {
-    if (itemType === CartItemType.LESSON) {
-      const lesson = await this.lessonsRepository.findOne({
-        where: { id: itemId, deleted_at: IsNull() },
-      });
+  private async resolveItemTitles(cartItems: CartItem[]): Promise<Map<string, string>> {
+    const lessonIds = cartItems
+      .filter((i) => i.item_type === CartItemType.LESSON)
+      .map((i) => i.item_id);
+    const packageIds = cartItems
+      .filter((i) => i.item_type === CartItemType.PACKAGE)
+      .map((i) => i.item_id);
 
-      return lesson?.title ?? 'Unknown Lesson';
-    }
-    // CartItemType.PACKAGE
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: itemId, deleted_at: IsNull() },
-    });
+    const [lessons, packages] = await Promise.all([
+      lessonIds.length > 0
+        ? this.lessonsRepository.find({
+            where: { id: In(lessonIds), deleted_at: IsNull() },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+      packageIds.length > 0
+        ? this.packagesRepository.find({
+            where: { id: In(packageIds), deleted_at: IsNull() },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
 
-    return pkg?.title ?? 'Unknown Package';
+    const titles = new Map<string, string>();
+    for (const lesson of lessons) titles.set(lesson.id, lesson.title);
+    for (const pkg of packages) titles.set(pkg.id, pkg.title);
+    return titles;
   }
 }

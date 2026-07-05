@@ -66,6 +66,14 @@ export interface PaymentVerificationContext {
  * are treated as tampering and rejected. */
 const EXPECTED_CURRENCY = 'EGP';
 
+/** How long an initiated payment blocks new attempts for the same item. Matches
+ * the Paymob payment-key expiration (1h); after this an abandoned PENDING
+ * payment is considered stale and is expired to free the slot. */
+const OPEN_PAYMENT_TTL_MS = 60 * 60 * 1000;
+
+/** Name of the partial unique index guarding against concurrent double-charge. */
+const OPEN_PAYMENT_INDEX = 'UQ_payments_open_per_user_item';
+
 export interface AccessCheckResult {
   has_access: boolean;
   expires_at?: Date;
@@ -206,7 +214,10 @@ export class PaymentsService {
     this.assertChargeableAmount(finalAmount);
 
     // Create payment using transaction
-    return await retryTransaction(this.dataSource, async (manager) => {
+    return await this.initiatePaymentTxn(async (manager) => {
+      // Block a second concurrent charge for the same lesson (double-charge).
+      await this.assertNoOpenPayment(manager, userId, ItemType.LESSON, dto.lesson_id);
+
       // Create payment record
       const payment = manager.create(Payment, {
         user_id: userId,
@@ -325,7 +336,10 @@ export class PaymentsService {
     this.assertChargeableAmount(finalAmount);
 
     // Create payment using transaction
-    return await retryTransaction(this.dataSource, async (manager) => {
+    return await this.initiatePaymentTxn(async (manager) => {
+      // Block a second concurrent charge for the same package (double-charge).
+      await this.assertNoOpenPayment(manager, userId, ItemType.PACKAGE, dto.package_id);
+
       // Create payment record
       const payment = manager.create(Payment, {
         user_id: userId,
@@ -420,10 +434,14 @@ export class PaymentsService {
 
     // Calculate 50% reopen price
     const reopenPrice = lesson.price * 0.5;
+    this.assertChargeableAmount(reopenPrice);
     const idempotencyKey = `reopen-${userId}-${lessonId}-${Date.now().toString()}`;
 
     // Create payment using transaction
-    return await retryTransaction(this.dataSource, async (manager) => {
+    return await this.initiatePaymentTxn(async (manager) => {
+      // Block a second concurrent reopen charge for the same lesson.
+      await this.assertNoOpenPayment(manager, userId, ItemType.LESSON, lessonId);
+
       const payment = manager.create(Payment, {
         user_id: userId,
         item_type: ItemType.LESSON,
@@ -525,6 +543,81 @@ export class PaymentsService {
 
       this.logger.log(`Payment ${paymentId} completed successfully, access granted`);
     });
+  }
+
+  /**
+   * Run a payment-initiation transaction, translating the partial-unique-index
+   * violation (concurrent double-charge attempt) into a clean 409 Conflict
+   * instead of leaking a raw DB error. This is the race-safe backstop behind
+   * {@link assertNoOpenPayment}.
+   */
+  private async initiatePaymentTxn(
+    fn: (manager: EntityManager) => Promise<PaymentResponse>,
+  ): Promise<PaymentResponse> {
+    try {
+      return await retryTransaction(this.dataSource, fn);
+    } catch (err) {
+      if (this.isOpenPaymentConflict(err)) {
+        throw new ConflictException(
+          'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  /** True when the error is a unique violation on the open-payment guard index. */
+  private isOpenPaymentConflict(err: unknown): boolean {
+    const e = err as {
+      code?: string;
+      constraint?: string;
+      driverError?: { code?: string; constraint?: string };
+    };
+    const code = e.code ?? e.driverError?.code;
+    const constraint = e.constraint ?? e.driverError?.constraint;
+    return code === '23505' && constraint === OPEN_PAYMENT_INDEX;
+  }
+
+  /**
+   * Ensure the user has no other in-flight payment for this item before
+   * creating a new one. A fresh open payment blocks the new attempt (409); an
+   * abandoned one older than the gateway TTL is expired to free the slot. Runs
+   * inside the initiation transaction so it composes with the DB unique index.
+   */
+  private async assertNoOpenPayment(
+    manager: EntityManager,
+    userId: string,
+    itemType: ItemType,
+    itemId: string,
+  ): Promise<void> {
+    const open = await manager.findOne(Payment, {
+      where: {
+        user_id: userId,
+        item_type: itemType,
+        item_id: itemId,
+        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
+      },
+      order: { created_at: 'DESC' },
+    });
+
+    if (!open) return;
+
+    const ageMs = Date.now() - open.created_at.getTime();
+    if (ageMs < OPEN_PAYMENT_TTL_MS) {
+      throw new ConflictException(
+        'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+      );
+    }
+
+    // Stale/abandoned — expire it (guarded) so a fresh attempt can proceed.
+    await manager.update(
+      Payment,
+      {
+        id: open.id,
+        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
+      },
+      { status: PaymentStatus.EXPIRED },
+    );
   }
 
   /**

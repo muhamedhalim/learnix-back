@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -15,12 +15,16 @@ import { PaymobService } from './paymob.service';
 describe('PaymentsService — financial correctness', () => {
   let service: PaymentsService;
   let paymentsRepo: { update: jest.Mock };
+  let lessonsRepo: { findOne: jest.Mock };
+  let lessonPurchasesRepo: { findOne: jest.Mock };
+  let idempotency: { checkPaymentRequest: jest.Mock; storePaymentResult: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let manager: {
     findOne: jest.Mock;
     save: jest.Mock;
     create: jest.Mock;
     increment: jest.Mock;
+    update: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -29,6 +33,7 @@ describe('PaymentsService — financial correctness', () => {
       save: jest.fn((_entity: unknown, obj: unknown) => Promise.resolve(obj)),
       create: jest.fn((_entity: unknown, obj: unknown) => obj),
       increment: jest.fn().mockResolvedValue(undefined),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     dataSource = {
       // Mirror retryTransaction's call: dataSource.transaction(fn).
@@ -38,19 +43,25 @@ describe('PaymentsService — financial correctness', () => {
       }),
     };
     paymentsRepo = { update: jest.fn().mockResolvedValue({ affected: 1 }) };
+    lessonsRepo = { findOne: jest.fn() };
+    lessonPurchasesRepo = { findOne: jest.fn() };
+    idempotency = {
+      checkPaymentRequest: jest.fn().mockResolvedValue({ isProcessed: false }),
+      storePaymentResult: jest.fn().mockResolvedValue(undefined),
+    };
 
     const noopRepo = {};
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentsService,
         { provide: getRepositoryToken(Payment), useValue: paymentsRepo },
-        { provide: getRepositoryToken(LessonPurchase), useValue: noopRepo },
+        { provide: getRepositoryToken(LessonPurchase), useValue: lessonPurchasesRepo },
         { provide: getRepositoryToken(PackagePurchase), useValue: noopRepo },
-        { provide: getRepositoryToken(Lesson), useValue: noopRepo },
+        { provide: getRepositoryToken(Lesson), useValue: lessonsRepo },
         { provide: getRepositoryToken(LessonPackage), useValue: noopRepo },
         { provide: DataSource, useValue: dataSource },
         { provide: PaymobService, useValue: {} },
-        { provide: IdempotencyService, useValue: {} },
+        { provide: IdempotencyService, useValue: idempotency },
         { provide: DiscountCodesService, useValue: {} },
       ],
     }).compile();
@@ -185,6 +196,65 @@ describe('PaymentsService — financial correctness', () => {
         status: PaymentStatus.REFUNDED,
         paymob_transaction_id: 'txn-refund',
       });
+    });
+  });
+
+  describe('purchaseLesson — concurrent double-charge guard', () => {
+    const dto = {
+      lesson_id: 'lesson-1',
+      billing_data: {},
+    } as unknown as Parameters<PaymentsService['purchaseLesson']>[0];
+
+    beforeEach(() => {
+      lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1', price: 100 });
+      // checkLessonAccess -> no active purchase.
+      lessonPurchasesRepo.findOne.mockResolvedValue(null);
+    });
+
+    it('rejects (409) when a fresh in-flight payment already exists', async () => {
+      // The open-payment reservation query finds a recent PROCESSING payment.
+      manager.findOne.mockResolvedValue({
+        id: 'open-1',
+        status: PaymentStatus.PROCESSING,
+        created_at: new Date(), // fresh -> blocks
+      });
+
+      await expect(service.purchaseLesson(dto, 'user-1')).rejects.toBeInstanceOf(ConflictException);
+      // Never created a new payment / gateway order.
+      expect(manager.create).not.toHaveBeenCalled();
+    });
+
+    it('expires a stale in-flight payment instead of blocking', async () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      manager.findOne.mockResolvedValue({
+        id: 'stale-1',
+        status: PaymentStatus.PENDING,
+        created_at: twoHoursAgo,
+      });
+      // After freeing the slot, creation proceeds; short-circuit the rest by
+      // throwing from create so we only assert the stale-expiry happened.
+      manager.create.mockImplementation(() => {
+        throw new Error('stop-after-reservation');
+      });
+
+      await expect(service.purchaseLesson(dto, 'user-1')).rejects.toThrow('stop-after-reservation');
+      // The stale payment was expired (guarded update) to free the unique slot.
+      expect(manager.update).toHaveBeenCalledWith(
+        Payment,
+        expect.objectContaining({ id: 'stale-1' }),
+        expect.objectContaining({ status: PaymentStatus.EXPIRED }),
+      );
+    });
+
+    it('translates the DB unique-index race violation into a 409', async () => {
+      manager.findOne.mockResolvedValue(null); // reservation sees no open payment
+      // Simulate the partial-unique-index violation on concurrent insert.
+      dataSource.transaction.mockRejectedValue({
+        code: '23505',
+        constraint: 'UQ_payments_open_per_user_item',
+      });
+
+      await expect(service.purchaseLesson(dto, 'user-1')).rejects.toBeInstanceOf(ConflictException);
     });
   });
 });
