@@ -22,6 +22,12 @@ export const QUEUE_NAMES = {
 
   /** File cleanup (orphaned files, expired data) */
   FILE_CLEANUP: 'file-cleanup',
+
+  /** Attendance-code batch generation (1–100,000 codes per batch) */
+  CODE_GENERATION: 'code-generation',
+
+  /** Attendance-code exports (CSV/Excel/PDF/JSON/QR) generated off-request */
+  CODE_EXPORT: 'code-export',
 } as const;
 
 /**
@@ -45,6 +51,19 @@ export const JOB_TYPES = {
   FILE: {
     DELETE_FILE: 'delete-file',
     CLEANUP_ORPHANS: 'cleanup-orphans',
+  },
+  CODE: {
+    GENERATE_BATCH: 'generate-batch',
+  },
+  EXPORT: {
+    /** One job type per format (dispatched by the export processor). */
+    CSV: 'export-csv',
+    EXCEL: 'export-excel',
+    PDF: 'export-pdf',
+    JSON: 'export-json',
+    QR: 'export-qr',
+    /** Remove expired cached export files. */
+    CLEANUP: 'export-cleanup',
   },
 } as const;
 
@@ -163,6 +182,28 @@ export const QUEUE_CONFIGS = {
       ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
       priority: 5, // Lowest priority
       attempts: 1, // Don't retry cleanup - run it again next cycle
+    },
+  },
+
+  [QUEUE_NAMES.CODE_GENERATION]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      priority: 4,
+      // Generation is idempotent per-batch (guarded by batch status); a single
+      // attempt avoids duplicate partial runs on transient Redis hiccups.
+      attempts: 1,
+    },
+  },
+
+  [QUEUE_NAMES.CODE_EXPORT]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      priority: 4,
+      // Exports rebuild the whole file on retry; allow a couple of attempts for
+      // transient I/O errors without piling up partial files.
+      attempts: 2,
     },
   },
 };

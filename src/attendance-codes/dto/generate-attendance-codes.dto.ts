@@ -1,14 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import { Type } from 'class-transformer';
-import {
-  IsDateString,
-  IsEnum,
-  IsNumber,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsDateString, IsEnum, IsNumber, IsString, Max, Min } from 'class-validator';
 
 import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
 

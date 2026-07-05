@@ -10,13 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -36,15 +30,12 @@ import {
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminAttendanceCodesController {
-  constructor(
-    private readonly attendanceCodesService: AttendanceCodesService,
-  ) {}
+  constructor(private readonly attendanceCodesService: AttendanceCodesService) {}
 
   @Post('generate')
   @ApiOperation({
     summary: 'Generate attendance codes',
-    description:
-      'Generates a batch of attendance codes for a specific item (lesson or package).',
+    description: 'Generates a batch of attendance codes for a specific item (lesson or package).',
   })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Item not found' })
   public async generate(
@@ -59,10 +50,7 @@ export class AdminAttendanceCodesController {
       expires_at: Date;
     }>;
   }> {
-    const codes = await this.attendanceCodesService.generateCodes(
-      dto,
-      user.userId,
-    );
+    const codes = await this.attendanceCodesService.generateCodes(dto, user.userId);
     return {
       message: `Generated ${String(codes.length)} attendance codes`,
       data: codes.map((c) => ({
@@ -79,17 +67,14 @@ export class AdminAttendanceCodesController {
     status: HttpStatus.OK,
     description: 'List of attendance codes',
   })
-  public async findAll(
-    @Query() filter: AttendanceCodeFilterDto,
-  ): Promise<unknown> {
+  public async findAll(@Query() filter: AttendanceCodeFilterDto): Promise<unknown> {
     return await this.attendanceCodesService.findAll(filter);
   }
 
   @Get('stats')
   @ApiOperation({
     summary: 'Get attendance code statistics',
-    description:
-      'Returns statistics about attendance codes (total, used, unused, expired).',
+    description: 'Returns statistics about attendance codes (total, used, unused, expired).',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -103,8 +88,7 @@ export class AdminAttendanceCodesController {
   @Get(':code')
   @ApiOperation({
     summary: 'Get attendance code details',
-    description:
-      'Returns detailed information about a specific attendance code.',
+    description: 'Returns detailed information about a specific attendance code.',
   })
   @ApiParam({ name: 'code', description: 'The attendance code string' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Code details' })
@@ -173,8 +157,7 @@ export class AdminAttendanceCodesController {
   public async deactivateCode(
     @Param('code') code: string,
   ): Promise<{ message: string; data: unknown }> {
-    const deactivatedCode =
-      await this.attendanceCodesService.deactivateCode(code);
+    const deactivatedCode = await this.attendanceCodesService.deactivateCode(code);
     return {
       message: 'Purchase code deactivated successfully',
       data: {
@@ -203,8 +186,7 @@ export class AdminAttendanceCodesController {
   public async reactivateCode(
     @Param('code') code: string,
   ): Promise<{ message: string; data: unknown }> {
-    const reactivatedCode =
-      await this.attendanceCodesService.reactivateCode(code);
+    const reactivatedCode = await this.attendanceCodesService.reactivateCode(code);
     return {
       message: 'Purchase code reactivated successfully',
       data: {
@@ -223,9 +205,7 @@ export class AdminAttendanceCodesController {
   @ApiParam({ name: 'code', description: 'The attendance code string' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Code usage history' })
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  public async getCodeUsage(
-    @Param('code') code: string,
-  ): Promise<{ data: unknown }> {
+  public async getCodeUsage(@Param('code') code: string): Promise<{ data: unknown }> {
     const usage = await this.attendanceCodesService.getCodeUsage(code);
     return { data: usage };
   }
@@ -233,8 +213,7 @@ export class AdminAttendanceCodesController {
   @Delete(':code')
   @ApiOperation({
     summary: 'Delete attendance code',
-    description:
-      'Permanently deletes an attendance code. Cannot delete used codes.',
+    description: 'Permanently deletes an attendance code. Cannot delete used codes.',
   })
   @ApiParam({ name: 'code', description: 'The attendance code string' })
   @ApiResponse({
@@ -246,9 +225,7 @@ export class AdminAttendanceCodesController {
     status: HttpStatus.BAD_REQUEST,
     description: 'Cannot delete used code',
   })
-  public async remove(
-    @Param('code') code: string,
-  ): Promise<{ message: string }> {
+  public async remove(@Param('code') code: string): Promise<{ message: string }> {
     await this.attendanceCodesService.remove(code);
     return { message: 'Purchase code deleted successfully' };
   }

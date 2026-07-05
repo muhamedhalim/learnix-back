@@ -142,7 +142,13 @@ export class BunnyStreamService {
       body: JSON.stringify({ title: title.slice(0, 200) || 'Untitled' }),
     });
     if (!res.ok) {
-      this.logger.error(`Bunny createVideo failed (${res.status})`);
+      const error = await res.text();
+
+      this.logger.error(`
+      Bunny createVideo failed
+      Status: ${res.status}
+      Response: ${error}
+      `);
       throw new BadRequestException('Failed to create video on Bunny Stream.');
     }
     const data = (await res.json()) as { guid?: string };

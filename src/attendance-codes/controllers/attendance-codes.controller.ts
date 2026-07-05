@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpStatus,
-  Param,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Get, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -26,9 +13,7 @@ import { VerifyAttendanceCodeDto } from '../dto';
 @Controller('attendance-codes')
 @ApiBearerAuth('JWT-auth')
 export class AttendanceCodesController {
-  constructor(
-    private readonly attendanceCodesService: AttendanceCodesService,
-  ) {}
+  constructor(private readonly attendanceCodesService: AttendanceCodesService) {}
 
   @Get('verify/:code')
   @ApiOperation({
@@ -67,8 +52,7 @@ export class AttendanceCodesController {
       isUsed?: boolean | undefined;
     };
   }> {
-    const verification =
-      await this.attendanceCodesService.verifyCodePublic(code);
+    const verification = await this.attendanceCodesService.verifyCodePublic(code);
     return {
       data: verification,
     };
@@ -79,8 +63,7 @@ export class AttendanceCodesController {
   @Roles('student')
   @ApiOperation({
     summary: 'Redeem an attendance code (student)',
-    description:
-      'Redeems an attendance code and grants access to the associated item.',
+    description: 'Redeems an attendance code and grants access to the associated item.',
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -97,13 +80,9 @@ export class AttendanceCodesController {
       item_id: string;
     };
   }> {
-    const payment = await this.attendanceCodesService.verifyAndRedeem(
-      dto,
-      user.userId,
-    );
+    const payment = await this.attendanceCodesService.verifyAndRedeem(dto, user.userId);
     return {
-      message:
-        'Attendance code redeemed successfully. Access has been granted.',
+      message: 'Attendance code redeemed successfully. Access has been granted.',
       data: {
         payment_id: payment.id,
         item_type: payment.item_type,

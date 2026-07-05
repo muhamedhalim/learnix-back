@@ -1,11 +1,4 @@
-import * as crypto from 'node:crypto';
-
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
@@ -28,7 +21,14 @@ import {
   UpdateAttendanceCodeDto,
   VerifyAttendanceCodeDto,
 } from './dto';
-import { AttendanceCode, AttendanceCodeType } from './entities';
+import { generateAttendanceCode } from './code-generator.util';
+import {
+  AttendanceCode,
+  AttendanceCodeAudit,
+  AttendanceCodeAuditAction,
+  AttendanceCodeStatus,
+  AttendanceCodeType,
+} from './entities';
 
 @Injectable()
 export class AttendanceCodesService {
@@ -93,21 +93,9 @@ export class AttendanceCodesService {
     return savedCodes;
   }
 
-  /**
-   * Generate a unique 8-character alphanumeric code
-   */
+  /** Generate a unique 8-character alphanumeric code (shared generator). */
   private generateUniqueCode(): string {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excluding similar chars (0, O, 1, I)
-    let code = '';
-    const randomBytesArray = crypto.randomBytes(8);
-
-    for (const byteValue of randomBytesArray) {
-      const charIndex = byteValue % chars.length;
-      const char = chars.charAt(charIndex);
-      code += char;
-    }
-
-    return code;
+    return generateAttendanceCode();
   }
 
   /**
@@ -158,8 +146,7 @@ export class AttendanceCodesService {
     }
 
     // Code is valid if: exists, not used, not expired, and item still exists
-    const valid =
-      !isUsed && !isExpired && itemTitle !== undefined && itemTitle !== '';
+    const valid = !isUsed && !isExpired && itemTitle !== undefined && itemTitle !== '';
 
     return {
       valid,
@@ -176,10 +163,7 @@ export class AttendanceCodesService {
   /**
    * Verify and redeem a purchase code (with race condition protection)
    */
-  public async verifyAndRedeem(
-    dto: VerifyAttendanceCodeDto,
-    userId: string,
-  ): Promise<Payment> {
+  public async verifyAndRedeem(dto: VerifyAttendanceCodeDto, userId: string): Promise<Payment> {
     return await retryTransaction(this.dataSource, async (manager) => {
       // Find unused, unexpired, active code with pessimistic lock
       const code = await manager.findOne(AttendanceCode, {
@@ -193,16 +177,22 @@ export class AttendanceCodesService {
       });
 
       if (!code) {
-        throw new NotFoundException(
-          'Invalid, expired, or deactivated purchase code',
-        );
+        throw new NotFoundException('Invalid, expired, or deactivated purchase code');
       }
 
-      // Mark as used
+      // Mark as used (canonical lifecycle → REDEEMED) and record the audit.
       code.is_used = true;
+      code.status = AttendanceCodeStatus.REDEEMED;
       code.used_by = userId;
       code.used_at = new Date();
       await manager.save(AttendanceCode, code);
+      await manager.insert(AttendanceCodeAudit, {
+        code_id: code.id,
+        batch_id: code.batch_id,
+        action: AttendanceCodeAuditAction.REDEEMED,
+        actor_id: userId,
+        metadata: { code: code.code, type: code.type, item_id: code.item_id },
+      });
 
       // Create free payment
       const itemType =
@@ -304,8 +294,7 @@ export class AttendanceCodesService {
     for (const item of pkg.items) {
       const { lesson } = item;
 
-      const accessDays =
-        lesson.available_for_days === 0 ? 7 : lesson.available_for_days;
+      const accessDays = lesson.available_for_days === 0 ? 7 : lesson.available_for_days;
       const accessGrantedAt = new Date();
       const accessExpiresAt = new Date(accessGrantedAt);
       accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
@@ -362,10 +351,7 @@ export class AttendanceCodesService {
 
     queryBuilder.orderBy('code.created_at', 'DESC');
 
-    const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
 
@@ -396,10 +382,7 @@ export class AttendanceCodesService {
    * Update a purchase code (admin only)
    * Only allows updating expiration date
    */
-  public async updateCode(
-    code: string,
-    dto: UpdateAttendanceCodeDto,
-  ): Promise<AttendanceCode> {
+  public async updateCode(code: string, dto: UpdateAttendanceCodeDto): Promise<AttendanceCode> {
     const attendanceCode = await this.attendanceCodesRepository.findOne({
       where: { code: code.toUpperCase() },
       relations: ['user', 'creator'],
@@ -414,9 +397,7 @@ export class AttendanceCodesService {
     }
 
     if (!attendanceCode.is_active) {
-      throw new BadRequestException(
-        'Cannot update a deactivated purchase code',
-      );
+      throw new BadRequestException('Cannot update a deactivated purchase code');
     }
 
     // Update expiration date if provided
@@ -428,8 +409,7 @@ export class AttendanceCodesService {
       attendanceCode.expires_at = newExpiresAt;
     }
 
-    const updatedCode =
-      await this.attendanceCodesRepository.save(attendanceCode);
+    const updatedCode = await this.attendanceCodesRepository.save(attendanceCode);
     this.logger.log(`Updated purchase code: ${code}`);
 
     return updatedCode;
@@ -458,8 +438,7 @@ export class AttendanceCodesService {
     }
 
     attendanceCode.is_active = false;
-    const updatedCode =
-      await this.attendanceCodesRepository.save(attendanceCode);
+    const updatedCode = await this.attendanceCodesRepository.save(attendanceCode);
     this.logger.log(`Deactivated purchase code: ${code}`);
 
     return updatedCode;
@@ -494,8 +473,7 @@ export class AttendanceCodesService {
     }
 
     attendanceCode.is_active = true;
-    const updatedCode =
-      await this.attendanceCodesRepository.save(attendanceCode);
+    const updatedCode = await this.attendanceCodesRepository.save(attendanceCode);
     this.logger.log(`Reactivated purchase code: ${code}`);
 
     return updatedCode;

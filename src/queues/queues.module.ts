@@ -79,6 +79,14 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
         name: QUEUE_NAMES.FILE_CLEANUP,
         ...QUEUE_CONFIGS[QUEUE_NAMES.FILE_CLEANUP],
       },
+      {
+        name: QUEUE_NAMES.CODE_GENERATION,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.CODE_GENERATION],
+      },
+      {
+        name: QUEUE_NAMES.CODE_EXPORT,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.CODE_EXPORT],
+      },
     ),
     IdempotencyModule,
     BullBoardModule.forFeature({
@@ -87,6 +95,14 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
     }),
     BullBoardModule.forFeature({
       name: QUEUE_NAMES.FILE_CLEANUP,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.CODE_GENERATION,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.CODE_EXPORT,
       adapter: BullMQAdapter,
     }),
   ],
