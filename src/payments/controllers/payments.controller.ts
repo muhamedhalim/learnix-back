@@ -9,12 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -77,11 +72,7 @@ export class PaymentsController {
     @Body() billingData: BillingDataDto,
     @GetUser() user: JwtPayload,
   ): Promise<{ message: string; data: unknown }> {
-    const result = await this.paymentsService.reopenLesson(
-      lessonId,
-      user.userId,
-      billingData,
-    );
+    const result = await this.paymentsService.reopenLesson(lessonId, user.userId, billingData);
     return {
       message: 'Reopen payment initiated at 50% price',
       data: result,
@@ -97,18 +88,14 @@ export class PaymentsController {
     @Query() filter: PaymentFilterDto,
     @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    const result = await this.paymentsService.getMyPurchases(
-      user.userId,
-      filter,
-    );
+    const result = await this.paymentsService.getMyPurchases(user.userId, filter);
     return result;
   }
 
   @Get('my-lessons')
   @ApiOperation({
     summary: 'Get my active lesson access',
-    description:
-      'Returns list of lessons the student currently has access to (not expired).',
+    description: 'Returns list of lessons the student currently has access to (not expired).',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -148,10 +135,7 @@ export class PaymentsController {
     @Param('id', ParseUUIDPipe) lessonId: string,
     @GetUser() user: JwtPayload,
   ): Promise<{ data: unknown }> {
-    const access = await this.paymentsService.checkLessonAccess(
-      user.userId,
-      lessonId,
-    );
+    const access = await this.paymentsService.checkLessonAccess(user.userId, lessonId);
     return {
       data: access,
     };

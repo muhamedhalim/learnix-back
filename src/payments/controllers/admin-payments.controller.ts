@@ -9,13 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -34,8 +28,7 @@ export class AdminPaymentsController {
   @Get()
   @ApiOperation({
     summary: 'Get all payments',
-    description:
-      'Returns paginated list of all payments with optional filters.',
+    description: 'Returns paginated list of all payments with optional filters.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -49,9 +42,7 @@ export class AdminPaymentsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Not authorized (admin only)',
   })
-  public async getAllPayments(
-    @Query() filter: PaymentFilterDto,
-  ): Promise<unknown> {
+  public async getAllPayments(@Query() filter: PaymentFilterDto): Promise<unknown> {
     return await this.paymentsService.getAllPayments(filter);
   }
 
@@ -78,12 +69,8 @@ export class AdminPaymentsController {
     @Query('from_date') fromDate?: string,
     @Query('to_date') toDate?: string,
   ): Promise<{ data: unknown }> {
-    const from =
-      fromDate !== undefined && fromDate !== ''
-        ? new Date(fromDate)
-        : undefined;
-    const to =
-      toDate !== undefined && toDate !== '' ? new Date(toDate) : undefined;
+    const from = fromDate !== undefined && fromDate !== '' ? new Date(fromDate) : undefined;
+    const to = toDate !== undefined && toDate !== '' ? new Date(toDate) : undefined;
 
     const stats = await this.paymentsService.getRevenueStatistics(from, to);
     return {
@@ -100,10 +87,7 @@ export class AdminPaymentsController {
     @Query('page', new ParseIntPipe({ optional: true })) page?: number,
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
   ): Promise<unknown> {
-    return await this.paymentsService.getAllLessonPurchases(
-      page ?? 1,
-      limit ?? 20,
-    );
+    return await this.paymentsService.getAllLessonPurchases(page ?? 1, limit ?? 20);
   }
 
   @Get(':id')

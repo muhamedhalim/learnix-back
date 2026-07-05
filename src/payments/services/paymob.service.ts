@@ -1,10 +1,6 @@
 import * as crypto from 'node:crypto';
 
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { BillingDataDto } from '../dto/billing-data.dto';
@@ -42,11 +38,9 @@ export class PaymobService {
 
   constructor(private readonly configService: ConfigService) {
     this.apiKey = this.configService.get<string>('PAYMOB_API_KEY') ?? '';
-    this.integrationId =
-      this.configService.get<string>('PAYMOB_INTEGRATION_ID') ?? '';
+    this.integrationId = this.configService.get<string>('PAYMOB_INTEGRATION_ID') ?? '';
     this.iframeId = this.configService.get<string>('PAYMOB_IFRAME_ID') ?? '';
-    this.hmacSecret =
-      this.configService.get<string>('PAYMOB_HMAC_SECRET') ?? '';
+    this.hmacSecret = this.configService.get<string>('PAYMOB_HMAC_SECRET') ?? '';
   }
 
   /**
@@ -63,9 +57,7 @@ export class PaymobService {
       if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob auth failed: ${error}`);
-        throw new InternalServerErrorException(
-          'Payment service authentication failed',
-        );
+        throw new InternalServerErrorException('Payment service authentication failed');
       }
 
       const data = (await response.json()) as PaymobAuthResponse;
@@ -103,18 +95,14 @@ export class PaymobService {
       if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob order registration failed: ${error}`);
-        throw new InternalServerErrorException(
-          'Failed to register payment order',
-        );
+        throw new InternalServerErrorException('Failed to register payment order');
       }
 
       const data = (await response.json()) as PaymobOrderResponse;
       return data.id;
     } catch (error) {
       this.logger.error('Failed to register Paymob order', error);
-      throw new InternalServerErrorException(
-        'Payment order registration failed',
-      );
+      throw new InternalServerErrorException('Payment order registration failed');
     }
   }
 
@@ -161,9 +149,7 @@ export class PaymobService {
       if (!response.ok) {
         const error = await response.text();
         this.logger.error(`Paymob payment key generation failed: ${error}`);
-        throw new InternalServerErrorException(
-          'Failed to generate payment key',
-        );
+        throw new InternalServerErrorException('Failed to generate payment key');
       }
 
       const data = (await response.json()) as PaymobPaymentKeyResponse;
@@ -188,19 +174,10 @@ export class PaymobService {
     const authToken = await this.getAuthToken();
 
     // Step 2: Register order
-    const paymobOrderId = await this.registerOrder(
-      authToken,
-      amountCents,
-      merchantOrderId,
-    );
+    const paymobOrderId = await this.registerOrder(authToken, amountCents, merchantOrderId);
 
     // Step 3: Get payment key
-    const paymentKey = await this.getPaymentKey(
-      authToken,
-      amountCents,
-      paymobOrderId,
-      billingData,
-    );
+    const paymentKey = await this.getPaymentKey(authToken, amountCents, paymobOrderId, billingData);
 
     // Generate iframe URL
     const iframeUrl = `https://accept.paymob.com/api/acceptance/iframes/${this.iframeId}?payment_token=${paymentKey}`;
@@ -221,8 +198,7 @@ export class PaymobService {
     receivedHmac: string,
   ): boolean {
     const obj: PaymobTransactionDto =
-      (webhookData as WebhookPayload).obj ??
-      (webhookData as PaymobTransactionDto);
+      (webhookData as WebhookPayload).obj ?? (webhookData as PaymobTransactionDto);
 
     // Concatenate fields in the exact order Paymob specifies
     const hmacFields = [
@@ -250,22 +226,40 @@ export class PaymobService {
 
     const hmacString = hmacFields.join('');
 
+    // Fail closed if the secret is not configured — never accept unsigned data.
+    if (this.hmacSecret === '') {
+      this.logger.error('PAYMOB_HMAC_SECRET is not configured — rejecting webhook');
+      return false;
+    }
+
     const calculatedHmac = crypto
       .createHmac('sha512', this.hmacSecret)
       .update(hmacString)
       .digest('hex');
 
-    const isValid = calculatedHmac === receivedHmac;
+    const isValid = this.safeCompare(calculatedHmac, receivedHmac);
 
     if (!isValid) {
-      this.logger.warn(
-        `HMAC verification failed for transaction ${obj.id.toString()}`,
-      );
-      this.logger.debug(`Expected: ${calculatedHmac.slice(0, 20)}...`);
-      this.logger.debug(`Received: ${receivedHmac.slice(0, 20)}...`);
+      this.logger.warn(`HMAC verification failed for transaction ${obj.id.toString()}`);
     }
 
     return isValid;
+  }
+
+  /**
+   * Constant-time string comparison to prevent timing side-channel attacks on
+   * HMAC verification. Returns false on any length mismatch or invalid input.
+   */
+  private safeCompare(expected: string, received: unknown): boolean {
+    if (typeof received !== 'string' || received.length === 0) {
+      return false;
+    }
+    const a = Buffer.from(expected, 'utf8');
+    const b = Buffer.from(received, 'utf8');
+    if (a.length !== b.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(a, b);
   }
 
   /**

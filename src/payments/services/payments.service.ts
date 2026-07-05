@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
   EntityManager,
+  In,
   IsNull,
   LessThanOrEqual,
   MoreThan,
@@ -49,6 +50,21 @@ export interface PaymentResponse {
   final_amount: number;
   iframe_url: string;
 }
+
+/**
+ * Verified facts extracted from a gateway webhook, used to guarantee financial
+ * correctness before granting access: the amount actually captured (in cents)
+ * and its currency must match what we expected to charge for this payment.
+ */
+export interface PaymentVerificationContext {
+  amountCents: number;
+  currency: string;
+  transactionId?: string;
+}
+
+/** The only currency this platform charges in. Charges in any other currency
+ * are treated as tampering and rejected. */
+const EXPECTED_CURRENCY = 'EGP';
 
 export interface AccessCheckResult {
   has_access: boolean;
@@ -127,14 +143,10 @@ export class PaymentsService {
   /**
    * Purchase a lesson - initiates payment with Paymob
    */
-  public async purchaseLesson(
-    dto: PurchaseLessonDto,
-    userId: string,
-  ): Promise<PaymentResponse> {
+  public async purchaseLesson(dto: PurchaseLessonDto, userId: string): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
-      dto.idempotency_key ??
-      `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
+      dto.idempotency_key ?? `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
 
     // Check idempotency
     const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
@@ -191,6 +203,7 @@ export class PaymentsService {
     }
 
     const finalAmount = lesson.price - discountAmount;
+    this.assertChargeableAmount(finalAmount);
 
     // Create payment using transaction
     return await retryTransaction(this.dataSource, async (manager) => {
@@ -243,11 +256,7 @@ export class PaymentsService {
       };
 
       // Store idempotency result
-      await this.idempotencyService.storePaymentResult(
-        userId,
-        idempotencyKey,
-        response,
-      );
+      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
 
       this.logger.log(
         `Payment ${savedPayment.id} initiated for lesson ${dto.lesson_id} by user ${userId}`,
@@ -260,14 +269,10 @@ export class PaymentsService {
   /**
    * Purchase a package - initiates payment with Paymob
    */
-  public async purchasePackage(
-    dto: PurchasePackageDto,
-    userId: string,
-  ): Promise<PaymentResponse> {
+  public async purchasePackage(dto: PurchasePackageDto, userId: string): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
-      dto.idempotency_key ??
-      `package-${userId}-${dto.package_id}-${Date.now().toString()}`;
+      dto.idempotency_key ?? `package-${userId}-${dto.package_id}-${Date.now().toString()}`;
 
     // Check idempotency
     const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
@@ -317,6 +322,7 @@ export class PaymentsService {
     }
 
     const finalAmount = pkg.price - discountAmount;
+    this.assertChargeableAmount(finalAmount);
 
     // Create payment using transaction
     return await retryTransaction(this.dataSource, async (manager) => {
@@ -369,11 +375,7 @@ export class PaymentsService {
       };
 
       // Store idempotency result
-      await this.idempotencyService.storePaymentResult(
-        userId,
-        idempotencyKey,
-        response,
-      );
+      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
 
       this.logger.log(
         `Payment ${savedPayment.id} initiated for package ${dto.package_id} by user ${userId}`,
@@ -464,9 +466,22 @@ export class PaymentsService {
   }
 
   /**
-   * Process successful payment - grant access
+   * Process successful payment - grant access.
+   *
+   * Financial-correctness guarantees (all enforced inside a single
+   * pessimistically-locked transaction, so concurrent/duplicate webhooks are
+   * serialized):
+   * - Idempotent: a payment already COMPLETED is skipped (no double grant).
+   * - Terminal-state safe: a REFUNDED/EXPIRED payment is never resurrected.
+   * - Amount-tamper safe: the captured amount must equal the expected
+   *   `final_amount` (to the cent) or access is refused (underpayment,
+   *   partial capture, amount tampering).
+   * - Currency-tamper safe: the captured currency must match EGP.
    */
-  public async processSuccessfulPayment(paymentId: string): Promise<void> {
+  public async processSuccessfulPayment(
+    paymentId: string,
+    verification?: PaymentVerificationContext,
+  ): Promise<void> {
     await retryTransaction(this.dataSource, async (manager) => {
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
@@ -482,8 +497,23 @@ export class PaymentsService {
         return;
       }
 
-      // Update payment status
+      // A payment that already reached a terminal non-completed state (refunded,
+      // voided->refunded, expired) must never be flipped to completed by a late
+      // or replayed "success" webhook.
+      if (payment.status === PaymentStatus.REFUNDED || payment.status === PaymentStatus.EXPIRED) {
+        this.logger.warn(`Refusing to complete payment ${paymentId}: already ${payment.status}`);
+        return;
+      }
+
+      // Financial verification against the authoritative, locked payment row.
+      this.assertCapturedAmountMatches(payment, verification);
+
+      // Update payment status (+ persist the gateway transaction id for
+      // reconciliation / settlement audit).
       payment.status = PaymentStatus.COMPLETED;
+      if (verification?.transactionId !== undefined) {
+        payment.paymob_transaction_id = verification.transactionId;
+      }
       await manager.save(Payment, payment);
 
       // Grant access based on item type
@@ -493,19 +523,90 @@ export class PaymentsService {
         await this.grantPackageAccess(manager, payment);
       }
 
-      this.logger.log(
-        `Payment ${paymentId} completed successfully, access granted`,
-      );
+      this.logger.log(`Payment ${paymentId} completed successfully, access granted`);
     });
+  }
+
+  /**
+   * Reject non-positive order totals before they reach the gateway. A fully
+   * discounted (0 EGP) or negative total (misconfigured fixed discount larger
+   * than the price) must never be sent to Paymob — it would fail at the gateway
+   * or, worse, create a malformed/negative order (negative settlement).
+   */
+  private assertChargeableAmount(finalAmount: number): void {
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+      throw new BadRequestException('Order total must be greater than zero after discounts');
+    }
+  }
+
+  /**
+   * Guard against underpayment / partial capture / amount tampering / currency
+   * tampering. Throws BadRequestException (fail-closed: no access granted, the
+   * payment stays in its current state for manual review) on any mismatch.
+   */
+  private assertCapturedAmountMatches(
+    payment: Payment,
+    verification?: PaymentVerificationContext,
+  ): void {
+    if (verification === undefined) {
+      return; // Internal callers without gateway context (e.g. tests/admin).
+    }
+
+    const expectedCents = Math.round(Number(payment.final_amount) * 100);
+
+    if (verification.amountCents !== expectedCents) {
+      this.logger.error(
+        `Amount mismatch for payment ${payment.id}: captured ` +
+          `${String(verification.amountCents)} cents, expected ${String(expectedCents)} cents`,
+      );
+      throw new BadRequestException('Captured amount does not match the expected order total');
+    }
+
+    if (verification.currency.toUpperCase() !== EXPECTED_CURRENCY) {
+      this.logger.error(
+        `Currency mismatch for payment ${payment.id}: got ${verification.currency}, ` +
+          `expected ${EXPECTED_CURRENCY}`,
+      );
+      throw new BadRequestException('Unexpected payment currency');
+    }
+  }
+
+  /**
+   * Handle a refunded/voided transaction reported by the gateway. Marks the
+   * payment REFUNDED (guarded so it never overwrites a still-pending charge into
+   * a terminal state incorrectly, and is idempotent). Revenue reporting only
+   * counts COMPLETED payments, so this immediately removes it from revenue.
+   */
+  public async processRefundedPayment(
+    paymentId: string,
+    verification?: PaymentVerificationContext,
+  ): Promise<void> {
+    const result = await this.paymentsRepository.update(
+      {
+        id: paymentId,
+        status: In([PaymentStatus.COMPLETED, PaymentStatus.PROCESSING, PaymentStatus.PENDING]),
+      },
+      {
+        status: PaymentStatus.REFUNDED,
+        ...(verification?.transactionId !== undefined
+          ? { paymob_transaction_id: verification.transactionId }
+          : {}),
+      },
+    );
+
+    if ((result.affected ?? 0) === 0) {
+      this.logger.warn(
+        `Refund webhook for payment ${paymentId} did not change status (already terminal or missing)`,
+      );
+    } else {
+      this.logger.log(`Payment ${paymentId} marked as refunded`);
+    }
   }
 
   /**
    * Grant access to a lesson (7-day rule)
    */
-  private async grantLessonAccess(
-    manager: EntityManager,
-    payment: Payment,
-  ): Promise<void> {
+  private async grantLessonAccess(manager: EntityManager, payment: Payment): Promise<void> {
     // Get lesson to check available_for_days
     const lesson = await manager.findOne(Lesson, {
       where: { id: payment.item_id },
@@ -529,12 +630,7 @@ export class PaymentsService {
     await manager.save(LessonPurchase, lessonPurchase);
 
     // Update lesson students_count
-    await manager.increment(
-      Lesson,
-      { id: payment.item_id },
-      'students_count',
-      1,
-    );
+    await manager.increment(Lesson, { id: payment.item_id }, 'students_count', 1);
 
     this.logger.log(
       `Lesson access granted: user ${payment.user_id}, lesson ${payment.item_id}, ` +
@@ -545,10 +641,7 @@ export class PaymentsService {
   /**
    * Grant access to all lessons in a package
    */
-  private async grantPackageAccess(
-    manager: EntityManager,
-    payment: Payment,
-  ): Promise<void> {
+  private async grantPackageAccess(manager: EntityManager, payment: Payment): Promise<void> {
     // Get package with lessons
     const pkg = await manager.findOne(LessonPackage, {
       where: { id: payment.item_id },
@@ -600,17 +693,40 @@ export class PaymentsService {
   }
 
   /**
-   * Process failed payment
+   * Process failed payment.
+   *
+   * Only a still-open payment (PENDING/PROCESSING) may transition to FAILED — a
+   * late, out-of-order or replayed failure webhook must never overwrite a
+   * payment that already COMPLETED (access granted) or was REFUNDED, which would
+   * corrupt revenue reporting and hide granted access (payment-vs-failure race).
    */
   public async processFailedPayment(
     paymentId: string,
     failureReason?: string,
+    verification?: PaymentVerificationContext,
   ): Promise<void> {
     const reason = failureReason ?? 'Payment declined';
-    await this.paymentsRepository.update(paymentId, {
-      status: PaymentStatus.FAILED,
-      failure_reason: reason,
-    });
+    const result = await this.paymentsRepository.update(
+      {
+        id: paymentId,
+        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
+      },
+      {
+        status: PaymentStatus.FAILED,
+        failure_reason: reason,
+        ...(verification?.transactionId !== undefined
+          ? { paymob_transaction_id: verification.transactionId }
+          : {}),
+      },
+    );
+
+    if ((result.affected ?? 0) === 0) {
+      this.logger.warn(
+        `Ignoring failure webhook for payment ${paymentId}: not in an open state ` +
+          `(already completed/refunded/failed)`,
+      );
+      return;
+    }
 
     this.logger.log(`Payment ${paymentId} marked as failed: ${reason}`);
   }
@@ -618,10 +734,7 @@ export class PaymentsService {
   /**
    * Check if student has active access to a lesson
    */
-  public async checkLessonAccess(
-    userId: string,
-    lessonId: string,
-  ): Promise<AccessCheckResult> {
+  public async checkLessonAccess(userId: string, lessonId: string): Promise<AccessCheckResult> {
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: {
         student_id: userId,
@@ -636,8 +749,7 @@ export class PaymentsService {
 
     const now = new Date();
     const daysRemaining = Math.ceil(
-      (purchase.access_expires_at.getTime() - now.getTime()) /
-        (1000 * 60 * 60 * 24),
+      (purchase.access_expires_at.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
     );
 
     return {
@@ -695,12 +807,7 @@ export class PaymentsService {
   public async getMyPackages(userId: string): Promise<PackagePurchase[]> {
     return await this.packagePurchasesRepository.find({
       where: { student_id: userId },
-      relations: [
-        'package',
-        'package.teacher',
-        'package.items',
-        'package.items.lesson',
-      ],
+      relations: ['package', 'package.teacher', 'package.items', 'package.items.lesson'],
       order: { purchased_at: 'DESC' },
     });
   }
@@ -712,10 +819,7 @@ export class PaymentsService {
    * signed video playback. Does not cover teacher-owner / admin access, which
    * the caller checks separately.
    */
-  public async hasLessonPlaybackAccess(
-    userId: string,
-    lessonId: string,
-  ): Promise<boolean> {
+  public async hasLessonPlaybackAccess(userId: string, lessonId: string): Promise<boolean> {
     const lessonPurchase = await this.lessonPurchasesRepository.findOne({
       where: {
         student_id: userId,
@@ -781,10 +885,7 @@ export class PaymentsService {
     const order = filter.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     queryBuilder.orderBy(`payment.${sortBy}`, order);
 
-    const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
 
@@ -849,10 +950,7 @@ export class PaymentsService {
 
     queryBuilder.leftJoinAndSelect('payment.user', 'user');
 
-    const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
 
@@ -882,12 +980,9 @@ export class PaymentsService {
   /**
    * Get payment by merchant order ID (our payment.id - UUID)
    */
-  public async getPaymentByMerchantOrderId(
-    merchantOrderId: string,
-  ): Promise<Payment | null> {
+  public async getPaymentByMerchantOrderId(merchantOrderId: string): Promise<Payment | null> {
     // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(merchantOrderId)) {
       return null;
     }
@@ -930,10 +1025,7 @@ export class PaymentsService {
   /**
    * Get revenue statistics (admin)
    */
-  public async getRevenueStatistics(
-    fromDate?: Date,
-    toDate?: Date,
-  ): Promise<RevenueStatistics> {
+  public async getRevenueStatistics(fromDate?: Date, toDate?: Date): Promise<RevenueStatistics> {
     const queryBuilder = this.paymentsRepository
       .createQueryBuilder('payment')
       .select('SUM(payment.final_amount)', 'total_revenue')
@@ -958,18 +1050,13 @@ export class PaymentsService {
     };
 
     return {
-      total_revenue:
-        result.total_revenue === null ? 0 : Number.parseFloat(result.total_revenue),
+      total_revenue: result.total_revenue === null ? 0 : Number.parseFloat(result.total_revenue),
 
       total_payments:
-        result.total_payments === null
-          ? 0
-          : Number.parseInt(result.total_payments, 10),
+        result.total_payments === null ? 0 : Number.parseInt(result.total_payments, 10),
 
       total_discounts:
-        result.total_discounts === null
-          ? 0
-          : Number.parseFloat(result.total_discounts),
+        result.total_discounts === null ? 0 : Number.parseFloat(result.total_discounts),
     };
   }
 

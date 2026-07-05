@@ -23,13 +23,7 @@ import { PaymobService } from './services/paymob.service';
     forwardRef(() => DiscountCodesModule),
     ConfigModule,
     IdempotencyModule,
-    TypeOrmModule.forFeature([
-      Payment,
-      LessonPurchase,
-      PackagePurchase,
-      Lesson,
-      LessonPackage,
-    ]),
+    TypeOrmModule.forFeature([Payment, LessonPurchase, PackagePurchase, Lesson, LessonPackage]),
   ],
   controllers: [
     AdminPaymentsController,

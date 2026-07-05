@@ -1,10 +1,4 @@
-import {
-  Body,
-  Controller,
-  Logger,
-  Post,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Body, Controller, Logger, Post, UnauthorizedException } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
@@ -14,7 +8,7 @@ import { PaymentsService } from '../services/payments.service';
 import { PaymobService } from '../services/paymob.service';
 
 interface WebhookResponse {
-  status: 'success' | 'pending' | 'failed' | 'error' | 'already_processed';
+  status: 'success' | 'pending' | 'failed' | 'refunded' | 'error' | 'already_processed';
   message?: string;
   payment_id?: string;
   transaction_id?: number;
@@ -36,9 +30,7 @@ export class PaymentsWebhookController {
 
   @Post()
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
-  public async handlePaymobWebhook(
-    @Body() dto: PaymobWebhookDto,
-  ): Promise<WebhookResponse> {
+  public async handlePaymobWebhook(@Body() dto: PaymobWebhookDto): Promise<WebhookResponse> {
     this.logger.log(
       `Received Paymob webhook: type=${dto.type}, transaction_id=${String(dto.obj.id)}`,
     );
@@ -46,9 +38,7 @@ export class PaymentsWebhookController {
     // Step 1: Verify HMAC signature (CRITICAL SECURITY)
     const isValidHmac = this.paymobService.verifyHmac(dto, dto.hmac);
     if (!isValidHmac) {
-      this.logger.warn(
-        `HMAC verification failed for transaction ${String(dto.obj.id)}`,
-      );
+      this.logger.warn(`HMAC verification failed for transaction ${String(dto.obj.id)}`);
       throw new UnauthorizedException('Invalid HMAC signature');
     }
 
@@ -74,27 +64,41 @@ export class PaymentsWebhookController {
     }
 
     // Step 3: Find payment by merchant order ID
-    const payment =
-      await this.paymentsService.getPaymentByMerchantOrderId(merchantOrderId);
+    const payment = await this.paymentsService.getPaymentByMerchantOrderId(merchantOrderId);
 
     if (!payment) {
-      this.logger.warn(
-        `Payment not found for merchant_order_id: ${merchantOrderId}`,
-      );
+      this.logger.warn(`Payment not found for merchant_order_id: ${merchantOrderId}`);
       return { status: 'error', message: 'Payment not found' };
     }
 
-    // Step 4: Process based on transaction success
+    // Verified financial facts from the (HMAC-authenticated) webhook, threaded
+    // into the service so access is only granted for the exact expected charge.
+    const verification = {
+      amountCents: dto.obj.amount_cents,
+      currency: dto.obj.currency,
+      transactionId: transactionId.toString(),
+    };
+
+    // Step 4: Process based on transaction outcome
     let result: WebhookResponse;
 
-    if (dto.obj.success && !dto.obj.pending) {
+    if (dto.obj.is_refunded || dto.obj.is_voided) {
+      // A refunded/voided transaction must NEVER grant (or keep) access, even
+      // if `success` is also true — refunds are reported with success=true.
+      this.logger.log(`Payment ${merchantOrderId} refunded/voided, revoking entitlement...`);
+      await this.paymentsService.processRefundedPayment(payment.id, verification);
+      result = {
+        status: 'refunded',
+        message: 'Payment refunded or voided',
+        payment_id: payment.id,
+        transaction_id: transactionId,
+      };
+    } else if (dto.obj.success && !dto.obj.pending && !dto.obj.error_occured) {
       // Payment successful
-      this.logger.log(
-        `Payment ${merchantOrderId} successful, granting access...`,
-      );
+      this.logger.log(`Payment ${merchantOrderId} successful, granting access...`);
 
       try {
-        await this.paymentsService.processSuccessfulPayment(payment.id);
+        await this.paymentsService.processSuccessfulPayment(payment.id, verification);
         result = {
           status: 'success',
           message: 'Payment completed, access granted',
@@ -102,10 +106,8 @@ export class PaymentsWebhookController {
           transaction_id: transactionId,
         };
       } catch (error) {
-        this.logger.error(
-          `Failed to process successful payment ${merchantOrderId}`,
-          error,
-        );
+        // Includes amount/currency-mismatch rejections (fail-closed: no access).
+        this.logger.error(`Failed to process successful payment ${merchantOrderId}`, error);
         result = {
           status: 'error',
           message: 'Failed to grant access',
@@ -126,10 +128,7 @@ export class PaymentsWebhookController {
       const failureReason = dto.obj.data_message ?? 'Payment declined';
       this.logger.log(`Payment ${merchantOrderId} failed: ${failureReason}`);
 
-      await this.paymentsService.processFailedPayment(
-        payment.id,
-        failureReason,
-      );
+      await this.paymentsService.processFailedPayment(payment.id, failureReason, verification);
       result = {
         status: 'failed',
         message: failureReason,
@@ -139,11 +138,7 @@ export class PaymentsWebhookController {
     }
 
     // Step 5: Store result for idempotency
-    await this.idempotencyService.storeWebhookResult(
-      payment.id,
-      transactionId.toString(),
-      result,
-    );
+    await this.idempotencyService.storeWebhookResult(payment.id, transactionId.toString(), result);
 
     return result;
   }
@@ -151,12 +146,9 @@ export class PaymentsWebhookController {
   @Post('callback')
   @ApiOperation({
     summary: 'Alternative Paymob callback URL',
-    description:
-      'Alternative endpoint for Paymob callbacks. Same processing as /webhook.',
+    description: 'Alternative endpoint for Paymob callbacks. Same processing as /webhook.',
   })
-  public async handlePaymobCallback(
-    @Body() dto: PaymobWebhookDto,
-  ): Promise<WebhookResponse> {
+  public async handlePaymobCallback(@Body() dto: PaymobWebhookDto): Promise<WebhookResponse> {
     return await this.handlePaymobWebhook(dto);
   }
 }

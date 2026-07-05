@@ -1,13 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { Type } from 'class-transformer';
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  ValidateNested,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 
 import { BillingDataDto } from './billing-data.dto';
 
