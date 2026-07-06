@@ -9,7 +9,18 @@ import {
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { BookFilterDto } from '../dto';
+import { Book } from '../entities/book.entity';
 import { BooksService } from '../services/books.service';
+
+/** Public-facing book shape — omits `book_file`, the private R2 storage key,
+ * which has no use outside purchase-gated download and must never leak to an
+ * unauthenticated/public response. */
+type PublicBook = Omit<Book, 'book_file'>;
+
+function toPublicBook(book: Book): PublicBook {
+  const { book_file: _book_file, ...rest } = book;
+  return rest;
+}
 
 @ApiTags('Books')
 @Controller('books')
@@ -71,7 +82,8 @@ export class BooksController {
     description: 'List of books with pagination',
   })
   public async findAll(@Query() filter: BookFilterDto): Promise<unknown> {
-    return await this.booksService.findAll(filter);
+    const result = await this.booksService.findAll(filter);
+    return { ...result, data: result.data.map(toPublicBook) };
   }
 
   /**
@@ -85,6 +97,7 @@ export class BooksController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.booksService.findOne(id);
+    const book = await this.booksService.findOne(id);
+    return toPublicBook(book);
   }
 }

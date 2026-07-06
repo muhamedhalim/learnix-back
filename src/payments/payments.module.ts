@@ -2,6 +2,8 @@ import { forwardRef, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { Book } from '../books/entities/book.entity';
+import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
 import { IdempotencyModule } from '../idempotency/idempotency.module';
@@ -23,7 +25,15 @@ import { PaymobService } from './services/paymob.service';
     forwardRef(() => DiscountCodesModule),
     ConfigModule,
     IdempotencyModule,
-    TypeOrmModule.forFeature([Payment, LessonPurchase, PackagePurchase, Lesson, LessonPackage]),
+    TypeOrmModule.forFeature([
+      Payment,
+      LessonPurchase,
+      PackagePurchase,
+      Lesson,
+      LessonPackage,
+      Book,
+      BookPurchase,
+    ]),
   ],
   controllers: [
     AdminPaymentsController,

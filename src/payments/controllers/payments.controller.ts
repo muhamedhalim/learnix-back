@@ -18,6 +18,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
 import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
 import { PurchasePackageDto } from '../dto/purchase-package.dto';
 import { PaymentsService } from '../services/payments.service';
@@ -56,6 +57,22 @@ export class PaymentsController {
     @GetUser() user: JwtPayload,
   ): Promise<{ message: string; data: unknown }> {
     const result = await this.paymentsService.purchasePackage(dto, user.userId);
+    return {
+      message: 'Payment initiated successfully',
+      data: result,
+    };
+  }
+
+  @Post('purchase/book')
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Not authenticated',
+  })
+  public async purchaseBook(
+    @Body() dto: PurchaseBookPaymentDto,
+    @GetUser() user: JwtPayload,
+  ): Promise<{ message: string; data: unknown }> {
+    const result = await this.paymentsService.purchaseBook(dto, user.userId);
     return {
       message: 'Payment initiated successfully',
       data: result,

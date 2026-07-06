@@ -20,6 +20,8 @@ import {
   SelectQueryBuilder,
 } from 'typeorm';
 
+import { Book } from '../../books/entities/book.entity';
+import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
@@ -29,6 +31,7 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
 import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
 import { PurchasePackageDto } from '../dto/purchase-package.dto';
 import {
@@ -141,6 +144,10 @@ export class PaymentsService {
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
+    @InjectRepository(Book)
+    private readonly booksRepository: Repository<Book>,
+    @InjectRepository(BookPurchase)
+    private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly dataSource: DataSource,
     private readonly paymobService: PaymobService,
     private readonly idempotencyService: IdempotencyService,
@@ -400,6 +407,138 @@ export class PaymentsService {
   }
 
   /**
+   * Purchase a book - initiates payment with Paymob
+   */
+  public async purchaseBook(
+    dto: PurchaseBookPaymentDto,
+    userId: string,
+  ): Promise<PaymentResponse> {
+    // Generate idempotency key if not provided
+    const idempotencyKey =
+      dto.idempotency_key ?? `book-${userId}-${dto.book_id}-${Date.now().toString()}`;
+
+    // Check idempotency
+    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+      userId,
+      idempotencyKey,
+    );
+    if (
+      idempotencyCheck.isProcessed &&
+      idempotencyCheck.cachedResult !== undefined &&
+      idempotencyCheck.cachedResult !== null
+    ) {
+      this.logger.log(`Returning cached payment response for user ${userId}`);
+      return idempotencyCheck.cachedResult as PaymentResponse;
+    }
+
+    // Get book
+    const book = await this.booksRepository.findOne({
+      where: { id: dto.book_id, deleted_at: IsNull() },
+    });
+
+    if (book === null) {
+      throw new NotFoundException('Book not found');
+    }
+
+    // Books are a one-time purchase (no expiry) — reject if already owned.
+    const existingPurchase = await this.bookPurchasesRepository.findOne({
+      where: { student_id: userId, book_id: dto.book_id },
+    });
+    if (existingPurchase) {
+      throw new ConflictException('You have already purchased this book');
+    }
+
+    // Apply discount code if provided
+    let discountAmount = 0;
+    let discountCodeId: string | null = null;
+
+    if (dto.discount_code !== undefined && dto.discount_code !== '') {
+      const verification = await this.discountCodesService.verifyCode(
+        {
+          code: dto.discount_code,
+          item_type: ApplicableItem.BOOK,
+          item_id: dto.book_id,
+          amount: book.price,
+        },
+        userId,
+      );
+
+      if (!verification.valid) {
+        throw new BadRequestException(verification.error);
+      }
+
+      discountAmount = verification.discount_amount ?? 0;
+      discountCodeId = verification.discount_code_id ?? null;
+    }
+
+    const finalAmount = book.price - discountAmount;
+    this.assertChargeableAmount(finalAmount);
+
+    // Create payment using transaction
+    return await this.initiatePaymentTxn(async (manager) => {
+      // Block a second concurrent charge for the same book (double-charge).
+      await this.assertNoOpenPayment(manager, userId, ItemType.BOOK, dto.book_id);
+
+      // Create payment record
+      const payment = manager.create(Payment, {
+        user_id: userId,
+        item_type: ItemType.BOOK,
+        item_id: dto.book_id,
+        amount: book.price,
+        discount_amount: discountAmount,
+        final_amount: finalAmount,
+        status: PaymentStatus.PENDING,
+        payment_method: PaymentMethod.CARD,
+        idempotency_key: idempotencyKey,
+      });
+
+      const savedPayment = await manager.save(Payment, payment);
+
+      // Apply discount code if used (within transaction for atomicity)
+      if (discountCodeId !== null && discountCodeId !== '') {
+        await this.discountCodesService.applyDiscount(
+          discountCodeId,
+          userId,
+          savedPayment.id,
+          discountAmount,
+          manager,
+        );
+      }
+
+      // Initiate Paymob payment
+      const paymobResult = await this.paymobService.initiatePayment(
+        finalAmount,
+        savedPayment.id,
+        dto.billing_data,
+      );
+
+      // Update payment with Paymob order ID
+      savedPayment.paymob_order_id = paymobResult.paymobOrderId.toString();
+      savedPayment.status = PaymentStatus.PROCESSING;
+      await manager.save(Payment, savedPayment);
+
+      const response: PaymentResponse = {
+        payment_id: savedPayment.id,
+        payment_key: paymobResult.paymentKey,
+        paymob_order_id: paymobResult.paymobOrderId,
+        amount: book.price,
+        discount_amount: discountAmount,
+        final_amount: finalAmount,
+        iframe_url: paymobResult.iframeUrl,
+      };
+
+      // Store idempotency result
+      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
+
+      this.logger.log(
+        `Payment ${savedPayment.id} initiated for book ${dto.book_id} by user ${userId}`,
+      );
+
+      return response;
+    });
+  }
+
+  /**
    * Reopen an expired lesson at 50% price
    */
   public async reopenLesson(
@@ -539,6 +678,8 @@ export class PaymentsService {
         await this.grantLessonAccess(manager, payment);
       } else if (payment.item_type === ItemType.PACKAGE) {
         await this.grantPackageAccess(manager, payment);
+      } else if (payment.item_type === ItemType.BOOK) {
+        await this.grantBookAccess(manager, payment);
       }
 
       this.logger.log(`Payment ${paymentId} completed successfully, access granted`);
@@ -783,6 +924,23 @@ export class PaymentsService {
       `Package access granted: user ${payment.user_id}, package ${payment.item_id}, ` +
         `${pkg.items.length.toString()} lessons`,
     );
+  }
+
+  /**
+   * Grant access to a purchased book (permanent, no expiry).
+   */
+  private async grantBookAccess(manager: EntityManager, payment: Payment): Promise<void> {
+    const bookPurchase = manager.create(BookPurchase, {
+      student_id: payment.user_id,
+      book_id: payment.item_id,
+      payment_id: payment.id,
+      price_paid: payment.final_amount,
+    });
+
+    await manager.save(BookPurchase, bookPurchase);
+    await manager.increment(Book, { id: payment.item_id }, 'purchase_count', 1);
+
+    this.logger.log(`Book access granted: user ${payment.user_id}, book ${payment.item_id}`);
   }
 
   /**

@@ -18,6 +18,41 @@ import { StorageProvider, StoredFile, UploadParams } from './storage.interface';
 const DEFAULT_SIGNED_EXPIRES = 900; // 15 minutes
 
 /**
+ * Build a diagnostic, non-sensitive description of an AWS-SDK / R2 error. The
+ * SDK's `err.message` alone is often just "Access Denied"; the useful signal
+ * lives in `name`, `Code`, `$metadata.httpStatusCode` and `$fault`. We surface
+ * those (never credentials) so failures are actionable in the logs instead of a
+ * generic wrapper.
+ */
+function describeS3Error(err: unknown): string {
+  const e = err as {
+    name?: string;
+    message?: string;
+    Code?: string;
+    $fault?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const status = e?.$metadata?.httpStatusCode;
+  const parts = [
+    e?.name && `name=${e.name}`,
+    e?.Code && e.Code !== e.name && `code=${e.Code}`,
+    status && `status=${status}`,
+    e?.$fault && `fault=${e.$fault}`,
+    e?.message && `message=${e.message}`,
+  ].filter(Boolean);
+  let hint = '';
+  if (status === 403 || e?.name === 'AccessDenied') {
+    hint =
+      ' — the R2 API token is missing write permission for this bucket. ' +
+      'Re-issue an R2 token with "Object Read & Write" scoped to the bucket ' +
+      'and update R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY.';
+  } else if (status === 404 || e?.name === 'NoSuchBucket') {
+    hint = ' — the R2 bucket does not exist or R2_BUCKET is misconfigured.';
+  }
+  return `${parts.join(' ')}${hint}`;
+}
+
+/**
  * Cloudflare R2 (S3-compatible) provider. Primary backend for every non-video
  * asset. Public objects are served via R2_PUBLIC_BASE_URL; private objects
  * (paid PDFs, verification docs, certificates) are only retrievable through a
@@ -62,7 +97,12 @@ class R2StorageProvider implements StorageProvider {
         }),
       );
     } catch (err) {
-      this.logger.error(`R2 upload failed for ${path}: ${(err as Error).message}`);
+      // Log the ORIGINAL exception (with stack + AWS metadata) so the real
+      // cause is diagnosable; the caller still gets a friendly message.
+      this.logger.error(
+        `R2 upload failed for ${path}: ${describeS3Error(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
       throw new Error('File upload failed');
     }
     return {
@@ -77,7 +117,7 @@ class R2StorageProvider implements StorageProvider {
     try {
       await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: path }));
     } catch (err) {
-      this.logger.warn(`R2 delete failed for ${path}: ${(err as Error).message}`);
+      this.logger.warn(`R2 delete failed for ${path}: ${describeS3Error(err)}`);
     }
   }
 

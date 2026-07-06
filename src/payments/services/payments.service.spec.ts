@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { Book } from '../../books/entities/book.entity';
+import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { Lesson } from '../../lessons/entities/lesson.entity';
@@ -59,6 +61,8 @@ describe('PaymentsService — financial correctness', () => {
         { provide: getRepositoryToken(PackagePurchase), useValue: noopRepo },
         { provide: getRepositoryToken(Lesson), useValue: lessonsRepo },
         { provide: getRepositoryToken(LessonPackage), useValue: noopRepo },
+        { provide: getRepositoryToken(Book), useValue: noopRepo },
+        { provide: getRepositoryToken(BookPurchase), useValue: noopRepo },
         { provide: DataSource, useValue: dataSource },
         { provide: PaymobService, useValue: {} },
         { provide: IdempotencyService, useValue: idempotency },
