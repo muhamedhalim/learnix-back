@@ -123,22 +123,21 @@ export class EnvironmentVariables {
   @IsOptional()
   public BUNNY_STREAM_TOKEN_KEY?: string;
 
-  // Paymob (optional until payment features are implemented)
+  // EasyKash payment gateway (optional until payment features go live).
+  // API key used to authenticate outbound create-payment requests.
   @IsString()
   @IsOptional()
-  public PAYMOB_API_KEY?: string;
+  public EASYKASH_API_KEY?: string;
 
+  // Secret used to verify the HMAC signature on inbound EasyKash webhooks.
   @IsString()
   @IsOptional()
-  public PAYMOB_INTEGRATION_ID?: string;
+  public EASYKASH_HMAC_SECRET?: string;
 
+  // Base URL of the EasyKash API (create-payment endpoint host).
   @IsString()
   @IsOptional()
-  public PAYMOB_IFRAME_ID?: string;
-
-  @IsString()
-  @IsOptional()
-  public PAYMOB_HMAC_SECRET?: string;
+  public EASYKASH_API_URL?: string;
 
   // SMTP / Email delivery (optional — when unset, password-reset emails are
   // logged instead of sent, and the reset token is returned in the response in

@@ -17,8 +17,8 @@ import { TeacherPaymentsController } from './controllers/teacher-payments.contro
 // Entities
 import { LessonPurchase, PackagePurchase, Payment } from './entities';
 // Services
+import { EasyKashService } from './services/easykash.service';
 import { PaymentsService } from './services/payments.service';
-import { PaymobService } from './services/paymob.service';
 
 @Module({
   imports: [
@@ -41,8 +41,8 @@ import { PaymobService } from './services/paymob.service';
     PaymentsWebhookController,
     TeacherPaymentsController,
   ],
-  providers: [PaymentsService, PaymobService],
-  exports: [PaymentsService, PaymobService],
+  providers: [PaymentsService, EasyKashService],
+  exports: [PaymentsService, EasyKashService],
 })
 export class PaymentsModule implements OnModuleInit {
   public onModuleInit(): void {

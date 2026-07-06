@@ -3,62 +3,76 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
 import { IdempotencyService } from '../../idempotency/idempotency.service';
-import { PaymobWebhookDto } from '../dto/paymob-webhook.dto';
+import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
+import { EasyKashService } from '../services/easykash.service';
 import { PaymentsService } from '../services/payments.service';
-import { PaymobService } from '../services/paymob.service';
 
 interface WebhookResponse {
   status: 'success' | 'pending' | 'failed' | 'refunded' | 'error' | 'already_processed';
   message?: string;
   payment_id?: string;
-  transaction_id?: number;
+  transaction_id?: string;
 }
+
+/*
+ * EasyKash `status` values, from the official docs. The callback service fires
+ * with "PAID"; the full set is enumerated by the Payment Inquiry API and mapped
+ * defensively here so any future callback status is handled without guessing.
+ */
+const REFUNDED_STATUSES = ['REFUNDED', 'CANCELED'];
+const SUCCESS_STATUSES = ['PAID', 'DELIVERED'];
+const PENDING_STATUSES = ['NEW'];
+// Anything else (e.g. FAILED, EXPIRED) → failed.
+
+// EasyKash's callback does not include a currency field, and the platform only
+// ever charges in EGP (see EasyKashService), so the amount/currency guard is
+// fed EGP. Amounts are reported in major units → convert to piastres/cents.
+const EXPECTED_CURRENCY = 'EGP';
 
 @ApiTags('Payments - Webhook')
 @Controller('payments/webhook')
-// Paymob calls this from its own servers; legitimacy is verified via HMAC, and
+// EasyKash calls this from its own servers; legitimacy is verified via HMAC, and
 // rate-limiting it could silently drop payment confirmations.
 @SkipThrottle()
 export class PaymentsWebhookController {
   private readonly logger = new Logger(PaymentsWebhookController.name);
 
   constructor(
-    private readonly paymobService: PaymobService,
+    private readonly easyKashService: EasyKashService,
     private readonly paymentsService: PaymentsService,
     private readonly idempotencyService: IdempotencyService,
   ) {}
 
   @Post()
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
-  public async handlePaymobWebhook(@Body() dto: PaymobWebhookDto): Promise<WebhookResponse> {
-    this.logger.log(
-      `Received Paymob webhook: type=${dto.type}, transaction_id=${String(dto.obj.id)}`,
-    );
+  public async handleEasyKashWebhook(@Body() dto: EasyKashWebhookDto): Promise<WebhookResponse> {
+    this.logger.log(`Received EasyKash callback: status=${dto.status}, ref=${dto.easykashRef}`);
 
     // Step 1: Verify HMAC signature (CRITICAL SECURITY)
-    const isValidHmac = this.paymobService.verifyHmac(dto, dto.hmac);
+    const isValidHmac = this.easyKashService.verifyHmac(dto, dto.signatureHash);
     if (!isValidHmac) {
-      this.logger.warn(`HMAC verification failed for transaction ${String(dto.obj.id)}`);
+      this.logger.warn(`HMAC verification failed for callback ${dto.easykashRef}`);
       throw new UnauthorizedException('Invalid HMAC signature');
     }
 
-    const merchantOrderId = dto.obj.order.merchant_order_id;
-    const transactionId = dto.obj.id;
+    // `customerReference` is our payment.id, echoed back by EasyKash.
+    const merchantOrderId = dto.customerReference;
+    const transactionId = dto.easykashRef;
 
     if (merchantOrderId === '') {
-      this.logger.warn('Webhook missing merchant_order_id');
-      return { status: 'error', message: 'Missing merchant_order_id' };
+      this.logger.warn('Callback missing customerReference');
+      return { status: 'error', message: 'Missing customerReference' };
     }
 
     // Step 2: Check idempotency (prevent duplicate processing)
     const idempotencyCheck = await this.idempotencyService.checkWebhook(
       merchantOrderId,
-      transactionId.toString(),
+      transactionId,
     );
 
     if (idempotencyCheck.isProcessed) {
       this.logger.log(
-        `Webhook already processed for payment ${merchantOrderId}, transaction ${String(transactionId)}`,
+        `Callback already processed for payment ${merchantOrderId}, transaction ${transactionId}`,
       );
       return idempotencyCheck.cachedResult as WebhookResponse;
     }
@@ -67,34 +81,37 @@ export class PaymentsWebhookController {
     const payment = await this.paymentsService.getPaymentByMerchantOrderId(merchantOrderId);
 
     if (!payment) {
-      this.logger.warn(`Payment not found for merchant_order_id: ${merchantOrderId}`);
+      this.logger.warn(`Payment not found for customerReference: ${merchantOrderId}`);
       return { status: 'error', message: 'Payment not found' };
     }
 
-    // Verified financial facts from the (HMAC-authenticated) webhook, threaded
+    // Verified financial facts from the (HMAC-authenticated) callback, threaded
     // into the service so access is only granted for the exact expected charge.
+    // EasyKash reports Amount in major units (EGP) → convert to cents to match
+    // the existing amount-tamper guard.
     const verification = {
-      amountCents: dto.obj.amount_cents,
-      currency: dto.obj.currency,
-      transactionId: transactionId.toString(),
+      amountCents: Math.round(Number(dto.Amount) * 100),
+      currency: EXPECTED_CURRENCY,
+      transactionId,
     };
+
+    const status = dto.status.toUpperCase();
 
     // Step 4: Process based on transaction outcome
     let result: WebhookResponse;
 
-    if (dto.obj.is_refunded || dto.obj.is_voided) {
-      // A refunded/voided transaction must NEVER grant (or keep) access, even
-      // if `success` is also true — refunds are reported with success=true.
-      this.logger.log(`Payment ${merchantOrderId} refunded/voided, revoking entitlement...`);
+    if (REFUNDED_STATUSES.includes(status)) {
+      // A refunded/canceled transaction must NEVER grant (or keep) access.
+      this.logger.log(`Payment ${merchantOrderId} refunded/canceled, revoking entitlement...`);
       await this.paymentsService.processRefundedPayment(payment.id, verification);
       result = {
         status: 'refunded',
-        message: 'Payment refunded or voided',
+        message: 'Payment refunded or canceled',
         payment_id: payment.id,
         transaction_id: transactionId,
       };
-    } else if (dto.obj.success && !dto.obj.pending && !dto.obj.error_occured) {
-      // Payment successful
+    } else if (SUCCESS_STATUSES.includes(status)) {
+      // Payment successful (the documented callback case).
       this.logger.log(`Payment ${merchantOrderId} successful, granting access...`);
 
       try {
@@ -114,8 +131,7 @@ export class PaymentsWebhookController {
           payment_id: payment.id,
         };
       }
-    } else if (dto.obj.pending) {
-      // Payment pending (3D Secure, etc.)
+    } else if (PENDING_STATUSES.includes(status)) {
       this.logger.log(`Payment ${merchantOrderId} pending`);
       result = {
         status: 'pending',
@@ -124,31 +140,29 @@ export class PaymentsWebhookController {
         transaction_id: transactionId,
       };
     } else {
-      // Payment failed
-      const failureReason = dto.obj.data_message ?? 'Payment declined';
-      this.logger.log(`Payment ${merchantOrderId} failed: ${failureReason}`);
-
-      await this.paymentsService.processFailedPayment(payment.id, failureReason, verification);
+      // Payment failed (e.g. FAILED, EXPIRED).
+      this.logger.log(`Payment ${merchantOrderId} failed: status=${dto.status}`);
+      await this.paymentsService.processFailedPayment(payment.id, dto.status, verification);
       result = {
         status: 'failed',
-        message: failureReason,
+        message: dto.status,
         payment_id: payment.id,
         transaction_id: transactionId,
       };
     }
 
     // Step 5: Store result for idempotency
-    await this.idempotencyService.storeWebhookResult(payment.id, transactionId.toString(), result);
+    await this.idempotencyService.storeWebhookResult(payment.id, transactionId, result);
 
     return result;
   }
 
   @Post('callback')
   @ApiOperation({
-    summary: 'Alternative Paymob callback URL',
-    description: 'Alternative endpoint for Paymob callbacks. Same processing as /webhook.',
+    summary: 'Alternative EasyKash callback URL',
+    description: 'Alternative endpoint for EasyKash callbacks. Same processing as /webhook.',
   })
-  public async handlePaymobCallback(@Body() dto: PaymobWebhookDto): Promise<WebhookResponse> {
-    return await this.handlePaymobWebhook(dto);
+  public async handleEasyKashCallback(@Body() dto: EasyKashWebhookDto): Promise<WebhookResponse> {
+    return await this.handleEasyKashWebhook(dto);
   }
 }

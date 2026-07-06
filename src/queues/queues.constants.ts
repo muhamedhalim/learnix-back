@@ -11,7 +11,7 @@ import type { ConnectionOptions } from 'bullmq';
  * Each queue processes a specific type of background job
  */
 export const QUEUE_NAMES = {
-  /** Payment webhook fulfillment (Paymob callbacks) */
+  /** Payment webhook fulfillment (EasyKash callbacks) */
   WEBHOOK_FULFILLMENT: 'webhook-fulfillment',
 
   /** Email notifications (confirmations, alerts) */

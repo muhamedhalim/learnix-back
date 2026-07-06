@@ -11,8 +11,8 @@ import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { ItemType, LessonPurchase, PackagePurchase, Payment, PaymentStatus } from '../entities';
+import { EasyKashService } from './easykash.service';
 import { PaymentsService } from './payments.service';
-import { PaymobService } from './paymob.service';
 
 describe('PaymentsService — financial correctness', () => {
   let service: PaymentsService;
@@ -64,7 +64,7 @@ describe('PaymentsService — financial correctness', () => {
         { provide: getRepositoryToken(Book), useValue: noopRepo },
         { provide: getRepositoryToken(BookPurchase), useValue: noopRepo },
         { provide: DataSource, useValue: dataSource },
-        { provide: PaymobService, useValue: {} },
+        { provide: EasyKashService, useValue: {} },
         { provide: IdempotencyService, useValue: idempotency },
         { provide: DiscountCodesService, useValue: {} },
       ],

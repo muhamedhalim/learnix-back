@@ -23,7 +23,7 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
  * Access Bull Board: http://localhost:3000/admin/queues
  *
  * TODO: Add processors and producers as we build modules:
- * - PaymentProcessor for Paymob webhooks
+ * - PaymentProcessor for EasyKash webhooks
  * - NotificationProcessor for Firebase SMS
  * - EmailProcessor for email notifications
  */

@@ -150,10 +150,10 @@ export class CartService {
    *
    * NOT YET IMPLEMENTED. Multi-item cart checkout requires a payment design that
    * does not exist yet: the Payment schema models a single item per payment, so
-   * a cart of N items needs either a "cart order" concept (Paymob charges one
-   * order) or a bulk attendance-code redemption + bulk access grant.
+   * a cart of N items needs either a "cart order" concept (the gateway charges
+   * one order) or a bulk attendance-code redemption + bulk access grant.
    *
-   * The previous placeholder was actively harmful: it returned a fake Paymob URL
+   * The previous placeholder was actively harmful: it returned a fake payment URL
    * and, for the attendance-code path, CLEARED THE CART and reported success
    * without redeeming the code or granting any access (silent data loss + a lie
    * to the user). Until the real flow is built we fail honestly with 501 so the

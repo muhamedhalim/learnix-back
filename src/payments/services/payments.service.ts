@@ -42,7 +42,7 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../entities';
-import { PaymobService } from './paymob.service';
+import { EasyKashService } from './easykash.service';
 
 export interface PaymentResponse {
   payment_id: string;
@@ -70,7 +70,7 @@ export interface PaymentVerificationContext {
 const EXPECTED_CURRENCY = 'EGP';
 
 /** How long an initiated payment blocks new attempts for the same item. Matches
- * the Paymob payment-key expiration (1h); after this an abandoned PENDING
+ * the gateway payment-session expiration (1h); after this an abandoned PENDING
  * payment is considered stale and is expired to free the slot. */
 const OPEN_PAYMENT_TTL_MS = 60 * 60 * 1000;
 
@@ -149,14 +149,14 @@ export class PaymentsService {
     @InjectRepository(BookPurchase)
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly dataSource: DataSource,
-    private readonly paymobService: PaymobService,
+    private readonly easyKashService: EasyKashService,
     private readonly idempotencyService: IdempotencyService,
     @Inject(forwardRef(() => DiscountCodesService))
     private readonly discountCodesService: DiscountCodesService,
   ) {}
 
   /**
-   * Purchase a lesson - initiates payment with Paymob
+   * Purchase a lesson - initiates payment with EasyKash
    */
   public async purchaseLesson(dto: PurchaseLessonDto, userId: string): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
@@ -251,26 +251,26 @@ export class PaymentsService {
         );
       }
 
-      // Initiate Paymob payment
-      const paymobResult = await this.paymobService.initiatePayment(
+      // Initiate EasyKash payment
+      const providerResult = await this.easyKashService.initiatePayment(
         finalAmount,
         savedPayment.id,
         dto.billing_data,
       );
 
-      // Update payment with Paymob order ID
-      savedPayment.paymob_order_id = paymobResult.paymobOrderId.toString();
+      // Persist the gateway reference (column name retained from the Paymob era).
+      savedPayment.paymob_order_id = providerResult.providerReference;
       savedPayment.status = PaymentStatus.PROCESSING;
       await manager.save(Payment, savedPayment);
 
       const response: PaymentResponse = {
         payment_id: savedPayment.id,
-        payment_key: paymobResult.paymentKey,
-        paymob_order_id: paymobResult.paymobOrderId,
+        payment_key: providerResult.providerReference,
+        paymob_order_id: 0,
         amount: lesson.price,
         discount_amount: discountAmount,
         final_amount: finalAmount,
-        iframe_url: paymobResult.iframeUrl,
+        iframe_url: providerResult.redirectUrl,
       };
 
       // Store idempotency result
@@ -285,7 +285,7 @@ export class PaymentsService {
   }
 
   /**
-   * Purchase a package - initiates payment with Paymob
+   * Purchase a package - initiates payment with EasyKash
    */
   public async purchasePackage(dto: PurchasePackageDto, userId: string): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
@@ -373,26 +373,26 @@ export class PaymentsService {
         );
       }
 
-      // Initiate Paymob payment
-      const paymobResult = await this.paymobService.initiatePayment(
+      // Initiate EasyKash payment
+      const providerResult = await this.easyKashService.initiatePayment(
         finalAmount,
         savedPayment.id,
         dto.billing_data,
       );
 
-      // Update payment with Paymob order ID
-      savedPayment.paymob_order_id = paymobResult.paymobOrderId.toString();
+      // Persist the gateway reference (column name retained from the Paymob era).
+      savedPayment.paymob_order_id = providerResult.providerReference;
       savedPayment.status = PaymentStatus.PROCESSING;
       await manager.save(Payment, savedPayment);
 
       const response: PaymentResponse = {
         payment_id: savedPayment.id,
-        payment_key: paymobResult.paymentKey,
-        paymob_order_id: paymobResult.paymobOrderId,
+        payment_key: providerResult.providerReference,
+        paymob_order_id: 0,
         amount: pkg.price,
         discount_amount: discountAmount,
         final_amount: finalAmount,
-        iframe_url: paymobResult.iframeUrl,
+        iframe_url: providerResult.redirectUrl,
       };
 
       // Store idempotency result
@@ -407,7 +407,7 @@ export class PaymentsService {
   }
 
   /**
-   * Purchase a book - initiates payment with Paymob
+   * Purchase a book - initiates payment with EasyKash
    */
   public async purchaseBook(
     dto: PurchaseBookPaymentDto,
@@ -505,26 +505,26 @@ export class PaymentsService {
         );
       }
 
-      // Initiate Paymob payment
-      const paymobResult = await this.paymobService.initiatePayment(
+      // Initiate EasyKash payment
+      const providerResult = await this.easyKashService.initiatePayment(
         finalAmount,
         savedPayment.id,
         dto.billing_data,
       );
 
-      // Update payment with Paymob order ID
-      savedPayment.paymob_order_id = paymobResult.paymobOrderId.toString();
+      // Persist the gateway reference (column name retained from the Paymob era).
+      savedPayment.paymob_order_id = providerResult.providerReference;
       savedPayment.status = PaymentStatus.PROCESSING;
       await manager.save(Payment, savedPayment);
 
       const response: PaymentResponse = {
         payment_id: savedPayment.id,
-        payment_key: paymobResult.paymentKey,
-        paymob_order_id: paymobResult.paymobOrderId,
+        payment_key: providerResult.providerReference,
+        paymob_order_id: 0,
         amount: book.price,
         discount_amount: discountAmount,
         final_amount: finalAmount,
-        iframe_url: paymobResult.iframeUrl,
+        iframe_url: providerResult.redirectUrl,
       };
 
       // Store idempotency result
@@ -595,14 +595,14 @@ export class PaymentsService {
 
       const savedPayment = await manager.save(Payment, payment);
 
-      // Initiate Paymob payment
-      const paymobResult = await this.paymobService.initiatePayment(
+      // Initiate EasyKash payment
+      const providerResult = await this.easyKashService.initiatePayment(
         reopenPrice,
         savedPayment.id,
         billingData,
       );
 
-      savedPayment.paymob_order_id = paymobResult.paymobOrderId.toString();
+      savedPayment.paymob_order_id = providerResult.providerReference;
       savedPayment.status = PaymentStatus.PROCESSING;
       await manager.save(Payment, savedPayment);
 
@@ -612,12 +612,12 @@ export class PaymentsService {
 
       return {
         payment_id: savedPayment.id,
-        payment_key: paymobResult.paymentKey,
-        paymob_order_id: paymobResult.paymobOrderId,
+        payment_key: providerResult.providerReference,
+        paymob_order_id: 0,
         amount: reopenPrice,
         discount_amount: 0,
         final_amount: reopenPrice,
-        iframe_url: paymobResult.iframeUrl,
+        iframe_url: providerResult.redirectUrl,
       };
     });
   }
@@ -764,7 +764,7 @@ export class PaymentsService {
   /**
    * Reject non-positive order totals before they reach the gateway. A fully
    * discounted (0 EGP) or negative total (misconfigured fixed discount larger
-   * than the price) must never be sent to Paymob — it would fail at the gateway
+   * than the price) must never be sent to the gateway — it would fail at the gateway
    * or, worse, create a malformed/negative order (negative settlement).
    */
   private assertChargeableAmount(finalAmount: number): void {

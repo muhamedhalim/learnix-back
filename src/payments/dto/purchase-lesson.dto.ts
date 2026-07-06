@@ -32,7 +32,7 @@ export class PurchaseLessonDto {
   public idempotency_key?: string;
 
   @ApiProperty({
-    description: 'Billing information for Paymob',
+    description: 'Billing information for the payment gateway',
   })
   @ValidateNested()
   @Type(() => BillingDataDto)
