@@ -3,15 +3,16 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import type { Cache } from 'cache-manager';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
-import { Exam } from '../exams/entities';
+import { AttemptState } from '../exams/entities/attempt-state.enum';
+import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import { ExamStatus } from '../exams/entities/exam-status.enum';
-import { QuestionType } from '../exams/entities/question-type.enum';
+import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
+import { ExamQuestion } from '../exams/entities/exam-question.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -43,10 +44,11 @@ interface AvgResult {
   avg: string | null;
 }
 
-interface AnswerData {
-  question_index: number;
-  is_correct?: boolean;
-  score?: number | null;
+/** Raw per-question aggregation row for exam question analysis. */
+interface QuestionAnswerAggRow {
+  exam_question_id: string;
+  is_correct: boolean | null;
+  score: string | null;
 }
 
 @Injectable()
@@ -68,6 +70,10 @@ export class AnalyticsService {
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     @InjectRepository(ExamAttempt)
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
+    @InjectRepository(ExamQuestion)
+    private readonly examQuestionsRepository: Repository<ExamQuestion>,
+    @InjectRepository(ExamAttemptAnswer)
+    private readonly examAttemptAnswersRepository: Repository<ExamAttemptAnswer>,
     @InjectRepository(LessonSession)
     private readonly lessonSessionsRepository: Repository<LessonSession>,
     @InjectRepository(LessonReview)
@@ -303,29 +309,29 @@ export class AnalyticsService {
       where: { student_id: studentId },
     });
 
-    // Count exams completed (graded)
+    // Count exams completed (fully graded)
     const examsCompleted = await this.examAttemptsRepository.count({
       where: {
         student_id: studentId,
-        status: ExamStatus.GRADED,
+        state: AttemptState.GRADED,
       },
     });
 
-    // Count exams in progress (submitted but not graded)
+    // Count exams submitted but still awaiting grading
     const examsInProgress = await this.examAttemptsRepository.count({
       where: {
         student_id: studentId,
-        status: ExamStatus.PENDING_GRADING,
+        state: In([AttemptState.SUBMITTED, AttemptState.GRADING]),
       },
     });
 
-    // Calculate average score
+    // Calculate average total score across graded attempts
     const avgScore = await this.examAttemptsRepository
       .createQueryBuilder('ea')
       .where('ea.student_id = :studentId', { studentId })
-      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
-      .andWhere('ea.total_score IS NOT NULL')
-      .select('AVG(ea.total_score)', 'avg')
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+      .andWhere('ea.score_total IS NOT NULL')
+      .select('AVG(ea.score_total)', 'avg')
       .getRawOne<AvgResult>();
 
     const averageScore =
@@ -531,17 +537,9 @@ export class AnalyticsService {
       exam.passing_marks,
     );
 
-    // Get all graded attempts for question analysis
-    const gradedAttempts = await this.examAttemptsRepository.find({
-      where: { exam_id: examId, status: ExamStatus.GRADED },
-      select: ['answers'],
-    });
-
-    // Analyze each question
-    const questionAnalysis: QuestionAnalysisDto[] = this.analyzeExamQuestions(
-      exam,
-      gradedAttempts,
-    );
+    // Analyze each question from the normalized per-answer rows
+    const questionAnalysis: QuestionAnalysisDto[] =
+      await this.analyzeExamQuestions(examId);
 
     // Calculate score distribution (percentage buckets)
     const scoreDistribution = await this.calculateScoreDistribution(
@@ -571,6 +569,20 @@ export class AnalyticsService {
   }
 
   /**
+   * Recompute + warm the cached analytics for an exam. Invoked asynchronously by
+   * the exam-analytics BullMQ worker whenever an attempt's grade changes, so the
+   * teacher dashboard reads are always fresh without paying the cost on-request.
+   */
+  public async recomputeExam(examId: string): Promise<void> {
+    await this.cacheManager.del(`analytics:exam:${examId}`);
+    try {
+      await this.getExamAnalytics(examId);
+    } catch {
+      // Exam no longer exists / not gradable yet — nothing to warm.
+    }
+  }
+
+  /**
    * Helper to get exam submission counts
    */
   private async getExamSubmissionCounts(examId: string): Promise<{
@@ -579,15 +591,18 @@ export class AnalyticsService {
     pendingGradingCount: number;
   }> {
     const totalSubmissions = await this.examAttemptsRepository.count({
-      where: { exam_id: examId, status: ExamStatus.GRADED },
+      where: { exam_id: examId, state: AttemptState.GRADED },
     });
 
     const inProgressCount = await this.examAttemptsRepository.count({
-      where: { exam_id: examId, status: ExamStatus.IN_PROGRESS },
+      where: { exam_id: examId, state: AttemptState.IN_PROGRESS },
     });
 
     const pendingGradingCount = await this.examAttemptsRepository.count({
-      where: { exam_id: examId, status: ExamStatus.PENDING_GRADING },
+      where: {
+        exam_id: examId,
+        state: In([AttemptState.SUBMITTED, AttemptState.GRADING]),
+      },
     });
 
     return { totalSubmissions, inProgressCount, pendingGradingCount };
@@ -604,12 +619,12 @@ export class AnalyticsService {
     const scoreStats = await this.examAttemptsRepository
       .createQueryBuilder('ea')
       .where('ea.exam_id = :examId', { examId })
-      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
-      .andWhere('ea.total_score IS NOT NULL')
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+      .andWhere('ea.score_total IS NOT NULL')
       .select([
-        'AVG(ea.total_score) as avg_score',
-        'MAX(ea.total_score) as max_score',
-        'MIN(ea.total_score) as min_score',
+        'AVG(ea.score_total) as avg_score',
+        'MAX(ea.score_total) as max_score',
+        'MIN(ea.score_total) as min_score',
       ])
       .getRawOne<{
         avg_score: string | null;
@@ -648,8 +663,8 @@ export class AnalyticsService {
     const passedCount = await this.examAttemptsRepository
       .createQueryBuilder('ea')
       .where('ea.exam_id = :examId', { examId })
-      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
-      .andWhere('ea.total_score >= :passingMarks', {
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+      .andWhere('ea.score_total >= :passingMarks', {
         passingMarks,
       })
       .getCount();
@@ -658,49 +673,64 @@ export class AnalyticsService {
   }
 
   /**
-   * Helper to analyze questions in an exam
+   * Per-question analysis from the normalized answer rows of graded attempts.
+   * Correctness comes from each answer's `is_correct` flag (set by the objective
+   * graders), so this is question-type agnostic.
    */
-  private analyzeExamQuestions(
-    exam: Exam,
-    gradedAttempts: ExamAttempt[],
-  ): QuestionAnalysisDto[] {
-    return exam.questions.map((question, index) => {
+  private async analyzeExamQuestions(
+    examId: string,
+  ): Promise<QuestionAnalysisDto[]> {
+    const examQuestions = await this.examQuestionsRepository.find({
+      where: { exam_id: examId },
+      order: { order_index: 'ASC' },
+    });
+
+    const rows = await this.examAttemptAnswersRepository
+      .createQueryBuilder('a')
+      .innerJoin(ExamAttempt, 'ea', 'ea.id = a.attempt_id')
+      .where('ea.exam_id = :examId', { examId })
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+      .select('a.exam_question_id', 'exam_question_id')
+      .addSelect('a.is_correct', 'is_correct')
+      .addSelect('a.score', 'score')
+      .getRawMany<QuestionAnswerAggRow>();
+
+    const byQuestion = new Map<string, QuestionAnswerAggRow[]>();
+    for (const row of rows) {
+      const list = byQuestion.get(row.exam_question_id) ?? [];
+      list.push(row);
+      byQuestion.set(row.exam_question_id, list);
+    }
+
+    return examQuestions.map((eq) => {
+      const answers = byQuestion.get(eq.id) ?? [];
       let correctAnswers = 0;
       let wrongAnswers = 0;
       let totalScore = 0;
       let scoreCount = 0;
 
-      for (const attempt of gradedAttempts) {
-        const answers = attempt.answers as unknown as AnswerData[];
-        const answer = answers.find((a) => a.question_index === index);
-        if (!answer) {
-          continue;
+      for (const a of answers) {
+        if (a.is_correct === true) {
+          correctAnswers++;
+        } else if (a.is_correct === false) {
+          wrongAnswers++;
         }
-
-        if (question.type === QuestionType.MCQ) {
-          if (answer.is_correct === true) {
-            correctAnswers++;
-          } else {
-            wrongAnswers++;
-          }
-        }
-
-        if (typeof answer.score === 'number') {
-          totalScore += answer.score;
+        if (a.score !== null) {
+          totalScore += Number(a.score);
           scoreCount++;
         }
       }
 
       return {
-        question_index: index,
-        question_type: question.type,
+        question_index: eq.order_index,
+        question_type: eq.type_snapshot,
         correct_answers: correctAnswers,
         wrong_answers: wrongAnswers,
         average_score:
           scoreCount > 0
             ? Math.round((totalScore / scoreCount) * 100) / 100
             : null,
-        max_marks: question.marks,
+        max_marks: eq.marks,
       };
     });
   }
@@ -729,15 +759,15 @@ export class AnalyticsService {
 
     if (totalSubmissions > 0 && totalMarks > 0) {
       const allScores = await this.examAttemptsRepository.find({
-        where: { exam_id: examId, status: ExamStatus.GRADED },
-        select: ['total_score'],
+        where: { exam_id: examId, state: AttemptState.GRADED },
+        select: ['score_total'],
       });
 
       for (const attempt of allScores) {
-        if (typeof attempt.total_score !== 'number') {
+        if (typeof attempt.score_total !== 'number') {
           continue;
         }
-        const percentage = (attempt.total_score / totalMarks) * 100;
+        const percentage = (attempt.score_total / totalMarks) * 100;
 
         if (percentage <= 20) {
           scoreDistribution['0-20']++;

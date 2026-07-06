@@ -28,6 +28,18 @@ export const QUEUE_NAMES = {
 
   /** Attendance-code exports (CSV/Excel/PDF/JSON/QR) generated off-request */
   CODE_EXPORT: 'code-export',
+
+  /** Auto-submit exam attempts once their server-side deadline passes. */
+  EXAM_AUTO_SUBMIT: 'exam-auto-submit',
+
+  /** AI-assisted grading suggestions for manual (essay/file) answers. */
+  EXAM_AI_GRADING: 'exam-ai-grading',
+
+  /** OMR / bubble-sheet scan processing (image pipeline). */
+  EXAM_OMR: 'exam-omr',
+
+  /** Exam analytics aggregation (stats, difficulty/discrimination indices). */
+  EXAM_ANALYTICS: 'exam-analytics',
 } as const;
 
 /**
@@ -64,6 +76,18 @@ export const JOB_TYPES = {
     QR: 'export-qr',
     /** Remove expired cached export files. */
     CLEANUP: 'export-cleanup',
+  },
+  EXAM: {
+    /** Finalise a single attempt whose deadline elapsed (delayed per-attempt job). */
+    AUTO_SUBMIT: 'auto-submit-attempt',
+    /** Sweep for any expired IN_PROGRESS attempts (repeatable safety-net job). */
+    AUTO_SUBMIT_SWEEP: 'auto-submit-sweep',
+    /** Produce an AI-suggested score/feedback for one manual answer. */
+    AI_GRADE_ANSWER: 'ai-grade-answer',
+    /** Process one uploaded OMR sheet through the CV pipeline. */
+    OMR_PROCESS_SHEET: 'omr-process-sheet',
+    /** Recompute aggregated analytics for an exam after a grade change. */
+    AGGREGATE_ANALYTICS: 'aggregate-exam-analytics',
   },
 } as const;
 
@@ -109,13 +133,19 @@ export const DEFAULT_QUEUE_CONFIG = {
 
   /** Job retry configuration */
   defaultJobOptions: {
-    /** Number of retry attempts (from env or default 3) */
-    attempts: Number.parseInt(process.env['QUEUE_MAX_ATTEMPTS'] ?? '3', 10),
+    /** Number of retry attempts (QUEUE_DEFAULT_ATTEMPTS, legacy QUEUE_MAX_ATTEMPTS, default 3). */
+    attempts: Number.parseInt(
+      process.env['QUEUE_DEFAULT_ATTEMPTS'] ?? process.env['QUEUE_MAX_ATTEMPTS'] ?? '3',
+      10,
+    ),
 
-    /** Exponential backoff: 5s, 10s, 20s, 40s... */
+    /** Exponential backoff base delay (QUEUE_BACKOFF_MS, legacy QUEUE_BACKOFF_DELAY, default 5000ms). */
     backoff: {
       type: 'exponential' as const,
-      delay: Number.parseInt(process.env['QUEUE_BACKOFF_DELAY'] ?? '5000', 10),
+      delay: Number.parseInt(
+        process.env['QUEUE_BACKOFF_MS'] ?? process.env['QUEUE_BACKOFF_DELAY'] ?? '5000',
+        10,
+      ),
     },
 
     /** Remove job from queue after completion (keep failed jobs for debugging) */
@@ -136,8 +166,11 @@ export const DEFAULT_QUEUE_CONFIG = {
  * Settings for job processors
  */
 export const WORKER_CONFIG = {
-  /** Concurrent jobs per worker (from env or default 5) */
-  concurrency: Number.parseInt(process.env['QUEUE_CONCURRENCY'] ?? '5', 10),
+  /** Concurrent jobs per worker (WORKER_CONCURRENCY, legacy QUEUE_CONCURRENCY, default 5). */
+  concurrency: Number.parseInt(
+    process.env['WORKER_CONCURRENCY'] ?? process.env['QUEUE_CONCURRENCY'] ?? '5',
+    10,
+  ),
 
   /** Redis connection (same as queue) */
   connection: DEFAULT_QUEUE_CONFIG.connection,
@@ -204,6 +237,48 @@ export const QUEUE_CONFIGS = {
       // Exports rebuild the whole file on retry; allow a couple of attempts for
       // transient I/O errors without piling up partial files.
       attempts: 2,
+    },
+  },
+
+  [QUEUE_NAMES.EXAM_AUTO_SUBMIT]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Timing-critical: finalising an attempt is idempotent (guarded by state),
+      // so a few retries on transient DB errors are safe.
+      priority: 1,
+      attempts: 3,
+    },
+  },
+
+  [QUEUE_NAMES.EXAM_AI_GRADING]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Advisory suggestions; may call an external model → longer timeout.
+      priority: 3,
+      timeout: 60_000,
+    },
+  },
+
+  [QUEUE_NAMES.EXAM_OMR]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Image processing is heavy; retry a few times on transient failures.
+      priority: 3,
+      attempts: 3,
+      timeout: 120_000,
+    },
+  },
+
+  [QUEUE_NAMES.EXAM_ANALYTICS]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Non-urgent recomputation; a later job supersedes an earlier one.
+      priority: 5,
+      attempts: 3,
     },
   },
 };

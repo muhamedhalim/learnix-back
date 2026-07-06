@@ -87,6 +87,22 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
         name: QUEUE_NAMES.CODE_EXPORT,
         ...QUEUE_CONFIGS[QUEUE_NAMES.CODE_EXPORT],
       },
+      {
+        name: QUEUE_NAMES.EXAM_AUTO_SUBMIT,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AUTO_SUBMIT],
+      },
+      {
+        name: QUEUE_NAMES.EXAM_AI_GRADING,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AI_GRADING],
+      },
+      {
+        name: QUEUE_NAMES.EXAM_OMR,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR],
+      },
+      {
+        name: QUEUE_NAMES.EXAM_ANALYTICS,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_ANALYTICS],
+      },
     ),
     IdempotencyModule,
     BullBoardModule.forFeature({
@@ -103,6 +119,22 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
     }),
     BullBoardModule.forFeature({
       name: QUEUE_NAMES.CODE_EXPORT,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.EXAM_AUTO_SUBMIT,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.EXAM_AI_GRADING,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.EXAM_OMR,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.EXAM_ANALYTICS,
       adapter: BullMQAdapter,
     }),
   ],

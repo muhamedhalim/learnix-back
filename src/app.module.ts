@@ -51,8 +51,7 @@ import { StudentsModule } from './students/students.module';
 import { SubjectsModule } from './subjects/subjects.module';
 import { TeachersModule } from './teachers/teachers.module';
 import { UploadModule } from './uploads/upload.module';
-// TEMPORARILY DISABLED: Redis not available for development
-// import { QueuesModule } from './queues/queues.module';
+import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
 
@@ -170,8 +169,7 @@ import { UsersModule } from './users/users.module';
         };
       },
     }), // Global XSS protection
-    // TEMPORARILY DISABLED: Redis not available for development
-    // QueuesModule, // BullMQ job queues
+    QueuesModule, // BullMQ job queues (Redis-backed)
     TypeOrmModule.forFeature([User]),
     UsersModule,
     FirebaseModule,

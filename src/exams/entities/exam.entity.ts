@@ -12,22 +12,56 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import type { ExamAttempt } from './exam-attempt.entity';
-import { Question } from './question.interface';
+import type { ExamConfig } from './exam-config.interface';
+import type { ExamQuestion } from './exam-question.entity';
+import type { ExamSection } from './exam-section.entity';
+import { ExamStatus } from './exam-status.enum';
 
+/**
+ * An exam definition. Questions are attached via {@link ExamQuestion} rows
+ * (referencing bank questions), grouped into {@link ExamSection}s. Policy lives
+ * in `config` (JSONB). `total_marks` is derived from the attached questions and
+ * kept denormalised for fast listing.
+ */
 @Entity('exams')
 export class Exam {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: false })
+  @Column({ type: 'uuid', name: 'teacher_id' })
+  @Index('IDX_exams_teacher_id')
+  teacher_id!: string;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'teacher_id' })
+  teacher!: User;
+
+  @Column({ type: 'uuid', name: 'subject_id' })
+  @Index('IDX_exams_subject_id')
+  subject_id!: string;
+
+  @ManyToOne(() => Subject)
+  @JoinColumn({ name: 'subject_id' })
+  subject!: Subject;
+
+  /** Optional linkage used both for access gating and per-lesson analytics. */
+  @Column({ type: 'uuid', nullable: true, name: 'lesson_id' })
+  @Index('IDX_exams_lesson_id')
+  lesson_id!: string | null;
+
+  @ManyToOne(() => Lesson, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'lesson_id' })
+  lesson!: Relation<Lesson> | null;
+
+  @Column({ type: 'varchar', length: 255 })
   @Index('IDX_exams_title')
   title!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: false, name: 'title_ar' })
-  @Index('IDX_exams_title_ar')
+  @Column({ type: 'varchar', length: 255, name: 'title_ar' })
   title_ar!: string;
 
   @Column({ type: 'text', nullable: true })
@@ -36,55 +70,30 @@ export class Exam {
   @Column({ type: 'text', nullable: true, name: 'description_ar' })
   description_ar!: string | null;
 
-  @Column({ type: 'uuid', nullable: false, name: 'teacher_id' })
-  @Index('IDX_exams_teacher_id')
-  teacher_id!: string;
+  @Column({ type: 'enum', enum: ExamStatus, default: ExamStatus.DRAFT })
+  @Index('IDX_exams_status')
+  status!: ExamStatus;
 
-  @ManyToOne(() => User)
-  @JoinColumn({ name: 'teacher_id' })
-  teacher!: User;
+  @Column({ type: 'jsonb' })
+  config!: ExamConfig;
 
-  @Column({ type: 'uuid', nullable: false, name: 'subject_id' })
-  @Index('IDX_exams_subject_id')
-  subject_id!: string;
-
-  @ManyToOne(() => Subject)
-  @JoinColumn({ name: 'subject_id' })
-  subject!: Subject;
-
-  /**
-   * JSONB array of Question objects
-   * Contains MCQ and/or Essay questions with their marks
-   */
-  @Column({ type: 'jsonb', nullable: false })
-  questions!: Question[];
-
-  /**
-   * Total marks (calculated from sum of all question marks)
-   */
-  @Column({ type: 'int', nullable: false, name: 'total_marks' })
+  @Column({ type: 'int', name: 'total_marks', default: 0 })
   total_marks!: number;
 
-  /**
-   * Passing marks (must be <= total_marks)
-   */
-  @Column({ type: 'int', nullable: false, name: 'passing_marks' })
+  @Column({ type: 'int', name: 'passing_marks', default: 0 })
   passing_marks!: number;
 
-  /**
-   * Duration in seconds
-   */
-  @Column({ type: 'int', nullable: false })
-  duration!: number;
+  @OneToMany('ExamSection', 'exam')
+  sections!: Relation<ExamSection[]>;
 
-  /**
-   * Whether the exam is active and available for students
-   */
-  @Column({ type: 'boolean', default: true, name: 'is_active' })
-  @Index('IDX_exams_is_active')
-  is_active!: boolean;
+  @OneToMany('ExamQuestion', 'exam')
+  exam_questions!: Relation<ExamQuestion[]>;
+
+  @OneToMany('ExamAttempt', 'exam')
+  attempts!: Relation<ExamAttempt[]>;
 
   @CreateDateColumn({ name: 'created_at' })
+  @Index('IDX_exams_created_at')
   created_at!: Date;
 
   @UpdateDateColumn({ name: 'updated_at' })
@@ -93,8 +102,4 @@ export class Exam {
   @DeleteDateColumn({ name: 'deleted_at' })
   @Index('IDX_exams_deleted_at')
   deleted_at!: Date | null;
-
-  // Relations
-  @OneToMany('ExamAttempt', 'exam')
-  attempts!: Relation<ExamAttempt[]>;
 }

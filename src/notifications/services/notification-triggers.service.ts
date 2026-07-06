@@ -81,11 +81,7 @@ export class NotificationTriggersService {
   ): Promise<void> {
     try {
       const marks = totalMarks ?? attempt.exam.total_marks;
-      const totalScore =
-        typeof attempt.total_score === 'string'
-          ? Number.parseFloat(attempt.total_score)
-          : attempt.total_score;
-      const score = totalScore ?? 0;
+      const score = attempt.score_total ?? 0;
       const percentage = Math.round((score / marks) * 100);
 
       const message = `تم تصحيح الامتحان. الدرجة: ${score.toString()}/${marks.toString()} (${percentage.toString()}%)`;

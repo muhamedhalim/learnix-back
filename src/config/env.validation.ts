@@ -49,6 +49,28 @@ export class EnvironmentVariables {
   @IsOptional()
   public REDIS_PASSWORD?: string;
 
+  // Redis connection URL (used by the idempotency service).
+  @IsString()
+  @IsOptional()
+  public REDIS_URL?: string;
+
+  // BullMQ tuning (fall back to legacy QUEUE_MAX_ATTEMPTS/QUEUE_BACKOFF_DELAY/
+  // QUEUE_CONCURRENCY names when these are unset — see queues.constants.ts).
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public QUEUE_DEFAULT_ATTEMPTS?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public QUEUE_BACKOFF_MS?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public WORKER_CONCURRENCY?: number;
+
   // JWT Authentication
   @IsNotEmpty()
   public JWT_SECRET!: string;

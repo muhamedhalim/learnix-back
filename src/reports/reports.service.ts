@@ -8,9 +8,9 @@ import { Between, IsNull, Repository } from 'typeorm';
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
-import { Exam } from '../exams/entities';
+import { AttemptState } from '../exams/entities/attempt-state.enum';
+import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import { ExamStatus } from '../exams/entities/exam-status.enum';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
@@ -359,12 +359,12 @@ export class ReportsService {
       .createQueryBuilder('ea')
       .innerJoin('ea.exam', 'exam')
       .where('exam.teacher_id = :teacherId', { teacherId })
-      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
       .andWhere('ea.created_at BETWEEN :start AND :end', {
         start: startDate,
         end: endDate,
       })
-      .select('AVG(ea.total_score)', 'avg')
+      .select('AVG(ea.score_total)', 'avg')
       .getRawOne<AvgResult>();
 
     return {
@@ -381,8 +381,8 @@ export class ReportsService {
       .createQueryBuilder('ea')
       .innerJoin('ea.exam', 'exam')
       .where('ea.student_id = :studentId', { studentId })
-      .andWhere('ea.status = :status', { status: ExamStatus.GRADED })
-      .select(['exam.subject_id as subject_id', 'AVG(ea.total_score) as avg_score'])
+      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+      .select(['exam.subject_id as subject_id', 'AVG(ea.score_total) as avg_score'])
       .groupBy('exam.subject_id')
       .getRawMany<SubjectScoreResult>();
 

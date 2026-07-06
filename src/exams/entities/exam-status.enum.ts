@@ -1,15 +1,17 @@
 /**
- * Exam attempt status enum
+ * Exam lifecycle status.
  *
- * Status transitions:
- * - IN_PROGRESS: Student has started but not submitted
- * - SUBMITTED: Student has submitted (intermediate state)
- * - PENDING_GRADING: Submitted with essay questions awaiting manual grading
- * - GRADED: All questions graded (MCQ auto-graded, essays manually graded)
+ * - DRAFT: being authored; editable; not visible to students.
+ * - PUBLISHED: live; visible to eligible students immediately.
+ * - SCHEDULED: published but gated by a start/end window in exam config.
+ * - ARCHIVED: retired; hidden from students, retained for records/analytics.
+ *
+ * Editing questions/structure is only allowed in DRAFT (published exams are
+ * immutable so in-flight attempts and grading stay consistent).
  */
 export enum ExamStatus {
-  IN_PROGRESS = 'in_progress',
-  SUBMITTED = 'submitted',
-  PENDING_GRADING = 'pending_grading',
-  GRADED = 'graded',
+  DRAFT = 'draft',
+  PUBLISHED = 'published',
+  SCHEDULED = 'scheduled',
+  ARCHIVED = 'archived',
 }

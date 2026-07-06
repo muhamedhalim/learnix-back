@@ -1,156 +1,121 @@
 import {
+  Body,
   Controller,
   Get,
-  HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { StudentExamFilterDto } from '../dto';
-import { ExamsService } from '../exams.service';
+import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { ExamFilterDto, SaveAnswersDto, SubmitAttemptDto } from '../dto';
+import { Exam, ExamStatus } from '../entities';
+import { AttemptService } from '../services/attempt.service';
 
-@ApiTags('Student Exams')
+/**
+ * Student-facing exam endpoints: browse available exams, start/resume an
+ * attempt, autosave answers, submit, and view results. All attempt logic lives
+ * in {@link AttemptService}; this controller stays thin.
+ */
+@ApiTags('Student · Exams')
 @Controller('student/exams')
 @UseGuards(HybridAuthGuard, RolesGuard)
 @Roles('student')
 @ApiBearerAuth('JWT-auth')
 export class StudentExamsController {
-  constructor(private readonly examsService: ExamsService) {}
+  constructor(
+    private readonly attempts: AttemptService,
+    @InjectRepository(Exam) private readonly exams: Repository<Exam>,
+  ) {}
 
-  /**
-   * Get available exams
-   */
   @Get()
-  @ApiOperation({
-    summary: 'Get available exams',
-    description:
-      'Returns a paginated list of active exams. Can filter by attempted/not attempted.',
-  })
-  @ApiQuery({ name: 'search', required: false, description: 'Search by title' })
-  @ApiQuery({
-    name: 'subject_id',
-    required: false,
-    type: Number,
-    description: 'Filter by subject ID',
-  })
-  @ApiQuery({
-    name: 'attempted',
-    required: false,
-    type: Boolean,
-    description: 'Filter by attempted status (true/false)',
-  })
-  @ApiQuery({
-    name: 'sort_by',
-    required: false,
-    enum: ['created_at', 'title', 'total_marks', 'duration'],
-    description: 'Sort field',
-  })
-  @ApiQuery({
-    name: 'sort_order',
-    required: false,
-    enum: ['ASC', 'DESC'],
-    description: 'Sort order',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Page number (default: 1)',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Items per page (default: 20)',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'List of available exams',
-  })
-  public async findAvailableExams(
-    @GetUser() user: JwtPayload,
-    @Query() filter: StudentExamFilterDto,
-  ): Promise<{
-    data: unknown[];
-    meta: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-      hasNextPage: boolean;
-      hasPrevPage: boolean;
+  @ApiOperation({ summary: 'List published exams available to take' })
+  public async list(@Query() filter: ExamFilterDto): Promise<PaginatedResponse<unknown>> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const qb = this.exams
+      .createQueryBuilder('exam')
+      .leftJoinAndSelect('exam.subject', 'subject')
+      .leftJoinAndSelect('exam.teacher', 'teacher')
+      .where('exam.deleted_at IS NULL')
+      .andWhere('exam.status IN (:...statuses)', {
+        statuses: [ExamStatus.PUBLISHED, ExamStatus.SCHEDULED],
+      });
+    if (filter.subject_id) qb.andWhere('exam.subject_id = :s', { s: filter.subject_id });
+    if (filter.search) qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
+    qb.orderBy('exam.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
+    const data = rows.map((e) => ({
+      id: e.id,
+      title: e.title,
+      title_ar: e.title_ar,
+      description: e.description,
+      subject: e.subject ? { id: e.subject.id, name: e.subject.name } : null,
+      teacher: e.teacher ? { id: e.teacher.id, name: e.teacher.name } : null,
+      total_marks: e.total_marks,
+      passing_marks: e.passing_marks,
+      duration_seconds: e.config.duration_seconds,
+      attempts_allowed: e.config.attempts_allowed,
+      status: e.status,
+    }));
+    const totalPages = Math.ceil(total / limit);
+    const meta: PaginationMeta = {
+      total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1,
     };
-  }> {
-    return await this.examsService.findAvailableExams(user.userId, filter);
+    return { data, meta };
   }
 
-  /**
-   * Start an exam attempt
-   * Creates IN_PROGRESS attempt and returns questions WITHOUT correct answers
-   */
   @Post(':id/start')
-  @ApiOperation({
-    summary: 'Start an exam attempt',
-    description:
-      'Creates a new exam attempt and returns questions without correct answers.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Exam attempt started successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.CONFLICT,
-    description: 'Exam already submitted',
-  })
-  public async startExam(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-  ): Promise<unknown> {
-    return await this.examsService.startExam(user.userId, examId);
+  @ApiOperation({ summary: 'Start (or resume) an attempt' })
+  public start(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) examId: string) {
+    return this.attempts.startAttempt(user.userId, examId);
   }
 
-  /**
-   * Get exam result
-   */
-  @Get(':id/result')
-  @ApiOperation({
-    summary: 'Get exam result',
-    description:
-      'Returns the graded result for an exam. Only available when all questions are graded (status = GRADED).',
-  })
-  @ApiParam({ name: 'id', description: 'Exam ID' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Exam result with scores and feedback',
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Results not available yet (still being graded)',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Exam not found or not submitted',
-  })
-  public async getExamResult(
+  @Get('attempts/:attemptId')
+  @ApiOperation({ summary: 'Resume an attempt (restores saved answers + timer)' })
+  public getAttempt(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-  ): Promise<unknown> {
-    return await this.examsService.getExamResult(user.userId, examId);
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+  ) {
+    return this.attempts.getAttempt(user.userId, attemptId);
+  }
+
+  @Patch('attempts/:attemptId/answers')
+  @ApiOperation({ summary: 'Autosave answers' })
+  public save(
+    @GetUser() user: JwtPayload,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+    @Body() dto: SaveAnswersDto,
+  ) {
+    return this.attempts.saveAnswers(user.userId, attemptId, dto);
+  }
+
+  @Post('attempts/:attemptId/submit')
+  @ApiOperation({ summary: 'Submit an attempt (idempotent)' })
+  public submit(
+    @GetUser() user: JwtPayload,
+    @Param('attemptId', ParseUUIDPipe) attemptId: string,
+    @Body() dto: SubmitAttemptDto,
+  ) {
+    return this.attempts.submit(user.userId, attemptId, dto);
+  }
+
+  @Get(':id/result')
+  @ApiOperation({ summary: 'Get the result for the latest attempt at an exam' })
+  public result(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) examId: string) {
+    return this.attempts.getResult(user.userId, examId);
   }
 }

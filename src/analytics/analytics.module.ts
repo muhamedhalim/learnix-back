@@ -6,6 +6,8 @@ import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
+import { ExamQuestion } from '../exams/entities/exam-question.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -25,6 +27,8 @@ import { AnalyticsService } from './analytics.service';
       PackagePurchase,
       BookPurchase,
       ExamAttempt,
+      ExamQuestion,
+      ExamAttemptAnswer,
       LessonSession,
       LessonReview,
     ]),

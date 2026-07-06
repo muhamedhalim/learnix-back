@@ -153,9 +153,9 @@ export class StudentsService {
     const exams = examAttempts.map((ea) => ({
       examId: ea.exam_id,
       title: ea.exam.title,
-      score: ea.total_score,
+      score: ea.score_total,
       totalMarks: ea.exam.total_marks,
-      status: ea.status,
+      status: ea.state,
       submittedAt: ea.submitted_at,
     }));
 

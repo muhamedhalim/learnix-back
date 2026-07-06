@@ -3,23 +3,14 @@ import {
   Controller,
   Delete,
   Get,
-  HttpStatus,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -27,214 +18,102 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import {
+  AttachQuestionDto,
   CreateExamDto,
   ExamFilterDto,
-  GradeEssayDto,
   UpdateExamDto,
+  UpsertSectionDto,
 } from '../dto';
-import { ExamsService } from '../exams.service';
+import { ExamAuthoringService } from '../services/exam-authoring.service';
 
-@ApiTags('Teacher Exams')
+@ApiTags('Teacher · Exams')
 @Controller('teacher/exams')
 @UseGuards(HybridAuthGuard, RolesGuard)
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherExamsController {
-  constructor(private readonly examsService: ExamsService) {}
+  constructor(private readonly authoring: ExamAuthoringService) {}
 
-  /**
-   * Create a new exam
-   */
   @Post()
-  @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Exam created successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Subject not found',
-  })
-  public async create(
-    @GetUser() user: JwtPayload,
-    @Body() createDto: CreateExamDto,
-  ): Promise<{ message: string; exam: unknown }> {
-    const exam = await this.examsService.create(user.userId, createDto);
-    return {
-      message: 'Exam created successfully',
-      exam,
-    };
+  @ApiOperation({ summary: 'Create a draft exam' })
+  public create(@GetUser() user: JwtPayload, @Body() dto: CreateExamDto) {
+    return this.authoring.createExam(user.userId, dto);
   }
 
-  /**
-   * Get my exams
-   */
   @Get()
-  @ApiOperation({
-    summary: 'Get my exams',
-    description:
-      "Returns a paginated list of the authenticated teacher's exams with submission stats.",
-  })
-  @ApiQuery({ name: 'search', required: false, description: 'Search by title' })
-  @ApiQuery({
-    name: 'subject_id',
-    required: false,
-    type: Number,
-    description: 'Filter by subject ID',
-  })
-  @ApiQuery({
-    name: 'is_active',
-    required: false,
-    type: Boolean,
-    description: 'Filter by active status',
-  })
-  @ApiQuery({
-    name: 'sort_by',
-    required: false,
-    enum: ['created_at', 'title', 'total_marks', 'duration'],
-    description: 'Sort field',
-  })
-  @ApiQuery({
-    name: 'sort_order',
-    required: false,
-    enum: ['ASC', 'DESC'],
-    description: 'Sort order',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Page number (default: 1)',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Items per page (default: 20)',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: "List of teacher's exams with stats",
-  })
-  public async findMyExams(
-    @GetUser() user: JwtPayload,
-    @Query() filter: ExamFilterDto,
-  ): Promise<{
-    data: unknown[];
-    meta: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-      hasNextPage: boolean;
-      hasPrevPage: boolean;
-    };
-  }> {
-    return await this.examsService.findMyExams(user.userId, filter);
+  public list(@GetUser() user: JwtPayload, @Query() filter: ExamFilterDto) {
+    return this.authoring.listExams(user.userId, filter);
   }
 
-  /**
-   * Get exam submissions for grading
-   */
-  @Get(':id/submissions')
-  @ApiOperation({
-    summary: 'Get exam submissions',
-    description:
-      'Returns all student submissions for an exam, including essay answers for grading.',
-  })
-  @ApiParam({ name: 'id', description: 'Exam ID' })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Page number (default: 1)',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Items per page (default: 20)',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only view submissions for your own exams',
-  })
-  public async getSubmissions(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
-  ): Promise<unknown> {
-    return await this.examsService.getSubmissions(
-      examId,
-      user.userId,
-      page ?? 1,
-      limit ?? 20,
-    );
+  @Get(':id')
+  @ApiOperation({ summary: 'Full authoring view (sections + questions)' })
+  public getOne(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
+    return this.authoring.getExamForTeacher(id, user.userId);
   }
 
-  /**
-   * Grade an essay question
-   */
-  @Post(':id/grade')
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Essay graded successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only grade your own exams',
-  })
-  public async gradeEssay(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-    @Body() gradeDto: GradeEssayDto,
-  ): Promise<unknown> {
-    return await this.examsService.gradeEssay(user.userId, examId, gradeDto);
-  }
-
-  /**
-   * Update an exam
-   */
   @Put(':id')
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Exam updated successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only update your own exams',
-  })
-  public async update(
+  public update(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-    @Body() updateDto: UpdateExamDto,
-  ): Promise<{ message: string; exam: unknown }> {
-    const exam = await this.examsService.update(examId, user.userId, updateDto);
-    return {
-      message: 'Exam updated successfully',
-      exam,
-    };
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateExamDto,
+  ) {
+    return this.authoring.updateExam(id, user.userId, dto);
   }
 
-  /**
-   * Delete an exam
-   */
   @Delete(':id')
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Exam deleted successfully',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only delete your own exams',
-  })
-  public async delete(
+  public async remove(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
+    await this.authoring.remove(id, user.userId);
+    return { message: 'Exam deleted' };
+  }
+
+  @Post(':id/sections')
+  @ApiOperation({ summary: 'Add a section' })
+  public addSection(
     @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) examId: string,
-  ): Promise<{ message: string }> {
-    await this.examsService.delete(examId, user.userId);
-    return {
-      message: 'Exam deleted successfully',
-    };
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertSectionDto,
+  ) {
+    return this.authoring.addSection(id, user.userId, dto);
+  }
+
+  @Delete(':id/sections/:sectionId')
+  public async removeSection(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sectionId', ParseUUIDPipe) sectionId: string,
+  ) {
+    await this.authoring.removeSection(id, sectionId, user.userId);
+    return { message: 'Section removed' };
+  }
+
+  @Post(':id/questions')
+  @ApiOperation({ summary: 'Attach a bank question to the exam' })
+  public attach(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AttachQuestionDto,
+  ) {
+    return this.authoring.attachQuestion(id, user.userId, dto);
+  }
+
+  @Delete(':id/questions/:examQuestionId')
+  public async detach(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('examQuestionId', ParseUUIDPipe) examQuestionId: string,
+  ) {
+    await this.authoring.detachQuestion(id, examQuestionId, user.userId);
+    return { message: 'Question detached' };
+  }
+
+  @Post(':id/publish')
+  @ApiOperation({ summary: 'Publish (or schedule) the exam' })
+  public publish(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
+    return this.authoring.publish(id, user.userId);
+  }
+
+  @Post(':id/archive')
+  public archive(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
+    return this.authoring.archive(id, user.userId);
   }
 }
