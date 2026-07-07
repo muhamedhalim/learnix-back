@@ -10,7 +10,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -108,11 +107,12 @@ export class UpdatePackageDto {
   public is_active?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Thumbnail image URL',
-    example: 'https://example.com/thumbnails/math-package.jpg',
+    description:
+      'Storage key from /teacher/uploads/image (preferred), or a full external image URL.',
+    example: 'images/9c1b7e2a-....jpg',
   })
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(500)
   public thumbnail?: string;
 }

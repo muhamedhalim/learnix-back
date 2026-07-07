@@ -16,6 +16,7 @@ import {
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { MediaService } from '../media/media.service';
 import { User } from '../users/entities/user.entity';
 import {
   AddLessonsDto,
@@ -57,6 +58,8 @@ export interface PackageWithDetails {
   published_at: Date | null;
   scheduled_publish_at: Date | null;
   thumbnail: string | null;
+  /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
+  thumbnail_url: string | null;
   lessons_count: number;
   lessons: Array<{
     id: string;
@@ -93,6 +96,7 @@ export class PackagesService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly dataSource: DataSource,
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -557,6 +561,7 @@ export class PackagesService {
       published_at: pkg.published_at,
       scheduled_publish_at: pkg.scheduled_publish_at,
       thumbnail: pkg.thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(pkg.thumbnail),
       lessons_count: sortedItems.length,
       lessons: sortedItems.map((item) => ({
         id: item.lesson.id,

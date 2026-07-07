@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { MediaModule } from '../media/media.module';
 import { User } from '../users/entities/user.entity';
 import {
   AdminPackagesController,
@@ -22,6 +23,7 @@ import { PackagesService } from './packages.service';
       Lesson,
       User,
     ]),
+    MediaModule,
   ],
   controllers: [
     AdminPackagesController,

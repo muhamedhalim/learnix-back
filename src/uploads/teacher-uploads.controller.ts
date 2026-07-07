@@ -116,7 +116,7 @@ export class TeacherUploadsController {
     allowed: string[],
     maxBytes: number,
     folder: string,
-  ): Promise<{ url: string; name: string; type: string; size: number }> {
+  ): Promise<{ url: string; key: string; name: string; type: string; size: number }> {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
@@ -137,6 +137,7 @@ export class TeacherUploadsController {
     });
     return {
       url: stored.url,
+      key: stored.path,
       name: file.originalname,
       type: logicalType(file.mimetype),
       size: stored.size,

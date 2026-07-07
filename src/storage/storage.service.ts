@@ -1,5 +1,7 @@
+import { createReadStream } from 'node:fs';
 import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
+import { Readable } from 'node:stream';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,7 +15,24 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-import { StorageProvider, StoredFile, UploadParams } from './storage.interface';
+import {
+  StorageObjectNotFoundError,
+  StorageProvider,
+  StoredFile,
+  StoredObject,
+  UploadParams,
+} from './storage.interface';
+
+/** Best-effort extension → MIME map for the local-disk fallback (dev/CI only). */
+const LOCAL_MIME_TYPES: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.pdf': 'application/pdf',
+};
 
 const DEFAULT_SIGNED_EXPIRES = 900; // 15 minutes
 
@@ -130,6 +149,28 @@ class R2StorageProvider implements StorageProvider {
     }
   }
 
+  public async getObject(path: string): Promise<StoredObject> {
+    try {
+      const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: path }));
+      if (!res.Body) {
+        throw new StorageObjectNotFoundError(path);
+      }
+      return {
+        stream: res.Body as Readable,
+        contentType: res.ContentType ?? 'application/octet-stream',
+        contentLength: res.ContentLength,
+      };
+    } catch (err) {
+      const code = (err as { name?: string; Code?: string }).name ?? (err as { Code?: string }).Code;
+      if (code === 'NoSuchKey' || code === 'NotFound') {
+        throw new StorageObjectNotFoundError(path);
+      }
+      if (err instanceof StorageObjectNotFoundError) throw err;
+      this.logger.error(`R2 getObject failed for ${path}: ${describeS3Error(err)}`);
+      throw err;
+    }
+  }
+
   public getPublicUrl(path: string): string {
     return `${this.publicBaseUrl.replace(/\/+$/, '')}/${path}`;
   }
@@ -200,6 +241,26 @@ class BunnyStorageProvider implements StorageProvider {
     return res.ok;
   }
 
+  public async getObject(path: string): Promise<StoredObject> {
+    const res = await fetch(`${this.base}/${this.zone}/${path}`, {
+      method: 'GET',
+      headers: { AccessKey: this.password },
+    });
+    if (res.status === 404) {
+      throw new StorageObjectNotFoundError(path);
+    }
+    if (!res.ok || !res.body) {
+      this.logger.error(`Bunny getObject failed (${res.status}) for ${path}`);
+      throw new Error(`Bunny getObject failed (${res.status}) for ${path}`);
+    }
+    const contentLengthHeader = res.headers.get('content-length');
+    return {
+      stream: Readable.fromWeb(res.body as unknown as import('stream/web').ReadableStream),
+      contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+      contentLength: contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : undefined,
+    };
+  }
+
   public getPublicUrl(path: string): string {
     return `${this.cdnUrl.replace(/\/+$/, '')}/${path}`;
   }
@@ -240,6 +301,21 @@ class LocalStorageProvider implements StorageProvider {
     } catch {
       return false;
     }
+  }
+
+  public async getObject(path: string): Promise<StoredObject> {
+    const full = join(this.uploadDir, path);
+    let size: number;
+    try {
+      size = (await stat(full)).size;
+    } catch {
+      throw new StorageObjectNotFoundError(path);
+    }
+    return {
+      stream: createReadStream(full),
+      contentType: LOCAL_MIME_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
+      contentLength: size,
+    };
   }
 
   public getPublicUrl(path: string): string {
@@ -324,6 +400,10 @@ export class StorageService implements StorageProvider {
     return this.provider.exists(path);
   }
 
+  public getObject(path: string): Promise<StoredObject> {
+    return this.provider.getObject(path);
+  }
+
   public getPublicUrl(path: string): string {
     return this.provider.getPublicUrl(path);
   }
@@ -341,9 +421,19 @@ export class StorageService implements StorageProvider {
    * Normalize a stored asset reference to its object key. Accepts either a bare
    * key ("books/uuid.pdf") or a full/legacy URL (public base + key, or a legacy
    * `/api/v1/uploads/...` path) and returns the signable/deletable key.
+   *
+   * Strips this provider's own public-URL prefix FIRST (rather than just
+   * `new URL().pathname`) because R2's public base URL includes the bucket
+   * name in its path (e.g. `https://<acct>.r2.cloudflarestorage.com/<bucket>`)
+   * — naive pathname extraction would leave the bucket name as a bogus leading
+   * key segment.
    */
   public toKey(value: string): string {
     if (value === '') return value;
+    const publicPrefix = this.getPublicUrl('');
+    if (publicPrefix !== '' && value.startsWith(publicPrefix)) {
+      return value.slice(publicPrefix.length).replace(/^\/+/, '');
+    }
     let path = value;
     if (/^https?:\/\//i.test(value)) {
       try {
@@ -355,6 +445,25 @@ export class StorageService implements StorageProvider {
     // Strip a legacy local-serve prefix if present.
     path = path.replace(/^\/+/, '').replace(/^api\/v1\/uploads\//, '');
     return path;
+  }
+
+  /**
+   * Whether `value` refers to an object in THIS storage backend (a bare key,
+   * this provider's own public URL, or a legacy `/api/v1/uploads/...` path) —
+   * as opposed to an arbitrary externally-hosted URL a user pasted in. Used to
+   * decide whether a `thumbnail`-style value can be safely rewritten to route
+   * through the public media proxy.
+   */
+  public isOwnUrl(value: string): boolean {
+    if (!/^https?:\/\//i.test(value)) return true;
+    const publicPrefix = this.getPublicUrl('');
+    if (publicPrefix !== '' && value.startsWith(publicPrefix)) return true;
+    try {
+      const pathname = new URL(value).pathname.replace(/^\/+/, '');
+      return pathname.startsWith('api/v1/uploads/');
+    } catch {
+      return false;
+    }
   }
 
   /** Best-effort delete that never throws (for cleanup paths). */

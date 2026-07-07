@@ -9,7 +9,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -86,11 +85,12 @@ export class CreatePackageDto {
   public price!: number;
 
   @ApiPropertyOptional({
-    description: 'Thumbnail image URL for the package',
-    example: 'https://example.com/thumbnails/math-package.jpg',
+    description:
+      'Storage key from /teacher/uploads/image (preferred), or a full external image URL.',
+    example: 'images/9c1b7e2a-....jpg',
   })
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(500)
   public thumbnail?: string;
 }

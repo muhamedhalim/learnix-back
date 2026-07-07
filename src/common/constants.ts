@@ -45,6 +45,22 @@ export const THROTTLE = {
 export const UPLOAD_FOLDERS = ['thumbnails', 'profiles', 'resources'] as const;
 export type UploadFolder = (typeof UPLOAD_FOLDERS)[number];
 
+/**
+ * Storage key prefixes that are safe to serve through the public media proxy
+ * (`GET /media/public/:folder/:filename`). Every folder here is uploaded with
+ * `visibility: 'public'` today (see `StorageService.upload` callers) — private
+ * folders (e.g. `books`, OMR sheet scans) are deliberately excluded so they
+ * can only ever be reached via a purchase/ownership-gated signed URL.
+ */
+export const PUBLIC_MEDIA_FOLDERS = [
+  'images',
+  'thumbnails',
+  'profiles',
+  'resources',
+  'attachments',
+] as const;
+export type PublicMediaFolder = (typeof PUBLIC_MEDIA_FOLDERS)[number];
+
 // Video platform types
 export const VIDEO_PLATFORMS = {
   BUNNY: 'bunny',

@@ -1,3 +1,5 @@
+import type { Readable } from 'node:stream';
+
 export type StorageVisibility = 'public' | 'private';
 
 export interface StoredFile {
@@ -39,6 +41,12 @@ export interface StorageProvider {
   delete(path: string): Promise<void>;
   /** Whether an object exists at the given key. */
   exists(path: string): Promise<boolean>;
+  /**
+   * Fetch an object's bytes as a stream, for backend-side proxying (e.g. the
+   * public media endpoint). Throws {@link StorageObjectNotFoundError} if the
+   * key does not exist.
+   */
+  getObject(path: string): Promise<StoredObject>;
   /** Canonical public URL for a (public) object. No authorization applied. */
   getPublicUrl(path: string): string;
   /**
@@ -46,6 +54,21 @@ export interface StorageProvider {
    * The caller is responsible for authorizing the request beforehand.
    */
   getSignedUrl(path: string, expiresInSeconds?: number): Promise<string>;
+}
+
+/** A retrieved object's raw bytes (as a stream) plus the metadata needed to serve it. */
+export interface StoredObject {
+  stream: Readable;
+  contentType: string;
+  contentLength?: number | undefined;
+}
+
+/** Thrown by a provider's `getObject` when the key does not exist. */
+export class StorageObjectNotFoundError extends Error {
+  constructor(path: string) {
+    super(`Object not found: ${path}`);
+    this.name = 'StorageObjectNotFoundError';
+  }
 }
 
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');

@@ -14,6 +14,7 @@ import {
   PaginatedResponse,
   PaginationMeta,
 } from '../common/interfaces/pagination.interface';
+import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -52,6 +53,8 @@ export interface LessonWithDetails {
     grade_level: string;
   };
   thumbnail: string | null;
+  /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
+  thumbnail_url: string | null;
   // Primary video fields (Bunny.net)
   video_url: string | null;
   video_platform: 'bunny' | 'vimeo';
@@ -95,6 +98,7 @@ export class LessonsService {
     private readonly subjectsRepository: Repository<Subject>,
     private readonly bunnyStream: BunnyStreamService,
     private readonly paymentsService: PaymentsService,
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -924,6 +928,7 @@ export class LessonsService {
         grade_level: lesson.subject.grade_level,
       },
       thumbnail: lesson.thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(lesson.thumbnail),
       // Primary video fields (Bunny.net)
       video_url: lesson.video_url,
       video_platform: lesson.video_platform,

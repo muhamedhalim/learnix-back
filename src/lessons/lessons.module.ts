@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { MediaModule } from '../media/media.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -33,6 +34,7 @@ import { ProgressService } from './progress.service';
       Subject,
     ]),
     PaymentsModule,
+    MediaModule,
   ],
   controllers: [
     AdminLessonsController,
