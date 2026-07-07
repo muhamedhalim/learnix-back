@@ -24,3 +24,6 @@ export { ExamSection } from './exam-section.entity';
 export { ExamQuestion } from './exam-question.entity';
 export { ExamAttempt } from './exam-attempt.entity';
 export { ExamAttemptAnswer } from './exam-attempt-answer.entity';
+export { OmrSheet } from './omr-sheet.entity';
+export type { OmrDetectedAnswer } from './omr-sheet.entity';
+export { OmrSheetStatus } from './omr-sheet-status.enum';

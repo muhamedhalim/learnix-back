@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, LessThan, Repository } from 'typeorm';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { PaymentsService } from '../../payments/services/payments.service';
@@ -174,6 +174,63 @@ export class AttemptService {
     return this.renderAttempt(attempt);
   }
 
+  /**
+   * Find-or-create an attempt for a server-triggered (non-interactive) grading
+   * path (currently: OMR). Unlike `startAttempt`, this never races a
+   * concurrent student click, so there's no conflict-retry dance — and it
+   * deliberately skips `jobs.scheduleAutoSubmit`, since the caller finalises
+   * this attempt synchronously moments later (a delayed job that would only
+   * ever be cancelled is wasted work). Idempotent: returns an existing
+   * attempt (in progress or already finalised) as-is rather than duplicating.
+   */
+  public async createOmrAttempt(examId: string, studentId: string): Promise<ExamAttempt> {
+    const existing = await this.attempts.findOne({
+      where: { exam_id: examId, student_id: studentId },
+      order: { attempt_number: 'DESC' },
+    });
+    if (existing) return existing;
+
+    const exam = await this.exams.findOneOrFail({ where: { id: examId } });
+    const examQuestions = await this.examQuestions.find({ where: { exam_id: examId } });
+    if (examQuestions.length === 0) {
+      throw new BadRequestException('This exam has no questions');
+    }
+
+    const now = new Date();
+    const deadline = new Date(now.getTime() + exam.config.duration_seconds * 1000);
+    const seed = randomInt(1, 2 ** 31 - 1);
+
+    return this.dataSource.transaction(async (manager) => {
+      const created = manager.create(ExamAttempt, {
+        exam_id: examId,
+        student_id: studentId,
+        attempt_number: 1,
+        state: AttemptState.IN_PROGRESS,
+        shuffle_seed: seed,
+        started_at: now,
+        deadline_at: deadline,
+        max_score: exam.total_marks,
+        session_token: randomUUID(),
+      });
+      const savedAttempt = await manager.save(ExamAttempt, created);
+
+      const ordered = this.orderQuestions(examQuestions, exam.config, seed);
+      const rows = ordered.map((eq, index) =>
+        manager.create(ExamAttemptAnswer, {
+          attempt_id: savedAttempt.id,
+          exam_question_id: eq.id,
+          question_id: eq.question_id,
+          question_version: eq.question_version,
+          order_index: index,
+          response: null,
+          max_score: eq.marks,
+        }),
+      );
+      await manager.save(ExamAttemptAnswer, rows);
+      return savedAttempt;
+    });
+  }
+
   /** Resume/get an attempt (lazily finalises if the deadline already passed). */
   public async getAttempt(studentId: string, attemptId: string): Promise<RenderedAttempt> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
@@ -232,6 +289,37 @@ export class AttemptService {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
     if (!attempt || attempt.state !== AttemptState.IN_PROGRESS) return null;
     return this.finalize(attemptId, { auto: true });
+  }
+
+  /**
+   * Repeatable safety-net sweep (runs every minute — see `ExamJobsService`):
+   * finds IN_PROGRESS attempts whose deadline has passed and finalises them.
+   * This is a backstop for the primary per-attempt delayed job (e.g. if Redis
+   * or the worker was down when that job would have fired) — it is never the
+   * only path, so it must be exactly as safe to run redundantly. It routes
+   * every recovered attempt through the same `finalizeExpired` → `finalize`
+   * path (pessimistic-locked, idempotent), so a sweep racing the primary job,
+   * or two sweep ticks racing each other, can never double-grade.
+   */
+  public async sweepExpiredAttempts(): Promise<{ scanned: number; recovered: string[] }> {
+    const candidates = await this.attempts.find({
+      where: { state: AttemptState.IN_PROGRESS, deadline_at: LessThan(new Date()) },
+    });
+    if (candidates.length === 0) return { scanned: 0, recovered: [] };
+
+    const exams = await this.exams.find({
+      where: { id: In([...new Set(candidates.map((a) => a.exam_id))]) },
+    });
+    const examById = new Map(exams.map((e) => [e.id, e]));
+
+    const recovered: string[] = [];
+    for (const attempt of candidates) {
+      const exam = examById.get(attempt.exam_id);
+      if (!exam || !this.isExpired(attempt, exam.config)) continue; // still within grace
+      const summary = await this.finalizeExpired(attempt.id);
+      if (summary) recovered.push(attempt.id);
+    }
+    return { scanned: candidates.length, recovered };
   }
 
   private async finalizeIfExpired(attempt: ExamAttempt): Promise<ExamAttempt> {

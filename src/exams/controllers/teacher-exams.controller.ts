@@ -116,4 +116,9 @@ export class TeacherExamsController {
   public archive(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
     return this.authoring.archive(id, user.userId);
   }
+
+  @Post(':id/unarchive')
+  public unarchive(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
+    return this.authoring.unarchive(id, user.userId);
+  }
 }

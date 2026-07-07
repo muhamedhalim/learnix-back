@@ -245,6 +245,32 @@ export class ExamAuthoringService {
     return this.exams.save(exam);
   }
 
+  public async unarchive(examId: string, teacherId: string): Promise<Exam> {
+    const exam = await this.findOwned(examId, teacherId);
+    if (exam.status !== ExamStatus.ARCHIVED) {
+      throw new BadRequestException(`Only an archived exam can be unarchived (current: ${exam.status})`);
+    }
+    exam.status = ExamStatus.PUBLISHED;
+    return this.exams.save(exam);
+  }
+
+  /** Admin-scoped archive: no teacher-ownership check. */
+  public async archiveAsAdmin(examId: string): Promise<Exam> {
+    const exam = await this.findAny(examId);
+    exam.status = ExamStatus.ARCHIVED;
+    return this.exams.save(exam);
+  }
+
+  /** Admin-scoped unarchive: no teacher-ownership check. */
+  public async unarchiveAsAdmin(examId: string): Promise<Exam> {
+    const exam = await this.findAny(examId);
+    if (exam.status !== ExamStatus.ARCHIVED) {
+      throw new BadRequestException(`Only an archived exam can be unarchived (current: ${exam.status})`);
+    }
+    exam.status = ExamStatus.PUBLISHED;
+    return this.exams.save(exam);
+  }
+
   public async remove(examId: string, teacherId: string): Promise<void> {
     await this.findOwned(examId, teacherId);
     await this.exams.softDelete(examId);
@@ -266,6 +292,12 @@ export class ExamAuthoringService {
     const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
     if (!exam) throw new NotFoundException('Exam not found');
     if (exam.teacher_id !== teacherId) throw new ForbiddenException('You can only manage your own exams');
+    return exam;
+  }
+
+  private async findAny(examId: string): Promise<Exam> {
+    const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
+    if (!exam) throw new NotFoundException('Exam not found');
     return exam;
   }
 

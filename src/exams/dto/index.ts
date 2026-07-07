@@ -5,6 +5,7 @@ export { ExamConfigDto } from './exam-config.dto';
 export { CreateExamDto } from './create-exam.dto';
 export { UpdateExamDto } from './update-exam.dto';
 export { ExamFilterDto } from './exam-filter.dto';
+export { AdminExamFilterDto } from './admin-exam-filter.dto';
 export { UpsertSectionDto } from './exam-section.dto';
 export { AttachQuestionDto } from './attach-question.dto';
 export {
@@ -13,3 +14,4 @@ export {
   SubmitAttemptDto,
   GradeAnswerDto,
 } from './attempt.dto';
+export { CreateOmrSheetDto } from './create-omr-sheet.dto';

@@ -7,9 +7,11 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { PaymentsModule } from '../payments/payments.module';
 import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { Subject } from '../subjects/entities/subject.entity';
+import { AdminExamsController } from './controllers/admin-exams.controller';
 import { StudentExamsController } from './controllers/student-exams.controller';
 import { TeacherExamsController } from './controllers/teacher-exams.controller';
 import { TeacherGradingController } from './controllers/teacher-grading.controller';
+import { TeacherOmrController } from './controllers/teacher-omr.controller';
 import { TeacherQuestionsController } from './controllers/teacher-questions.controller';
 import {
   Exam,
@@ -17,6 +19,7 @@ import {
   ExamAttemptAnswer,
   ExamQuestion,
   ExamSection,
+  OmrSheet,
   Question,
   QuestionVersion,
 } from './entities';
@@ -24,12 +27,15 @@ import { GradingService } from './grading/grading.service';
 import { ExamAiGradingProcessor } from './processors/exam-ai-grading.processor';
 import { ExamAnalyticsProcessor } from './processors/exam-analytics.processor';
 import { ExamAutoSubmitProcessor } from './processors/exam-auto-submit.processor';
+import { OmrProcessor } from './processors/omr.processor';
 import { QuestionTypeRegistry } from './question-types/question-type-registry';
+import { AdminExamsService } from './services/admin-exams.service';
 import { AttemptGradingService } from './services/attempt-grading.service';
 import { AttemptService } from './services/attempt.service';
 import { ExamAiGradingService } from './services/exam-ai-grading.service';
 import { ExamAuthoringService } from './services/exam-authoring.service';
 import { ExamJobsService } from './services/exam-jobs.service';
+import { OmrSheetsService } from './services/omr-sheets.service';
 import { QuestionBankService } from './services/question-bank.service';
 import { TeacherGradingService } from './services/teacher-grading.service';
 
@@ -48,6 +54,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       ExamQuestion,
       ExamAttempt,
       ExamAttemptAnswer,
+      OmrSheet,
       Subject,
       Lesson,
     ]),
@@ -56,6 +63,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       { name: QUEUE_NAMES.EXAM_AUTO_SUBMIT, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AUTO_SUBMIT] },
       { name: QUEUE_NAMES.EXAM_ANALYTICS, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_ANALYTICS] },
       { name: QUEUE_NAMES.EXAM_AI_GRADING, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AI_GRADING] },
+      { name: QUEUE_NAMES.EXAM_OMR, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR] },
     ),
     PaymentsModule, // enrollment/access checks (hasLessonPlaybackAccess)
     AnalyticsModule, // exam analytics recomputation
@@ -64,7 +72,9 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     TeacherQuestionsController,
     TeacherExamsController,
     TeacherGradingController,
+    TeacherOmrController,
     StudentExamsController,
+    AdminExamsController,
   ],
   providers: [
     // Domain
@@ -76,11 +86,14 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     AttemptGradingService,
     TeacherGradingService,
     ExamAiGradingService,
+    AdminExamsService,
+    OmrSheetsService,
     // Jobs (producer + workers)
     ExamJobsService,
     ExamAutoSubmitProcessor,
     ExamAnalyticsProcessor,
     ExamAiGradingProcessor,
+    OmrProcessor,
   ],
   exports: [TypeOrmModule, QuestionTypeRegistry, GradingService],
 })
