@@ -32,6 +32,7 @@ interface ProblemDetails {
 interface NestExceptionResponse {
   error?: string;
   message?: string | string[];
+  errors?: string[];
   statusCode?: number;
 }
 
@@ -93,12 +94,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
           ? responseObj.message.join(', ')
           : (responseObj.message ?? detail);
 
-        // Include validation errors if present
-        if (
-          responseObj.message !== undefined &&
-          Array.isArray(responseObj.message)
-        ) {
+        // Include validation errors if present (either the class-validator
+        // shape, where `message` itself is the array, or the question-type
+        // registry shape, which keeps `message` human-readable and puts the
+        // per-field failures in a sibling `errors` array).
+        if (Array.isArray(responseObj.message)) {
           errors = responseObj.message;
+        } else if (Array.isArray(responseObj.errors)) {
+          errors = responseObj.errors;
         }
       } else if (typeof exceptionResponse === 'string') {
         detail = exceptionResponse;
