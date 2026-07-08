@@ -47,6 +47,9 @@ export interface StudentProfileWithDetails {
   };
   parent_phone: string;
   grade_level: string | null;
+  country: string | null;
+  governorate: string | null;
+  school: string | null;
   notification_settings: Record<string, boolean>;
   created_at: Date;
   updated_at: Date;
@@ -195,6 +198,15 @@ export class StudentsService {
     }
     if (dto.grade_level !== undefined) {
       profile.grade_level = dto.grade_level;
+    }
+    if (dto.country !== undefined) {
+      profile.country = dto.country;
+    }
+    if (dto.governorate !== undefined) {
+      profile.governorate = dto.governorate;
+    }
+    if (dto.school !== undefined) {
+      profile.school = dto.school;
     }
 
     const savedProfile = await this.studentProfilesRepository.save(profile);
@@ -564,6 +576,9 @@ export class StudentsService {
       },
       parent_phone: profile.parent_phone,
       grade_level: profile.grade_level,
+      country: profile.country,
+      governorate: profile.governorate,
+      school: profile.school,
       notification_settings: profile.notification_settings,
       created_at: profile.created_at,
       updated_at: profile.updated_at,

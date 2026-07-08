@@ -36,6 +36,21 @@ export class StudentProfile {
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'grade_level' })
   grade_level!: string | null;
 
+  // Optional demographic fields used by the public gamification leaderboards
+  // (Global / Governorate / School). Nullable + opt-in: geo/school boards only
+  // rank students who filled these in — no forced backfill.
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Index('IDX_student_profiles_country')
+  country!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Index('IDX_student_profiles_governorate')
+  governorate!: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  @Index('IDX_student_profiles_school')
+  school!: string | null;
+
   @Column({
     type: 'jsonb',
     nullable: false,

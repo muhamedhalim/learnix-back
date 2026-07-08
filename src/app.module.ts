@@ -34,6 +34,7 @@ import { DiscountCodesModule } from './discount-codes/discount-codes.module';
 // Phase 3: Exams & Grading
 import { ExamsModule } from './exams/exams.module';
 import { FirebaseModule } from './firebase/firebase.module';
+import { GamificationModule } from './gamification/gamification.module';
 import { HealthModule } from './health/health.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { LessonsModule } from './lessons/lessons.module';
@@ -195,6 +196,7 @@ import { UsersModule } from './users/users.module';
 
     // Phase 3: Exams & Grading
     ExamsModule,
+    GamificationModule,
 
     // Phase 4: Payments & Notifications
     IdempotencyModule,

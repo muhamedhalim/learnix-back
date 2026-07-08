@@ -103,6 +103,10 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
         name: QUEUE_NAMES.EXAM_ANALYTICS,
         ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_ANALYTICS],
       },
+      {
+        name: QUEUE_NAMES.GAMIFICATION,
+        ...QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION],
+      },
     ),
     IdempotencyModule,
     BullBoardModule.forFeature({
@@ -135,6 +139,10 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
     }),
     BullBoardModule.forFeature({
       name: QUEUE_NAMES.EXAM_ANALYTICS,
+      adapter: BullMQAdapter,
+    }),
+    BullBoardModule.forFeature({
+      name: QUEUE_NAMES.GAMIFICATION,
       adapter: BullMQAdapter,
     }),
   ],

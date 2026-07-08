@@ -40,6 +40,9 @@ export const QUEUE_NAMES = {
 
   /** Exam analytics aggregation (stats, difficulty/discrimination indices). */
   EXAM_ANALYTICS: 'exam-analytics',
+
+  /** Gamification maintenance (streak-reset sweep, leaderboard rebuild). */
+  GAMIFICATION: 'gamification',
 } as const;
 
 /**
@@ -88,6 +91,10 @@ export const JOB_TYPES = {
     OMR_PROCESS_SHEET: 'omr-process-sheet',
     /** Recompute aggregated analytics for an exam after a grade change. */
     AGGREGATE_ANALYTICS: 'aggregate-exam-analytics',
+  },
+  GAMIFICATION: {
+    /** Nightly repeatable: zero streaks for students who missed a day. */
+    STREAK_RESET_SWEEP: 'streak-reset-sweep',
   },
 } as const;
 
@@ -279,6 +286,16 @@ export const QUEUE_CONFIGS = {
       // Non-urgent recomputation; a later job supersedes an earlier one.
       priority: 5,
       attempts: 3,
+    },
+  },
+
+  [QUEUE_NAMES.GAMIFICATION]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Idempotent maintenance; the next repeat supersedes a missed run.
+      priority: 5,
+      attempts: 1,
     },
   },
 };

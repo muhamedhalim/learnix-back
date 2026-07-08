@@ -309,6 +309,8 @@ export class NotificationsService {
         return settings.notify_on_purchase;
       case NotificationType.CUSTOM:
         return true; // Admin custom notifications always send if SMS enabled
+      case NotificationType.GAMIFICATION:
+        return false; // In-app engagement nudges — never SMS.
     }
   }
 

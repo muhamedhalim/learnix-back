@@ -32,6 +32,24 @@ export class UpdateStudentProfileDto {
   @IsOptional()
   @MaxLength(50)
   public grade_level?: string;
+
+  @ApiProperty({ description: 'Country (for public leaderboards)', required: false, maxLength: 100 })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  public country?: string;
+
+  @ApiProperty({ description: 'Governorate (for public leaderboards)', required: false, maxLength: 100 })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  public governorate?: string;
+
+  @ApiProperty({ description: 'School (for public leaderboards)', required: false, maxLength: 150 })
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  public school?: string;
 }
 
 export class UpdateStudentNotificationSettingsDto {
