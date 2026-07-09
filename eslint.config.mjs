@@ -706,3 +706,18 @@
 //     },
 //   },
 // );
+
+// The full type-checked ruleset above is currently disabled. Until it is
+// re-enabled, export an active config that at least ignores build output and
+// vendored code so `eslint .` does not fail on compiled JS in `dist/`.
+export default [
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'logs/**',
+      'eslint.config.mjs',
+    ],
+  },
+];

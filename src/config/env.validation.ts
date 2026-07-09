@@ -36,6 +36,27 @@ export class EnvironmentVariables {
   @IsOptional()
   public TYPEORM_SYNCHRONIZE?: string;
 
+  // Database connection pool tuning (optional; sensible defaults applied).
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public DB_POOL_MAX?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public DB_POOL_MIN?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public DB_POOL_IDLE_TIMEOUT_MS?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public DB_POOL_CONNECTION_TIMEOUT_MS?: number;
+
   // Redis (optional for development - falls back to in-memory)
   @IsString()
   @IsOptional()
@@ -108,6 +129,17 @@ export class EnvironmentVariables {
   @IsOptional()
   @MinLength(16)
   public ADMIN_INIT_PASSWORD?: string;
+
+  // Bull Board dashboard credentials (HTTP Basic Auth for /admin/queues).
+  // When unset the dashboard fails closed and rejects all requests.
+  @IsString()
+  @IsOptional()
+  public BULL_BOARD_USER?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(12)
+  public BULL_BOARD_PASSWORD?: string;
 
   // Firebase (optional - for SMS notifications)
   @IsString()

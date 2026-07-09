@@ -1,16 +1,28 @@
-import { Body, Controller, HttpStatus } from '@nestjs/common';
-import { ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { DiscountCodesService } from '../discount-codes.service';
 import { VerifyDiscountCodeDto } from '../dto';
 
 @ApiTags('Discount Codes')
+@ApiBearerAuth('JWT-auth')
 @Controller('discount-codes')
 export class DiscountCodesController {
   constructor(private readonly discountCodesService: DiscountCodesService) {}
 
+  @Post('verify')
+  @UseGuards(HybridAuthGuard)
+  @HttpCode(HttpStatus.OK)
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Discount code verification result',

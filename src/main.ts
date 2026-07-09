@@ -10,6 +10,7 @@ import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
@@ -52,11 +53,13 @@ function getAllowedOrigins(): string[] {
       .filter(Boolean);
   }
 
+  // Explicit allow-list only — no wildcard production origins. Additional
+  // origins (e.g. preview deployments) must be supplied via CORS_ORIGINS.
   return [
+    'https://learnix.school',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:5173',
-    'https://*.vercel.app',
   ];
 }
 
@@ -77,6 +80,9 @@ async function bootstrap(): Promise<void> {
   }
 
   app.use(cookieParser(cookieSecret));
+
+  // Gzip/deflate response compression for JSON payloads and list responses.
+  app.use(compression());
 
   app.use(
     helmet({
@@ -104,6 +110,14 @@ async function bootstrap(): Promise<void> {
               imgSrc: ["'self'", 'data:', 'https:'],
               scriptSrc: ["'self'"],
               styleSrc: ["'self'"],
+              // Hardening: block plugins/objects, lock down base URI and form
+              // targets, forbid framing (defence-in-depth with frameguard), and
+              // disallow the API being embedded anywhere.
+              objectSrc: ["'none'"],
+              baseUri: ["'self'"],
+              formAction: ["'self'"],
+              frameAncestors: ["'none'"],
+              upgradeInsecureRequests: [],
             },
           }
         : false, // IMPORTANT: disable CSP in dev (fix Swagger + HMR issues)
@@ -119,7 +133,10 @@ async function bootstrap(): Promise<void> {
       // allow server-to-server / postman / health checks
       if (!origin) return callback(null, true);
 
-      const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+      // Strict allow-list match — no wildcard suffix matching. This prevents
+      // arbitrary *.vercel.app (or any look-alike) origins from making
+      // credentialed cross-origin requests.
+      const isAllowed = allowedOrigins.includes(origin);
 
       if (isAllowed) return callback(null, true);
 

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { durationToMilliseconds } from '../common/utils/duration.util';
 import { FirebaseModule } from '../firebase/firebase.module';
 import { StudentsModule } from '../students/students.module';
 import { User } from '../users/entities/user.entity';
@@ -18,21 +19,6 @@ import { JwtStrategy } from './jwt.strategy';
 
 const MAX_ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_ACCESS_TOKEN_TTL = '15m';
-
-function durationToMilliseconds(duration: string): number | null {
-  const match = /^(\d+)([dhms])$/.exec(duration);
-  if (match?.[1] === undefined || match[2] === undefined) return null;
-
-  const value = Number.parseInt(match[1], 10);
-  const multiplierByUnit: Record<string, number> = {
-    d: 24 * 60 * 60 * 1000,
-    h: 60 * 60 * 1000,
-    m: 60 * 1000,
-    s: 1000,
-  };
-
-  return value * (multiplierByUnit[match[2]] ?? 0);
-}
 
 function capAccessTokenTtl(configured: string | undefined): string {
   const ttl = configured ?? DEFAULT_ACCESS_TOKEN_TTL;

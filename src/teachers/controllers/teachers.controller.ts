@@ -74,8 +74,8 @@ export class TeachersController {
   public async findAll(
     @Query() filter: Omit<TeacherFilterDto, 'status'>,
   ): Promise<unknown> {
-    // Public endpoint only shows approved teachers
-    return await this.teachersService.findApprovedTeachers(filter);
+    // Public endpoint: only approved teachers, sanitized projection (no PII).
+    return await this.teachersService.findApprovedTeachersPublic(filter);
   }
 
   /**
@@ -89,7 +89,8 @@ export class TeachersController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.teachersService.findTeacherById(id);
+    // Public endpoint: only approved teachers, sanitized projection (no PII).
+    return await this.teachersService.findApprovedTeacherByIdPublic(id);
   }
 
   /**
@@ -122,7 +123,8 @@ export class TeachersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<unknown> {
-    return await this.teachersService.findApprovedTeachers({
+    // Public endpoint: sanitized projection (no PII).
+    return await this.teachersService.findApprovedTeachersPublic({
       subjectId,
       page: page ?? 1,
       limit: limit ?? 20,

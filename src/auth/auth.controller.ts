@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
+import { durationToMilliseconds as parseDurationToMs } from '../common/utils/duration.util';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -33,25 +34,11 @@ interface TokenResponse {
   userId: string;
 }
 
-function durationToMilliseconds(duration: string): number {
-  const match = /^(\d+)([dhms])$/.exec(duration);
-  if (match?.[1] === undefined || match[2] === undefined) {
-    return 7 * 24 * 60 * 60 * 1000;
-  }
+const DEFAULT_REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-  const value = Number.parseInt(match[1], 10);
-  switch (match[2]) {
-    case 'd':
-      return value * 24 * 60 * 60 * 1000;
-    case 'h':
-      return value * 60 * 60 * 1000;
-    case 'm':
-      return value * 60 * 1000;
-    case 's':
-      return value * 1000;
-    default:
-      return 7 * 24 * 60 * 60 * 1000;
-  }
+/** Refresh-cookie maxAge in ms, defaulting to 7 days for invalid/unset input. */
+function durationToMilliseconds(duration: string): number {
+  return parseDurationToMs(duration) ?? DEFAULT_REFRESH_TTL_MS;
 }
 
 @ApiTags('Authentication')
@@ -59,25 +46,42 @@ function durationToMilliseconds(duration: string): number {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * Cookie attributes for the HttpOnly refresh token. In production the SPA and
+   * API are served from different sites (e.g. learnix.school ⟷ *.railway.app),
+   * so the cookie must be `SameSite=None; Secure` (and Partitioned/CHIPS) to be
+   * sent on the cross-site refresh request. Locally it stays `Lax` over plain
+   * HTTP. CSRF for the refresh endpoint is still enforced by the double-submit
+   * CsrfGuard, so relaxing SameSite here does not open a CSRF hole.
+   */
+  private refreshCookieOptions(): {
+    httpOnly: true;
+    secure: boolean;
+    sameSite: 'none' | 'lax';
+    signed: true;
+    partitioned: boolean;
+    path: string;
+  } {
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    return {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      signed: true,
+      partitioned: isProduction,
+      path: '/api/v1/auth',
+    };
+  }
+
   private setRefreshTokenCookie(response: Response, refreshToken: string): void {
     response.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      signed: true,
-      path: '/api/v1/auth',
+      ...this.refreshCookieOptions(),
       maxAge: durationToMilliseconds(process.env['JWT_REFRESH_EXPIRATION'] ?? '7d'),
     });
   }
 
   private clearRefreshTokenCookie(response: Response): void {
-    response.clearCookie(REFRESH_TOKEN_COOKIE, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      signed: true,
-      path: '/api/v1/auth',
-    });
+    response.clearCookie(REFRESH_TOKEN_COOKIE, this.refreshCookieOptions());
   }
 
   private stripRefreshToken(result: unknown, response: Response): unknown {

@@ -67,8 +67,8 @@ export class StudentsController {
   public async findAll(
     @Query() filter: Omit<StudentFilterDto, 'status'>,
   ): Promise<unknown> {
-    // Public endpoint only shows approved students
-    return await this.studentsService.findApprovedStudents(filter);
+    // Public endpoint: only approved students, sanitized projection (no PII).
+    return await this.studentsService.findApprovedStudentsPublic(filter);
   }
 
   /**
@@ -82,6 +82,7 @@ export class StudentsController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.studentsService.findStudentById(id);
+    // Public endpoint: only approved students, sanitized projection (no PII).
+    return await this.studentsService.findApprovedStudentByIdPublic(id);
   }
 }

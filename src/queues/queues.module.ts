@@ -6,6 +6,7 @@ import { ExpressAdapter } from '@bull-board/express';
 import { BullBoardModule } from '@bull-board/nestjs';
 
 import { IdempotencyModule } from '../idempotency/idempotency.module';
+import { bullBoardAuthMiddleware } from './bull-board-auth.middleware';
 import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
 
 /**
@@ -35,6 +36,9 @@ import { QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
     BullBoardModule.forRoot({
       route: '/admin/queues',
       adapter: ExpressAdapter,
+      // Require HTTP Basic Auth before the dashboard router runs. Fails closed
+      // when BULL_BOARD_USER / BULL_BOARD_PASSWORD are unset (no anonymous access).
+      middleware: bullBoardAuthMiddleware(),
     }),
 
     /**

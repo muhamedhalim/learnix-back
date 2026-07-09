@@ -73,6 +73,27 @@ export interface StudentProfileWithDetails {
 }
 
 /**
+ * Sanitized, public-facing student projection.
+ *
+ * Intentionally excludes all PII (email, phone, parent_phone, account status,
+ * rejection reason). Used by the unauthenticated public directory endpoints so
+ * approved students can be surfaced without leaking contact details.
+ */
+export interface PublicStudentProfile {
+  id: string;
+  user: {
+    id: string;
+    name: string;
+    profile_picture_url: string | null;
+  };
+  grade_level: string | null;
+  country: string | null;
+  governorate: string | null;
+  school: string | null;
+  created_at: Date;
+}
+
+/**
  * Summary stats for a student
  */
 export interface StudentStats {
@@ -353,7 +374,9 @@ export class StudentsService {
   }
 
   /**
-   * Find approved students (public listing)
+   * Find approved students (public listing) — full detail.
+   * Internal/admin use only; callers must be authorized. Public controllers
+   * must use {@link findApprovedStudentsPublic} to avoid exposing PII.
    */
   public async findApprovedStudents(
     filter: Omit<StudentFilterDto, 'status'>,
@@ -362,6 +385,54 @@ export class StudentsService {
       ...filter,
       status: UserStatus.APPROVED,
     });
+  }
+
+  /**
+   * Public, unauthenticated directory listing of approved students.
+   * Returns a sanitized projection with no email/phone/parent_phone/status.
+   */
+  public async findApprovedStudentsPublic(
+    filter: Omit<StudentFilterDto, 'status'>,
+  ): Promise<PaginatedResponse<PublicStudentProfile>> {
+    const result = await this.findApprovedStudents(filter);
+    return {
+      data: result.data.map((student) => ({
+        id: student.id,
+        user: {
+          id: student.user.id,
+          name: student.user.name,
+          profile_picture_url: student.user.profile_picture_url,
+        },
+        grade_level: student.grade_level,
+        country: student.country,
+        governorate: student.governorate,
+        school: student.school,
+        created_at: student.created_at,
+      })),
+      meta: result.meta,
+    };
+  }
+
+  /**
+   * Public, unauthenticated single-student lookup.
+   * Only returns APPROVED students, and only the sanitized projection.
+   */
+  public async findApprovedStudentByIdPublic(
+    id: string,
+  ): Promise<PublicStudentProfile> {
+    const profile = await this.studentProfilesRepository.findOne({
+      where: [
+        { id, user: { status: UserStatus.APPROVED } },
+        { user_id: id, user: { status: UserStatus.APPROVED } },
+      ],
+      relations: ['user'],
+    });
+
+    if (!profile) {
+      throw new NotFoundException(`Student with ID ${id} not found`);
+    }
+
+    return this.mapToPublicProfile(profile);
   }
 
   /**
@@ -558,6 +629,27 @@ export class StudentsService {
   /**
    * Helper method to map StudentProfile entity to response type
    */
+  /**
+   * Map a student profile to the sanitized, PII-free public projection.
+   * Never include email/phone/parent_phone/status here — this feeds
+   * unauthenticated endpoints.
+   */
+  private mapToPublicProfile(profile: StudentProfile): PublicStudentProfile {
+    return {
+      id: profile.id,
+      user: {
+        id: profile.user.id,
+        name: profile.user.name,
+        profile_picture_url: profile.user.profile_picture_url,
+      },
+      grade_level: profile.grade_level,
+      country: profile.country,
+      governorate: profile.governorate,
+      school: profile.school,
+      created_at: profile.created_at,
+    };
+  }
+
   private mapToProfileWithDetails(
     profile: StudentProfile,
   ): StudentProfileWithDetails {

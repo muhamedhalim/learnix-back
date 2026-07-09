@@ -10,6 +10,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { redisStore } from 'cache-manager-redis-yet';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
@@ -59,6 +60,30 @@ import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
 
+/**
+ * Build a `redis://` connection URL from the configured Redis settings, or
+ * `undefined` when Redis is not configured (local development). Shared by the
+ * cache store and the rate-limiter storage so both target the same instance.
+ */
+function buildRedisUrl(configService: ConfigService): string | undefined {
+  const explicitUrl = configService.get<string>('REDIS_URL');
+  if (explicitUrl !== undefined && explicitUrl !== '') {
+    return explicitUrl;
+  }
+
+  const host = configService.get<string>('REDIS_HOST');
+  if (host === undefined || host === '') {
+    return undefined;
+  }
+
+  const port = configService.get<number>('REDIS_PORT') ?? 6379;
+  const password = configService.get<string>('REDIS_PASSWORD');
+
+  return password !== undefined && password !== ''
+    ? `redis://:${password}@${host}:${port.toString()}`
+    : `redis://${host}:${port.toString()}`;
+}
+
 @Module({
   imports: [
     CacheModule.registerAsync({
@@ -66,28 +91,26 @@ import { UsersModule } from './users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
-        const redisHost = configService.get<string>('REDIS_HOST');
-        const redisPort = configService.get<number>('REDIS_PORT');
-        const redisPassword = configService.get<string>('REDIS_PASSWORD');
+        const redisUrl = buildRedisUrl(configService);
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
         const logger = new Logger('CacheModule');
 
-        // If no Redis host, use in-memory cache (development fallback)
-        if (redisHost === undefined || redisHost === '') {
+        // Production MUST use Redis — a per-instance in-memory cache is unsafe
+        // for a horizontally-scaled deployment (stale reads, no shared
+        // invalidation). Fail fast instead of silently degrading.
+        if (redisUrl === undefined) {
+          if (isProduction) {
+            throw new Error(
+              'CRITICAL: REDIS_HOST is required in production. Refusing to start with an in-memory cache.',
+            );
+          }
           logger.warn(
-            'WARNING: REDIS_HOST not set - Using in-memory cache (not recommended for production)',
+            'REDIS_HOST not set - using in-memory cache (development only, not for production)',
           );
           return {
             ttl: 5 * 60 * 1000, // 5 minutes in milliseconds
           };
         }
-
-        const port = redisPort ?? 6379;
-        const redisUrl =
-          redisPassword !== undefined && redisPassword !== ''
-            ? `redis://:${redisPassword}@${redisHost}:${port.toString()}`
-            : `redis://${redisHost}:${port.toString()}`;
-
-        logger.log(`Connecting to Redis at ${redisHost}:${port.toString()}`);
 
         try {
           const store = await redisStore({
@@ -103,8 +126,17 @@ import { UsersModule } from './users/users.module';
           };
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+          // In production a failed Redis connection is fatal — do not silently
+          // fall back to an in-memory cache.
+          if (isProduction) {
+            throw new Error(
+              `CRITICAL: Failed to connect to Redis in production: ${errorMessage}`,
+            );
+          }
+
           logger.warn(
-            `WARNING: Failed to connect to Redis: ${errorMessage}. Using in-memory cache.`,
+            `Failed to connect to Redis: ${errorMessage}. Using in-memory cache (development only).`,
           );
           return {
             ttl: 5 * 60 * 1000,
@@ -126,12 +158,28 @@ import { UsersModule } from './users/users.module';
     // global ThrottlerGuard enforces EVERY named config on EVERY route, so a
     // strict entry would rate-limit the whole API. Sensitive routes tighten
     // limits per-route via @Throttle({ default: THROTTLE.<TIER> }).
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ...THROTTLE.GLOBAL,
+    // Rate limiting. Uses Redis-backed storage in every environment where Redis
+    // is configured so limits are shared across horizontally-scaled instances
+    // (an in-memory store would only count requests per-replica, weakening
+    // brute-force protection). Falls back to the default in-memory store only
+    // when Redis is not configured (local development).
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const throttlers = [{ name: 'default', ...THROTTLE.GLOBAL }];
+        const redisUrl = buildRedisUrl(configService);
+
+        if (redisUrl === undefined) {
+          return { throttlers };
+        }
+
+        return {
+          throttlers,
+          storage: new ThrottlerStorageRedisService(redisUrl),
+        };
       },
-    ]),
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -156,6 +204,15 @@ import { UsersModule } from './users/users.module';
           );
         }
 
+        // Connection-pool sizing. Defaults are conservative and overridable via
+        // env so the pool can be tuned to the database plan without a redeploy.
+        const poolMax = Number(configService.get<string>('DB_POOL_MAX')) || 10;
+        const poolMin = Number(configService.get<string>('DB_POOL_MIN')) || 2;
+        const idleTimeoutMs =
+          Number(configService.get<string>('DB_POOL_IDLE_TIMEOUT_MS')) || 30_000;
+        const connectionTimeoutMs =
+          Number(configService.get<string>('DB_POOL_CONNECTION_TIMEOUT_MS')) || 10_000;
+
         return {
           type: 'postgres',
           url: databaseUrl ?? '',
@@ -163,6 +220,14 @@ import { UsersModule } from './users/users.module';
           subscribers: [QueryPerformanceSubscriber],
           synchronize: shouldSynchronize,
           logging: typeOrmLogging === 'true' || (!isProduction && typeOrmLogging !== 'false'),
+          // node-postgres pool tuning (passed through by TypeORM).
+          poolSize: poolMax,
+          extra: {
+            max: poolMax,
+            min: poolMin,
+            idleTimeoutMillis: idleTimeoutMs,
+            connectionTimeoutMillis: connectionTimeoutMs,
+          },
           ssl:
             databaseUrl !== undefined && databaseUrl !== '' && isProduction
               ? {

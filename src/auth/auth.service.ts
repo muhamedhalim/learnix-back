@@ -16,6 +16,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
+import { parseDuration } from '../common/utils/duration.util';
 import { MailService } from '../mail/mail.service';
 import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
@@ -107,13 +108,14 @@ export class AuthService {
       .getOne();
 
     if (!user) {
-      this.logger.warn(`Failed login attempt for non-existent user: ${email}`);
+      // Do not log the raw email (PII). Enumeration protection also benefits.
+      this.logger.warn('Failed login attempt for non-existent account');
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (user.password_hash === null || user.password_hash === '') {
       this.logger.warn(
-        `Failed login attempt for Firebase-only account: ${email}`,
+        `Failed login attempt for Firebase-only account (ID: ${user.id})`,
       );
       throw new UnauthorizedException(
         'This account uses Firebase authentication. Please sign in with your Firebase provider.',
@@ -123,7 +125,7 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid) {
       this.logger.warn(
-        `Failed login attempt - invalid password for user: ${email} (ID: ${user.id})`,
+        `Failed login attempt - invalid password (ID: ${user.id})`,
       );
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -131,7 +133,7 @@ export class AuthService {
     // Check user status (BREAKING CHANGE: new response format)
     if (user.status === UserStatus.PENDING) {
       this.logger.log(
-        `Login attempt with pending account: ${email} (ID: ${user.id})`,
+        `Login attempt with pending account (ID: ${user.id})`,
       );
       return {
         status: 'pending',
@@ -142,7 +144,7 @@ export class AuthService {
 
     if (user.status === UserStatus.REJECTED) {
       this.logger.warn(
-        `Login attempt with rejected account: ${email} (ID: ${user.id})`,
+        `Login attempt with rejected account (ID: ${user.id})`,
       );
       throw new UnauthorizedException(
         `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
@@ -269,13 +271,12 @@ export class AuthService {
    * Calculate token expiration date from duration string
    */
   private calculateTokenExpiration(duration: string): Date {
-    const match = /^(\d+)([dhms])$/.exec(duration);
-    if (match?.[1] === undefined || match[2] === undefined) {
+    const parsed = parseDuration(duration);
+    if (parsed === null) {
       throw new Error(`Invalid duration format: ${duration}`);
     }
 
-    const value = Number.parseInt(match[1], 10);
-    const unit = match[2];
+    const { value, unit } = parsed;
     const now = new Date();
 
     switch (unit) {
@@ -328,7 +329,7 @@ export class AuthService {
 
     if (!isValid) {
       this.logger.warn(
-        `Refresh token verification failed - User: ${user.email} (ID: ${user.id})`,
+        `Refresh token verification failed - ID: ${user.id}`,
       );
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -339,7 +340,7 @@ export class AuthService {
       user.refresh_token_expires_at < new Date()
     ) {
       this.logger.warn(
-        `Expired refresh token used - User: ${user.email} (ID: ${user.id})`,
+        `Expired refresh token used - ID: ${user.id}`,
       );
       throw new UnauthorizedException('Refresh token expired');
     }
@@ -347,7 +348,7 @@ export class AuthService {
     // Check if user is active
     if (!user.is_active) {
       this.logger.warn(
-        `Inactive user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
+        `Inactive user attempted token refresh - ID: ${user.id}`,
       );
       throw new UnauthorizedException('User account is inactive');
     }
@@ -355,7 +356,7 @@ export class AuthService {
     // Check user status (BREAKING CHANGE: new response format)
     if (user.status === UserStatus.PENDING) {
       this.logger.warn(
-        `Pending user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
+        `Pending user attempted token refresh - ID: ${user.id}`,
       );
       throw new UnauthorizedException(
         'Your account is under review. Please wait for admin approval.',
@@ -364,7 +365,7 @@ export class AuthService {
 
     if (user.status === UserStatus.REJECTED) {
       this.logger.warn(
-        `Rejected user attempted token refresh - User: ${user.email} (ID: ${user.id})`,
+        `Rejected user attempted token refresh - ID: ${user.id}`,
       );
       throw new UnauthorizedException(
         `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
@@ -393,7 +394,7 @@ export class AuthService {
       newExpiresAt,
     );
 
-    this.logger.log(`Token refreshed - User: ${user.email} (ID: ${user.id})`);
+    this.logger.log(`Token refreshed - ID: ${user.id}`);
 
     // Return new response format with status
     return {
@@ -427,7 +428,7 @@ export class AuthService {
       user.password_hash === ''
     ) {
       this.logger.log(
-        `Password reset requested for non-eligible account: ${normalizedEmail}`,
+        'Password reset requested for a non-eligible account',
       );
       return { message: genericMessage };
     }
@@ -537,19 +538,18 @@ export class AuthService {
    * Render a duration string (e.g. "1h", "30m") as a human-readable label.
    */
   private humanizeDuration(duration: string): string {
-    const match = /^(\d+)([dhms])$/.exec(duration);
-    if (!match?.[1] || !match[2]) {
+    const parsed = parseDuration(duration);
+    if (parsed === null) {
       return duration;
     }
-    const value = Number.parseInt(match[1], 10);
     const units: Record<string, string> = {
       d: 'day',
       h: 'hour',
       m: 'minute',
       s: 'second',
     };
-    const unit = units[match[2]] ?? '';
-    return `${value} ${unit}${value === 1 ? '' : 's'}`;
+    const unit = units[parsed.unit] ?? '';
+    return `${parsed.value} ${unit}${parsed.value === 1 ? '' : 's'}`;
   }
 
   /**

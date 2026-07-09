@@ -58,6 +58,28 @@ export interface TeacherProfileWithDetails {
 }
 
 /**
+ * Sanitized, public-facing teacher projection.
+ *
+ * Excludes all PII (email, phone, parent_phone, account status, rejection
+ * reason). Used by the unauthenticated teacher directory / shop endpoints.
+ */
+export interface PublicTeacherProfile {
+  id: string;
+  user: {
+    id: string;
+    name: string;
+    profile_picture_url: string | null;
+  };
+  qualifications: string;
+  years_of_experience: number;
+  bio: string | null;
+  rating: number;
+  total_ratings: number;
+  subjects: Subject[];
+  created_at: Date;
+}
+
+/**
  * Summary stats for a teacher
  */
 export interface TeacherStats {
@@ -268,6 +290,53 @@ export class TeachersService {
       ...filter,
       status: UserStatus.APPROVED,
     });
+  }
+
+  /**
+   * Public, unauthenticated directory listing of approved teachers.
+   * Returns a sanitized projection with no email/phone/parent_phone/status.
+   */
+  public async findApprovedTeachersPublic(
+    filter: Omit<TeacherFilterDto, 'status'>,
+  ): Promise<PaginatedResponse<PublicTeacherProfile>> {
+    const result = await this.findApprovedTeachers(filter);
+    return {
+      data: result.data.map((teacher) => ({
+        id: teacher.id,
+        user: {
+          id: teacher.user.id,
+          name: teacher.user.name,
+          profile_picture_url: teacher.user.profile_picture_url,
+        },
+        qualifications: teacher.qualifications,
+        years_of_experience: teacher.years_of_experience,
+        bio: teacher.bio,
+        rating: teacher.rating,
+        total_ratings: teacher.total_ratings,
+        subjects: teacher.subjects,
+        created_at: teacher.created_at,
+      })),
+      meta: result.meta,
+    };
+  }
+
+  /**
+   * Public, unauthenticated single-teacher lookup.
+   * Only returns APPROVED teachers, and only the sanitized projection.
+   */
+  public async findApprovedTeacherByIdPublic(
+    id: string,
+  ): Promise<PublicTeacherProfile> {
+    const profile = await this.teacherProfilesRepository.findOne({
+      where: { id, user: { status: UserStatus.APPROVED } },
+      relations: ['user', 'subjects'],
+    });
+
+    if (!profile) {
+      throw new NotFoundException(`Teacher with ID ${id} not found`);
+    }
+
+    return this.mapToPublicProfile(profile);
   }
 
   /**
@@ -595,6 +664,28 @@ export class TeachersService {
   /**
    * Helper method to map TeacherProfile entity to response type
    */
+  /**
+   * Map a teacher profile to the sanitized, PII-free public projection.
+   * Never include email/phone/parent_phone/status here.
+   */
+  private mapToPublicProfile(profile: TeacherProfile): PublicTeacherProfile {
+    return {
+      id: profile.id,
+      user: {
+        id: profile.user.id,
+        name: profile.user.name,
+        profile_picture_url: profile.user.profile_picture_url,
+      },
+      qualifications: profile.qualifications,
+      years_of_experience: profile.years_of_experience,
+      bio: profile.bio,
+      rating: profile.rating,
+      total_ratings: profile.total_ratings,
+      subjects: profile.subjects,
+      created_at: profile.created_at,
+    };
+  }
+
   private mapToProfileWithDetails(
     profile: TeacherProfile,
   ): TeacherProfileWithDetails {
