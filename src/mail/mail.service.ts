@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 
 import * as nodemailer from 'nodemailer';
 
+import { maskEmail } from '../common/utils/mask.util';
+import { performanceMetrics } from '../observability/performance-metrics.registry';
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -70,8 +73,9 @@ export class MailService {
       });
       return true;
     } catch (error) {
+      performanceMetrics.recordFailure('email');
       this.logger.error(
-        `Failed to send email to ${options.to}: ${
+        `Failed to send email to ${maskEmail(options.to) ?? 'unknown'}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

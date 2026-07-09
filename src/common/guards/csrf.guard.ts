@@ -11,6 +11,8 @@ import { Reflector } from '@nestjs/core';
 
 import { Request, Response } from 'express';
 
+import { getCrossSiteCookieOptions } from '../utils/cookie-security.util';
+
 /**
  * CSRF Guard implementing Double Submit Cookie pattern
  *
@@ -134,15 +136,14 @@ export class CsrfGuard implements CanActivate {
     // Generate new token
     const newToken = this.generateToken();
 
-    const isProduction = process.env['NODE_ENV'] === 'production';
-
-    // Set signed cookie with secure options
+    // Set signed cookie with attributes derived from the actual request (see
+    // getCrossSiteCookieOptions) so a `Secure` cookie is never requested over
+    // plain HTTP — the browser would silently drop it, which is what causes a
+    // "CSRF token missing" 403 despite the guard believing it set the cookie.
     response.cookie(this.csrfCookieName, newToken, {
       httpOnly: false, // Must be accessible to JavaScript for reading
       signed: true, // Sign cookie with COOKIE_SECRET to prevent tampering
-      secure: isProduction, // HTTPS only in production
-      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain prod, 'lax' for local dev
-      partitioned: isProduction, // Only use partitioned in production with SameSite=None
+      ...getCrossSiteCookieOptions(request),
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       path: '/',
     });

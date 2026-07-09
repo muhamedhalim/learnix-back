@@ -130,6 +130,20 @@ export class EnvironmentVariables {
   @MinLength(16)
   public ADMIN_INIT_PASSWORD?: string;
 
+  // Monitoring / Sentry (optional; error monitoring disabled when DSN unset).
+  @IsString()
+  @IsOptional()
+  public SENTRY_DSN?: string;
+
+  @IsString()
+  @IsOptional()
+  public SENTRY_RELEASE?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public SENTRY_TRACES_SAMPLE_RATE?: number;
+
   // Bull Board dashboard credentials (HTTP Basic Auth for /admin/queues).
   // When unset the dashboard fails closed and rejects all requests.
   @IsString()

@@ -2,6 +2,7 @@ import { Body, Controller, Logger, Post, UnauthorizedException } from '@nestjs/c
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
+import { performanceMetrics } from '../../observability/performance-metrics.registry';
 import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
 import { EasyKashService } from '../services/easykash.service';
@@ -51,6 +52,7 @@ export class PaymentsWebhookController {
     // Step 1: Verify HMAC signature (CRITICAL SECURITY)
     const isValidHmac = this.easyKashService.verifyHmac(dto, dto.signatureHash);
     if (!isValidHmac) {
+      performanceMetrics.recordFailure('webhook');
       this.logger.warn(`HMAC verification failed for callback ${dto.easykashRef}`);
       throw new UnauthorizedException('Invalid HMAC signature');
     }
@@ -124,6 +126,7 @@ export class PaymentsWebhookController {
         };
       } catch (error) {
         // Includes amount/currency-mismatch rejections (fail-closed: no access).
+        performanceMetrics.recordFailure('payment');
         this.logger.error(`Failed to process successful payment ${merchantOrderId}`, error);
         result = {
           status: 'error',

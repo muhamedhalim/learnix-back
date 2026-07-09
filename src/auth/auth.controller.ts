@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
+import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
 import { durationToMilliseconds as parseDurationToMs } from '../common/utils/duration.util';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -50,11 +51,14 @@ export class AuthController {
    * Cookie attributes for the HttpOnly refresh token. In production the SPA and
    * API are served from different sites (e.g. learnix.school ⟷ *.railway.app),
    * so the cookie must be `SameSite=None; Secure` (and Partitioned/CHIPS) to be
-   * sent on the cross-site refresh request. Locally it stays `Lax` over plain
-   * HTTP. CSRF for the refresh endpoint is still enforced by the double-submit
-   * CsrfGuard, so relaxing SameSite here does not open a CSRF hole.
+   * sent on the cross-site refresh request. Locally (plain HTTP) it stays
+   * `Lax`/non-Secure — derived from the actual request via
+   * `getCrossSiteCookieOptions`, not a bare `NODE_ENV` check, so a `Secure`
+   * cookie is never requested over a connection where the browser would just
+   * silently drop it. CSRF for the refresh endpoint is still enforced by the
+   * double-submit CsrfGuard, so this does not open a CSRF hole.
    */
-  private refreshCookieOptions(): {
+  private refreshCookieOptions(request: Request): {
     httpOnly: true;
     secure: boolean;
     sameSite: 'none' | 'lax';
@@ -62,29 +66,34 @@ export class AuthController {
     partitioned: boolean;
     path: string;
   } {
-    const isProduction = process.env['NODE_ENV'] === 'production';
     return {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? 'none' : 'lax',
       signed: true,
-      partitioned: isProduction,
+      ...getCrossSiteCookieOptions(request),
       path: '/api/v1/auth',
     };
   }
 
-  private setRefreshTokenCookie(response: Response, refreshToken: string): void {
+  private setRefreshTokenCookie(
+    request: Request,
+    response: Response,
+    refreshToken: string,
+  ): void {
     response.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
-      ...this.refreshCookieOptions(),
+      ...this.refreshCookieOptions(request),
       maxAge: durationToMilliseconds(process.env['JWT_REFRESH_EXPIRATION'] ?? '7d'),
     });
   }
 
-  private clearRefreshTokenCookie(response: Response): void {
-    response.clearCookie(REFRESH_TOKEN_COOKIE, this.refreshCookieOptions());
+  private clearRefreshTokenCookie(request: Request, response: Response): void {
+    response.clearCookie(REFRESH_TOKEN_COOKIE, this.refreshCookieOptions(request));
   }
 
-  private stripRefreshToken(result: unknown, response: Response): unknown {
+  private stripRefreshToken(
+    result: unknown,
+    request: Request,
+    response: Response,
+  ): unknown {
     if (
       typeof result === 'object' &&
       result !== null &&
@@ -93,7 +102,7 @@ export class AuthController {
     ) {
       const tokenResult = result as TokenResponse & { refreshToken: string };
       const { refreshToken, ...body } = tokenResult;
-      this.setRefreshTokenCookie(response, refreshToken);
+      this.setRefreshTokenCookie(request, response, refreshToken);
       return body;
     }
 
@@ -122,7 +131,7 @@ export class AuthController {
       null;
 
     const result = await this.authService.login(loginDto, deviceInfo, ipAddress);
-    return this.stripRefreshToken(result, response);
+    return this.stripRefreshToken(result, request, response);
   }
 
   @Post('refresh')
@@ -143,7 +152,7 @@ export class AuthController {
     }
 
     const result = await this.authService.refresh(refreshToken);
-    return this.stripRefreshToken(result, response);
+    return this.stripRefreshToken(result, request, response);
   }
 
   @Post('forgot-password')
@@ -191,7 +200,7 @@ export class AuthController {
   ): Promise<{ message: string }> {
     const { userId } = request.user as { userId: string };
     await this.authService.logout(userId);
-    this.clearRefreshTokenCookie(response);
+    this.clearRefreshTokenCookie(request, response);
     return { message: 'Logged out successfully' };
   }
 

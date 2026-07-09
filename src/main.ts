@@ -1,4 +1,7 @@
 import './polyfills';
+// Initialises Sentry + global error handlers before any other module loads so
+// its auto-instrumentation can hook HTTP/DB/Redis. No-op when SENTRY_DSN is unset.
+import './instrument';
 
 import {
   Logger,
