@@ -11,10 +11,12 @@ import { ExamQuestion } from '../exams/entities/exam-question.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { Payment } from '../payments/entities/payment.entity';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { DistributedSingleFlightService } from './distributed-single-flight.service';
 
 @Module({
   imports: [
@@ -25,6 +27,7 @@ import { AnalyticsService } from './analytics.service';
       Exam,
       LessonPurchase,
       PackagePurchase,
+      Payment,
       BookPurchase,
       ExamAttempt,
       ExamQuestion,
@@ -34,7 +37,7 @@ import { AnalyticsService } from './analytics.service';
     ]),
   ],
   controllers: [AnalyticsController],
-  providers: [AnalyticsService],
+  providers: [AnalyticsService, DistributedSingleFlightService],
   exports: [AnalyticsService],
 })
 export class AnalyticsModule {}

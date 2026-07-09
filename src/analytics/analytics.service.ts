@@ -14,8 +14,11 @@ import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
 import { ExamQuestion } from '../exams/entities/exam-question.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { ItemType } from '../payments/entities/item-type.enum';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { Payment } from '../payments/entities/payment.entity';
+import { PaymentStatus } from '../payments/entities/payment-status.enum';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -28,6 +31,8 @@ import {
   StudentDashboardDto,
   TeacherDashboardDto,
 } from './dto';
+import { DistributedSingleFlightService } from './distributed-single-flight.service';
+import { getUtcRevenuePeriodBoundaries } from './revenue-periods';
 
 /**
  * Type definitions for raw query results
@@ -42,6 +47,32 @@ interface CountResult {
 
 interface AvgResult {
   avg: string | null;
+}
+
+interface AdminUserCountsRow {
+  total_students: string;
+  pending_students: string;
+  approved_students: string;
+  total_teachers: string;
+  pending_teachers: string;
+  approved_teachers: string;
+}
+
+interface AdminContentCountsRow {
+  total_lessons: string;
+  total_books: string;
+  total_exams: string;
+}
+
+interface AdminRevenueRow {
+  total_revenue: string;
+  revenue_today: string;
+  revenue_this_month: string;
+  revenue_last_month: string;
+  revenue_this_quarter: string;
+  lesson_revenue: string;
+  package_revenue: string;
+  book_revenue: string;
 }
 
 /** Raw per-question aggregation row for exam question analysis. */
@@ -66,6 +97,8 @@ export class AnalyticsService {
     private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(PackagePurchase)
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(BookPurchase)
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     @InjectRepository(ExamAttempt)
@@ -80,6 +113,7 @@ export class AnalyticsService {
     private readonly lessonReviewsRepository: Repository<LessonReview>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
+    private readonly singleFlight: DistributedSingleFlightService,
   ) {}
 
   /**
@@ -87,101 +121,177 @@ export class AnalyticsService {
    */
   public async getAdminDashboard(): Promise<AdminDashboardDto> {
     const cacheKey = 'dashboard:admin';
-    const cached = await this.cacheManager.get<AdminDashboardDto>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    return await this.singleFlight.getOrCompute(cacheKey, 300_000, async () => {
+      const [userCounts, contentCounts, revenue] = await Promise.all([
+        this.getAdminUserCounts(),
+        this.getAdminContentCounts(),
+        this.getAdminRevenue(),
+      ]);
 
-    // Count students by status
-    const totalStudents = await this.usersRepository.count({
-      where: {
-        role: UserRole.STUDENT,
-        deleted_at: IsNull(),
-      },
+      return {
+        totalStudents: this.toNumber(userCounts.total_students),
+        pendingStudents: this.toNumber(userCounts.pending_students),
+        approvedStudents: this.toNumber(userCounts.approved_students),
+        totalTeachers: this.toNumber(userCounts.total_teachers),
+        pendingTeachers: this.toNumber(userCounts.pending_teachers),
+        approvedTeachers: this.toNumber(userCounts.approved_teachers),
+        totalLessons: this.toNumber(contentCounts.total_lessons),
+        totalBooks: this.toNumber(contentCounts.total_books),
+        totalExams: this.toNumber(contentCounts.total_exams),
+        totalRevenue: this.toNumber(revenue.total_revenue),
+        revenueToday: this.toNumber(revenue.revenue_today),
+        revenueThisMonth: this.toNumber(revenue.revenue_this_month),
+        revenueLastMonth: this.toNumber(revenue.revenue_last_month),
+        revenueThisQuarter: this.toNumber(revenue.revenue_this_quarter),
+        revenueBySource: {
+          lessons: this.toNumber(revenue.lesson_revenue),
+          packages: this.toNumber(revenue.package_revenue),
+          books: this.toNumber(revenue.book_revenue),
+        },
+      };
     });
+  }
 
-    const pendingStudents = await this.usersRepository.count({
-      where: {
-        role: UserRole.STUDENT,
-        status: UserStatus.PENDING,
-        deleted_at: IsNull(),
-      },
-    });
+  private async getAdminUserCounts(): Promise<AdminUserCountsRow> {
+    const row = await this.usersRepository
+      .createQueryBuilder('user')
+      .select('COUNT(*) FILTER (WHERE user.role = :studentRole)', 'total_students')
+      .addSelect(
+        'COUNT(*) FILTER (WHERE user.role = :studentRole AND user.status = :pendingStatus)',
+        'pending_students',
+      )
+      .addSelect(
+        'COUNT(*) FILTER (WHERE user.role = :studentRole AND user.status = :approvedStatus)',
+        'approved_students',
+      )
+      .addSelect('COUNT(*) FILTER (WHERE user.role = :teacherRole)', 'total_teachers')
+      .addSelect(
+        'COUNT(*) FILTER (WHERE user.role = :teacherRole AND user.status = :pendingStatus)',
+        'pending_teachers',
+      )
+      .addSelect(
+        'COUNT(*) FILTER (WHERE user.role = :teacherRole AND user.status = :approvedStatus)',
+        'approved_teachers',
+      )
+      .where('user.deleted_at IS NULL')
+      .setParameters({
+        studentRole: UserRole.STUDENT,
+        teacherRole: UserRole.TEACHER,
+        pendingStatus: UserStatus.PENDING,
+        approvedStatus: UserStatus.APPROVED,
+      })
+      .getRawOne<AdminUserCountsRow>();
 
-    const approvedStudents = await this.usersRepository.count({
-      where: {
-        role: UserRole.STUDENT,
-        status: UserStatus.APPROVED,
-        deleted_at: IsNull(),
-      },
-    });
+    return row ?? this.emptyAdminUserCounts();
+  }
 
-    // Count teachers by status
-    const totalTeachers = await this.usersRepository.count({
-      where: {
-        role: UserRole.TEACHER,
-        deleted_at: IsNull(),
-      },
-    });
+  private async getAdminContentCounts(): Promise<AdminContentCountsRow> {
+    const row = await this.lessonsRepository
+      .createQueryBuilder('lesson')
+      .select('COUNT(*) FILTER (WHERE lesson.deleted_at IS NULL)', 'total_lessons')
+      .addSelect(
+        (query) => query.select('COUNT(*)').from(Book, 'book').where('book.deleted_at IS NULL'),
+        'total_books',
+      )
+      .addSelect(
+        (query) => query.select('COUNT(*)').from(Exam, 'exam').where('exam.deleted_at IS NULL'),
+        'total_exams',
+      )
+      .withDeleted()
+      .getRawOne<AdminContentCountsRow>();
 
-    const pendingTeachers = await this.usersRepository.count({
-      where: {
-        role: UserRole.TEACHER,
-        status: UserStatus.PENDING,
-        deleted_at: IsNull(),
-      },
-    });
+    return (
+      row ?? {
+        total_lessons: '0',
+        total_books: '0',
+        total_exams: '0',
+      }
+    );
+  }
 
-    const approvedTeachers = await this.usersRepository.count({
-      where: {
-        role: UserRole.TEACHER,
-        status: UserStatus.APPROVED,
-        deleted_at: IsNull(),
-      },
-    });
+  private async getAdminRevenue(): Promise<AdminRevenueRow> {
+    const { startToday, startMonth, startLastMonth, startQuarter } = getUtcRevenuePeriodBoundaries(
+      new Date(),
+    );
 
-    // Count content
-    const totalLessons = await this.lessonsRepository.count({
-      where: { deleted_at: IsNull() },
-    });
+    const row = await this.paymentsRepository
+      .createQueryBuilder('payment')
+      .select('COALESCE(SUM(payment.final_amount), 0)', 'total_revenue')
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startToday), 0)',
+        'revenue_today',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startMonth), 0)',
+        'revenue_this_month',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startLastMonth AND payment.created_at < :startMonth), 0)',
+        'revenue_last_month',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startQuarter), 0)',
+        'revenue_this_quarter',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :lessonType), 0)',
+        'lesson_revenue',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :packageType), 0)',
+        'package_revenue',
+      )
+      .addSelect(
+        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :bookType), 0)',
+        'book_revenue',
+      )
+      .where('payment.status = :completedStatus')
+      .setParameters({
+        completedStatus: PaymentStatus.COMPLETED,
+        lessonType: ItemType.LESSON,
+        packageType: ItemType.PACKAGE,
+        bookType: ItemType.BOOK,
+        startToday,
+        startMonth,
+        startLastMonth,
+        startQuarter,
+      })
+      .getRawOne<AdminRevenueRow>();
 
-    const totalBooks = await this.booksRepository.count({
-      where: { deleted_at: IsNull() },
-    });
+    return (
+      row ?? {
+        total_revenue: '0',
+        revenue_today: '0',
+        revenue_this_month: '0',
+        revenue_last_month: '0',
+        revenue_this_quarter: '0',
+        lesson_revenue: '0',
+        package_revenue: '0',
+        book_revenue: '0',
+      }
+    );
+  }
 
-    // Calculate revenue
-    const totalRevenue = await this.calculateTotalRevenue();
-    const revenueThisMonth = await this.calculateMonthlyRevenue(new Date());
-    const lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
-    const revenueLastMonth = await this.calculateMonthlyRevenue(lastMonth);
-
-    const stats: AdminDashboardDto = {
-      totalStudents,
-      pendingStudents,
-      approvedStudents,
-      totalTeachers,
-      pendingTeachers,
-      approvedTeachers,
-      totalLessons,
-      totalBooks,
-      totalRevenue,
-      revenueThisMonth,
-      revenueLastMonth,
+  private emptyAdminUserCounts(): AdminUserCountsRow {
+    return {
+      total_students: '0',
+      pending_students: '0',
+      approved_students: '0',
+      total_teachers: '0',
+      pending_teachers: '0',
+      approved_teachers: '0',
     };
+  }
 
-    // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300_000);
-
-    return stats;
+  private toNumber(value: string | number | null | undefined): number {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   /**
    * Get teacher dashboard statistics with caching (5-min TTL)
    */
-  public async getTeacherDashboard(
-    teacherId: string,
-  ): Promise<TeacherDashboardDto> {
+  public async getTeacherDashboard(teacherId: string): Promise<TeacherDashboardDto> {
     const cacheKey = `dashboard:teacher:${teacherId}`;
     const cached = await this.cacheManager.get<TeacherDashboardDto>(cacheKey);
     if (cached) {
@@ -283,9 +393,7 @@ export class AnalyticsService {
   /**
    * Get student dashboard statistics with caching (5-min TTL)
    */
-  public async getStudentDashboard(
-    studentId: string,
-  ): Promise<StudentDashboardDto> {
+  public async getStudentDashboard(studentId: string): Promise<StudentDashboardDto> {
     const cacheKey = `dashboard:student:${studentId}`;
     const cached = await this.cacheManager.get<StudentDashboardDto>(cacheKey);
     if (cached) {
@@ -369,9 +477,7 @@ export class AnalyticsService {
    * Get analytics for a specific lesson with caching (5-min TTL)
    * Includes purchases, views, completion rate, revenue, and ratings
    */
-  public async getLessonAnalytics(
-    lessonId: string,
-  ): Promise<LessonAnalyticsDto> {
+  public async getLessonAnalytics(lessonId: string): Promise<LessonAnalyticsDto> {
     const cacheKey = `analytics:lesson:${lessonId}`;
     const cached = await this.cacheManager.get<LessonAnalyticsDto>(cacheKey);
     if (cached) {
@@ -426,12 +532,9 @@ export class AnalyticsService {
       .getCount();
 
     const completionRate =
-      totalViews > 0
-        ? Math.round((completedSessions / totalViews) * 100 * 100) / 100
-        : 0;
+      totalViews > 0 ? Math.round((completedSessions / totalViews) * 100 * 100) / 100 : 0;
 
-    const { directRevenue, packageRevenue } =
-      await this.calculateLessonRevenue(lessonId);
+    const { directRevenue, packageRevenue } = await this.calculateLessonRevenue(lessonId);
     const totalRevenue = directRevenue + packageRevenue;
 
     // Calculate average rating
@@ -527,19 +630,13 @@ export class AnalyticsService {
     const { totalSubmissions, inProgressCount, pendingGradingCount } =
       await this.getExamSubmissionCounts(examId);
 
-    const { averageScore, highestScore, lowestScore } =
-      await this.getExamScoreStats(examId);
+    const { averageScore, highestScore, lowestScore } = await this.getExamScoreStats(examId);
 
     // Calculate pass rate
-    const passRate = await this.calculatePassRate(
-      examId,
-      totalSubmissions,
-      exam.passing_marks,
-    );
+    const passRate = await this.calculatePassRate(examId, totalSubmissions, exam.passing_marks);
 
     // Analyze each question from the normalized per-answer rows
-    const questionAnalysis: QuestionAnalysisDto[] =
-      await this.analyzeExamQuestions(examId);
+    const questionAnalysis: QuestionAnalysisDto[] = await this.analyzeExamQuestions(examId);
 
     // Calculate score distribution (percentage buckets)
     const scoreDistribution = await this.calculateScoreDistribution(
@@ -637,13 +734,9 @@ export class AnalyticsService {
         ? Math.round(Number.parseFloat(scoreStats.avg_score) * 100) / 100
         : null;
     const highestScore =
-      typeof scoreStats?.max_score === 'string'
-        ? Number.parseFloat(scoreStats.max_score)
-        : null;
+      typeof scoreStats?.max_score === 'string' ? Number.parseFloat(scoreStats.max_score) : null;
     const lowestScore =
-      typeof scoreStats?.min_score === 'string'
-        ? Number.parseFloat(scoreStats.min_score)
-        : null;
+      typeof scoreStats?.min_score === 'string' ? Number.parseFloat(scoreStats.min_score) : null;
 
     return { averageScore, highestScore, lowestScore };
   }
@@ -677,9 +770,7 @@ export class AnalyticsService {
    * Correctness comes from each answer's `is_correct` flag (set by the objective
    * graders), so this is question-type agnostic.
    */
-  private async analyzeExamQuestions(
-    examId: string,
-  ): Promise<QuestionAnalysisDto[]> {
+  private async analyzeExamQuestions(examId: string): Promise<QuestionAnalysisDto[]> {
     const examQuestions = await this.examQuestionsRepository.find({
       where: { exam_id: examId },
       order: { order_index: 'ASC' },
@@ -726,10 +817,7 @@ export class AnalyticsService {
         question_type: eq.type_snapshot,
         correct_answers: correctAnswers,
         wrong_answers: wrongAnswers,
-        average_score:
-          scoreCount > 0
-            ? Math.round((totalScore / scoreCount) * 100) / 100
-            : null,
+        average_score: scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) / 100 : null,
         max_marks: eq.marks,
       };
     });
@@ -784,70 +872,5 @@ export class AnalyticsService {
     }
 
     return scoreDistribution;
-  }
-
-  /**
-   * Helper: Calculate total revenue from all purchases
-   */
-  private async calculateTotalRevenue(): Promise<number> {
-    const lessonRevenue = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const packageRevenue = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const bookRevenue = await this.bookPurchasesRepository
-      .createQueryBuilder('bp')
-      .select('SUM(bp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    return (
-      Number.parseFloat(lessonRevenue?.total ?? '0') +
-      Number.parseFloat(packageRevenue?.total ?? '0') +
-      Number.parseFloat(bookRevenue?.total ?? '0')
-    );
-  }
-
-  /**
-   * Helper: Calculate revenue for a specific month
-   */
-  private async calculateMonthlyRevenue(month: Date): Promise<number> {
-    const startOfMonth = new Date(month);
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const endOfMonth = new Date(startOfMonth);
-    endOfMonth.setMonth(endOfMonth.getMonth() + 1);
-
-    const lessonRevenue = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .where('lp.created_at >= :start', { start: startOfMonth })
-      .andWhere('lp.created_at < :end', { end: endOfMonth })
-      .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const packageRevenue = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .where('pp.created_at >= :start', { start: startOfMonth })
-      .andWhere('pp.created_at < :end', { end: endOfMonth })
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const bookRevenue = await this.bookPurchasesRepository
-      .createQueryBuilder('bp')
-      .where('bp.purchased_at >= :start', { start: startOfMonth })
-      .andWhere('bp.purchased_at < :end', { end: endOfMonth })
-      .select('SUM(bp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    return (
-      Number.parseFloat(lessonRevenue?.total ?? '0') +
-      Number.parseFloat(packageRevenue?.total ?? '0') +
-      Number.parseFloat(bookRevenue?.total ?? '0')
-    );
   }
 }

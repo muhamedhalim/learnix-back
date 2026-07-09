@@ -70,8 +70,7 @@ export class HybridAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid authentication token');
     }
 
-    const payloadObj: JwtPayload | null =
-      typeof verified === 'object' ? verified : null;
+    const payloadObj: JwtPayload | null = typeof verified === 'object' ? verified : null;
 
     if (!payloadObj) {
       this.logger.warn('JWT payload is not an object');
@@ -86,32 +85,19 @@ export class HybridAuthGuard implements CanActivate {
     email: string;
   } {
     const sub =
-      'sub' in payloadObj && typeof payloadObj.sub === 'string'
-        ? payloadObj.sub
-        : undefined;
+      'sub' in payloadObj && typeof payloadObj.sub === 'string' ? payloadObj.sub : undefined;
 
-    const email =
-      typeof payloadObj['email'] === 'string' ? payloadObj['email'] : undefined;
+    const email = typeof payloadObj['email'] === 'string' ? payloadObj['email'] : undefined;
 
-    if (
-      sub === undefined ||
-      sub === '' ||
-      email === undefined ||
-      email === ''
-    ) {
-      this.logger.warn(
-        'JWT payload is missing required "sub" or "email" claims.',
-      );
+    if (sub === undefined || sub === '' || email === undefined || email === '') {
+      this.logger.warn('JWT payload is missing required "sub" or "email" claims.');
       throw new UnauthorizedException('Invalid token payload');
     }
 
     return { sub, email };
   }
 
-  private async tryJwtVerify(
-    token: string,
-    request: Request,
-  ): Promise<boolean> {
+  private async tryJwtVerify(token: string, request: Request): Promise<boolean> {
     const jwtSecret = this.verifyJwtSecret();
     const payloadObj = this.extractJwtPayload(token, jwtSecret);
     const validateParams = this.validatePayloadClaims(payloadObj);
@@ -127,9 +113,7 @@ export class HybridAuthGuard implements CanActivate {
     } catch (error) {
       this.logger.warn(
         `AuthService.validateUser failed: ${
-          error instanceof Error
-            ? error.message
-            : String(error)
+          error instanceof Error ? error.message : String(error)
         }`,
       );
       throw new UnauthorizedException('Invalid authentication token');
@@ -160,7 +144,7 @@ export class HybridAuthGuard implements CanActivate {
 
     // If token header exists but has no `kid`, treat it as non-Firebase ID token
     if (header && !('kid' in header)) {
-      this.logger.warn(
+      this.logger.debug(
         'Auth token header has no "kid" claim — skipping Firebase verification and trying JWT.',
       );
       return await this.tryJwtVerify(token, request);
@@ -176,9 +160,7 @@ export class HybridAuthGuard implements CanActivate {
       // Log details and fall back to JWT
       this.logger.warn(
         `Firebase verification failed: ${
-          error instanceof Error
-            ? error.message
-            : String(error)
+          error instanceof Error ? error.message : String(error)
         } — falling back to JWT verification.`,
       );
 

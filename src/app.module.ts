@@ -42,6 +42,8 @@ import { MailModule } from './mail/mail.module';
 import { MediaModule } from './media/media.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ObservabilityModule } from './observability/observability.module';
+import { QueryPerformanceSubscriber } from './observability/query-performance.subscriber';
 // Phase 2: Core Features
 import { PackagesModule } from './packages/packages.module';
 // Phase 4: Payments & Notifications
@@ -100,8 +102,7 @@ import { UsersModule } from './users/users.module';
             ttl: 5 * 60 * 1000, // 5 minutes default TTL
           };
         } catch (error: unknown) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error';
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           logger.warn(
             `WARNING: Failed to connect to Redis: ${errorMessage}. Using in-memory cache.`,
           );
@@ -117,6 +118,7 @@ import { UsersModule } from './users/users.module';
       validate,
     }),
     EventEmitterModule.forRoot(),
+    ObservabilityModule,
     SanitizationModule,
     ScheduleModule.forRoot(),
     AuthModule,
@@ -135,10 +137,9 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const databaseUrl = configService.get<string>('DATABASE_URL');
-        const isProduction =
-          configService.get<string>('NODE_ENV') === 'production';
-        const synchronize =
-          configService.get<string>('TYPEORM_SYNCHRONIZE') === 'true';
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
+        const synchronize = configService.get<string>('TYPEORM_SYNCHRONIZE') === 'true';
+        const typeOrmLogging = configService.get<string>('TYPEORM_LOGGING');
 
         if (isProduction && synchronize) {
           throw new Error(
@@ -159,13 +160,13 @@ import { UsersModule } from './users/users.module';
           type: 'postgres',
           url: databaseUrl ?? '',
           autoLoadEntities: true,
+          subscribers: [QueryPerformanceSubscriber],
           synchronize: shouldSynchronize,
-          logging: !isProduction,
+          logging: typeOrmLogging === 'true' || (!isProduction && typeOrmLogging !== 'false'),
           ssl:
             databaseUrl !== undefined && databaseUrl !== '' && isProduction
               ? {
-                  rejectUnauthorized:
-                    process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false',
+                  rejectUnauthorized: process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false',
                 }
               : false,
         };

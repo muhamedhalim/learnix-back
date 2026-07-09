@@ -2,7 +2,12 @@ import './polyfills';
 
 import { join } from 'node:path';
 
-import { Logger, ValidationPipe } from '@nestjs/common';
+import {
+  Logger,
+  type LogLevel,
+  RequestMethod,
+  ValidationPipe,
+} from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -15,6 +20,29 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
 
 const logger = new Logger('Bootstrap');
+
+function getLogLevels(): LogLevel[] {
+  const configured = process.env['LOG_LEVELS'];
+  if (configured) {
+    const validLevels = new Set<LogLevel>([
+      'fatal',
+      'error',
+      'warn',
+      'log',
+      'debug',
+      'verbose',
+    ]);
+    const levels = configured
+      .split(',')
+      .map((level) => level.trim() as LogLevel)
+      .filter((level) => validLevels.has(level));
+    if (levels.length > 0) return levels;
+  }
+
+  return process.env['NODE_ENV'] === 'production'
+    ? ['error', 'warn', 'log']
+    : ['debug', 'log', 'warn', 'error'];
+}
 
 function getAllowedOrigins(): string[] {
   const env = process.env['CORS_ORIGINS'];
@@ -36,17 +64,14 @@ function getAllowedOrigins(): string[] {
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: process.env['NODE_ENV'] === 'production'
-      ? ['error', 'warn', 'log']
-      : ['debug', 'log', 'warn', 'error'],
+    logger: getLogLevels(),
   });
 
   const isProd = process.env['NODE_ENV'] === 'production';
 
   app.set('trust proxy', 1);
 
-  const cookieSecret =
-    process.env['COOKIE_SECRET'] || process.env['JWT_SECRET'];
+  const cookieSecret = process.env['COOKIE_SECRET'] || process.env['JWT_SECRET'];
 
   if (!cookieSecret) {
     logger.error('COOKIE_SECRET or JWT_SECRET is required');
@@ -100,9 +125,7 @@ async function bootstrap(): Promise<void> {
       // allow server-to-server / postman / health checks
       if (!origin) return callback(null, true);
 
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        origin.endsWith('.vercel.app');
+      const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
 
       if (isAllowed) return callback(null, true);
 
@@ -114,11 +137,7 @@ async function bootstrap(): Promise<void> {
 
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-CSRF-Token',
-    ],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   });
 
   app.useGlobalPipes(
@@ -136,7 +155,9 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalGuards(new CsrfGuard(new Reflector()));
 
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: 'metrics', method: RequestMethod.GET }],
+  });
 
   if (!isProd || process.env['ENABLE_SWAGGER'] === 'true') {
     const config = new DocumentBuilder()
@@ -160,20 +181,42 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  app.use((req: { method: string; url: string; }, res: { status: (arg0: number) => { (): any; new(): any; json: { (arg0: { status: string; service: string; version: string; docs: string; health: string; timestamp: string; }): any; new(): any; }; }; }, next: () => void) => {
-    if (req.method === 'GET' && req.url === '/') {
-      return res.status(200).json({
-        status: 'ok',
-        service: 'E-Learning API',
-        version: '1.0',
-        docs: '/api',
-        health: '/api/v1/health',
-        timestamp: new Date().toISOString(),
-      });
-    }
+  app.use(
+    (
+      req: { method: string; url: string },
+      res: {
+        status: (arg0: number) => {
+          (): any;
+          new (): any;
+          json: {
+            (arg0: {
+              status: string;
+              service: string;
+              version: string;
+              docs: string;
+              health: string;
+              timestamp: string;
+            }): any;
+            new (): any;
+          };
+        };
+      },
+      next: () => void,
+    ) => {
+      if (req.method === 'GET' && req.url === '/') {
+        return res.status(200).json({
+          status: 'ok',
+          service: 'E-Learning API',
+          version: '1.0',
+          docs: '/api',
+          health: '/api/v1/health',
+          timestamp: new Date().toISOString(),
+        });
+      }
 
-    next();
-  });
+      next();
+    },
+  );
 
   const port = Number(process.env['PORT']) || 3000;
 
@@ -182,7 +225,6 @@ async function bootstrap(): Promise<void> {
   logger.log(`🚀 Server running on http://0.0.0.0:${port}`);
   logger.log(`📘 Swagger: http://0.0.0.0:${port}/api`);
 }
-
 
 bootstrap().catch((err) => {
   logger.error('❌ Fatal Bootstrap Error:', err);

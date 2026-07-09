@@ -1,5 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+export class RevenueBySourceDto {
+  @ApiProperty({ example: 75_000 })
+  public lessons!: number;
+
+  @ApiProperty({ example: 35_000 })
+  public packages!: number;
+
+  @ApiProperty({ example: 15_000 })
+  public books!: number;
+}
+
 /**
  * Response DTO for admin dashboard statistics
  */
@@ -53,6 +64,12 @@ export class AdminDashboardDto {
   public totalBooks!: number;
 
   @ApiProperty({
+    description: 'Total number of active exams',
+    example: 25,
+  })
+  public totalExams!: number;
+
+  @ApiProperty({
     description: 'Total revenue from all completed transactions',
     example: 125_000.5,
   })
@@ -69,4 +86,22 @@ export class AdminDashboardDto {
     example: 12_500,
   })
   public revenueLastMonth!: number;
+
+  @ApiProperty({
+    description: 'Revenue earned today (UTC)',
+    example: 1_250,
+  })
+  public revenueToday!: number;
+
+  @ApiProperty({
+    description: 'Revenue earned this calendar quarter (UTC)',
+    example: 42_000,
+  })
+  public revenueThisQuarter!: number;
+
+  @ApiProperty({
+    description: 'All-time completed revenue grouped by purchased item type',
+    type: RevenueBySourceDto,
+  })
+  public revenueBySource!: RevenueBySourceDto;
 }
