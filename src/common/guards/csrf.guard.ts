@@ -122,12 +122,15 @@ export class CsrfGuard implements CanActivate {
    * Returns the current token (existing or newly generated)
    */
   private ensureCsrfCookie(request: Request, response: Response): string {
-    // Check for existing token in signedCookies
-    const existingToken = request.signedCookies[this.csrfCookieName] as
-      | string
-      | undefined;
+    // Check for existing token in signedCookies. cookie-parser sets this to the
+    // literal boolean `false` (not undefined) when a signed cookie's signature
+    // fails to verify — e.g. after a COOKIE_SECRET rotation, or a corrupted/
+    // tampered cookie. Treat that the same as "no cookie" so a fresh, valid
+    // token is issued instead of permanently wedging the client with a token
+    // that will only ever fail validation on the next mutating request.
+    const existingToken = request.signedCookies[this.csrfCookieName];
 
-    if (existingToken !== undefined && existingToken !== '') {
+    if (typeof existingToken === 'string' && existingToken !== '') {
       // Attach existing token to request for controller access
       Object.assign(request, { csrfToken: existingToken });
       return existingToken;
