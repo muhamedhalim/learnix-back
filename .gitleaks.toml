@@ -1,0 +1,13 @@
+title = "learning-center-backend secret scanning"
+
+[allowlist]
+description = "Allow documented placeholders only; real secrets remain blocked."
+paths = [
+  '''^\.env\.example$''',
+]
+regexes = [
+  '''your-[a-z0-9-]+''',
+  '''replace-with-[a-z0-9-]+''',
+  '''postgresql://user:password@localhost:5432/edu_platform''',
+]
+

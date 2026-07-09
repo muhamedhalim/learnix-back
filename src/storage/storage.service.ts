@@ -35,6 +35,7 @@ const LOCAL_MIME_TYPES: Record<string, string> = {
 };
 
 const DEFAULT_SIGNED_EXPIRES = 900; // 15 minutes
+const PRIVATE_LOCAL_PREFIXES = ['books/', 'omr-sheets/'] as const;
 
 /**
  * Build a diagnostic, non-sensitive description of an AWS-SDK / R2 error. The
@@ -275,20 +276,26 @@ class LocalStorageProvider implements StorageProvider {
   public readonly name = 'local';
 
   constructor(
-    private readonly uploadDir: string,
+    private readonly publicUploadDir: string,
+    private readonly privateUploadDir: string,
     private readonly backendUrl: string,
   ) {}
 
   public async upload({ buffer, path, visibility = 'public' }: UploadParams): Promise<StoredFile> {
-    const full = join(this.uploadDir, path);
+    const full = this.fullPath(path, visibility);
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, buffer);
-    return { url: this.getPublicUrl(path), path, size: buffer.length, visibility };
+    return {
+      url: visibility === 'public' ? this.getPublicUrl(path) : '',
+      path,
+      size: buffer.length,
+      visibility,
+    };
   }
 
   public async delete(path: string): Promise<void> {
     try {
-      await unlink(join(this.uploadDir, path));
+      await unlink(this.fullPath(path));
     } catch {
       // already gone — ignore
     }
@@ -296,7 +303,7 @@ class LocalStorageProvider implements StorageProvider {
 
   public async exists(path: string): Promise<boolean> {
     try {
-      await stat(join(this.uploadDir, path));
+      await stat(this.fullPath(path));
       return true;
     } catch {
       return false;
@@ -304,7 +311,7 @@ class LocalStorageProvider implements StorageProvider {
   }
 
   public async getObject(path: string): Promise<StoredObject> {
-    const full = join(this.uploadDir, path);
+    const full = this.fullPath(path);
     let size: number;
     try {
       size = (await stat(full)).size;
@@ -319,12 +326,30 @@ class LocalStorageProvider implements StorageProvider {
   }
 
   public getPublicUrl(path: string): string {
-    return `${this.backendUrl.replace(/\/+$/, '')}/api/v1/uploads/${path}`;
+    return `${this.backendUrl.replace(/\/+$/, '')}/api/v1/media/public/${path}`;
   }
 
   public getSignedUrl(path: string): Promise<string> {
     // No signing locally — return the public serve URL (dev only).
+    if (this.isPrivatePath(path)) {
+      throw new Error(
+        'Local private objects are not exposed through signed URLs; use a protected streaming route.',
+      );
+    }
+
     return Promise.resolve(this.getPublicUrl(path));
+  }
+
+  private fullPath(path: string, visibility?: UploadParams['visibility']): string {
+    const root =
+      visibility === 'private' || this.isPrivatePath(path)
+        ? this.privateUploadDir
+        : this.publicUploadDir;
+    return join(root, path);
+  }
+
+  private isPrivatePath(path: string): boolean {
+    return PRIVATE_LOCAL_PREFIXES.some((prefix) => path.startsWith(prefix));
   }
 }
 
@@ -380,6 +405,7 @@ export class StorageService implements StorageProvider {
     this.logger.warn('No object storage configured (R2/Bunny) — using local disk fallback.');
     return new LocalStorageProvider(
       this.config.get<string>('UPLOAD_DIR') ?? './uploads',
+      this.config.get<string>('PRIVATE_UPLOAD_DIR') ?? './private-uploads',
       this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3001',
     );
   }
@@ -443,7 +469,10 @@ export class StorageService implements StorageProvider {
       }
     }
     // Strip a legacy local-serve prefix if present.
-    path = path.replace(/^\/+/, '').replace(/^api\/v1\/uploads\//, '');
+    path = path
+      .replace(/^\/+/, '')
+      .replace(/^api\/v1\/uploads\//, '')
+      .replace(/^api\/v1\/media\/public\//, '');
     return path;
   }
 
@@ -460,7 +489,7 @@ export class StorageService implements StorageProvider {
     if (publicPrefix !== '' && value.startsWith(publicPrefix)) return true;
     try {
       const pathname = new URL(value).pathname.replace(/^\/+/, '');
-      return pathname.startsWith('api/v1/uploads/');
+      return pathname.startsWith('api/v1/uploads/') || pathname.startsWith('api/v1/media/public/');
     } catch {
       return false;
     }
