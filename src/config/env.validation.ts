@@ -6,6 +6,7 @@ import {
   IsString,
   Max,
   Min,
+  MinLength,
   validateSync,
 } from 'class-validator';
 
@@ -73,6 +74,7 @@ export class EnvironmentVariables {
 
   // JWT Authentication
   @IsNotEmpty()
+  @MinLength(32)
   public JWT_SECRET!: string;
 
   @IsString()
@@ -80,6 +82,7 @@ export class EnvironmentVariables {
   public JWT_EXPIRATION?: string;
 
   @IsNotEmpty()
+  @MinLength(32)
   public JWT_REFRESH_SECRET!: string;
 
   @IsString()
@@ -89,6 +92,12 @@ export class EnvironmentVariables {
   // Admin Initialization
   @IsString()
   @IsOptional()
+  @MinLength(32)
+  public COOKIE_SECRET?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(32)
   public INIT_SECRET?: string;
 
   @IsString()
@@ -97,6 +106,7 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  @MinLength(16)
   public ADMIN_INIT_PASSWORD?: string;
 
   // Firebase (optional - for SMS notifications)

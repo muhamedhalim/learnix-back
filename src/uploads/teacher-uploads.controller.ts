@@ -78,8 +78,8 @@ export class TeacherUploadsController {
   /**
    * Upload a paid-book PDF as a PRIVATE object. Unlike the public endpoints this
    * returns only the storage KEY (never a public URL) — the object is never
-   * publicly reachable and can only be retrieved via a purchase-gated,
-   * short-lived signed URL (see BookPurchasesService.getDownloadUrl). Store the
+   * publicly reachable and can only be retrieved via a purchase-gated backend
+   * download route (see BookPurchasesService.getDownloadObject). Store the
    * returned `key` in the book's `book_file`.
    */
   @Post('book-file')

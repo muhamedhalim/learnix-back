@@ -5,8 +5,8 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsOptional,
-  IsString,
   IsUUID,
   Max,
   Min,
@@ -14,6 +14,14 @@ import {
 
 import { ItemType } from '../entities/item-type.enum';
 import { PaymentStatus } from '../entities/payment-status.enum';
+
+export const PAYMENT_SORT_FIELDS = ['created_at', 'amount', 'final_amount', 'status'] as const;
+
+export const PAYMENT_SORT_ORDERS = ['asc', 'desc'] as const;
+
+export type PaymentSortField = (typeof PAYMENT_SORT_FIELDS)[number];
+
+export type PaymentSortOrder = (typeof PAYMENT_SORT_ORDERS)[number];
 
 export class PaymentFilterDto {
   @ApiProperty({
@@ -66,22 +74,22 @@ export class PaymentFilterDto {
   @ApiProperty({
     description: 'Sort by field',
     required: false,
-    enum: ['created_at', 'amount', 'final_amount', 'status'],
+    enum: PAYMENT_SORT_FIELDS,
     example: 'created_at',
   })
-  @IsString()
+  @IsIn(PAYMENT_SORT_FIELDS)
   @IsOptional()
-  public sortBy?: 'created_at' | 'amount' | 'final_amount' | 'status';
+  public sortBy?: PaymentSortField;
 
   @ApiProperty({
     description: 'Sort order',
     required: false,
-    enum: ['asc', 'desc'],
+    enum: PAYMENT_SORT_ORDERS,
     example: 'desc',
   })
-  @IsString()
+  @IsIn(PAYMENT_SORT_ORDERS)
   @IsOptional()
-  public order?: 'asc' | 'desc';
+  public order?: PaymentSortOrder;
 
   @ApiProperty({
     description: 'Page number',

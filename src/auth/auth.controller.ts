@@ -1,22 +1,100 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+
+const REFRESH_TOKEN_COOKIE = 'refresh_token';
+
+interface TokenResponse {
+  status: string;
+  token: string;
+  refreshToken?: string;
+  role: string;
+  userId: string;
+}
+
+function durationToMilliseconds(duration: string): number {
+  const match = /^(\d+)([dhms])$/.exec(duration);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return 7 * 24 * 60 * 60 * 1000;
+  }
+
+  const value = Number.parseInt(match[1], 10);
+  switch (match[2]) {
+    case 'd':
+      return value * 24 * 60 * 60 * 1000;
+    case 'h':
+      return value * 60 * 60 * 1000;
+    case 'm':
+      return value * 60 * 1000;
+    case 's':
+      return value * 1000;
+    default:
+      return 7 * 24 * 60 * 60 * 1000;
+  }
+}
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  private setRefreshTokenCookie(response: Response, refreshToken: string): void {
+    response.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      signed: true,
+      path: '/api/v1/auth',
+      maxAge: durationToMilliseconds(process.env['JWT_REFRESH_EXPIRATION'] ?? '7d'),
+    });
+  }
+
+  private clearRefreshTokenCookie(response: Response): void {
+    response.clearCookie(REFRESH_TOKEN_COOKIE, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      signed: true,
+      path: '/api/v1/auth',
+    });
+  }
+
+  private stripRefreshToken(result: unknown, response: Response): unknown {
+    if (
+      typeof result === 'object' &&
+      result !== null &&
+      'refreshToken' in result &&
+      typeof (result as TokenResponse).refreshToken === 'string'
+    ) {
+      const tokenResult = result as TokenResponse & { refreshToken: string };
+      const { refreshToken, ...body } = tokenResult;
+      this.setRefreshTokenCookie(response, refreshToken);
+      return body;
+    }
+
+    return result;
+  }
 
   @Post('register')
   @Throttle({ default: THROTTLE.AUTH })
@@ -28,14 +106,19 @@ export class AuthController {
   @Post('login')
   @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async login(@Body() loginDto: LoginDto, @Req() request: Request): Promise<unknown> {
+  public async login(
+    @Body() loginDto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<unknown> {
     const deviceInfo = request.headers['user-agent'] ?? null;
     const ipAddress =
       (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0] ??
       request.ip ??
       null;
 
-    return await this.authService.login(loginDto, deviceInfo, ipAddress);
+    const result = await this.authService.login(loginDto, deviceInfo, ipAddress);
+    return this.stripRefreshToken(result, response);
   }
 
   @Post('refresh')
@@ -45,8 +128,18 @@ export class AuthController {
   // can burst across tabs/devices — 5/min still cuts the attack surface ~60x.
   @Throttle({ default: THROTTLE.DEFAULT })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async refresh(@Body() refreshTokenDto: RefreshTokenDto): Promise<unknown> {
-    return await this.authService.refresh(refreshTokenDto.refresh_token);
+  public async refresh(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<unknown> {
+    const refreshToken =
+      request.signedCookies?.[REFRESH_TOKEN_COOKIE] ?? request.cookies?.[REFRESH_TOKEN_COOKIE];
+    if (typeof refreshToken !== 'string' || refreshToken === '') {
+      throw new UnauthorizedException('Refresh token cookie is missing');
+    }
+
+    const result = await this.authService.refresh(refreshToken);
+    return this.stripRefreshToken(result, response);
   }
 
   @Post('forgot-password')
@@ -88,9 +181,13 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  public async logout(@Req() request: Request): Promise<{ message: string }> {
+  public async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ message: string }> {
     const { userId } = request.user as { userId: string };
     await this.authService.logout(userId);
+    this.clearRefreshTokenCookie(response);
     return { message: 'Logged out successfully' };
   }
 

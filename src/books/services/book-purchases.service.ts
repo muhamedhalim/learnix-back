@@ -5,11 +5,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { StorageObjectNotFoundError, StoredObject } from '../../storage/storage.interface';
 import { StorageService } from '../../storage/storage.service';
 import { BookFilterDto } from '../dto';
 import { Book } from '../entities/book.entity';
@@ -39,6 +41,7 @@ export class BookPurchasesService {
     private readonly purchasesRepository: Repository<BookPurchase>,
     private readonly booksService: BooksService,
     private readonly storageService: StorageService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -158,6 +161,40 @@ export class BookPurchasesService {
     studentId: string,
     bookId: string,
   ): Promise<{ download_url: string; book: Book }> {
+    const book = await this.assertPurchasedBook(studentId, bookId);
+    const backendUrl = this.configService.get<string>('BACKEND_URL') ?? 'http://localhost:3001';
+    const download_url = `${backendUrl.replace(/\/+$/, '')}/api/v1/student/books/${bookId}/download/file`;
+
+    this.logger.log(`Protected book download URL issued: book ${bookId}, student ${studentId}`);
+
+    return { download_url, book };
+  }
+
+  /**
+   * Stream a purchased book through the backend after authorization. This keeps
+   * local private files off the public web root and avoids handing out direct
+   * local filesystem URLs.
+   */
+  public async getDownloadObject(
+    studentId: string,
+    bookId: string,
+  ): Promise<{ object: StoredObject; book: Book }> {
+    const book = await this.assertPurchasedBook(studentId, bookId);
+    const key = this.storageService.toKey(book.book_file);
+
+    try {
+      const object = await this.storageService.getObject(key);
+      this.logger.log(`Protected book download streamed: book ${bookId}, student ${studentId}`);
+      return { object, book };
+    } catch (err) {
+      if (err instanceof StorageObjectNotFoundError) {
+        throw new NotFoundException('Book file not found');
+      }
+      throw err;
+    }
+  }
+
+  private async assertPurchasedBook(studentId: string, bookId: string): Promise<Book> {
     // Authorize FIRST: only a student who purchased the book gets a URL.
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
 
@@ -166,17 +203,7 @@ export class BookPurchasesService {
     }
 
     const book = await this.booksService.findOne(bookId);
-
-    // Issue a short-lived, non-guessable signed URL rather than handing out a
-    // permanent path. For book PDFs stored as private R2 objects this is the
-    // ONLY way to retrieve them; the URL expires (SIGNED_URL_EXPIRES_SECONDS)
-    // and cannot be reused indefinitely or shared long-term.
-    const key = this.storageService.toKey(book.book_file);
-    const download_url = await this.storageService.getSignedUrl(key);
-
-    this.logger.log(`Signed book download issued: book ${bookId}, student ${studentId}`);
-
-    return { download_url, book };
+    return book;
   }
 
   /**

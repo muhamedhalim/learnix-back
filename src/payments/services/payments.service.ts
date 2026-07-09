@@ -30,7 +30,7 @@ import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { BillingDataDto } from '../dto/billing-data.dto';
-import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { PaymentFilterDto, type PaymentSortField } from '../dto/payment-filter.dto';
 import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
 import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
 import { PurchasePackageDto } from '../dto/purchase-package.dto';
@@ -76,6 +76,13 @@ const OPEN_PAYMENT_TTL_MS = 60 * 60 * 1000;
 
 /** Name of the partial unique index guarding against concurrent double-charge. */
 const OPEN_PAYMENT_INDEX = 'UQ_payments_open_per_user_item';
+
+const PAYMENT_SORT_COLUMN_BY_FIELD: Readonly<Record<PaymentSortField, string>> = {
+  created_at: 'payment.created_at',
+  amount: 'payment.amount',
+  final_amount: 'payment.final_amount',
+  status: 'payment.status',
+};
 
 export interface AccessCheckResult {
   has_access: boolean;
@@ -1133,8 +1140,9 @@ export class PaymentsService {
     }
 
     const sortBy = filter.sortBy ?? 'created_at';
-    const order = filter.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    queryBuilder.orderBy(`payment.${sortBy}`, order);
+    const sortColumn = PAYMENT_SORT_COLUMN_BY_FIELD[sortBy];
+    const order = filter.order === 'asc' ? 'ASC' : 'DESC';
+    queryBuilder.orderBy(sortColumn, order);
 
     const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
@@ -1196,8 +1204,9 @@ export class PaymentsService {
     }
 
     const sortBy = filter.sortBy ?? 'created_at';
-    const order = filter.order?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    queryBuilder.orderBy(`payment.${sortBy}`, order);
+    const sortColumn = PAYMENT_SORT_COLUMN_BY_FIELD[sortBy];
+    const order = filter.order === 'asc' ? 'ASC' : 'DESC';
+    queryBuilder.orderBy(sortColumn, order);
 
     queryBuilder.leftJoinAndSelect('payment.user', 'user');
 

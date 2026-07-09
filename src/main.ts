@@ -1,7 +1,5 @@
 import './polyfills';
 
-import { join } from 'node:path';
-
 import {
   Logger,
   type LogLevel,
@@ -111,10 +109,6 @@ async function bootstrap(): Promise<void> {
         : false, // IMPORTANT: disable CSP in dev (fix Swagger + HMR issues)
     }),
   );
-
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
-  });
 
   const allowedOrigins = getAllowedOrigins();
 

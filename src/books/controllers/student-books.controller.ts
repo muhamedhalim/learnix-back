@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -16,6 +17,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+
+import type { Response } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -102,6 +105,39 @@ export class StudentBooksController {
       has_access: !!purchase,
       purchased_at: purchase?.purchased_at ?? null,
     };
+  }
+
+  /**
+   * Stream a purchased book through an authenticated route.
+   */
+  @Get(':id/download/file')
+  @ApiOperation({ summary: 'Download a purchased book through the protected backend route' })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Book was not purchased by the current student',
+  })
+  public async downloadFile(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) bookId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { object, book } = await this.bookPurchasesService.getDownloadObject(
+      user.userId,
+      bookId,
+    );
+    const safeTitle = book.title.replace(/[^\w.-]+/g, '_') || 'book';
+
+    res.setHeader('Content-Type', object.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (object.contentLength !== undefined) {
+      res.setHeader('Content-Length', object.contentLength.toString());
+    }
+
+    object.stream.on('error', () => {
+      res.destroy();
+    });
+    object.stream.pipe(res);
   }
 
   /**
