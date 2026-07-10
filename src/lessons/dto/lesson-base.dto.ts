@@ -53,6 +53,14 @@ export class LessonBaseDto {
   @IsOptional()
   is_group?: boolean;
 
+  @ApiProperty({
+    required: false,
+    description: 'Playable as a free teaser on the public course preview',
+  })
+  @IsBoolean()
+  @IsOptional()
+  is_free_preview?: boolean;
+
   @ApiProperty({ required: false })
   @IsInt()
   @IsOptional()

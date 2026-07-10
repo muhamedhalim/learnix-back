@@ -154,6 +154,14 @@ export class Lesson {
   @Column({ type: 'int', default: 0, name: 'students_count' })
   students_count!: number;
 
+  /**
+   * When true, this lesson is playable on the public course preview without a
+   * purchase (a free teaser). Locked lessons appear in the curriculum but expose
+   * no playable video source.
+   */
+  @Column({ type: 'boolean', default: false, name: 'is_free_preview' })
+  is_free_preview!: boolean;
+
   // Publishing state within a course (additive; existing lessons → published).
   @Column({
     type: 'enum',

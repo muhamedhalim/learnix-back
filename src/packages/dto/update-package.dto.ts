@@ -10,11 +10,14 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 import { CourseStatus } from '../entities/course-status.enum';
+import { FaqItemDto } from './faq-item.dto';
 
 export class UpdatePackageDto {
   @ApiPropertyOptional({ enum: CourseStatus, description: 'Publishing state' })
@@ -115,4 +118,32 @@ export class UpdatePackageDto {
   @IsString()
   @MaxLength(500)
   public thumbnail?: string;
+
+  // ── Public preview fields ──────────────────────────────────────────────────
+  @ApiPropertyOptional({ description: 'Prerequisites', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(300, { each: true })
+  public requirements?: string[];
+
+  @ApiPropertyOptional({ description: "What you'll learn", type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(300, { each: true })
+  public what_you_learn?: string[];
+
+  @ApiPropertyOptional({ description: 'FAQ entries', type: [FaqItemDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FaqItemDto)
+  public faq?: FaqItemDto[];
+
+  @ApiPropertyOptional({ description: 'Intro/teaser video URL' })
+  @IsOptional()
+  @IsUrl()
+  @MaxLength(500)
+  public intro_video_url?: string;
 }

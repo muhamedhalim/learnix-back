@@ -80,6 +80,23 @@ export class LessonPackage {
   @Column('int', { nullable: true })
   estimated_duration!: number | null;
 
+  // ── Public preview fields (additive) ───────────────────────────────────────
+  /** Prerequisites shown on the public course page. */
+  @Column('text', { array: true, nullable: true })
+  requirements!: string[] | null;
+
+  /** "What you'll learn" bullet points. */
+  @Column('text', { array: true, nullable: true, name: 'what_you_learn' })
+  what_you_learn!: string[] | null;
+
+  /** FAQ entries: `[{ question, answer }]`. */
+  @Column('jsonb', { nullable: true })
+  faq!: { question: string; answer: string }[] | null;
+
+  /** Short intro/teaser video URL shown before purchase. */
+  @Column('varchar', { length: 500, nullable: true, name: 'intro_video_url' })
+  intro_video_url!: string | null;
+
   /** When the course was (last) published. */
   @Column('timestamptz', { nullable: true })
   published_at!: Date | null;

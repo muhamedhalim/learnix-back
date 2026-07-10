@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
@@ -11,6 +12,14 @@ import { IsNull, Repository } from 'typeorm';
 import type { LessonProgressDto } from './dto/lesson-progress.dto';
 import { Lesson } from './entities/lesson.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
+
+/** Emitted the first time a student's lesson crosses into "completed". */
+export const LESSON_COMPLETED_EVENT = 'lesson.completed';
+
+export interface LessonCompletedEvent {
+  studentId: string;
+  lessonId: string;
+}
 
 @Injectable()
 export class ProgressService {
@@ -21,6 +30,7 @@ export class ProgressService {
     private readonly progressRepository: Repository<LessonProgress>,
     @InjectRepository(Lesson)
     private readonly lessonRepository: Repository<Lesson>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -70,6 +80,8 @@ export class ProgressService {
       where: { student_id: studentId, lesson_id: lessonId },
     });
 
+    const wasCompleted = progress?.completed ?? false;
+
     if (progress === null) {
       // Create new progress record
       progress = this.progressRepository.create({
@@ -95,6 +107,15 @@ export class ProgressService {
     this.logger.log(
       `Progress updated for student ${studentId}, lesson ${lessonId}: ${String(progressPercent)}%`,
     );
+
+    // Fire once, only on the transition into completed, so downstream listeners
+    // (e.g. certificate issuance) run exactly once per lesson completion.
+    if (savedProgress.completed && !wasCompleted) {
+      this.eventEmitter.emit(LESSON_COMPLETED_EVENT, {
+        studentId,
+        lessonId,
+      } satisfies LessonCompletedEvent);
+    }
 
     return {
       id: savedProgress.id,

@@ -13,6 +13,7 @@ import {
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { User } from '../../users/entities/user.entity';
+import { ReviewStatus } from './review-status.enum';
 
 @Entity('lesson_reviews')
 @Unique('UQ_lesson_review_lesson_student', ['lesson_id', 'student_id'])
@@ -21,6 +22,7 @@ import { User } from '../../users/entities/user.entity';
 @Index('IDX_lesson_reviews_student_id', ['student_id'])
 @Index('IDX_lesson_reviews_rating', ['rating'])
 @Index('IDX_lesson_reviews_created_at', ['created_at'])
+@Index('IDX_lesson_reviews_status', ['status'])
 export class LessonReview {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -44,6 +46,23 @@ export class LessonReview {
 
   @Column({ type: 'text', nullable: true })
   comment!: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ReviewStatus,
+    default: ReviewStatus.APPROVED,
+  })
+  status!: ReviewStatus;
+
+  @Column({ type: 'int', default: 0, name: 'helpful_count' })
+  helpful_count!: number;
+
+  /** Teacher's public reply to this review (teacher of the reviewed lesson). */
+  @Column({ type: 'text', nullable: true, name: 'teacher_reply' })
+  teacher_reply!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'teacher_reply_at' })
+  teacher_reply_at!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

@@ -3,12 +3,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaModule } from '../media/media.module';
+import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { ReviewsModule } from '../reviews/reviews.module';
+import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
 import {
   AdminPackagesController,
   PackagesController,
   TeacherPackagesController,
 } from './controllers';
+import { CoursePreviewService } from './course-preview.service';
 import { CourseChapter } from './entities/course-chapter.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
@@ -22,15 +26,18 @@ import { PackagesService } from './packages.service';
       CourseChapter,
       Lesson,
       User,
+      TeacherProfile,
+      PackagePurchase,
     ]),
     MediaModule,
+    ReviewsModule,
   ],
   controllers: [
     AdminPackagesController,
     PackagesController,
     TeacherPackagesController,
   ],
-  providers: [PackagesService],
+  providers: [PackagesService, CoursePreviewService],
   exports: [PackagesService, TypeOrmModule],
 })
 export class PackagesModule implements OnModuleInit {

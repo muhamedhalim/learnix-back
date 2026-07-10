@@ -16,12 +16,16 @@ import {
 
 import { PackageFilterDto } from '../dto';
 import { CourseStatus } from '../entities/course-status.enum';
+import { CoursePreviewService } from '../course-preview.service';
 import { PackagesService } from '../packages.service';
 
 @ApiTags('Packages')
 @Controller('packages')
 export class PackagesController {
-  constructor(private readonly packagesService: PackagesService) {}
+  constructor(
+    private readonly packagesService: PackagesService,
+    private readonly coursePreviewService: CoursePreviewService,
+  ) {}
 
   /**
    * List all active packages
@@ -101,6 +105,24 @@ export class PackagesController {
       status: CourseStatus.PUBLISHED,
     });
     return await this.packagesService.findAll(publicFilter);
+  }
+
+  /**
+   * Public pre-purchase course preview: curriculum (locked/free lessons),
+   * instructor, rating, students count, requirements, FAQ, related courses.
+   */
+  @Get(':id/preview')
+  @ApiOperation({
+    summary: 'Public course preview',
+    description:
+      'Everything a visitor needs before buying: curriculum with locked/free ' +
+      'lessons, instructor profile, rating, students count, and related courses.',
+  })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Course not found' })
+  public async preview(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return await this.coursePreviewService.getPreview(id);
   }
 
   /**

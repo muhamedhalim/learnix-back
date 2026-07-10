@@ -36,4 +36,15 @@ export class ReviewsPublicController {
       filter.limit,
     );
   }
+
+  @Get('packages/:packageId/reviews/summary')
+  @ApiOperation({
+    summary: 'Course (package) rating summary, derived from its lessons',
+  })
+  @ApiResponse({ status: 404, description: 'Package not found' })
+  public async getPackageReviewSummary(
+    @Param('packageId') packageId: string,
+  ): Promise<unknown> {
+    return await this.reviewsService.getPackageAggregates(packageId);
+  }
 }

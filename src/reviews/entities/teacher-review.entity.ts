@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { ReviewStatus } from './review-status.enum';
 
 @Entity('teacher_reviews')
 @Unique('UQ_teacher_review_teacher_student', ['teacher_id', 'student_id'])
@@ -20,6 +21,7 @@ import { User } from '../../users/entities/user.entity';
 @Index('IDX_teacher_reviews_student_id', ['student_id'])
 @Index('IDX_teacher_reviews_rating', ['rating'])
 @Index('IDX_teacher_reviews_created_at', ['created_at'])
+@Index('IDX_teacher_reviews_status', ['status'])
 export class TeacherReview {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -43,6 +45,16 @@ export class TeacherReview {
 
   @Column({ type: 'text', nullable: true })
   comment!: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ReviewStatus,
+    default: ReviewStatus.APPROVED,
+  })
+  status!: ReviewStatus;
+
+  @Column({ type: 'int', default: 0, name: 'helpful_count' })
+  helpful_count!: number;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

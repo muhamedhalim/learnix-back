@@ -153,6 +153,7 @@ export class LessonsService {
       price: dto.price,
       duration: dto.duration ?? null,
       is_group: dto.is_group ?? false,
+      is_free_preview: dto.is_free_preview ?? false,
       available_for_days: dto.available_for_days ?? 7,
       students_count: 0,
     });
@@ -409,6 +410,9 @@ export class LessonsService {
     }
     if (dto.is_group !== undefined) {
       updates.is_group = dto.is_group;
+    }
+    if (dto.is_free_preview !== undefined) {
+      updates.is_free_preview = dto.is_free_preview;
     }
     if (dto.available_for_days !== undefined) {
       updates.available_for_days = dto.available_for_days;

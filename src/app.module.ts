@@ -26,6 +26,7 @@ import { BooksModule } from './books/books.module';
 import { BulkOperationsModule } from './bulk-operations/bulk-operations.module';
 import { CallCenterModule } from './callcenter/callcenter.module';
 import { CartModule } from './cart/cart.module';
+import { CertificatesModule } from './certificates/certificates.module';
 import { CommentsModule } from './comments/comments.module';
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
@@ -52,12 +53,14 @@ import { PackagesModule } from './packages/packages.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ReportsModule } from './reports/reports.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { SearchModule } from './search/search.module';
 import { StudentsModule } from './students/students.module';
 // Phase 1 Foundation: Core educational platform modules
 import { SubjectsModule } from './subjects/subjects.module';
 import { TeachersModule } from './teachers/teachers.module';
 import { TeacherFollowUpModule } from './teacher-follow-up/teacher-follow-up.module';
 import { UploadModule } from './uploads/upload.module';
+import { WishlistModule } from './wishlist/wishlist.module';
 import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
@@ -281,6 +284,9 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
     AnalyticsModule,
     ReportsModule,
     CartModule,
+    WishlistModule,
+    CertificatesModule,
+    SearchModule,
 
     // Phase 3 Enhancements: Activity Logging & Bulk Operations
     ActivityLogsModule,
