@@ -17,6 +17,8 @@ import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
 import { parseDuration } from '../common/utils/duration.util';
+import { GuardianRelationship } from '../guardians/entities';
+import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
 import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
@@ -40,6 +42,7 @@ export class AuthService {
     private readonly mailService: MailService,
     @Inject(forwardRef(() => StudentsService))
     private readonly studentsService: StudentsService,
+    private readonly guardiansService: GuardiansService,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
@@ -70,7 +73,6 @@ export class AuthService {
       name: name.trim(),
       email,
       phone,
-      parent_phone: parentPhone ?? null,
       password_hash: hashedPassword,
       role: UserRole.STUDENT, // Default role for registration
       is_active: true,
@@ -79,12 +81,20 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    // Create student profile
-    await this.studentsService.createStudentProfile(
-      savedUser.id,
-      parentPhone ?? '', // Provide empty string if undefined (or maybe throw if required, but it's optional in register)
-      undefined, // Grade level is unknown at registration
-    );
+    // Grade level is unknown at registration.
+    await this.studentsService.createStudentProfile(savedUser.id);
+
+    // A supplied guardian phone becomes an UNVERIFIED Guardian: captured, but
+    // unable to receive any educational notification until an OTP proves the
+    // parent owns it. Absent input simply means "no guardian yet" — never the
+    // empty-string placeholder the old NOT NULL column forced.
+    if (parentPhone !== undefined && parentPhone !== '') {
+      await this.guardiansService.linkGuardian(savedUser.id, {
+        phone: parentPhone,
+        relationship: GuardianRelationship.OTHER,
+        is_primary: true,
+      });
+    }
 
     // Return pending approval message instead of tokens
     // Use the UUID directly as the user identifier

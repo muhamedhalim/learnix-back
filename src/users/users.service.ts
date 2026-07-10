@@ -52,7 +52,6 @@ export class UsersService {
         'name',
         'email',
         'phone',
-        'parent_phone',
         'is_active',
         'role',
         'created_at',
@@ -100,7 +99,6 @@ export class UsersService {
         'name',
         'email',
         'phone',
-        'parent_phone',
         'is_active',
         'role',
         'profile_picture_url',
@@ -119,7 +117,6 @@ export class UsersService {
       name: user.name,
       email: user.email,
       phone: user.phone,
-      parent_phone: user.parent_phone,
       is_active: user.is_active,
       role: user.role,
       profile_picture_url: user.profile_picture_url,
@@ -153,7 +150,6 @@ export class UsersService {
         'name',
         'email',
         'phone',
-        'parent_phone',
         'is_active',
         'role',
         'created_at',
@@ -185,7 +181,6 @@ export class UsersService {
         'name',
         'email',
         'phone',
-        'parent_phone',
         'is_active',
         'role',
         'profile_picture_url',
@@ -230,9 +225,7 @@ export class UsersService {
     if (updateUserDto.phone !== undefined) {
       user.phone = updateUserDto.phone;
     }
-    if (updateUserDto.parentPhone !== undefined) {
-      user.parent_phone = updateUserDto.parentPhone;
-    }
+    // Guardian phones are not user columns any more — see GuardiansService.
 
     await this.userRepository.save(user);
 

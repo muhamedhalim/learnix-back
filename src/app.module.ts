@@ -37,6 +37,7 @@ import { ExamsModule } from './exams/exams.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { GamificationModule } from './gamification/gamification.module';
 import { HealthModule } from './health/health.module';
+import { GuardiansModule } from './guardians/guardians.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { LessonsModule } from './lessons/lessons.module';
 import { MailModule } from './mail/mail.module';
@@ -55,6 +56,7 @@ import { StudentsModule } from './students/students.module';
 // Phase 1 Foundation: Core educational platform modules
 import { SubjectsModule } from './subjects/subjects.module';
 import { TeachersModule } from './teachers/teachers.module';
+import { TeacherFollowUpModule } from './teacher-follow-up/teacher-follow-up.module';
 import { UploadModule } from './uploads/upload.module';
 import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
@@ -269,7 +271,9 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
     PaymentsModule,
     DiscountCodesModule,
     AttendanceCodesModule,
+    GuardiansModule,
     NotificationsModule,
+    TeacherFollowUpModule,
 
     // Phase 5: Books & Attendance & Analytics & Cart
     BooksModule,

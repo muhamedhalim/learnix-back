@@ -55,6 +55,28 @@ export class TeacherExamsStatsDto {
   public averageScore!: number | null;
 }
 
+export class TeacherGuardianStatsDto {
+  @ApiProperty({ description: 'Distinct guardians linked to this teacher\'s students' })
+  public total!: number;
+
+  @ApiProperty({ description: 'Guardians who have completed OTP verification' })
+  public verified!: number;
+
+  @ApiProperty({ description: 'Guardians not yet verified' })
+  public pending!: number;
+}
+
+export class TeacherNotificationStatsDto {
+  @ApiProperty({ description: 'Notifications about this teacher\'s students sent today' })
+  public today!: number;
+
+  @ApiProperty({ description: 'Share of provider-accepted messages later confirmed delivered' })
+  public deliveryRate!: number;
+
+  @ApiProperty({ description: 'Share of provider-accepted messages later confirmed read' })
+  public readRate!: number;
+}
+
 export class TeacherReportDto {
   @ApiProperty({ type: ReportPeriodDto, description: 'Report period' })
   public period!: ReportPeriodDto;
@@ -76,4 +98,13 @@ export class TeacherReportDto {
 
   @ApiProperty({ type: TeacherExamsStatsDto, description: 'Exam statistics' })
   public exams!: TeacherExamsStatsDto;
+
+  @ApiProperty({ type: TeacherGuardianStatsDto, description: 'Guardian verification statistics' })
+  public guardians!: TeacherGuardianStatsDto;
+
+  @ApiProperty({ type: TeacherNotificationStatsDto, description: 'Parent notification statistics' })
+  public notifications!: TeacherNotificationStatsDto;
+
+  @ApiProperty({ description: 'Students currently flagged at any risk level (low/medium/high/critical, excluding none)' })
+  public riskStudentCount!: number;
 }

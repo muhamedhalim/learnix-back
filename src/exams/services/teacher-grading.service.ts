@@ -18,6 +18,7 @@ import {
   QuestionType,
 } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
+import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
 
 const AUTO_GRADED_TYPES = new Set<QuestionType>([
@@ -39,6 +40,7 @@ export class TeacherGradingService {
     private readonly dataSource: DataSource,
     private readonly gradingOrchestrator: AttemptGradingService,
     private readonly jobs: ExamJobsService,
+    private readonly examGradedPublisher: ExamGradedPublisher,
   ) {}
 
   public async getSubmissions(
@@ -174,6 +176,12 @@ export class TeacherGradingService {
     });
 
     await this.jobs.enqueueAnalytics(examId);
+
+    // Manually grading the last outstanding answer is what flips an attempt from
+    // GRADING to GRADED — the other place a parent-visible result is born.
+    // Post-commit, same as the student submit path.
+    await this.examGradedPublisher.publishIfGraded(attempt.id);
+
     return { attempt_id: attempt.id, state: state.state, score_total: state.score_total };
   }
 

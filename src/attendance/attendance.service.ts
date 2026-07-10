@@ -4,13 +4,18 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
-import { NotificationTriggersService } from '../notifications/services/notification-triggers.service';
+import {
+  AttendanceMarkedEvent,
+  PARENT_EVENT_CHANNEL,
+} from '../notifications/events/parent-events';
+import { User } from '../users/entities/user.entity';
 import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
 import {
   AttendanceRecord,
@@ -40,7 +45,9 @@ export class AttendanceService {
     private readonly sessionsRepository: Repository<LessonSession>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
-    private readonly notificationTriggersService: NotificationTriggersService,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    private readonly events: EventEmitter2,
   ) {}
 
   /**
@@ -90,17 +97,26 @@ export class AttendanceService {
       `Attendance marked: student ${dto.student_id}, lesson ${dto.lesson_id}, status ${dto.status}, auto=${String(isAutoMarked)}`,
     );
 
-    // Send SMS notification to parent if marked present
+    // Announce the fact and move on. Previously this awaited a live Twilio HTTP
+    // call inside the request, so a slow provider slowed down marking a student
+    // present. The listener only enqueues; the worker does the talking.
     if (dto.status === 'present') {
-      try {
-        await this.notificationTriggersService.notifyAttendance(
-          dto.student_id,
-          lesson.title,
-          saved.marked_at,
-        );
-      } catch (error) {
-        this.logger.error('Failed to send attendance notification:', error);
-      }
+      const student = await this.usersRepository.findOne({ where: { id: dto.student_id } });
+      this.events.emit(
+        PARENT_EVENT_CHANNEL,
+        new AttendanceMarkedEvent(dto.student_id, saved.id, {
+          studentName: student?.name ?? '',
+          lessonName: lesson.title,
+          status: dto.status,
+          markedAt: saved.marked_at.toLocaleString('ar-EG', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        }),
+      );
     }
 
     return await this.findAttendanceById(saved.id);

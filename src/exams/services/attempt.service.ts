@@ -27,6 +27,7 @@ import {
   ReviewPolicy,
 } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
+import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
 import { deriveSeed, seededShuffle } from './shuffle.util';
 
@@ -88,6 +89,7 @@ export class AttemptService {
     private readonly gradingOrchestrator: AttemptGradingService,
     private readonly jobs: ExamJobsService,
     private readonly payments: PaymentsService,
+    private readonly examGradedPublisher: ExamGradedPublisher,
   ) {}
 
   // ==================== START / RESUME ====================
@@ -412,6 +414,12 @@ export class AttemptService {
     await this.jobs.cancelAutoSubmit(attemptId);
     await this.jobs.enqueueAnalytics(examId);
     for (const answerId of manualAnswerIds) await this.jobs.enqueueAiGrade(answerId);
+
+    // The grade is now durable. Publishing here (rather than inside the
+    // transaction) means a guardian is never told about a score a rollback
+    // erased. No-ops unless the attempt actually reached GRADED — one still
+    // awaiting manual marking sits in GRADING and notifies nobody yet.
+    await this.examGradedPublisher.publishIfGraded(attemptId);
 
     this.logger.log(
       `Attempt ${attemptId} finalised (${options.auto ? 'auto' : 'manual'}) → ${summary.state}`,

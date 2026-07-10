@@ -25,13 +25,8 @@ export class StudentProfile {
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @Column({
-    type: 'varchar',
-    length: 20,
-    nullable: false,
-    name: 'parent_phone',
-  })
-  parent_phone!: string;
+  // `parent_phone` removed — see `guardians` / `student_guardians`. It was
+  // NOT NULL yet routinely held '' because registration made it optional.
 
   @Column({ type: 'varchar', length: 50, nullable: true, name: 'grade_level' })
   grade_level!: string | null;

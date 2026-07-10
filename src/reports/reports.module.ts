@@ -13,6 +13,7 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
+import { TeacherFollowUpModule } from '../teacher-follow-up/teacher-follow-up.module';
 import { User } from '../users/entities/user.entity';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
@@ -34,6 +35,7 @@ import { ReportsService } from './reports.service';
       Subject,
       LessonPackage,
     ]),
+    TeacherFollowUpModule,
   ],
   controllers: [ReportsController],
   providers: [ReportsService],

@@ -40,9 +40,8 @@ export class User {
   @Index('IDX_users_phone')
   phone!: string;
 
-  @Column({ type: 'varchar', nullable: true })
-  @Index('IDX_users_parent_phone')
-  parent_phone!: string | null;
+  // `parent_phone` removed — a student's guardians now live in `guardians` /
+  // `student_guardians` (see CreateGuardianSystem1800000000000).
 
   @Column({
     type: 'enum',

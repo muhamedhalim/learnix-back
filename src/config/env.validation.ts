@@ -57,6 +57,26 @@ export class EnvironmentVariables {
   @Type(() => Number)
   public DB_POOL_CONNECTION_TIMEOUT_MS?: number;
 
+  // WhatsApp — Meta Cloud API. All optional: when unset the WhatsApp channel
+  // reports itself unconfigured and the registry falls back to SMS.
+  @IsString()
+  @IsOptional()
+  public META_WHATSAPP_PHONE_NUMBER_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  public META_WHATSAPP_ACCESS_TOKEN?: string;
+
+  /** Used to verify the `X-Hub-Signature-256` HMAC on delivery webhooks. */
+  @IsString()
+  @IsOptional()
+  public META_WHATSAPP_APP_SECRET?: string;
+
+  /** Echoed back during Meta's one-time webhook subscription handshake. */
+  @IsString()
+  @IsOptional()
+  public META_WHATSAPP_VERIFY_TOKEN?: string;
+
   // Redis (optional for development - falls back to in-memory)
   @IsString()
   @IsOptional()

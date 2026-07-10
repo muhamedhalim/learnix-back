@@ -22,7 +22,9 @@ export class RegisterDto {
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^01[0-2,5]\d{8}$/, {
+  // `[0125]`, not `[0-2,5]` — the latter is a character class containing a
+  // literal comma, so it accepted `01,12345678`.
+  @Matches(/^01[0125]\d{8}$/, {
     message:
       'Phone must be a valid Egyptian phone number (11 digits starting with 01)',
   })
@@ -33,14 +35,14 @@ export class RegisterDto {
 
   @ApiProperty({
     example: '01011111111',
-    description: 'Parent phone number (optional, 11 digits starting with 01)',
+    description:
+      "Guardian's phone number (optional). Accepts Egyptian national or E.164 form; stored canonically as E.164 on a Guardian record, which must be verified by OTP before it receives any educational notification.",
     required: false,
   })
   @IsString()
   @IsOptional()
-  @Matches(/^01[0-2,5]\d{8}$/, {
-    message:
-      'Parent phone must be a valid Egyptian phone number (11 digits starting with 01)',
-  })
+  // No @Matches: the previous pattern /^01[0-2,5]\d{8}$/ contained a character
+  // class with a literal comma and accepted `01,12345678`. `toE164` is now the
+  // single definition of a valid number and rejects it with a 400.
   public parentPhone?: string;
 }

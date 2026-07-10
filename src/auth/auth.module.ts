@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { durationToMilliseconds } from '../common/utils/duration.util';
 import { FirebaseModule } from '../firebase/firebase.module';
+import { GuardiansModule } from '../guardians/guardians.module';
 import { StudentsModule } from '../students/students.module';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
@@ -47,6 +48,7 @@ function capAccessTokenTtl(configured: string | undefined): string {
     TypeOrmModule.forFeature([User]),
     UsersModule,
     forwardRef(() => StudentsModule),
+    GuardiansModule,
   ],
   controllers: [AuthController, FirebaseAuthController],
   providers: [

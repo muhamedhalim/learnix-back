@@ -76,24 +76,20 @@ export class AdminNotificationsController {
     let smsSentCount = 0;
     let smsFailedCount = 0;
 
-    // Send notifications to each user
+    // Send notifications to each user. `send_sms` is no longer honoured: it used
+    // to deliver an admin's message to the recipient's *parent*, which is not
+    // what "notify this user by SMS" means to anyone reading the UI. Guardian
+    // messaging is a separate, templated, opt-in pipeline.
     for (const userId of userIds) {
       try {
         await this.notificationTriggersService.sendCustomNotification(
           userId,
           dto.title,
           dto.message,
-          dto.send_sms ?? false,
         );
         sentCount++;
-
-        if (dto.send_sms === true) {
-          smsSentCount++;
-        }
       } catch {
-        if (dto.send_sms === true) {
-          smsFailedCount++;
-        }
+        smsFailedCount++;
       }
     }
 

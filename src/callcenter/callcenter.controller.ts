@@ -17,6 +17,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { GuardiansService } from '../guardians/guardians.service';
 import { StudentFilterDto } from '../students/dto';
 import { StudentsService } from '../students/students.service';
 import { UsersService } from '../users/users.service';
@@ -31,6 +32,7 @@ export class CallCenterController {
   constructor(
     private readonly studentsService: StudentsService,
     private readonly usersService: UsersService,
+    private readonly guardiansService: GuardiansService,
   ) {}
 
   @Get('students/:studentId')
@@ -65,12 +67,19 @@ export class CallCenterController {
     }
 
     // Update profile fields
-    if (gradeLevel != null || parentPhone != null) {
+    if (gradeLevel != null && gradeLevel !== '') {
       await this.studentsService.updateProfile(studentId, {
-        ...(gradeLevel != null &&
-          gradeLevel !== '' && { grade_level: gradeLevel }),
-        ...(parentPhone != null &&
-          parentPhone !== '' && { parent_phone: parentPhone }),
+        grade_level: gradeLevel,
+      });
+    }
+
+    // A parent phone captured over the phone by an agent is still an *unproven*
+    // number, so it lands as an UNVERIFIED guardian and receives nothing until
+    // an OTP is redeemed. `linkGuardian` is idempotent per (student, phone).
+    if (parentPhone != null && parentPhone !== '') {
+      await this.guardiansService.linkGuardian(studentId, {
+        phone: parentPhone,
+        is_primary: true,
       });
     }
 

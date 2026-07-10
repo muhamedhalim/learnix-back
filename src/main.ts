@@ -69,6 +69,10 @@ function getAllowedOrigins(): string[] {
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: getLogLevels(),
+    // Retains the unparsed request body on `req.rawBody`. Required to verify
+    // Meta's `X-Hub-Signature-256` HMAC, which is computed over the exact bytes
+    // Meta sent — re-serialising the parsed JSON would not reproduce them.
+    rawBody: true,
   });
 
   const isProd = process.env['NODE_ENV'] === 'production';

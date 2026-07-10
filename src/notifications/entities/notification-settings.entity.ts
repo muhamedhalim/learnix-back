@@ -33,13 +33,9 @@ export class NotificationSettings {
   @Column({ type: 'boolean', default: false, name: 'push_enabled' })
   push_enabled!: boolean;
 
-  @Column({
-    type: 'varchar',
-    length: 20,
-    nullable: true,
-    name: 'parent_phone_override',
-  })
-  parent_phone_override!: string | null;
+  // `parent_phone_override` removed. Guardian phone numbers are managed through
+  // the guardian domain, where changing a verified number requires a fresh OTP.
+  // An override column here was a hole in exactly that rule.
 
   @Column({
     type: 'boolean',

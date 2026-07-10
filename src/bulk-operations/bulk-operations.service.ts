@@ -12,6 +12,8 @@ import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import { AttendanceCodesService } from '../attendance-codes/attendance-codes.service';
 import { AttendanceCodeType } from '../attendance-codes/entities';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { toE164 } from '../common/utils/phone.util';
+import { GuardiansService } from '../guardians/guardians.service';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
@@ -54,6 +56,7 @@ export class BulkOperationsService {
     private readonly dataSource: DataSource,
     private readonly attendanceCodesService: AttendanceCodesService,
     private readonly notificationsService: NotificationsService,
+    private readonly guardiansService: GuardiansService,
   ) {}
 
   /**
@@ -306,11 +309,6 @@ export class BulkOperationsService {
 
       phone: typeof row.phone === 'string' ? row.phone : '',
 
-      parent_phone:
-        typeof row.parent_phone === 'string' && row.parent_phone !== ''
-          ? row.parent_phone
-          : null,
-
       role: UserRole.STUDENT,
 
       status: UserStatus.APPROVED,
@@ -330,6 +328,16 @@ export class BulkOperationsService {
     });
 
     await manager.save(StudentProfile, profile);
+
+    // An imported parent phone is unproven, so the guardian lands UNVERIFIED and
+    // receives nothing until an OTP is redeemed. Shares the caller's transaction
+    // so a bad row rolls back the user, profile and guardian link together.
+    if (typeof row.parent_phone === 'string' && row.parent_phone.trim() !== '') {
+      await this.guardiansService.linkGuardianWith(manager, savedUser.id, {
+        phone: row.parent_phone.trim(),
+        is_primary: true,
+      });
+    }
   }
 
   /**
@@ -479,7 +487,13 @@ export class BulkOperationsService {
   }
 
   /**
-   * Send bulk notifications to filtered students
+   * Broadcast an in-app notification to filtered students.
+   *
+   * This used to also SMS each student's parent, because `NotificationType.CUSTOM`
+   * unconditionally routed to the parent phone. That was never visible to the
+   * admin composing the message, so it is gone: a broadcast is now in-app only.
+   * A deliberate admin→guardian announcement belongs in the parent notification
+   * pipeline as its own event type, with its own template and opt-out.
    */
   public async sendBulkNotifications(
     dto: BulkNotificationDto,
@@ -493,8 +507,7 @@ export class BulkOperationsService {
       .leftJoin('student_profiles', 'profile', 'profile.user_id = user.id')
       .where('user.role = :role', { role: UserRole.STUDENT })
       .andWhere('user.is_active = true')
-      .andWhere('user.deleted_at IS NULL')
-      .andWhere('user.parent_phone IS NOT NULL');
+      .andWhere('user.deleted_at IS NULL');
 
     // Apply filters
     if (
@@ -523,9 +536,7 @@ export class BulkOperationsService {
       });
     }
 
-    const students = await queryBuilder
-      .select(['user.id', 'user.parent_phone'])
-      .getMany();
+    const students = await queryBuilder.select(['user.id']).getMany();
 
     const results: BulkNotificationResultDto = {
       total_queued: students.length,
@@ -539,14 +550,6 @@ export class BulkOperationsService {
     // Send notifications synchronously (for small batches)
     // For large batches (>100), this should be queued
     for (const student of students) {
-      if (
-        typeof student.parent_phone !== 'string' ||
-        student.parent_phone === ''
-      ) {
-        results.skipped_count++;
-        continue;
-      }
-
       try {
         await this.notificationsService.create({
           user_id: student.id,
@@ -702,8 +705,10 @@ export class BulkOperationsService {
       typeof row.parent_phone === 'string' &&
       row.parent_phone.trim() !== ''
     ) {
-      if (!/^01[0125]\d{8}$/.test(row.parent_phone)) {
-        errors.push('Parent phone must be Egyptian format (01XXXXXXXXX)');
+      // Same acceptance rule as every other entry point into the guardian
+      // domain, so a CSV cannot smuggle in a number the API would reject.
+      if (toE164(row.parent_phone) === null) {
+        errors.push('Parent phone must be a valid Egyptian mobile (01XXXXXXXXX)');
       }
     }
 

@@ -41,7 +41,6 @@ export interface TeacherProfileWithDetails {
     name: string;
     email: string;
     phone: string;
-    parent_phone: string | null;
     profile_picture_url: string | null;
     status: UserStatus;
     rejection_reason: string | null;
@@ -696,7 +695,6 @@ export class TeachersService {
         name: profile.user.name,
         email: profile.user.email,
         phone: profile.user.phone,
-        parent_phone: profile.user.parent_phone,
         profile_picture_url: profile.user.profile_picture_url,
         status: profile.user.status,
         rejection_reason: profile.user.rejection_reason,

@@ -7,6 +7,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { PaymentsModule } from '../payments/payments.module';
 import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { Subject } from '../subjects/entities/subject.entity';
+import { User } from '../users/entities/user.entity';
 import { AdminExamsController } from './controllers/admin-exams.controller';
 import { StudentExamsController } from './controllers/student-exams.controller';
 import { TeacherExamsController } from './controllers/teacher-exams.controller';
@@ -34,6 +35,7 @@ import { AttemptGradingService } from './services/attempt-grading.service';
 import { AttemptService } from './services/attempt.service';
 import { ExamAiGradingService } from './services/exam-ai-grading.service';
 import { ExamAuthoringService } from './services/exam-authoring.service';
+import { ExamGradedPublisher } from './services/exam-graded-publisher.service';
 import { ExamJobsService } from './services/exam-jobs.service';
 import { OmrSheetsService } from './services/omr-sheets.service';
 import { QuestionBankService } from './services/question-bank.service';
@@ -57,6 +59,8 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       OmrSheet,
       Subject,
       Lesson,
+      // `ExamGradedPublisher` resolves the student's display name.
+      User,
     ]),
     // Exam background queues (producers + workers share these registrations).
     BullModule.registerQueue(
@@ -88,6 +92,8 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     ExamAiGradingService,
     AdminExamsService,
     OmrSheetsService,
+    // Emits ExamGradedEvent post-commit; the notifications module listens.
+    ExamGradedPublisher,
     // Jobs (producer + workers)
     ExamJobsService,
     ExamAutoSubmitProcessor,

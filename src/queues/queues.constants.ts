@@ -43,6 +43,19 @@ export const QUEUE_NAMES = {
 
   /** Gamification maintenance (streak-reset sweep, leaderboard rebuild). */
   GAMIFICATION: 'gamification',
+
+  /** Outbound guardian messages (WhatsApp/SMS) rendered from domain events. */
+  PARENT_NOTIFICATIONS: 'parent-notifications',
+
+  /**
+   * Terminal parking lot for guardian messages that exhausted every retry.
+   * Nothing consumes it — it exists so a permanently-failed message stays
+   * visible in Bull Board and can be replayed by an admin rather than vanishing.
+   */
+  PARENT_NOTIFICATIONS_DLQ: 'parent-notifications-dlq',
+
+  /** Scheduled weekly/monthly guardian progress reports. */
+  PARENT_REPORTS: 'parent-reports',
 } as const;
 
 /**
@@ -95,6 +108,19 @@ export const JOB_TYPES = {
   GAMIFICATION: {
     /** Nightly repeatable: zero streaks for students who missed a day. */
     STREAK_RESET_SWEEP: 'streak-reset-sweep',
+  },
+  PARENT: {
+    /** Fan one domain event out to every eligible guardian and deliver it. */
+    DELIVER: 'deliver-parent-message',
+    /** Re-attempt a single previously-failed `parent_messages` row. */
+    REDELIVER: 'redeliver-parent-message',
+  },
+  PARENT_REPORT: {
+    /** Repeatable: enqueue a digest for every student with a verified guardian. */
+    WEEKLY_SWEEP: 'weekly-report-sweep',
+    MONTHLY_SWEEP: 'monthly-report-sweep',
+    /** Build + deliver one student's digest. */
+    BUILD: 'build-parent-report',
   },
 } as const;
 
@@ -296,6 +322,43 @@ export const QUEUE_CONFIGS = {
       // Idempotent maintenance; the next repeat supersedes a missed run.
       priority: 5,
       attempts: 1,
+    },
+  },
+
+  [QUEUE_NAMES.PARENT_NOTIFICATIONS]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // A parent waiting on their child's exam result is user-visible: high
+      // priority. Delivery is guarded by a UNIQUE idempotency key per
+      // (event, subject, guardian), so a retry can never double-send.
+      priority: 2,
+      attempts: 5,
+      backoff: { type: 'exponential' as const, delay: 10_000 },
+      // Keep the full trail: failed guardian messages are an operational
+      // concern, not noise.
+      removeOnFail: { age: 30 * 24 * 3600 },
+    },
+  },
+
+  [QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Nothing processes this queue; jobs sit here for inspection/replay.
+      attempts: 1,
+      removeOnComplete: false,
+      removeOnFail: false,
+    },
+  },
+
+  [QUEUE_NAMES.PARENT_REPORTS]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Digests are not urgent and the next scheduled run supersedes a miss.
+      priority: 5,
+      attempts: 3,
     },
   },
 };

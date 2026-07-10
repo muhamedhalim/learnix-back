@@ -39,13 +39,11 @@ export interface StudentProfileWithDetails {
     name: string;
     email: string;
     phone: string;
-    parent_phone: string | null;
     profile_picture_url: string | null;
     status: UserStatus;
     rejection_reason: string | null;
     created_at: Date;
   };
-  parent_phone: string;
   grade_level: string | null;
   country: string | null;
   governorate: string | null;
@@ -213,10 +211,9 @@ export class StudentsService {
       throw new NotFoundException('Student profile not found');
     }
 
-    // Update profile fields
-    if (dto.parent_phone !== undefined) {
-      profile.parent_phone = dto.parent_phone;
-    }
+    // Guardian phone numbers are no longer editable here — see
+    // `PATCH /student/guardians/:guardianId/phone`, which refuses to rewrite a
+    // verified number without a fresh OTP.
     if (dto.grade_level !== undefined) {
       profile.grade_level = dto.grade_level;
     }
@@ -582,7 +579,6 @@ export class StudentsService {
    */
   public async createStudentProfile(
     userId: string,
-    parentPhone: string,
     gradeLevel?: string,
   ): Promise<StudentProfile> {
     // Check if user exists and has student role
@@ -612,7 +608,6 @@ export class StudentsService {
     // Create profile with default notification settings
     const profile = this.studentProfilesRepository.create({
       user_id: userId,
-      parent_phone: parentPhone,
       grade_level: gradeLevel ?? null,
       notification_settings: {
         sms_enabled: true,
@@ -660,13 +655,11 @@ export class StudentsService {
         name: profile.user.name,
         email: profile.user.email,
         phone: profile.user.phone,
-        parent_phone: profile.user.parent_phone,
         profile_picture_url: profile.user.profile_picture_url,
         status: profile.user.status,
         rejection_reason: profile.user.rejection_reason,
         created_at: profile.user.created_at,
       },
-      parent_phone: profile.parent_phone,
       grade_level: profile.grade_level,
       country: profile.country,
       governorate: profile.governorate,

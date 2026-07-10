@@ -8,6 +8,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import type { Repository } from 'typeorm';
 
+import { GuardianRelationship } from '../guardians/entities';
+import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
 import { StudentsService } from '../students/students.service';
 import { User } from '../users/entities/user.entity';
@@ -44,6 +46,7 @@ interface LoginResponse {
 
 describe('AuthService', () => {
   let service: AuthService;
+  let guardiansService: jest.Mocked<Pick<GuardiansService, 'linkGuardian'>>;
   let userRepository: jest.Mocked<Repository<User>>;
   let jwtService: jest.Mocked<JwtService>;
   let configService: jest.Mocked<ConfigService>;
@@ -53,7 +56,6 @@ describe('AuthService', () => {
     name: 'Test User',
     email: 'test@example.com',
     phone: '01000000000',
-    parent_phone: '01011111111',
     password_hash: 'hashedpassword',
     is_active: true,
     role: UserRole.STUDENT,
@@ -107,6 +109,12 @@ describe('AuthService', () => {
           },
         },
         {
+          provide: GuardiansService,
+          useValue: {
+            linkGuardian: jest.fn(),
+          },
+        },
+        {
           provide: MailService,
           useValue: {
             sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
@@ -117,6 +125,7 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    guardiansService = module.get(GuardiansService);
     userRepository = module.get(getRepositoryToken(User));
     jwtService = module.get(JwtService);
     configService = module.get(ConfigService);
@@ -167,6 +176,36 @@ describe('AuthService', () => {
         'Registration request received. Pending approval',
       );
       expect((result as RegisterResponse).userId).toContain('u_');
+    });
+
+    it('links the supplied parent phone as a primary guardian', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      const newUser: User = Object.assign(new User(), mockUser, { id: 'stu_789012' });
+      userRepository.create.mockReturnValue(newUser);
+      userRepository.save.mockResolvedValue(newUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+
+      await service.register(registerDto);
+
+      expect(guardiansService.linkGuardian).toHaveBeenCalledWith('stu_789012', {
+        phone: registerDto.parentPhone,
+        relationship: GuardianRelationship.OTHER,
+        is_primary: true,
+      });
+    });
+
+    it('creates no guardian when no parent phone is supplied', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      const newUser: User = Object.assign(new User(), mockUser, { id: 'stu_789012' });
+      userRepository.create.mockReturnValue(newUser);
+      userRepository.save.mockResolvedValue(newUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+
+      // The old code wrote '' into a NOT NULL parent_phone column here.
+      const { parentPhone: _omitted, ...withoutParent } = registerDto;
+      await service.register(withoutParent as RegisterDto);
+
+      expect(guardiansService.linkGuardian).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {

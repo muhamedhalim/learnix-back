@@ -1,27 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsObject,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-} from 'class-validator';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
+/**
+ * `parent_phone` was removed from this DTO on purpose. It let a student rewrite
+ * the number their own grade notifications are sent to. Guardians are now
+ * managed under `/student/guardians`, where a verified number is immutable
+ * without a fresh OTP.
+ */
 export class UpdateStudentProfileDto {
-  @ApiProperty({
-    description: 'Parent phone number (Egyptian mobile)',
-    example: '01012345678',
-    required: false,
-  })
-  @IsString()
-  @IsOptional()
-  @Matches(/^01[0125]\d{8}$/, {
-    message:
-      'Parent phone must be a valid Egyptian mobile number (e.g., 01012345678)',
-  })
-  public parent_phone?: string;
-
   @ApiProperty({
     description: 'Student grade level',
     example: 'Grade 10',

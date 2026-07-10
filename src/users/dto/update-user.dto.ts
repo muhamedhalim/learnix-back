@@ -26,18 +26,14 @@ export class UpdateUserDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  @Matches(/^01[0-2,5]\d{8}$/, {
+  // `[0125]`, not `[0-2,5]` — the latter admitted a literal comma.
+  @Matches(/^01[0125]\d{8}$/, {
     message: 'Phone must be a valid Egyptian phone number',
   })
   public phone?: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @Matches(/^01[0-2,5]\d{8}$/, {
-    message: 'Parent phone must be a valid Egyptian phone number',
-  })
-  public parentPhone?: string;
+  // `parentPhone` removed: guardians are managed through the guardian domain,
+  // never as a free-text column on the user an admin can overwrite.
 
   @ApiProperty({ required: false })
   @IsOptional()

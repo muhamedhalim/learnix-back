@@ -8,7 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import { StudentProfile } from '../../students/entities/student-profile.entity';
+import { ParentEventType } from '../../common/events/parent-event-type.enum';
+import { maskPhone } from '../../common/utils/mask.util';
+import { GuardiansService } from '../../guardians/guardians.service';
 import {
   NotificationFilterDto,
   SendNotificationDto,
@@ -43,10 +45,25 @@ export class NotificationsService {
     private readonly notificationsRepository: Repository<Notification>,
     @InjectRepository(NotificationSettings)
     private readonly settingsRepository: Repository<NotificationSettings>,
-    @InjectRepository(StudentProfile)
-    private readonly studentProfilesRepository: Repository<StudentProfile>,
+    private readonly guardiansService: GuardiansService,
     private readonly smsSenderService: SmsSenderService,
   ) {}
+
+  /**
+   * Which in-app notification types are also worth telling a parent about.
+   *
+   * `CUSTOM` and `GAMIFICATION` map to nothing on purpose. `CUSTOM` previously
+   * returned `true` unconditionally, which meant an admin composing a message
+   * "to a student" actually SMSed that student's parent, with no hint in the
+   * UI. Those stay in-app only.
+   */
+  private static readonly PARENT_EVENT_BY_TYPE: Readonly<
+    Partial<Record<NotificationType, ParentEventType>>
+  > = Object.freeze({
+    [NotificationType.ATTENDANCE]: ParentEventType.ATTENDANCE_MARKED,
+    [NotificationType.EXAM_RESULT]: ParentEventType.EXAM_GRADED,
+    [NotificationType.PURCHASE]: ParentEventType.COURSE_PURCHASED,
+  });
 
   /**
    * Create and send a notification
@@ -76,9 +93,9 @@ export class NotificationsService {
 
     const saved = await this.notificationsRepository.save(notification);
 
-    // Send SMS if requested
+    // Fan out to guardians if requested.
     if (sendSms && dto.send_sms !== false) {
-      await this.trySendSms(saved);
+      await this.dispatchToGuardians(saved);
     }
 
     return saved;
@@ -181,7 +198,7 @@ export class NotificationsService {
     await this.notificationsRepository.save(notification);
 
     // Attempt to resend SMS
-    await this.trySendSms(notification);
+    await this.dispatchToGuardians(notification);
 
     // Reload and return updated notification
     const updated = await this.notificationsRepository.findOne({
@@ -192,149 +209,92 @@ export class NotificationsService {
   }
 
   /**
-   * Attempt to send SMS for a notification
-   * Updates status tracking fields based on result
+   * Fan a notification out to the student's eligible guardians.
+   *
+   * Recipient resolution is delegated wholesale to `GuardiansService`, which
+   * only ever returns guardians linked to *this* student, whose phone is
+   * VERIFIED, who have not opted out, and who want this event. There is no way
+   * to address an arbitrary number from here.
+   *
+   * Status semantics (corrected): a successful provider call means the message
+   * was **accepted**, not delivered. We record SENT. Only a provider delivery
+   * webhook may promote a row to DELIVERED — the previous code stamped
+   * `delivered_at` on acceptance, which made the delivery metric read ~100%
+   * even when every message silently failed.
    */
-  private async trySendSms(notification: Notification): Promise<void> {
-    // Increment attempts locally
-    const currentAttempts = notification.attempts + 1;
+  private async dispatchToGuardians(notification: Notification): Promise<void> {
+    const attempts = notification.attempts + 1;
 
-    // Get user settings
+    const parentEvent = NotificationsService.PARENT_EVENT_BY_TYPE[notification.type];
+    if (parentEvent === undefined) {
+      // In-app only (custom/gamification/lesson-expiring). Nothing to send.
+      await this.notificationsRepository.update(notification.id, {
+        status: NotificationStatus.SENT,
+        attempts,
+      });
+      return;
+    }
+
     const settings = await this.getOrCreateSettings(notification.user_id);
-
-    // Check if SMS is enabled and if this notification type should trigger SMS
     if (!settings.sms_enabled) {
-      this.logger.debug(`SMS disabled for user ${notification.user_id}`);
-      // Mark as sent (no SMS needed)
       await this.notificationsRepository.update(notification.id, {
         status: NotificationStatus.SENT,
-        attempts: currentAttempts,
+        attempts,
       });
       return;
     }
 
-    if (!this.shouldSendSmsForType(notification.type, settings)) {
-      this.logger.debug(
-        `SMS not enabled for type ${notification.type} for user ${notification.user_id}`,
-      );
-      // Mark as sent (no SMS needed for this type)
-      await this.notificationsRepository.update(notification.id, {
-        status: NotificationStatus.SENT,
-        attempts: currentAttempts,
-      });
-      return;
-    }
-
-    // Get parent phone number
-    const parentPhone = await this.getParentPhone(
+    const targets = await this.guardiansService.findNotificationTargets(
       notification.user_id,
-      settings,
+      parentEvent,
     );
 
-    if (parentPhone !== null && parentPhone !== '') {
-      try {
-        // Send SMS
-        const result = await this.smsSenderService.sendSms(
-          parentPhone,
-          notification.message,
-        );
-
-        if (result.success) {
-          await this.notificationsRepository.update(notification.id, {
-            sms_sent: true,
-            sms_to: parentPhone,
-            status: NotificationStatus.DELIVERED,
-            attempts: currentAttempts,
-            delivered_at: new Date(),
-            error_message: null,
-          });
-          this.logger.log(
-            `SMS delivered for notification ${notification.id} to ${parentPhone}`,
-          );
-        } else {
-          // SMS send returned failure
-          const errorMessage = result.error ?? 'SMS delivery failed';
-          await this.notificationsRepository.update(notification.id, {
-            sms_to: parentPhone,
-            status: NotificationStatus.FAILED,
-            attempts: currentAttempts,
-            error_message: errorMessage,
-          });
-          this.logger.warn(
-            `SMS failed for notification ${notification.id}: ${errorMessage}`,
-          );
-        }
-      } catch (error) {
-        // Exception during SMS send
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        await this.notificationsRepository.update(notification.id, {
-          sms_to: parentPhone,
-          status: NotificationStatus.FAILED,
-          attempts: currentAttempts,
-          error_message: errorMessage,
-        });
-        this.logger.error(
-          `SMS exception for notification ${notification.id}: ${errorMessage}`,
-        );
-      }
-    } else {
-      // No parent phone - mark as sent but log warning
+    if (targets.length === 0) {
+      // Distinct from "sent": nobody was reachable. Recorded as FAILED with a
+      // reason so the admin surface can tell "no verified guardian" apart from
+      // "delivered". The old code marked this SENT, hiding the gap entirely.
       await this.notificationsRepository.update(notification.id, {
-        status: NotificationStatus.SENT,
-        attempts: currentAttempts,
-        error_message: 'No parent phone number available',
+        status: NotificationStatus.FAILED,
+        attempts,
+        error_message: 'No verified guardian for this student',
       });
-      this.logger.warn(
-        `No parent phone for user ${notification.user_id}, marked as sent`,
+      this.logger.warn(`No verified guardian for user ${notification.user_id}`);
+      return;
+    }
+
+    const results = await this.smsSenderService.sendBulkSms(
+      targets.map((target) => ({ phone: target.phone_e164, message: notification.message })),
+    );
+
+    const accepted = results.filter((result) => result.success).length;
+    const firstTarget = targets[0];
+
+    if (accepted > 0) {
+      await this.notificationsRepository.update(notification.id, {
+        sms_sent: true,
+        sms_to: firstTarget?.phone_e164 ?? null,
+        status: NotificationStatus.SENT,
+        attempts,
+        error_message: null,
+      });
+      this.logger.log(
+        `Notification ${notification.id} accepted by provider for ` +
+          `${String(accepted)}/${String(targets.length)} guardian(s)`,
       );
-    }
-  }
-
-  /**
-   * Check if SMS should be sent for a notification type
-   */
-  private shouldSendSmsForType(
-    type: NotificationType,
-    settings: NotificationSettings,
-  ): boolean {
-    switch (type) {
-      case NotificationType.ATTENDANCE:
-        return settings.notify_parent_on_attendance;
-      case NotificationType.EXAM_RESULT:
-        return settings.notify_parent_on_exam_grade;
-      case NotificationType.LESSON_EXPIRING:
-        return settings.notify_parent_on_lesson_expiry;
-      case NotificationType.PURCHASE:
-        return settings.notify_on_purchase;
-      case NotificationType.CUSTOM:
-        return true; // Admin custom notifications always send if SMS enabled
-      case NotificationType.GAMIFICATION:
-        return false; // In-app engagement nudges — never SMS.
-    }
-  }
-
-  /**
-   * Get parent phone number (from settings override or student profile)
-   */
-  private async getParentPhone(
-    userId: string,
-    settings: NotificationSettings,
-  ): Promise<string | null> {
-    // Check for override in settings
-    if (
-      settings.parent_phone_override !== null &&
-      settings.parent_phone_override !== ''
-    ) {
-      return settings.parent_phone_override;
+      return;
     }
 
-    // Get from student profile
-    const profile = await this.studentProfilesRepository.findOne({
-      where: { user_id: userId },
+    const reason = results.find((result) => !result.success)?.error ?? 'SMS delivery failed';
+    await this.notificationsRepository.update(notification.id, {
+      sms_to: firstTarget?.phone_e164 ?? null,
+      status: NotificationStatus.FAILED,
+      attempts,
+      error_message: reason,
     });
-
-    return profile?.parent_phone ?? null;
+    this.logger.warn(
+      `Notification ${notification.id} failed for all ${String(targets.length)} guardian(s) ` +
+        `(first: ${maskPhone(firstTarget?.phone_e164) ?? '***'}): ${reason}`,
+    );
   }
 
   /**
@@ -495,10 +455,6 @@ export class NotificationsService {
     }
     if (dto.push_enabled !== undefined) {
       settings.push_enabled = dto.push_enabled;
-    }
-    if (dto.parent_phone_override !== undefined) {
-      settings.parent_phone_override =
-        dto.parent_phone_override === '' ? null : dto.parent_phone_override;
     }
     if (dto.notify_parent_on_attendance !== undefined) {
       settings.notify_parent_on_attendance = dto.notify_parent_on_attendance;

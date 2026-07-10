@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsBoolean, IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsOptional } from 'class-validator';
 
 export class UpdateNotificationSettingsDto {
   @ApiPropertyOptional({
@@ -27,16 +27,8 @@ export class UpdateNotificationSettingsDto {
   @IsOptional()
   public push_enabled?: boolean;
 
-  @ApiPropertyOptional({
-    description: 'Override parent phone number for SMS (Egyptian format)',
-    example: '01012345678',
-  })
-  @IsString()
-  @IsOptional()
-  @Matches(/^01[0125]\d{8}$/, {
-    message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
-  })
-  public parent_phone_override?: string;
+  // `parent_phone_override` removed: it let a student redirect parent SMS to an
+  // arbitrary number, bypassing guardian verification entirely.
 
   @ApiPropertyOptional({
     description: 'Notify parent on attendance events',

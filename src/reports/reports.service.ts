@@ -18,6 +18,7 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
+import { TeacherFollowUpService } from '../teacher-follow-up/teacher-follow-up.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import type {
@@ -89,6 +90,7 @@ export class ReportsService {
     private readonly packagesRepository: Repository<LessonPackage>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
+    private readonly teacherFollowUp: TeacherFollowUpService,
   ) {}
 
   /**
@@ -109,11 +111,12 @@ export class ReportsService {
     }
 
     const range = { startDate, endDate };
-    const [revenue, students, lessons, exams] = await Promise.all([
+    const [revenue, students, lessons, exams, followUp] = await Promise.all([
       this.getTeacherRevenueStats(teacherId, range),
       this.getTeacherStudentStats(teacherId, range),
       this.getTeacherLessonStats(teacherId, range),
       this.getTeacherExamStats(teacherId, range),
+      this.teacherFollowUp.getAnalyticsSummary(teacherId),
     ]);
 
     const report: TeacherReportDto = {
@@ -125,6 +128,9 @@ export class ReportsService {
       students,
       lessons,
       exams,
+      guardians: followUp.guardians,
+      notifications: followUp.notifications,
+      riskStudentCount: followUp.riskStudentCount,
     };
 
     await this.cacheManager.set(cacheKey, report, 300_000);
