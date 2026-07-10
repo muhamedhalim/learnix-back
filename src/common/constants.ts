@@ -1,7 +1,19 @@
 export const FILE_LIMITS = {
   PROFILE_PICTURE_MAX_SIZE: 5 * 1024 * 1024, // 5MB
   THUMBNAIL_MAX_SIZE: 5 * 1024 * 1024, // 5MB
-  VIDEO_MAX_SIZE: 100 * 1024 * 1024, // 100MB
+  // Lesson videos are proxied through this server (multer memoryStorage) and
+  // relayed to Bunny Stream as a single buffered PUT — see
+  // bunny-stream.service.ts / lessons.service.ts:uploadBunnyVideo. The whole
+  // file must fit in this process's RAM for the duration of the request, so
+  // this is a real capacity ceiling, not an arbitrary one: 20GB comfortably
+  // covers a 12-hour lesson even at a generous ~5 Mbps bitrate (~27GB would be
+  // the higher end at that bitrate; tune this constant — and the deployment's
+  // available RAM — if longer/higher-bitrate lessons are routinely expected).
+  // It also remains a deliberate finite backstop against an authenticated
+  // teacher account being used to stream an effectively unbounded body at the
+  // server (DoS via memory exhaustion) — auth/role guards run before this
+  // limit is even reached, so unauthenticated requests never get this far.
+  VIDEO_MAX_SIZE: 20 * 1024 * 1024 * 1024, // 20GB
   RESOURCE_MAX_SIZE: 500 * 1024 * 1024, // 500MB
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
 } as const;

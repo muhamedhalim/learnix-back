@@ -23,6 +23,7 @@ import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { UserRequest } from '../../common/interfaces/user-request.interface';
+import { PaymentsService } from '../../payments/services/payments.service';
 import {
   AllProgressResponseDto,
   LessonFilterDto,
@@ -42,6 +43,7 @@ export class StudentLessonsController {
   constructor(
     private readonly lessonsService: LessonsService,
     private readonly progressService: ProgressService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   /**
@@ -118,26 +120,6 @@ export class StudentLessonsController {
   }
 
   /**
-   * Get lesson details with access check
-   * Returns lesson details and whether the student has access
-   */
-  @ApiResponse({
-    status: HttpStatus.NOT_FOUND,
-    description: 'Lesson not found',
-  })
-  public async getLessonWithAccess(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
-    const lesson = await this.lessonsService.findOne(id);
-    const accessInfo = await this.lessonsService.validateAccess(id);
-
-    return {
-      lesson,
-      access: accessInfo,
-    };
-  }
-
-  /**
    * Update progress for a lesson
    * Records the student's watch progress
    */
@@ -168,6 +150,21 @@ export class StudentLessonsController {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
       throw new ForbiddenException('User not authenticated');
+    }
+
+    // Recording watch progress implies the student is actively watching, so
+    // gate it by the same entitlement rule as actual playback (unexpired
+    // direct purchase, or a package purchase covering this lesson) — a
+    // student whose access has expired must not be able to keep progress
+    // ticking on this lesson.
+    const hasAccess = await this.paymentsService.hasLessonPlaybackAccess(
+      userId,
+      lessonId,
+    );
+    if (!hasAccess) {
+      throw new ForbiddenException(
+        'You must have active access to this lesson to record progress.',
+      );
     }
 
     const progress = await this.progressService.updateProgress(

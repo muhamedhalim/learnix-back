@@ -682,30 +682,6 @@ export class LessonsService {
     await this.lessonsRepository.save(lesson);
   }
 
-  /**
-   * Validate if a student has access to a lesson
-   * Placeholder for Purchases module integration
-   */
-  public async validateAccess(
-    lessonId: string,
-  ): Promise<{ hasAccess: boolean; expiresAt: Date | null }> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId },
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
-    }
-
-    // TODO: Implement actual access check when Purchases module is ready
-    // For now, return no access
-    // This will be updated to check lesson_purchases table
-    return {
-      hasAccess: false,
-      expiresAt: null,
-    };
-  }
-
   /* ============================================================
    * Bunny Stream — secure direct (TUS) upload orchestration
    * ============================================================ */

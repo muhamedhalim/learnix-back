@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { computeAccessExpiresAt } from '../common/utils/lesson-access.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
@@ -245,8 +246,7 @@ export class AttendanceCodesService {
 
     const accessDays = lesson?.available_for_days ?? 7;
     const accessGrantedAt = new Date();
-    const accessExpiresAt = new Date(accessGrantedAt);
-    accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
+    const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
 
     const lessonPurchase = manager.create(LessonPurchase, {
       student_id: payment.user_id,
@@ -296,8 +296,7 @@ export class AttendanceCodesService {
 
       const accessDays = lesson.available_for_days === 0 ? 7 : lesson.available_for_days;
       const accessGrantedAt = new Date();
-      const accessExpiresAt = new Date(accessGrantedAt);
-      accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
+      const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
 
       const lessonPurchase = manager.create(LessonPurchase, {
         student_id: payment.user_id,

@@ -23,6 +23,7 @@ import {
 import { Book } from '../../books/entities/book.entity';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { computeAccessExpiresAt } from '../../common/utils/lesson-access.util';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
@@ -855,8 +856,7 @@ export class PaymentsService {
 
     const accessDays = lesson?.available_for_days ?? 7;
     const accessGrantedAt = new Date();
-    const accessExpiresAt = new Date(accessGrantedAt);
-    accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
+    const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
 
     const lessonPurchase = manager.create(LessonPurchase, {
       student_id: payment.user_id,
@@ -910,8 +910,7 @@ export class PaymentsService {
 
       const accessDays = lesson.available_for_days;
       const accessGrantedAt = new Date();
-      const accessExpiresAt = new Date(accessGrantedAt);
-      accessExpiresAt.setDate(accessExpiresAt.getDate() + accessDays);
+      const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
 
       const lessonPurchase = manager.create(LessonPurchase, {
         student_id: payment.user_id,

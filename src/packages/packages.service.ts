@@ -40,12 +40,14 @@ export interface PackageWithDetails {
   title_ar: string;
   description: string | null;
   description_ar: string | null;
+  // Nullable: the joined teacher (User) row is silently excluded by TypeORM
+  // when it has been soft-deleted (see mapToPackageWithDetails for why).
   teacher: {
     id: string;
     name: string;
     email: string;
     profile_picture_url: string | null;
-  };
+  } | null;
   price: number;
   original_price: number | null;
   savings: number | null;
@@ -533,7 +535,16 @@ export class PackagesService {
     const savings =
       originalPrice === null ? null : Math.max(0, originalPrice - price);
 
-    const sortedItems = [...pkg.items].sort(
+    // `teacher` and `item.lesson` are LEFT-joined relations whose target
+    // entities (User, Lesson) both have @DeleteDateColumn. TypeORM silently
+    // excludes a soft-deleted joined row (appends `<alias>.deleted_at IS NULL`
+    // to the join condition), so a package/item can legitimately hydrate with
+    // `teacher: null` / `lesson: null` here even though the FK column itself
+    // is non-nullable — e.g. after an admin bulk-deletes a teacher account
+    // (bulk-operations.service.ts) that still has authored packages, or a
+    // lesson is soft-deleted while still attached to a package.
+    const validItems = pkg.items.filter((item) => item.lesson !== null);
+    const sortedItems = [...validItems].sort(
       (a, b) => a.order_index - b.order_index,
     );
 
@@ -543,12 +554,14 @@ export class PackagesService {
       title_ar: pkg.title_ar,
       description: pkg.description,
       description_ar: pkg.description_ar,
-      teacher: {
-        id: pkg.teacher.id,
-        name: pkg.teacher.name,
-        email: pkg.teacher.email,
-        profile_picture_url: pkg.teacher.profile_picture_url,
-      },
+      teacher: pkg.teacher
+        ? {
+            id: pkg.teacher.id,
+            name: pkg.teacher.name,
+            email: pkg.teacher.email,
+            profile_picture_url: pkg.teacher.profile_picture_url,
+          }
+        : null,
       price,
       original_price: originalPrice,
       savings,

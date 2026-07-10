@@ -118,8 +118,8 @@ export class ReportsService {
 
     const report: TeacherReportDto = {
       period: {
-        from: startDate.toISOString().split('T')[0] ?? '',
-        to: endDate.toISOString().split('T')[0] ?? '',
+        from: this.formatDay(startDate),
+        to: this.formatDay(endDate),
       },
       revenue,
       students,
@@ -196,8 +196,8 @@ export class ReportsService {
 
     const report: PlatformReportDto = {
       period: {
-        from: startDate.toISOString().split('T')[0] ?? '',
-        to: endDate.toISOString().split('T')[0] ?? '',
+        from: this.formatDay(startDate),
+        to: this.formatDay(endDate),
       },
       users,
       revenue,
@@ -653,6 +653,16 @@ export class ReportsService {
   }
 
   // ====================== UTILITY HELPERS ======================
+
+  /**
+   * The range bounds are local-midnight instants, so `toISOString()` would
+   * report the previous day on east-of-UTC servers. Format in local time.
+   */
+  private formatDay(date: Date): string {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${date.getFullYear()}-${month}-${day}`;
+  }
 
   private normalizeDateRange(from?: Date, to?: Date): DateRange {
     const endDate = to ?? new Date();

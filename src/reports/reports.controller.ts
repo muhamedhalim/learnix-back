@@ -28,6 +28,23 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   /**
+   * `new Date('2026-05-01')` parses as UTC midnight, but the service snaps the
+   * range to local-midnight boundaries. East-of-UTC servers would therefore
+   * rewind a date-only bound into the previous day. Build date-only values
+   * directly in local time so the boundary lands on the day the caller asked for.
+   */
+  private static parseBound(value?: string): Date | undefined {
+    if (value === undefined || value === '') return undefined;
+
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+      const [, year, month, day] = dateOnly;
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    return new Date(value);
+  }
+
+  /**
    * Get teacher revenue and stats summary with date range filtering
    */
   @Get('teacher/summary')
@@ -64,19 +81,10 @@ export class ReportsController {
     @GetUser() user: JwtPayload,
     @Query() query: DateRangeQueryDto,
   ): Promise<{ data: TeacherReportDto }> {
-    const from =
-      query.from !== undefined && query.from !== ''
-        ? new Date(query.from)
-        : undefined;
-    const to =
-      query.to !== undefined && query.to !== ''
-        ? new Date(query.to)
-        : undefined;
-
     const report = await this.reportsService.getTeacherReport(
       user.userId,
-      from,
-      to,
+      ReportsController.parseBound(query.from),
+      ReportsController.parseBound(query.to),
     );
     return { data: report };
   }
@@ -145,16 +153,10 @@ export class ReportsController {
   public async getPlatformReport(
     @Query() query: DateRangeQueryDto,
   ): Promise<{ data: PlatformReportDto }> {
-    const from =
-      query.from !== undefined && query.from !== ''
-        ? new Date(query.from)
-        : undefined;
-    const to =
-      query.to !== undefined && query.to !== ''
-        ? new Date(query.to)
-        : undefined;
-
-    const report = await this.reportsService.getPlatformReport(from, to);
+    const report = await this.reportsService.getPlatformReport(
+      ReportsController.parseBound(query.from),
+      ReportsController.parseBound(query.to),
+    );
     return { data: report };
   }
 }

@@ -270,9 +270,8 @@ export class TeacherLessonsController {
       );
     }
     if (file.size > FILE_LIMITS.VIDEO_MAX_SIZE) {
-      throw new BadRequestException(
-        `Video is too large (max ${Math.round(FILE_LIMITS.VIDEO_MAX_SIZE / (1024 * 1024))} MB).`,
-      );
+      const maxGb = Math.round(FILE_LIMITS.VIDEO_MAX_SIZE / (1024 * 1024 * 1024));
+      throw new BadRequestException(`Video is too large (max ${String(maxGb)} GB).`);
     }
     return await this.lessonsService.uploadBunnyVideo(id, user.userId, file);
   }

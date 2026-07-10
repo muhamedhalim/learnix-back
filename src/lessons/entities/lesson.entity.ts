@@ -52,6 +52,10 @@ export class Lesson {
   @JoinColumn({ name: 'subject_id' })
   subject!: Subject;
 
+  // Cover image: an uploaded custom image, or a copy of `video_thumbnail`
+  // (Bunny's auto-generated poster) that the teacher chose to use as the
+  // cover. Set via the course-builder's upload widget — never a raw
+  // teacher-typed URL (that field was removed from the quick-create form).
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail!: string | null;
 

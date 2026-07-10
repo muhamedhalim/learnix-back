@@ -236,6 +236,20 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(port, '0.0.0.0');
 
+  // Lesson videos are uploaded as one long-lived multipart request (see
+  // teacher-lessons.controller.ts). Node's http.Server defaults — introduced
+  // as slow-loris hardening — would otherwise forcibly kill any such request
+  // once its TOTAL duration (not just idle time) exceeds requestTimeout,
+  // independent of file size: a large/slow upload over a real network can
+  // easily take much longer than the 300s default. Disabling these here is
+  // safe: authentication/role guards run before the (now much larger) body is
+  // ever read, so this doesn't relax the DoS protection those defaults exist
+  // for — it only stops legitimate long uploads from being killed mid-transfer.
+  const httpServer = app.getHttpServer();
+  httpServer.requestTimeout = 0; // Node 18+/20 default: 300_000ms (5 min)
+  httpServer.headersTimeout = 0; // default: 60_000ms
+  httpServer.setTimeout(0); // disable the idle/inactivity socket timeout too
+
   logger.log(`🚀 Server running on http://0.0.0.0:${port}`);
   logger.log(`📘 Swagger: http://0.0.0.0:${port}/api`);
 }
