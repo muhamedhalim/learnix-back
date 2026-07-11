@@ -13,7 +13,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OptionalHybridAuthGuard } from '../auth/guards/optional-hybrid-auth.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-import { SearchQueryDto, SearchType, SuggestQueryDto } from './dto/search.dto';
+import { InCourseSearchDto, SearchQueryDto, SearchType, SuggestQueryDto } from './dto/search.dto';
 import { SearchService } from './search.service';
 
 @ApiTags('Search')
@@ -47,9 +47,9 @@ export class SearchController {
   @ApiOperation({ summary: 'Search lessons + chapters within a course' })
   public async inCourse(
     @Param('packageId', ParseUUIDPipe) packageId: string,
-    @Query('q') q: string,
+    @Query() dto: InCourseSearchDto,
   ): Promise<unknown> {
-    return this.searchService.searchInCourse(packageId, q ?? '');
+    return this.searchService.searchInCourse(packageId, dto.q ?? '');
   }
 
   @Get('popular')

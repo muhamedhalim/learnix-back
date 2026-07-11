@@ -25,7 +25,7 @@ function qb(count: number, many: unknown[]) {
 
 describe('SearchService', () => {
   let service: SearchService;
-  const packages = { createQueryBuilder: jest.fn() };
+  const packages = { createQueryBuilder: jest.fn(), query: jest.fn() };
   const lessons = { createQueryBuilder: jest.fn() };
   const users = { createQueryBuilder: jest.fn() };
   const subjects = { createQueryBuilder: jest.fn() };
@@ -34,6 +34,8 @@ describe('SearchService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Default: pg_trgm is installed — most tests exercise the ranked path.
+    packages.query.mockResolvedValue([{ available: true }]);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SearchService,
@@ -73,5 +75,70 @@ describe('SearchService', () => {
   it('does not throw if logging a query fails', async () => {
     searchLog.insert.mockRejectedValue(new Error('db down'));
     await expect(service.logQuery('algebra', 'u1')).resolves.toBeUndefined();
+  });
+
+  it('orders by similarity() when pg_trgm is installed', async () => {
+    const row = qb(1, [{ id: 'P1', title: 'Algebra', category: 'Math', thumbnail: null }]);
+    packages.createQueryBuilder.mockReturnValue(row);
+    await service.searchByType('alg', SearchType.COURSES, 1, 20);
+    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.title, :q)', 'DESC');
+  });
+
+  it('falls back to plain ordering (no 500) when pg_trgm is not installed', async () => {
+    packages.query.mockResolvedValue([{ available: false }]);
+    const row = qb(1, [{ id: 'P1', title: 'Algebra', category: 'Math', thumbnail: null }]);
+    packages.createQueryBuilder.mockReturnValue(row);
+
+    const result = await service.searchByType('alg', SearchType.COURSES, 1, 20);
+
+    expect(row.orderBy).toHaveBeenCalledWith('pkg.title', 'ASC');
+    expect(row.orderBy).not.toHaveBeenCalledWith(
+      expect.stringContaining('similarity('),
+      expect.anything(),
+    );
+    expect(result.data[0]?.id).toBe('P1');
+  });
+
+  it('self-heals when similarity() throws "function does not exist" at query time', async () => {
+    // Cache says pg_trgm is available, but the actual query fails with 42883
+    // (e.g. the extension-creating migration hasn't finished applying yet).
+    const row = qb(1, [{ id: 'P1', title: 'Algebra', category: 'Math', thumbnail: null }]);
+    row.getMany
+      .mockRejectedValueOnce(
+        Object.assign(new Error('function similarity(character varying, unknown) does not exist'), {
+          code: '42883',
+        }),
+      )
+      .mockResolvedValueOnce([{ id: 'P1', title: 'Algebra', category: 'Math', thumbnail: null }]);
+    packages.createQueryBuilder.mockReturnValue(row);
+
+    const result = await service.searchByType('alg', SearchType.COURSES, 1, 20);
+
+    expect(result.data[0]?.id).toBe('P1');
+    // First attempt used similarity, retry used the plain fallback.
+    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.title, :q)', 'DESC');
+    expect(row.orderBy).toHaveBeenCalledWith('pkg.title', 'ASC');
+  });
+
+  it('propagates non-undefined-function errors instead of masking them', async () => {
+    const row = qb(1, []);
+    row.getMany.mockRejectedValue(new Error('connection terminated'));
+    packages.createQueryBuilder.mockReturnValue(row);
+
+    await expect(service.searchByType('alg', SearchType.COURSES, 1, 20)).rejects.toThrow(
+      'connection terminated',
+    );
+  });
+
+  it('handles an in-course search when pg_trgm availability check itself fails', async () => {
+    packages.query.mockRejectedValue(new Error('db unreachable'));
+    const row = qb(0, []);
+    lessons.createQueryBuilder.mockReturnValue(row);
+    chapters.createQueryBuilder.mockReturnValue(qb(0, []));
+
+    const result = await service.searchInCourse('pkg-1', 'algebra');
+
+    expect(result).toEqual({ lessons: [], chapters: [] });
+    expect(row.orderBy).toHaveBeenCalledWith('l.title', 'ASC');
   });
 });

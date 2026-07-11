@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export enum SearchType {
   ALL = 'all',
@@ -11,6 +11,7 @@ export enum SearchType {
 
 export class SearchQueryDto {
   @IsString()
+  @MaxLength(200)
   public q!: string;
 
   @IsOptional()
@@ -33,5 +34,13 @@ export class SearchQueryDto {
 
 export class SuggestQueryDto {
   @IsString()
+  @MaxLength(200)
   public q!: string;
+}
+
+export class InCourseSearchDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  public q?: string;
 }

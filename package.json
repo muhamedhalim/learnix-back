@@ -9,6 +9,7 @@
     "build": "tsc --noEmit -p tsconfig.build.json && nest build --builder swc",
     "format": "prettier --write .",
     "start": "nest start",
+    "prestart:dev": "npm run migration:run",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
@@ -28,8 +29,7 @@
     "migration:run:prod": "typeorm -d dist/data-source.js migration:run",
     "migration:revert": "npm run typeorm -- -d src/data-source.ts migration:revert",
     "migration:show": "npm run typeorm -- -d src/data-source.ts migration:show",
-    "migration:check": "npm run typeorm -- -d src/data-source.ts schema:log",
-    "premigration:run": "npm run migration:check"
+    "migration:check": "npm run typeorm -- -d src/data-source.ts schema:log"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",

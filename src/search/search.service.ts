@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { Repository } from 'typeorm';
 
 import { CourseStatus } from '../packages/entities/course-status.enum';
@@ -29,9 +30,18 @@ interface PaginatedResults {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+const UNDEFINED_FUNCTION = '42883';
+/** Re-probe pg_trgm periodically so the fallback self-heals once a pending
+ *  migration finally runs, without requiring an app restart. */
+const TRGM_RECHECK_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class SearchService {
   private readonly logger = new Logger(SearchService.name);
+
+  /** Cached pg_trgm availability. `null` = not checked yet. */
+  private trgmAvailable: boolean | null = null;
+  private trgmCheckedAt = 0;
 
   constructor(
     @InjectRepository(LessonPackage)
@@ -116,16 +126,20 @@ export class SearchService {
     }
     const like = `%${q}%`;
 
-    const lessons = await this.lessonsRepository
-      .createQueryBuilder('l')
-      .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = l.id')
-      .where('lpi.package_id = :packageId', { packageId })
-      .andWhere('l.deleted_at IS NULL')
-      .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like })
-      .orderBy('similarity(l.title, :q)', 'DESC')
-      .setParameter('q', q)
-      .limit(20)
-      .getMany();
+    const baseLessons = (): SelectQueryBuilder<Lesson> =>
+      this.lessonsRepository
+        .createQueryBuilder('l')
+        .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = l.id')
+        .where('lpi.package_id = :packageId', { packageId })
+        .andWhere('l.deleted_at IS NULL')
+        .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like });
+
+    const lessons = await this.safeGetMany((useSimilarity) => {
+      const qb = baseLessons().limit(20);
+      return useSimilarity
+        ? qb.orderBy('similarity(l.title, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('l.title', 'ASC');
+    });
 
     const chapters = await this.chaptersRepository
       .createQueryBuilder('c')
@@ -184,27 +198,91 @@ export class SearchService {
     return rows.map((r) => r.query);
   }
 
+  /* ===================== pg_trgm availability guard ===================== */
+
+  /**
+   * Whether `similarity()` (pg_trgm) can be used for relevance ranking on this
+   * database. Cached with a short TTL so the search system self-heals once a
+   * pending migration installs the extension, without requiring a restart —
+   * and so a missing extension never turns into a per-request DB round trip.
+   */
+  private async isTrgmAvailable(): Promise<boolean> {
+    const now = Date.now();
+    if (this.trgmAvailable !== null && now - this.trgmCheckedAt < TRGM_RECHECK_MS) {
+      return this.trgmAvailable;
+    }
+    try {
+      const rows = (await this.packagesRepository.query(
+        `SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') AS available`,
+      )) as { available: boolean }[];
+      this.trgmAvailable = rows[0]?.available === true;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to check pg_trgm availability, assuming unavailable: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+      this.trgmAvailable = false;
+    }
+    this.trgmCheckedAt = now;
+    return this.trgmAvailable;
+  }
+
+  /** True when the error is Postgres' "function does not exist" (undefined_function). */
+  private isUndefinedFunctionError(error: unknown): boolean {
+    if (typeof error !== 'object' || error === null) return false;
+    const e = error as { code?: string; driverError?: { code?: string } };
+    const code = e.code ?? e.driverError?.code;
+    return code === UNDEFINED_FUNCTION;
+  }
+
+  /**
+   * Runs a query built with (or without) `similarity()` relevance ordering.
+   * Falls back to a plain, already-ILIKE-filtered ordering — instead of a 500
+   * — when pg_trgm isn't installed, and self-heals the cached flag if the
+   * function turns out to be missing only at query time (e.g. a migration
+   * that hasn't finished applying yet).
+   */
+  private async safeGetMany<T extends ObjectLiteral>(
+    build: (useSimilarity: boolean) => SelectQueryBuilder<T>,
+  ): Promise<T[]> {
+    const useSimilarity = await this.isTrgmAvailable();
+    try {
+      return await build(useSimilarity).getMany();
+    } catch (error) {
+      if (useSimilarity && this.isUndefinedFunctionError(error)) {
+        this.trgmAvailable = false;
+        this.trgmCheckedAt = Date.now();
+        this.logger.warn(
+          'pg_trgm similarity() is unavailable — falling back to unranked search ordering. Run pending migrations to restore relevance ranking.',
+        );
+        return await build(false).getMany();
+      }
+      throw error;
+    }
+  }
+
   /* ===================== Per-surface queries ===================== */
 
   private async searchCourses(q: string, page: number, limit: number): Promise<PaginatedResults> {
     const like = `%${q}%`;
-    const qb = this.packagesRepository
-      .createQueryBuilder('pkg')
-      .where('pkg.deleted_at IS NULL')
-      .andWhere('pkg.status = :status', { status: CourseStatus.PUBLISHED })
-      .andWhere(
-        '(pkg.title ILIKE :like OR pkg.title_ar ILIKE :like OR pkg.description ILIKE :like)',
-        { like },
-      );
+    const base = (): SelectQueryBuilder<LessonPackage> =>
+      this.packagesRepository
+        .createQueryBuilder('pkg')
+        .where('pkg.deleted_at IS NULL')
+        .andWhere('pkg.status = :status', { status: CourseStatus.PUBLISHED })
+        .andWhere(
+          '(pkg.title ILIKE :like OR pkg.title_ar ILIKE :like OR pkg.description ILIKE :like)',
+          { like },
+        );
 
-    const total = await qb.getCount();
-    const rows = await qb
-      .clone()
-      .orderBy('similarity(pkg.title, :q)', 'DESC')
-      .setParameter('q', q)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const total = await base().getCount();
+    const rows = await this.safeGetMany((useSimilarity) => {
+      const qb = base()
+        .skip((page - 1) * limit)
+        .take(limit);
+      return useSimilarity
+        ? qb.orderBy('similarity(pkg.title, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('pkg.title', 'ASC');
+    });
 
     return this.paginate(
       rows.map((p) => ({
@@ -223,41 +301,45 @@ export class SearchService {
 
   private async searchLessons(q: string, page: number, limit: number): Promise<PaginatedResults> {
     const like = `%${q}%`;
-    const qb = this.lessonsRepository
-      .createQueryBuilder('l')
-      .where('l.deleted_at IS NULL')
-      .andWhere('l.status = :status', { status: LessonStatus.PUBLISHED })
-      .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like });
+    const base = (): SelectQueryBuilder<Lesson> =>
+      this.lessonsRepository
+        .createQueryBuilder('l')
+        .where('l.deleted_at IS NULL')
+        .andWhere('l.status = :status', { status: LessonStatus.PUBLISHED })
+        .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like });
 
-    const total = await qb.getCount();
-    const rows = await qb
-      .clone()
-      .orderBy('similarity(l.title, :q)', 'DESC')
-      .setParameter('q', q)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const total = await base().getCount();
+    const rows = await this.safeGetMany((useSimilarity) => {
+      const qb = base()
+        .skip((page - 1) * limit)
+        .take(limit);
+      return useSimilarity
+        ? qb.orderBy('similarity(l.title, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('l.title', 'ASC');
+    });
 
     return this.paginate(rows.map((l) => this.lessonItem(l)), page, limit, total);
   }
 
   private async searchTeachers(q: string, page: number, limit: number): Promise<PaginatedResults> {
     const like = `%${q}%`;
-    const qb = this.usersRepository
-      .createQueryBuilder('u')
-      .where('u.role = :role', { role: UserRole.TEACHER })
-      .andWhere('u.is_active = true')
-      .andWhere('u.status = :status', { status: UserStatus.APPROVED })
-      .andWhere('u.name ILIKE :like', { like });
+    const base = (): SelectQueryBuilder<User> =>
+      this.usersRepository
+        .createQueryBuilder('u')
+        .where('u.role = :role', { role: UserRole.TEACHER })
+        .andWhere('u.is_active = true')
+        .andWhere('u.status = :status', { status: UserStatus.APPROVED })
+        .andWhere('u.name ILIKE :like', { like });
 
-    const total = await qb.getCount();
-    const rows = await qb
-      .clone()
-      .orderBy('similarity(u.name, :q)', 'DESC')
-      .setParameter('q', q)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const total = await base().getCount();
+    const rows = await this.safeGetMany((useSimilarity) => {
+      const qb = base()
+        .skip((page - 1) * limit)
+        .take(limit);
+      return useSimilarity
+        ? qb.orderBy('similarity(u.name, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('u.name', 'ASC');
+    });
 
     return this.paginate(
       rows.map((u) => ({
@@ -276,18 +358,18 @@ export class SearchService {
 
   private async searchSubjects(q: string, page: number, limit: number): Promise<PaginatedResults> {
     const like = `%${q}%`;
-    const qb = this.subjectsRepository
-      .createQueryBuilder('s')
-      .where('s.name ILIKE :like', { like });
+    const base = (): SelectQueryBuilder<Subject> =>
+      this.subjectsRepository.createQueryBuilder('s').where('s.name ILIKE :like', { like });
 
-    const total = await qb.getCount();
-    const rows = await qb
-      .clone()
-      .orderBy('similarity(s.name, :q)', 'DESC')
-      .setParameter('q', q)
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const total = await base().getCount();
+    const rows = await this.safeGetMany((useSimilarity) => {
+      const qb = base()
+        .skip((page - 1) * limit)
+        .take(limit);
+      return useSimilarity
+        ? qb.orderBy('similarity(s.name, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('s.name', 'ASC');
+    });
 
     return this.paginate(
       rows.map((s) => ({
