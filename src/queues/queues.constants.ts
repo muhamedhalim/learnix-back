@@ -125,34 +125,20 @@ export const JOB_TYPES = {
 } as const;
 
 /**
- * Build Redis connection object from environment variables
- * Returns undefined if Redis is not configured (for development without Redis)
+ * Build Redis connection object from REDIS_URL
+ * Required in all environments.
  */
 function getRedisConnection(): ConnectionOptions {
-  const host = process.env['REDIS_HOST'];
-  const port = process.env['REDIS_PORT'];
+  const redisUrl = process.env['REDIS_URL'];
 
-  // If no Redis host configured, return minimal config that will fail gracefully
-  if (host === undefined || host === '') {
-    return {
-      host: 'localhost',
-      port: 6379,
-    };
-  }
-
-  const password = process.env['REDIS_PASSWORD'];
-
-  if (password !== undefined && password !== '') {
-    return {
-      host,
-      port: port !== undefined && port !== '' ? Number.parseInt(port, 10) : 6379,
-      password,
-    };
+  if (redisUrl === undefined || redisUrl === '') {
+    throw new Error(
+      'CRITICAL: REDIS_URL is required. BullMQ cannot start without a Redis connection.',
+    );
   }
 
   return {
-    host,
-    port: port !== undefined && port !== '' ? Number.parseInt(port, 10) : 6379,
+    url: redisUrl,
   };
 }
 
