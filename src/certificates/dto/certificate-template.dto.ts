@@ -20,8 +20,18 @@ export class CreateTemplateDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(160)
+  public title_ar?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(2000)
   public body?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  public body_ar?: string;
 
   @IsOptional()
   @IsString()
@@ -32,6 +42,11 @@ export class CreateTemplateDto {
   @IsString()
   @MaxLength(120)
   public signature_title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  public signature_title_ar?: string;
 
   @IsOptional()
   @IsHexColor()
@@ -55,8 +70,18 @@ export class UpdateTemplateDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(160)
+  public title_ar?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(2000)
   public body?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  public body_ar?: string;
 
   @IsOptional()
   @IsString()
@@ -67,6 +92,11 @@ export class UpdateTemplateDto {
   @IsString()
   @MaxLength(120)
   public signature_title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  public signature_title_ar?: string;
 
   @IsOptional()
   @IsHexColor()

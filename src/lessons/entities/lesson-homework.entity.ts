@@ -34,8 +34,14 @@ export class LessonHomework {
   @Column({ length: 255 })
   title!: string;
 
+  @Column({ length: 255, nullable: true })
+  title_ar!: string | null;
+
   @Column('text', { nullable: true })
   description!: string | null;
+
+  @Column('text', { nullable: true })
+  description_ar!: string | null;
 
   @Column({ length: 30, default: 'text' })
   type!: string;

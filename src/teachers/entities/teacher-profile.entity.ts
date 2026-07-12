@@ -45,6 +45,9 @@ export class TeacherProfile {
   @Column({ type: 'text', nullable: true })
   bio!: string | null;
 
+  @Column({ type: 'text', nullable: true, name: 'bio_ar' })
+  bio_ar!: string | null;
+
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   rating!: number;
 

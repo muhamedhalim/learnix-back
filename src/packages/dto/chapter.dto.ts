@@ -1,13 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import {
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateChapterDto {
   @ApiProperty({ description: 'Chapter title', maxLength: 255 })
@@ -15,6 +8,12 @@ export class CreateChapterDto {
   @IsNotEmpty()
   @MaxLength(255)
   public title!: string;
+
+  @ApiPropertyOptional({ description: 'Chapter title (Arabic)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public title_ar?: string;
 
   @ApiPropertyOptional({ description: 'Order position', minimum: 0 })
   @IsOptional()
@@ -29,6 +28,12 @@ export class UpdateChapterDto {
   @IsString()
   @MaxLength(255)
   public title?: string;
+
+  @ApiPropertyOptional({ description: 'Chapter title (Arabic)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public title_ar?: string;
 
   @ApiPropertyOptional({ description: 'Order position', minimum: 0 })
   @IsOptional()

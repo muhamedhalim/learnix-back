@@ -24,19 +24,27 @@ export class CertificateTemplate {
   @Column({ type: 'varchar', length: 160, default: 'Certificate of Completion' })
   title!: string;
 
+  @Column({ type: 'varchar', length: 160, nullable: true, name: 'title_ar' })
+  title_ar!: string | null;
+
   /** Body copy; supports {{student}}, {{course}}, {{date}} placeholders. */
   @Column({
     type: 'text',
-    default:
-      'This is proudly presented to {{student}} for successfully completing {{course}}.',
+    default: 'This is proudly presented to {{student}} for successfully completing {{course}}.',
   })
   body!: string;
+
+  @Column({ type: 'text', nullable: true, name: 'body_ar' })
+  body_ar!: string | null;
 
   @Column({ type: 'varchar', length: 120, nullable: true, name: 'signature_name' })
   signature_name!: string | null;
 
   @Column({ type: 'varchar', length: 120, nullable: true, name: 'signature_title' })
   signature_title!: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true, name: 'signature_title_ar' })
+  signature_title_ar!: string | null;
 
   /** Accent colour (hex) used for borders/headings in the rendered PDF. */
   @Column({ type: 'varchar', length: 9, default: '#6d28d9', name: 'accent_color' })

@@ -37,6 +37,9 @@ export class CourseChapter {
   @Column({ length: 255 })
   title!: string;
 
+  @Column({ length: 255, nullable: true })
+  title_ar!: string | null;
+
   @Column('int', { default: 0 })
   order_index!: number;
 

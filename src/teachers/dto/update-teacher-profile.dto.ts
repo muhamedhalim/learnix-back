@@ -40,6 +40,16 @@ export class UpdateTeacherProfileDto {
   public bio?: string;
 
   @ApiProperty({
+    description: 'Teacher biography (Arabic)',
+    required: false,
+    maxLength: 2000,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  public bio_ar?: string;
+
+  @ApiProperty({
     description: 'Phone number',
     example: '01012345678',
     required: false,

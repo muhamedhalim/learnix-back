@@ -47,6 +47,7 @@ export interface TeacherProfileWithDetails {
   qualifications: string;
   years_of_experience: number;
   bio: string | null;
+  bio_ar: string | null;
   rating: number;
   total_ratings: number;
   subjects: Subject[];
@@ -70,6 +71,7 @@ export interface PublicTeacherProfile {
   qualifications: string;
   years_of_experience: number;
   bio: string | null;
+  bio_ar: string | null;
   rating: number;
   total_ratings: number;
   subjects: Subject[];
@@ -157,6 +159,9 @@ export class TeachersService {
     }
     if (dto.bio !== undefined) {
       profile.bio = dto.bio;
+    }
+    if (dto.bio_ar !== undefined) {
+      profile.bio_ar = dto.bio_ar;
     }
 
     // Update phone on user entity
@@ -313,6 +318,7 @@ export class TeachersService {
         qualifications: teacher.qualifications,
         years_of_experience: teacher.years_of_experience,
         bio: teacher.bio,
+        bio_ar: teacher.bio_ar,
         rating: teacher.rating,
         total_ratings: teacher.total_ratings,
         subjects: teacher.subjects,
@@ -706,6 +712,7 @@ export class TeachersService {
       qualifications: profile.qualifications,
       years_of_experience: profile.years_of_experience,
       bio: profile.bio,
+      bio_ar: profile.bio_ar,
       rating: profile.rating,
       total_ratings: profile.total_ratings,
       subjects: profile.subjects,
@@ -729,6 +736,7 @@ export class TeachersService {
       qualifications: profile.qualifications,
       years_of_experience: profile.years_of_experience,
       bio: profile.bio,
+      bio_ar: profile.bio_ar,
       rating: profile.rating,
       total_ratings: profile.total_ratings,
       subjects: profile.subjects,

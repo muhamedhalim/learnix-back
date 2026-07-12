@@ -94,6 +94,7 @@ export class LessonContentService {
     const attachment = this.attachmentsRepository.create({
       lesson_id: lessonId,
       name: dto.name,
+      name_ar: dto.name_ar ?? null,
       url: dto.url,
       type: dto.type ?? 'other',
       size_bytes: dto.size_bytes ?? null,
@@ -135,7 +136,9 @@ export class LessonContentService {
     const homework = this.homeworkRepository.create({
       lesson_id: lessonId,
       title: dto.title,
+      title_ar: dto.title_ar ?? null,
       description: dto.description ?? null,
+      description_ar: dto.description_ar ?? null,
       type: dto.type ?? 'text',
       resource_url: dto.resource_url ?? null,
       due_at: dto.due_at ? new Date(dto.due_at) : null,
@@ -157,7 +160,9 @@ export class LessonContentService {
       throw new NotFoundException(biBody('Homework not found', 'الواجب غير موجود'));
     }
     if (dto.title !== undefined) homework.title = dto.title;
+    if (dto.title_ar !== undefined) homework.title_ar = dto.title_ar;
     if (dto.description !== undefined) homework.description = dto.description;
+    if (dto.description_ar !== undefined) homework.description_ar = dto.description_ar;
     if (dto.type !== undefined) homework.type = dto.type;
     if (dto.resource_url !== undefined) homework.resource_url = dto.resource_url;
     if (dto.due_at !== undefined) {

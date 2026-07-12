@@ -17,6 +17,12 @@ export class CreateAttachmentDto {
   @MaxLength(255)
   public name!: string;
 
+  @ApiPropertyOptional({ description: 'Display name (Arabic)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public name_ar?: string;
+
   @ApiProperty({ description: 'Public file URL (from /teacher/uploads)', maxLength: 1000 })
   @IsString()
   @IsNotEmpty()
@@ -43,10 +49,21 @@ export class CreateHomeworkDto {
   @MaxLength(255)
   public title!: string;
 
+  @ApiPropertyOptional({ description: 'Assignment title (Arabic)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public title_ar?: string;
+
   @ApiPropertyOptional({ description: 'Instructions / description' })
   @IsOptional()
   @IsString()
   public description?: string;
+
+  @ApiPropertyOptional({ description: 'Instructions / description (Arabic)' })
+  @IsOptional()
+  @IsString()
+  public description_ar?: string;
 
   @ApiPropertyOptional({ description: 'Assignment type (text | file | link | …)' })
   @IsOptional()
@@ -73,10 +90,21 @@ export class UpdateHomeworkDto {
   @MaxLength(255)
   public title?: string;
 
+  @ApiPropertyOptional({ description: 'Assignment title (Arabic)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public title_ar?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   public description?: string;
+
+  @ApiPropertyOptional({ description: 'Instructions / description (Arabic)' })
+  @IsOptional()
+  @IsString()
+  public description_ar?: string;
 
   @ApiPropertyOptional({ maxLength: 30 })
   @IsOptional()

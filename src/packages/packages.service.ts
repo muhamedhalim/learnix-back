@@ -661,6 +661,7 @@ export class PackagesService {
     const chapter = this.chaptersRepository.create({
       package_id: packageId,
       title: dto.title,
+      title_ar: dto.title_ar ?? null,
       order_index: orderIndex,
     });
     return this.chaptersRepository.save(chapter);
