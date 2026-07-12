@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
@@ -11,11 +6,8 @@ import { Repository } from 'typeorm';
 import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
 import { GuardiansService } from '../../guardians/guardians.service';
-import {
-  NotificationFilterDto,
-  SendNotificationDto,
-  UpdateNotificationSettingsDto,
-} from '../dto';
+import { biBody } from '../../i18n/error-translator.util';
+import { NotificationFilterDto, SendNotificationDto, UpdateNotificationSettingsDto } from '../dto';
 import {
   Notification,
   NotificationSettings,
@@ -68,10 +60,7 @@ export class NotificationsService {
   /**
    * Create and send a notification
    */
-  public async create(
-    dto: SendNotificationDto,
-    sendSms = true,
-  ): Promise<Notification> {
+  public async create(dto: SendNotificationDto, sendSms = true): Promise<Notification> {
     const now = new Date();
 
     // Create notification record
@@ -112,7 +101,10 @@ export class NotificationsService {
 
     if (!notification) {
       throw new NotFoundException(
-        `Notification with ID ${notificationId} not found`,
+        biBody(
+          `Notification with ID ${notificationId} not found`,
+          `الإشعار ذو المعرف ${notificationId} غير موجود`,
+        ),
       );
     }
 
@@ -170,22 +162,26 @@ export class NotificationsService {
    * Retry a failed notification
    * Only works for notifications with status=FAILED
    */
-  public async retryNotification(
-    notificationId: string,
-  ): Promise<Notification> {
+  public async retryNotification(notificationId: string): Promise<Notification> {
     const notification = await this.notificationsRepository.findOne({
       where: { id: notificationId },
     });
 
     if (!notification) {
       throw new NotFoundException(
-        `Notification with ID ${notificationId} not found`,
+        biBody(
+          `Notification with ID ${notificationId} not found`,
+          `الإشعار ذو المعرف ${notificationId} غير موجود`,
+        ),
       );
     }
 
     if (notification.status !== NotificationStatus.FAILED) {
       throw new BadRequestException(
-        `Cannot retry notification with status '${notification.status}'. Only failed notifications can be retried.`,
+        biBody(
+          `Cannot retry notification with status '${notification.status}'. Only failed notifications can be retried.`,
+          `لا يمكن إعادة محاولة إشعار بحالة '${notification.status}'. يمكن فقط إعادة محاولة الإشعارات الفاشلة.`,
+        ),
       );
     }
 
@@ -345,10 +341,7 @@ export class NotificationsService {
     queryBuilder.orderBy('notification.sent_at', 'DESC');
 
     // Get total count and paginated results
-    const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
 
@@ -377,16 +370,13 @@ export class NotificationsService {
   /**
    * Mark a notification as read
    */
-  public async markAsRead(
-    notificationId: string,
-    userId: string,
-  ): Promise<Notification> {
+  public async markAsRead(notificationId: string, userId: string): Promise<Notification> {
     const notification = await this.notificationsRepository.findOne({
       where: { id: notificationId, user_id: userId },
     });
 
     if (!notification) {
-      throw new NotFoundException('Notification not found');
+      throw new NotFoundException(biBody('Notification not found', 'الإشعار غير موجود'));
     }
 
     if (!notification.is_read) {
@@ -413,9 +403,7 @@ export class NotificationsService {
   /**
    * Get or create notification settings for a user
    */
-  public async getOrCreateSettings(
-    userId: string,
-  ): Promise<NotificationSettings> {
+  public async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
     let settings = await this.settingsRepository.findOne({
       where: { user_id: userId },
     });
@@ -463,8 +451,7 @@ export class NotificationsService {
       settings.notify_parent_on_exam_grade = dto.notify_parent_on_exam_grade;
     }
     if (dto.notify_parent_on_lesson_expiry !== undefined) {
-      settings.notify_parent_on_lesson_expiry =
-        dto.notify_parent_on_lesson_expiry;
+      settings.notify_parent_on_lesson_expiry = dto.notify_parent_on_lesson_expiry;
     }
     if (dto.notify_on_purchase !== undefined) {
       settings.notify_on_purchase = dto.notify_on_purchase;

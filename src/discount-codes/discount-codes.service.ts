@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import {
   CreateDiscountCodeDto,
   DiscountFilterDto,
@@ -41,7 +42,7 @@ export class DiscountCodesService {
     });
 
     if (existing) {
-      throw new ConflictException('Discount code already exists');
+      throw new ConflictException(biBody('Discount code already exists', 'كود الخصم موجود بالفعل'));
     }
 
     // Validate dates
@@ -49,7 +50,12 @@ export class DiscountCodesService {
     const validUntil = new Date(dto.valid_until);
 
     if (validUntil <= validFrom) {
-      throw new BadRequestException('valid_until must be after valid_from');
+      throw new BadRequestException(
+        biBody(
+          'valid_until must be after valid_from',
+          'يجب أن يكون تاريخ الانتهاء بعد تاريخ البدء',
+        ),
+      );
     }
 
     const discountCode = this.discountCodesRepository.create({
@@ -74,16 +80,13 @@ export class DiscountCodesService {
   /**
    * Update a discount code (admin only)
    */
-  public async update(
-    id: string,
-    dto: UpdateDiscountCodeDto,
-  ): Promise<DiscountCode> {
+  public async update(id: string, dto: UpdateDiscountCodeDto): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
     });
 
     if (!discountCode) {
-      throw new NotFoundException('Discount code not found');
+      throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
     // Validate dates if provided
@@ -100,22 +103,20 @@ export class DiscountCodesService {
   /**
    * Validate date range for discount code updates
    */
-  private validateDateRange(
-    dto: UpdateDiscountCodeDto,
-    discountCode: DiscountCode,
-  ): void {
+  private validateDateRange(dto: UpdateDiscountCodeDto, discountCode: DiscountCode): void {
     if (dto.valid_from !== undefined || dto.valid_until !== undefined) {
       const validFrom =
-        dto.valid_from === undefined
-          ? discountCode.valid_from
-          : new Date(dto.valid_from);
+        dto.valid_from === undefined ? discountCode.valid_from : new Date(dto.valid_from);
       const validUntil =
-        dto.valid_until === undefined
-          ? discountCode.valid_until
-          : new Date(dto.valid_until);
+        dto.valid_until === undefined ? discountCode.valid_until : new Date(dto.valid_until);
 
       if (validUntil <= validFrom) {
-        throw new BadRequestException('valid_until must be after valid_from');
+        throw new BadRequestException(
+          biBody(
+            'valid_until must be after valid_from',
+            'يجب أن يكون تاريخ الانتهاء بعد تاريخ البدء',
+          ),
+        );
       }
     }
   }
@@ -123,10 +124,7 @@ export class DiscountCodesService {
   /**
    * Apply DTO updates to discount code entity
    */
-  private applyDiscountCodeUpdates(
-    discountCode: DiscountCode,
-    dto: UpdateDiscountCodeDto,
-  ): void {
+  private applyDiscountCodeUpdates(discountCode: DiscountCode, dto: UpdateDiscountCodeDto): void {
     const updates: Partial<DiscountCode> = {};
 
     if (dto.discount_type !== undefined) {
@@ -172,7 +170,7 @@ export class DiscountCodesService {
     });
 
     if (!discountCode) {
-      throw new NotFoundException('Discount code not found');
+      throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
     await this.discountCodesRepository.softDelete(id);
@@ -222,10 +220,7 @@ export class DiscountCodesService {
 
     queryBuilder.orderBy('code.created_at', 'DESC');
 
-    const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
-      .getManyAndCount();
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
 
@@ -252,7 +247,7 @@ export class DiscountCodesService {
     });
 
     if (!discountCode) {
-      throw new NotFoundException('Discount code not found');
+      throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
     return discountCode;
@@ -271,10 +266,7 @@ export class DiscountCodesService {
    * Verify a discount code (public endpoint)
    * Checks validity, usage limits, and applicability
    */
-  public async verifyCode(
-    dto: VerifyDiscountCodeDto,
-    userId: string,
-  ): Promise<VerificationResult> {
+  public async verifyCode(dto: VerifyDiscountCodeDto, userId: string): Promise<VerificationResult> {
     const code = await this.discountCodesRepository.findOne({
       where: {
         code: dto.code.toUpperCase(),
@@ -389,12 +381,14 @@ export class DiscountCodesService {
     });
 
     if (!code) {
-      throw new NotFoundException('Discount code not found');
+      throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
     // Double-check usage limit with lock held
     if (code.used_count >= code.max_uses) {
-      throw new BadRequestException('Discount code usage limit reached');
+      throw new BadRequestException(
+        biBody('Discount code usage limit reached', 'تم الوصول إلى الحد الأقصى لاستخدام كود الخصم'),
+      );
     }
 
     // Increment usage counter
@@ -412,18 +406,15 @@ export class DiscountCodesService {
       await manager.save(DiscountCodeUsage, usage);
     } catch (error: unknown) {
       // Handle unique constraint violation
-      if (
-        error instanceof Error &&
-        error.message.includes('duplicate key value')
-      ) {
-        throw new ConflictException('You have already used this discount code');
+      if (error instanceof Error && error.message.includes('duplicate key value')) {
+        throw new ConflictException(
+          biBody('You have already used this discount code', 'لقد استخدمت هذا الكود من قبل'),
+        );
       }
       throw error;
     }
 
-    this.logger.log(
-      `Applied discount code ${code.code} for user ${userId}, payment ${paymentId}`,
-    );
+    this.logger.log(`Applied discount code ${code.code} for user ${userId}, payment ${paymentId}`);
   }
 
   /**
@@ -440,7 +431,7 @@ export class DiscountCodesService {
     });
 
     if (!code) {
-      throw new NotFoundException('Discount code not found');
+      throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
     const usages = await this.usageRepository.find({

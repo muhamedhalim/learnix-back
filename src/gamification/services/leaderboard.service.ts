@@ -10,6 +10,7 @@ import {
   LeaderboardWindow,
 } from '../dto/leaderboard-query.dto';
 import { StudentGameProfile, StudentSubjectRating, XpEvent } from '../entities';
+import { biBody } from '../../i18n/error-translator.util';
 
 export interface LeaderboardRow {
   rank: number;
@@ -77,7 +78,13 @@ export class LeaderboardService {
     const offset = (page - 1) * limit;
 
     if (query.scope === LeaderboardScope.SUBJECT) {
-      if (!query.subject_id) throw new BadRequestException('subject_id is required for a subject leaderboard');
+      if (!query.subject_id)
+        throw new BadRequestException(
+          biBody(
+            'subject_id is required for a subject leaderboard',
+            'معرّف المادة مطلوب لعرض لوحة صدارة خاصة بمادة',
+          ),
+        );
       return this.subjectBoard(query.subject_id, offset, limit, page);
     }
     if (query.window !== LeaderboardWindow.ALL_TIME) {
@@ -239,11 +246,23 @@ export class LeaderboardService {
     query: LeaderboardQueryDto,
   ): void {
     if (query.scope === LeaderboardScope.GRADE) {
-      if (!query.grade_level) throw new BadRequestException('grade_level is required for a grade leaderboard');
+      if (!query.grade_level)
+        throw new BadRequestException(
+          biBody(
+            'grade_level is required for a grade leaderboard',
+            'المرحلة الدراسية مطلوبة لعرض لوحة صدارة خاصة بالمرحلة',
+          ),
+        );
       qb.andWhere('sp.grade_level = :g', { g: query.grade_level });
     }
     if (query.scope === LeaderboardScope.GOVERNORATE) {
-      if (!query.governorate) throw new BadRequestException('governorate is required for a governorate leaderboard');
+      if (!query.governorate)
+        throw new BadRequestException(
+          biBody(
+            'governorate is required for a governorate leaderboard',
+            'المحافظة مطلوبة لعرض لوحة صدارة خاصة بالمحافظة',
+          ),
+        );
       qb.andWhere('sp.governorate = :gov', { gov: query.governorate });
     }
   }

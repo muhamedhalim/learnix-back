@@ -3,17 +3,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import {
-  ComplaintFilterDto,
-  CreateComplaintDto,
-  RespondComplaintDto,
-} from './dto';
+import { ComplaintFilterDto, CreateComplaintDto, RespondComplaintDto } from './dto';
 import { Complaint } from './entities/complaint.entity';
 import { ComplaintStatus } from './enums/complaint-status.enum';
 
@@ -25,10 +19,7 @@ export class ComplaintsService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  public async createComplaint(
-    studentId: string,
-    dto: CreateComplaintDto,
-  ): Promise<Complaint> {
+  public async createComplaint(studentId: string, dto: CreateComplaintDto): Promise<Complaint> {
     const complaint = this.complaintsRepository.create({
       student_id: studentId,
       type: dto.type,
@@ -67,9 +58,7 @@ export class ComplaintsService {
     return { data: complaints, meta };
   }
 
-  public async getAllComplaints(
-    filter: ComplaintFilterDto,
-  ): Promise<PaginatedResponse<Complaint>> {
+  public async getAllComplaints(filter: ComplaintFilterDto): Promise<PaginatedResponse<Complaint>> {
     const queryBuilder = this.complaintsRepository
       .createQueryBuilder('complaint')
       .leftJoinAndSelect('complaint.student', 'student')
@@ -115,7 +104,7 @@ export class ComplaintsService {
     });
 
     if (!complaint) {
-      throw new NotFoundException('Complaint not found');
+      throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
     }
 
     complaint.admin_response = dto.admin_response;

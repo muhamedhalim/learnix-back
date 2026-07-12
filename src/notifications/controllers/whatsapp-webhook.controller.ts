@@ -18,6 +18,7 @@ import * as crypto from 'node:crypto';
 import type { Request } from 'express';
 
 import { SkipCsrf } from '../../common/guards/csrf.guard';
+import { biBody } from '../../i18n/error-translator.util';
 import { ParentMessageStatus } from '../entities';
 import { ParentMessageService, type ProviderStatus } from '../services/parent-message.service';
 
@@ -77,8 +78,7 @@ export class WhatsAppWebhookController {
 
     const expected = Buffer.from(this.verifyToken);
     const actual = Buffer.from(token ?? '');
-    const matches =
-      expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+    const matches = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 
     if (mode !== 'subscribe' || !matches) throw new ForbiddenException();
     return challenge;
@@ -139,28 +139,29 @@ export class WhatsAppWebhookController {
    */
   private assertSignature(request: Request): void {
     if (this.appSecret === '') {
-      throw new ForbiddenException('WhatsApp webhook not configured');
+      throw new ForbiddenException(
+        biBody('WhatsApp webhook not configured', 'لم يتم تهيئة webhook الخاص بواتساب'),
+      );
     }
 
     const header = request.header('x-hub-signature-256');
     if (header === undefined || !header.startsWith('sha256=')) {
-      throw new BadRequestException('Missing signature');
+      throw new BadRequestException(biBody('Missing signature', 'التوقيع مفقود'));
     }
 
     const raw = (request as Request & { rawBody?: Buffer }).rawBody;
     if (raw === undefined) {
       this.logger.error('rawBody unavailable — cannot verify webhook signature');
-      throw new ForbiddenException('Signature verification unavailable');
+      throw new ForbiddenException(
+        biBody('Signature verification unavailable', 'التحقق من التوقيع غير متاح'),
+      );
     }
 
     const expected = crypto.createHmac('sha256', this.appSecret).update(raw).digest();
     const provided = Buffer.from(header.slice('sha256='.length), 'hex');
 
-    if (
-      provided.length !== expected.length ||
-      !crypto.timingSafeEqual(provided, expected)
-    ) {
-      throw new ForbiddenException('Invalid signature');
+    if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+      throw new ForbiddenException(biBody('Invalid signature', 'توقيع غير صالح'));
     }
   }
 }

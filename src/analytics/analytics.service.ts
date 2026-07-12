@@ -21,6 +21,7 @@ import { Payment } from '../payments/entities/payment.entity';
 import { PaymentStatus } from '../payments/entities/payment-status.enum';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
@@ -490,7 +491,9 @@ export class AnalyticsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرف ${lessonId} غير موجود`),
+      );
     }
 
     // Count direct purchases
@@ -624,7 +627,9 @@ export class AnalyticsService {
     });
 
     if (!exam) {
-      throw new NotFoundException(`Exam with ID ${examId} not found`);
+      throw new NotFoundException(
+        biBody(`Exam with ID ${examId} not found`, `الاختبار بالمعرف ${examId} غير موجود`),
+      );
     }
 
     const { totalSubmissions, inProgressCount, pendingGradingCount } =

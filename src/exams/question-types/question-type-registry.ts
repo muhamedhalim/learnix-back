@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
+import { biBody } from '../../i18n/error-translator.util';
 import { QuestionType } from '../entities';
 import { ALL_QUESTION_TYPE_DEFINITIONS } from './definitions';
 import { QuestionTypeDefinition } from './question-type-definition.interface';
@@ -32,7 +33,12 @@ export class QuestionTypeRegistry {
   public require(type: QuestionType): QuestionTypeDefinition {
     const definition = this.definitions.get(type);
     if (!definition) {
-      throw new BadRequestException(`Unsupported question type: ${String(type)}`);
+      throw new BadRequestException(
+        biBody(
+          `Unsupported question type: ${String(type)}`,
+          `نوع السؤال غير مدعوم: ${String(type)}`,
+        ),
+      );
     }
     return definition;
   }

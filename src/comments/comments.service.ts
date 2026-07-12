@@ -8,13 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { CreateReplyDto } from './dto/create-reply.dto';
 import { Comment } from './entities/comment.entity';
@@ -106,18 +104,18 @@ export class CommentsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Validate student has purchased the lesson
-    const hasPurchase = await this.validateStudentHasPurchasedLesson(
-      studentId,
-      lessonId,
-    );
+    const hasPurchase = await this.validateStudentHasPurchasedLesson(studentId, lessonId);
 
     if (!hasPurchase) {
       throw new ForbiddenException(
-        'You must purchase this lesson before commenting',
+        biBody(
+          'You must purchase this lesson before commenting',
+          'يجب شراء هذا الدرس قبل التعليق عليه',
+        ),
       );
     }
 
@@ -160,7 +158,7 @@ export class CommentsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Get paginated comments (not soft-deleted)
@@ -231,13 +229,16 @@ export class CommentsService {
     });
 
     if (!comment) {
-      throw new NotFoundException('Comment not found');
+      throw new NotFoundException(biBody('Comment not found', 'التعليق غير موجود'));
     }
 
     // Validate teacher owns the lesson
     if (comment.lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
-        'You can only reply to comments on your own lessons',
+        biBody(
+          'You can only reply to comments on your own lessons',
+          'يمكنك الرد فقط على التعليقات الخاصة بدروسك',
+        ),
       );
     }
 
@@ -250,7 +251,10 @@ export class CommentsService {
 
     if (existingReply) {
       throw new BadRequestException(
-        'This comment already has a reply. Only one-level replies are allowed.',
+        biBody(
+          'This comment already has a reply. Only one-level replies are allowed.',
+          'يحتوي هذا التعليق بالفعل على رد. يُسمح فقط بردود من مستوى واحد.',
+        ),
       );
     }
 
@@ -273,7 +277,7 @@ export class CommentsService {
     });
 
     if (!comment) {
-      throw new NotFoundException('Comment not found');
+      throw new NotFoundException(biBody('Comment not found', 'التعليق غير موجود'));
     }
 
     // Soft delete (sets deleted_at)
@@ -290,9 +294,7 @@ export class CommentsService {
   /**
    * Get comment by ID (with replies)
    */
-  public async getCommentById(
-    commentId: string,
-  ): Promise<CommentWithReplies | null> {
+  public async getCommentById(commentId: string): Promise<CommentWithReplies | null> {
     const comment = await this.commentsRepository.findOne({
       where: { id: commentId, deleted_at: IsNull() },
       relations: ['student', 'replies', 'replies.teacher'],

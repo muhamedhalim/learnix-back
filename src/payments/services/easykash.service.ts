@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { biBody } from '../../i18n/error-translator.util';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
 
@@ -59,7 +60,9 @@ export class EasyKashService {
   ): Promise<{ redirectUrl: string; providerReference: string }> {
     if (this.apiUrl === '' || this.apiKey === '') {
       this.logger.error('EasyKash is not configured (EASYKASH_API_URL / EASYKASH_API_KEY missing)');
-      throw new InternalServerErrorException('Payment service unavailable');
+      throw new InternalServerErrorException(
+        biBody('Payment service unavailable', 'خدمة الدفع غير متاحة حاليًا'),
+      );
     }
 
     let response: Response;
@@ -85,13 +88,17 @@ export class EasyKashService {
       });
     } catch (error) {
       this.logger.error('Failed to reach EasyKash create-payment endpoint', error);
-      throw new InternalServerErrorException('Payment service unavailable');
+      throw new InternalServerErrorException(
+        biBody('Payment service unavailable', 'خدمة الدفع غير متاحة حاليًا'),
+      );
     }
 
     if (!response.ok) {
       const errorBody = await response.text();
       this.logger.error(`EasyKash create-payment failed (${response.status}): ${errorBody}`);
-      throw new InternalServerErrorException('Failed to initiate payment');
+      throw new InternalServerErrorException(
+        biBody('Failed to initiate payment', 'فشل بدء عملية الدفع'),
+      );
     }
 
     const data = (await response.json()) as { redirectUrl?: unknown };
@@ -100,7 +107,9 @@ export class EasyKashService {
       this.logger.error(
         `EasyKash create-payment response missing redirectUrl: ${JSON.stringify(data)}`,
       );
-      throw new InternalServerErrorException('Failed to initiate payment');
+      throw new InternalServerErrorException(
+        biBody('Failed to initiate payment', 'فشل بدء عملية الدفع'),
+      );
     }
 
     this.logger.log(`Payment initiated for order ${merchantOrderId}`);

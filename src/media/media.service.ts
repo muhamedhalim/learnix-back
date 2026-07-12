@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
 import { StorageObjectNotFoundError, StoredObject } from '../storage/storage.interface';
 import { StorageService } from '../storage/storage.service';
+import { biBody } from '../i18n/error-translator.util';
 
 /** One year — thumbnail keys are UUID-named and never overwritten in place. */
 const PUBLIC_MEDIA_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
@@ -38,7 +39,7 @@ export class MediaService {
       filename.includes('/') ||
       filename.includes('\\')
     ) {
-      throw new NotFoundException('File not found');
+      throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }
     return `${folder}/${filename}`;
   }
@@ -48,7 +49,7 @@ export class MediaService {
       return await this.storage.getObject(key);
     } catch (err) {
       if (err instanceof StorageObjectNotFoundError) {
-        throw new NotFoundException('File not found');
+        throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
       }
       throw err;
     }

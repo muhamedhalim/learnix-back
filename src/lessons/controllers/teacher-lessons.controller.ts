@@ -31,6 +31,7 @@ import { FILE_LIMITS } from '../../common/constants';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import {
   CreateLessonDto,
   LessonFilterDto,
@@ -64,8 +65,7 @@ export class TeacherLessonsController {
   @Get()
   @ApiOperation({
     summary: 'Get my lessons',
-    description:
-      "Returns a paginated list of the authenticated teacher's lessons. Teacher only.",
+    description: "Returns a paginated list of the authenticated teacher's lessons. Teacher only.",
   })
   @ApiQuery({
     name: 'search',
@@ -142,7 +142,7 @@ export class TeacherLessonsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get one of my lessons',
-    description: "Returns a single lesson by ID for the authenticated teacher.",
+    description: 'Returns a single lesson by ID for the authenticated teacher.',
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -224,12 +224,7 @@ export class TeacherLessonsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateLessonVideoDto,
   ): Promise<unknown> {
-    return await this.lessonsService.updateVideoUrl(
-      id,
-      user.userId,
-      dto.video_url,
-      dto.duration,
-    );
+    return await this.lessonsService.updateVideoUrl(id, user.userId, dto.video_url, dto.duration);
   }
 
   /* ===================== Bunny Stream — backend-proxied upload ===================== */
@@ -262,16 +257,24 @@ export class TeacherLessonsController {
     @UploadedFile() file?: MulterFile,
   ): Promise<unknown> {
     if (!file) {
-      throw new BadRequestException('No video file provided.');
+      throw new BadRequestException(biBody('No video file provided.', 'لم يتم توفير ملف فيديو.'));
     }
     if (!file.mimetype?.startsWith('video/')) {
       throw new BadRequestException(
-        'Unsupported file type. Please upload a video file (MP4, MOV, WebM, …).',
+        biBody(
+          'Unsupported file type. Please upload a video file (MP4, MOV, WebM, …).',
+          'نوع الملف غير مدعوم. يرجى رفع ملف فيديو (MP4، MOV، WebM، ...).',
+        ),
       );
     }
     if (file.size > FILE_LIMITS.VIDEO_MAX_SIZE) {
       const maxGb = Math.round(FILE_LIMITS.VIDEO_MAX_SIZE / (1024 * 1024 * 1024));
-      throw new BadRequestException(`Video is too large (max ${String(maxGb)} GB).`);
+      throw new BadRequestException(
+        biBody(
+          `Video is too large (max ${String(maxGb)} GB).`,
+          `حجم الفيديو كبير جدًا (الحد الأقصى ${String(maxGb)} جيجابايت).`,
+        ),
+      );
     }
     return await this.lessonsService.uploadBunnyVideo(id, user.userId, file);
   }
@@ -343,12 +346,7 @@ export class TeacherLessonsController {
     @Body() dto: UpdateVimeoUrlDto,
   ): Promise<unknown> {
     const vimeoUrl = dto.vimeo_url ?? dto.video_url;
-    return await this.lessonsService.updateVideoUrl(
-      id,
-      user.userId,
-      vimeoUrl,
-      dto.duration,
-    );
+    return await this.lessonsService.updateVideoUrl(id, user.userId, vimeoUrl, dto.duration);
   }
 
   /**
@@ -371,11 +369,7 @@ export class TeacherLessonsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() vimeoDto: UpdateVimeoInfoDto,
   ): Promise<unknown> {
-    const lesson = await this.lessonsService.updateVimeoInfo(
-      id,
-      user.userId,
-      vimeoDto,
-    );
+    const lesson = await this.lessonsService.updateVimeoInfo(id, user.userId, vimeoDto);
     return {
       message: 'Vimeo info updated successfully',
       lesson,

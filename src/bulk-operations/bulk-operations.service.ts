@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import * as Papa from 'papaparse';
@@ -14,6 +9,7 @@ import { AttendanceCodeType } from '../attendance-codes/entities';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { toE164 } from '../common/utils/phone.util';
 import { GuardiansService } from '../guardians/guardians.service';
+import { biBody } from '../i18n/error-translator.util';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
@@ -63,9 +59,7 @@ export class BulkOperationsService {
    * Parse and validate CSV file for student import
    * Returns preview without actually importing
    */
-  public async previewStudentImport(
-    csvContent: string,
-  ): Promise<BulkImportPreviewDto> {
+  public async previewStudentImport(csvContent: string): Promise<BulkImportPreviewDto> {
     const rows = this.parseCsv(csvContent);
 
     const validRows: StudentImportRowDto[] = [];
@@ -77,9 +71,7 @@ export class BulkOperationsService {
 
     // Get existing emails for duplicate check
     const existingEmails = new Set(
-      (await this.usersRepository.find({ select: ['email'] })).map((u) =>
-        u.email.toLowerCase(),
-      ),
+      (await this.usersRepository.find({ select: ['email'] })).map((u) => u.email.toLowerCase()),
     );
 
     let duplicateCount = 0;
@@ -156,20 +148,14 @@ export class BulkOperationsService {
     // Get existing emails for duplicate check
 
     const existingEmails = new Set(
-      (await this.usersRepository.find({ select: ['email'] })).map((u) =>
-        u.email.toLowerCase(),
-      ),
+      (await this.usersRepository.find({ select: ['email'] })).map((u) => u.email.toLowerCase()),
     );
 
     // Process in batches of 50 for transaction efficiency
 
     const batchSize = 50;
 
-    for (
-      let batchStart = 0;
-      batchStart < rows.length;
-      batchStart += batchSize
-    ) {
+    for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
       const batch = rows.slice(batchStart, batchStart + batchSize);
 
       await this.dataSource.transaction(async (manager) => {
@@ -235,9 +221,7 @@ export class BulkOperationsService {
 
     skipped?: boolean | undefined;
 
-    error?:
-      | { row: number; email?: string | undefined; errors: string[] }
-      | undefined;
+    error?: { row: number; email?: string | undefined; errors: string[] } | undefined;
   }> {
     try {
       // Validate row
@@ -274,8 +258,7 @@ export class BulkOperationsService {
 
       return { success: true };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
       return {
         success: false,
@@ -322,9 +305,7 @@ export class BulkOperationsService {
       user_id: savedUser.id,
 
       grade_level:
-        typeof row.grade_level === 'string' && row.grade_level !== ''
-          ? row.grade_level
-          : null,
+        typeof row.grade_level === 'string' && row.grade_level !== '' ? row.grade_level : null,
     });
 
     await manager.save(StudentProfile, profile);
@@ -378,13 +359,7 @@ export class BulkOperationsService {
           deleted_at: IsNull(),
         },
       });
-      return await this.processBulkAction(
-        users,
-        dto,
-        results,
-        filteredIds,
-        adminId,
-      );
+      return await this.processBulkAction(users, dto, results, filteredIds, adminId);
     }
 
     // Fetch all users
@@ -395,13 +370,7 @@ export class BulkOperationsService {
       },
     });
 
-    return await this.processBulkAction(
-      users,
-      dto,
-      results,
-      targetedUserIds,
-      adminId,
-    );
+    return await this.processBulkAction(users, dto, results, targetedUserIds, adminId);
   }
 
   /**
@@ -466,8 +435,7 @@ export class BulkOperationsService {
         await this.usersRepository.save(user);
         results.success_count++;
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         results.errors.push({
           user_id: user.id,
           error: errorMessage,
@@ -510,10 +478,7 @@ export class BulkOperationsService {
       .andWhere('user.deleted_at IS NULL');
 
     // Apply filters
-    if (
-      typeof dto.filter.grade_level === 'string' &&
-      dto.filter.grade_level !== ''
-    ) {
+    if (typeof dto.filter.grade_level === 'string' && dto.filter.grade_level !== '') {
       queryBuilder.andWhere('profile.grade_level = :gradeLevel', {
         gradeLevel: dto.filter.grade_level,
       });
@@ -527,10 +492,7 @@ export class BulkOperationsService {
       }
     }
 
-    if (
-      Array.isArray(dto.filter.student_ids) &&
-      dto.filter.student_ids.length > 0
-    ) {
+    if (Array.isArray(dto.filter.student_ids) && dto.filter.student_ids.length > 0) {
       queryBuilder.andWhere('user.id IN (:...studentIds)', {
         studentIds: dto.filter.student_ids,
       });
@@ -588,7 +550,7 @@ export class BulkOperationsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Use the attendance codes service to generate codes
@@ -640,7 +602,9 @@ export class BulkOperationsService {
         .slice(0, 5)
         .map((e) => e.message)
         .join('; ');
-      throw new BadRequestException(`CSV parsing errors: ${errorMessages}`);
+      throw new BadRequestException(
+        biBody(`CSV parsing errors: ${errorMessages}`, `أخطاء في تحليل ملف CSV: ${errorMessages}`),
+      );
     }
 
     return result.data;
@@ -701,10 +665,7 @@ export class BulkOperationsService {
 
     errors: string[],
   ): void {
-    if (
-      typeof row.parent_phone === 'string' &&
-      row.parent_phone.trim() !== ''
-    ) {
+    if (typeof row.parent_phone === 'string' && row.parent_phone.trim() !== '') {
       // Same acceptance rule as every other entry point into the guardian
       // domain, so a CSV cannot smuggle in a number the API would reject.
       if (toE164(row.parent_phone) === null) {

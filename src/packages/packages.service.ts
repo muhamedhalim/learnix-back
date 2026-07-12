@@ -11,10 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
 import { User } from '../users/entities/user.entity';
@@ -104,16 +102,13 @@ export class PackagesService {
   /**
    * Create a new lesson package
    */
-  public async create(
-    teacherId: string,
-    dto: CreatePackageDto,
-  ): Promise<PackageWithDetails> {
+  public async create(teacherId: string, dto: CreatePackageDto): Promise<PackageWithDetails> {
     const teacher = await this.usersRepository.findOne({
       where: { id: teacherId },
     });
 
     if (!teacher) {
-      throw new NotFoundException('Teacher not found');
+      throw new NotFoundException(biBody('Teacher not found', 'المعلم غير موجود'));
     }
 
     const pkg = this.packagesRepository.create(
@@ -133,9 +128,7 @@ export class PackagesService {
   /**
    * Find all packages with filtering and pagination
    */
-  public async findAll(
-    filter: PackageFilterDto,
-  ): Promise<PaginatedResponse<PackageWithDetails>> {
+  public async findAll(filter: PackageFilterDto): Promise<PaginatedResponse<PackageWithDetails>> {
     const {
       search,
       teacher_id: teacherId,
@@ -157,10 +150,9 @@ export class PackagesService {
       .where('package.deleted_at IS NULL');
 
     if (search !== undefined && search !== '') {
-      queryBuilder.andWhere(
-        '(package.title ILIKE :search OR package.title_ar ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      queryBuilder.andWhere('(package.title ILIKE :search OR package.title_ar ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     if (teacherId !== undefined && teacherId !== '') {
@@ -235,7 +227,9 @@ export class PackagesService {
       .getOne();
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${id} not found`, `الباقة بالمعرّف ${id} غير موجودة`),
+      );
     }
 
     return this.mapToPackageWithDetails(pkg);
@@ -254,11 +248,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own packages');
+      throw new ForbiddenException(
+        biBody('You can only update your own packages', 'يمكنك تحديث باقاتك الخاصة فقط'),
+      );
     }
 
     Object.assign(pkg, dto);
@@ -276,11 +274,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only delete your own packages');
+      throw new ForbiddenException(
+        biBody('You can only delete your own packages', 'يمكنك حذف باقاتك الخاصة فقط'),
+      );
     }
 
     await this.packagesRepository.softDelete(packageId);
@@ -295,7 +297,9 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     await this.packagesRepository.softDelete(packageId);
@@ -325,11 +329,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only modify your own packages');
+      throw new ForbiddenException(
+        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
+      );
     }
 
     const lessonIds = dto.lessons.map((l) => l.lessonId);
@@ -339,13 +347,18 @@ export class PackagesService {
     const duplicates = lessonIds.filter((id) => existingLessonIds.has(id));
     if (duplicates.length > 0) {
       throw new ConflictException(
-        `Lessons already in package: ${duplicates.join(', ')}`,
+        biBody(
+          `Lessons already in package: ${duplicates.join(', ')}`,
+          `الدروس التالية موجودة بالفعل في الباقة: ${duplicates.join(', ')}`,
+        ),
       );
     }
 
     const totalAfter = pkg.items.length + dto.lessons.length;
     if (totalAfter > 20) {
-      throw new BadRequestException('Maximum 20 lessons per package');
+      throw new BadRequestException(
+        biBody('Maximum 20 lessons per package', 'الحد الأقصى 20 درسًا لكل باقة'),
+      );
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -378,11 +391,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only modify your own packages');
+      throw new ForbiddenException(
+        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
+      );
     }
 
     await this.packageItemsRepository
@@ -431,11 +448,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only modify your own packages');
+      throw new ForbiddenException(
+        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
+      );
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -464,11 +485,15 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only modify your own packages');
+      throw new ForbiddenException(
+        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
+      );
     }
 
     pkg.is_active = isActive;
@@ -486,7 +511,9 @@ export class PackagesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
 
     return {
@@ -499,10 +526,7 @@ export class PackagesService {
   /**
    * Validate that all lessons belong to the teacher
    */
-  public async validateLessonsOwnership(
-    lessonIds: string[],
-    teacherId: string,
-  ): Promise<void> {
+  public async validateLessonsOwnership(lessonIds: string[], teacherId: string): Promise<void> {
     const lessons = await this.lessonsRepository
       .createQueryBuilder('lesson')
       .where('lesson.id IN (:...lessonIds)', { lessonIds })
@@ -512,13 +536,21 @@ export class PackagesService {
     if (lessons.length !== lessonIds.length) {
       const foundIds = new Set(lessons.map((l) => l.id));
       const missing = lessonIds.filter((id) => !foundIds.has(id));
-      throw new NotFoundException(`Lessons not found: ${missing.join(', ')}`);
+      throw new NotFoundException(
+        biBody(
+          `Lessons not found: ${missing.join(', ')}`,
+          `الدروس التالية غير موجودة: ${missing.join(', ')}`,
+        ),
+      );
     }
 
     const notOwned = lessons.filter((l) => l.teacher_id !== teacherId);
     if (notOwned.length > 0) {
       throw new ForbiddenException(
-        'All lessons in a package must belong to you',
+        biBody(
+          'All lessons in a package must belong to you',
+          'يجب أن تكون جميع الدروس في الباقة مملوكة لك',
+        ),
       );
     }
   }
@@ -532,8 +564,7 @@ export class PackagesService {
         ? Number.parseFloat(pkg.original_price.toString())
         : null;
     const price = Number.parseFloat(pkg.price.toString());
-    const savings =
-      originalPrice === null ? null : Math.max(0, originalPrice - price);
+    const savings = originalPrice === null ? null : Math.max(0, originalPrice - price);
 
     // `teacher` and `item.lesson` are LEFT-joined relations whose target
     // entities (User, Lesson) both have @DeleteDateColumn. TypeORM silently
@@ -544,9 +575,7 @@ export class PackagesService {
     // (bulk-operations.service.ts) that still has authored packages, or a
     // lesson is soft-deleted while still attached to a package.
     const validItems = pkg.items.filter((item) => item.lesson !== null);
-    const sortedItems = [...validItems].sort(
-      (a, b) => a.order_index - b.order_index,
-    );
+    const sortedItems = [...validItems].sort((a, b) => a.order_index - b.order_index);
 
     return {
       id: pkg.id,
@@ -593,26 +622,24 @@ export class PackagesService {
   /* ===================== Course CMS: chapters & status ===================== */
 
   /** Verify the package exists and belongs to the teacher. */
-  private async assertOwnership(
-    packageId: string,
-    teacherId: string,
-  ): Promise<LessonPackage> {
+  private async assertOwnership(packageId: string, teacherId: string): Promise<LessonPackage> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
     });
     if (!pkg) {
-      throw new NotFoundException(`Course with ID ${packageId} not found`);
+      throw new NotFoundException(
+        biBody(`Course with ID ${packageId} not found`, `الدورة بالمعرّف ${packageId} غير موجودة`),
+      );
     }
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only manage your own courses');
+      throw new ForbiddenException(
+        biBody('You can only manage your own courses', 'يمكنك إدارة دوراتك الخاصة فقط'),
+      );
     }
     return pkg;
   }
 
-  public async listChapters(
-    packageId: string,
-    teacherId: string,
-  ): Promise<CourseChapter[]> {
+  public async listChapters(packageId: string, teacherId: string): Promise<CourseChapter[]> {
     await this.assertOwnership(packageId, teacherId);
     return this.chaptersRepository.find({
       where: { package_id: packageId },
@@ -650,7 +677,9 @@ export class PackagesService {
       where: { id: chapterId, package_id: packageId },
     });
     if (!chapter) {
-      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+      throw new NotFoundException(
+        biBody(`Chapter with ID ${chapterId} not found`, `الفصل بالمعرّف ${chapterId} غير موجود`),
+      );
     }
     Object.assign(chapter, dto);
     return this.chaptersRepository.save(chapter);
@@ -666,7 +695,9 @@ export class PackagesService {
       where: { id: chapterId, package_id: packageId },
     });
     if (!chapter) {
-      throw new NotFoundException(`Chapter with ID ${chapterId} not found`);
+      throw new NotFoundException(
+        biBody(`Chapter with ID ${chapterId} not found`, `الفصل بالمعرّف ${chapterId} غير موجود`),
+      );
     }
     // Lessons keep their place; FK ON DELETE SET NULL clears their chapter_id.
     await this.chaptersRepository.softRemove(chapter);
@@ -685,9 +716,7 @@ export class PackagesService {
 
     // Validate referenced chapters belong to this course.
     const chapterIds = new Set(
-      dto.items
-        .map((i) => i.chapter_id)
-        .filter((c): c is string => typeof c === 'string'),
+      dto.items.map((i) => i.chapter_id).filter((c): c is string => typeof c === 'string'),
     );
     (dto.chapters ?? []).forEach((c) => chapterIds.add(c.id));
     if (chapterIds.size > 0) {
@@ -696,7 +725,10 @@ export class PackagesService {
       });
       if (owned !== chapterIds.size) {
         throw new BadRequestException(
-          'One or more chapters do not belong to this course',
+          biBody(
+            'One or more chapters do not belong to this course',
+            'فصل واحد أو أكثر لا ينتمي إلى هذه الدورة',
+          ),
         );
       }
     }

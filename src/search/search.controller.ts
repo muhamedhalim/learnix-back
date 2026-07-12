@@ -15,6 +15,7 @@ import { GetUser } from '../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import { InCourseSearchDto, SearchQueryDto, SearchType, SuggestQueryDto } from './dto/search.dto';
 import { SearchService } from './search.service';
+import { biBody } from '../i18n/error-translator.util';
 
 @ApiTags('Search')
 @Controller('search')
@@ -63,11 +64,11 @@ export class SearchController {
 
   @Get('recent')
   @ApiOperation({ summary: 'My recent searches (requires sign-in)' })
-  public async recent(
-    @GetUser() user: JwtPayload | undefined,
-  ): Promise<{ data: string[] }> {
+  public async recent(@GetUser() user: JwtPayload | undefined): Promise<{ data: string[] }> {
     if (!user) {
-      throw new UnauthorizedException('Sign in to see recent searches');
+      throw new UnauthorizedException(
+        biBody('Sign in to see recent searches', 'يرجى تسجيل الدخول لعرض عمليات البحث الأخيرة'),
+      );
     }
     const data = await this.searchService.getRecent(user.userId);
     return { data };

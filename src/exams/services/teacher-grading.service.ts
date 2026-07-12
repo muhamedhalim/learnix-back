@@ -9,14 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { GradeAnswerDto } from '../dto';
-import {
-  Exam,
-  ExamAttempt,
-  ExamAttemptAnswer,
-  ExamQuestion,
-  QuestionType,
-} from '../entities';
+import { Exam, ExamAttempt, ExamAttemptAnswer, ExamQuestion, QuestionType } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
@@ -82,7 +77,7 @@ export class TeacherGradingService {
       where: { id: attemptId, exam_id: examId },
       relations: ['student'],
     });
-    if (!attempt) throw new NotFoundException('Attempt not found');
+    if (!attempt) throw new NotFoundException(biBody('Attempt not found', 'المحاولة غير موجودة'));
 
     const answers = await this.answers.find({
       where: { attempt_id: attemptId },
@@ -132,22 +127,32 @@ export class TeacherGradingService {
     const exam = await this.assertExamOwner(examId, teacherId);
 
     const answer = await this.answers.findOne({ where: { id: answerId } });
-    if (!answer) throw new NotFoundException('Answer not found');
+    if (!answer) throw new NotFoundException(biBody('Answer not found', 'الإجابة غير موجودة'));
 
     const attempt = await this.attempts.findOne({ where: { id: answer.attempt_id } });
     if (!attempt || attempt.exam_id !== examId) {
-      throw new NotFoundException('Answer does not belong to this exam');
+      throw new NotFoundException(
+        biBody('Answer does not belong to this exam', 'هذه الإجابة لا تنتمي إلى هذا الاختبار'),
+      );
     }
 
     const examQuestion = await this.examQuestions.findOne({
       where: { id: answer.exam_question_id },
     });
     if (examQuestion && AUTO_GRADED_TYPES.has(examQuestion.type_snapshot)) {
-      throw new BadRequestException('This question is auto-graded and cannot be graded manually');
+      throw new BadRequestException(
+        biBody(
+          'This question is auto-graded and cannot be graded manually',
+          'يتم تصحيح هذا السؤال تلقائيًا ولا يمكن تصحيحه يدويًا',
+        ),
+      );
     }
     if (dto.score > answer.max_score) {
       throw new BadRequestException(
-        `Score (${String(dto.score)}) exceeds the maximum marks (${String(answer.max_score)})`,
+        biBody(
+          `Score (${String(dto.score)}) exceeds the maximum marks (${String(answer.max_score)})`,
+          `الدرجة (${String(dto.score)}) تتجاوز الحد الأقصى للدرجات (${String(answer.max_score)})`,
+        ),
       );
     }
 
@@ -187,13 +192,22 @@ export class TeacherGradingService {
 
   private async assertExamOwner(examId: string, teacherId: string): Promise<Exam> {
     const exam = await this.exams.findOne({ where: { id: examId } });
-    if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.teacher_id !== teacherId) throw new ForbiddenException('Not your exam');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
+    if (exam.teacher_id !== teacherId) {
+      throw new ForbiddenException(biBody('Not your exam', 'هذا الاختبار ليس ملكك'));
+    }
     return exam;
   }
 
   private meta(total: number, page: number, limit: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
-    return { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 }

@@ -13,6 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, LessThan, Repository } from 'typeorm';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import { biBody } from '../../i18n/error-translator.util';
 import { PaymentsService } from '../../payments/services/payments.service';
 import { SaveAnswersDto, SubmitAttemptDto } from '../dto';
 import {
@@ -110,12 +111,19 @@ export class AttemptService {
       where: { exam_id: examId, student_id: studentId },
     });
     if (priorAttempts >= exam.config.attempts_allowed) {
-      throw new ConflictException('You have used all of your attempts for this exam');
+      throw new ConflictException(
+        biBody(
+          'You have used all of your attempts for this exam',
+          'لقد استنفدت جميع محاولاتك المتاحة لهذا الاختبار',
+        ),
+      );
     }
 
     const examQuestions = await this.examQuestions.find({ where: { exam_id: examId } });
     if (examQuestions.length === 0) {
-      throw new BadRequestException('This exam has no questions');
+      throw new BadRequestException(
+        biBody('This exam has no questions', 'لا يحتوي هذا الاختبار على أي أسئلة'),
+      );
     }
 
     const now = new Date();
@@ -162,7 +170,9 @@ export class AttemptService {
           where: { exam_id: examId, student_id: studentId, state: AttemptState.IN_PROGRESS },
         });
         if (existing) return this.renderAttempt(existing);
-        throw new ConflictException('An attempt is already in progress');
+        throw new ConflictException(
+          biBody('An attempt is already in progress', 'توجد محاولة قيد التقدم بالفعل'),
+        );
       }
       throw err;
     }
@@ -195,7 +205,9 @@ export class AttemptService {
     const exam = await this.exams.findOneOrFail({ where: { id: examId } });
     const examQuestions = await this.examQuestions.find({ where: { exam_id: examId } });
     if (examQuestions.length === 0) {
-      throw new BadRequestException('This exam has no questions');
+      throw new BadRequestException(
+        biBody('This exam has no questions', 'لا يحتوي هذا الاختبار على أي أسئلة'),
+      );
     }
 
     const now = new Date();
@@ -248,12 +260,22 @@ export class AttemptService {
   ): Promise<{ saved: number; state: AttemptState }> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
     if (attempt.state !== AttemptState.IN_PROGRESS) {
-      throw new ConflictException(`Attempt is ${attempt.state}; answers can no longer be saved`);
+      throw new ConflictException(
+        biBody(
+          `Attempt is ${attempt.state}; answers can no longer be saved`,
+          `المحاولة في حالة ${attempt.state}؛ لم يعد بالإمكان حفظ الإجابات`,
+        ),
+      );
     }
     const exam = await this.exams.findOneOrFail({ where: { id: attempt.exam_id } });
     if (this.isExpired(attempt, exam.config)) {
       await this.finalizeIfExpired(attempt);
-      throw new ConflictException('Time is up; the attempt has been submitted automatically');
+      throw new ConflictException(
+        biBody(
+          'Time is up; the attempt has been submitted automatically',
+          'انتهى الوقت؛ تم إرسال المحاولة تلقائيًا',
+        ),
+      );
     }
 
     const rows = await this.answers.find({ where: { attempt_id: attemptId } });
@@ -348,7 +370,8 @@ export class AttemptService {
           where: { id: attemptId },
           lock: { mode: 'pessimistic_write' },
         });
-        if (!attempt) throw new NotFoundException('Attempt not found');
+        if (!attempt)
+          throw new NotFoundException(biBody('Attempt not found', 'المحاولة غير موجودة'));
 
         // Idempotent: already finalised → return the current summary, no re-grade.
         if (attempt.state !== AttemptState.IN_PROGRESS) {
@@ -363,7 +386,9 @@ export class AttemptService {
         }
 
         const exam = await manager.findOneOrFail(Exam, { where: { id: attempt.exam_id } });
-        const answers = await manager.find(ExamAttemptAnswer, { where: { attempt_id: attempt.id } });
+        const answers = await manager.find(ExamAttemptAnswer, {
+          where: { attempt_id: attempt.id },
+        });
         const examQuestions = await manager.find(ExamQuestion, {
           where: { exam_id: attempt.exam_id },
         });
@@ -434,7 +459,10 @@ export class AttemptService {
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },
     });
-    if (!attempt) throw new NotFoundException('You have not attempted this exam');
+    if (!attempt)
+      throw new NotFoundException(
+        biBody('You have not attempted this exam', 'لم تقم بأداء هذا الاختبار'),
+      );
 
     const exam = await this.exams.findOneOrFail({ where: { id: examId } });
     const visible = this.resultVisible(attempt, exam.config);
@@ -492,35 +520,42 @@ export class AttemptService {
 
   private async loadOpenExam(examId: string): Promise<Exam> {
     const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
-    if (!exam) throw new NotFoundException('Exam not found');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
     return exam;
   }
 
   private async assertAccessible(exam: Exam, studentId: string): Promise<void> {
     if (exam.status !== ExamStatus.PUBLISHED && exam.status !== ExamStatus.SCHEDULED) {
-      throw new ForbiddenException('This exam is not available');
+      throw new ForbiddenException(biBody('This exam is not available', 'هذا الاختبار غير متاح'));
     }
     const now = Date.now();
     const { start_window_at: start, end_window_at: end } = exam.config;
     if (start != null && now < new Date(start).getTime()) {
-      throw new ForbiddenException('This exam has not opened yet');
+      throw new ForbiddenException(
+        biBody('This exam has not opened yet', 'لم يفتح هذا الاختبار بعد'),
+      );
     }
     if (end != null && now > new Date(end).getTime()) {
-      throw new ForbiddenException('This exam has closed');
+      throw new ForbiddenException(biBody('This exam has closed', 'تم إغلاق هذا الاختبار'));
     }
     if (exam.lesson_id != null) {
       const hasAccess = await this.payments.hasLessonPlaybackAccess(studentId, exam.lesson_id);
       if (!hasAccess) {
-        throw new ForbiddenException('You must be enrolled in the related lesson to take this exam');
+        throw new ForbiddenException(
+          biBody(
+            'You must be enrolled in the related lesson to take this exam',
+            'يجب أن تكون مسجلاً في الدرس المرتبط لأداء هذا الاختبار',
+          ),
+        );
       }
     }
   }
 
   private async loadOwnedAttempt(studentId: string, attemptId: string): Promise<ExamAttempt> {
     const attempt = await this.attempts.findOne({ where: { id: attemptId } });
-    if (!attempt) throw new NotFoundException('Attempt not found');
+    if (!attempt) throw new NotFoundException(biBody('Attempt not found', 'المحاولة غير موجودة'));
     if (attempt.student_id !== studentId) {
-      throw new ForbiddenException('This is not your attempt');
+      throw new ForbiddenException(biBody('This is not your attempt', 'هذه ليست محاولتك'));
     }
     return attempt;
   }
@@ -536,7 +571,9 @@ export class AttemptService {
       case ReviewPolicy.AFTER_SUBMIT:
         return attempt.state !== AttemptState.IN_PROGRESS;
       case ReviewPolicy.AFTER_CLOSE:
-        return config.end_window_at != null && Date.now() > new Date(config.end_window_at).getTime();
+        return (
+          config.end_window_at != null && Date.now() > new Date(config.end_window_at).getTime()
+        );
       case ReviewPolicy.AFTER_GRADED:
       default:
         return attempt.state === AttemptState.GRADED;
@@ -603,10 +640,7 @@ export class AttemptService {
     if (!eq) return {};
     const content = { ...eq.content_snapshot };
     if (config.shuffle_choices && Array.isArray(content['options'])) {
-      content['options'] = seededShuffle(
-        content['options'] as unknown[],
-        deriveSeed(seed, eq.id),
-      );
+      content['options'] = seededShuffle(content['options'] as unknown[], deriveSeed(seed, eq.id));
     }
     return content;
   }
@@ -626,9 +660,15 @@ export class AttemptService {
   }
 
   private isOpenAttemptConflict(err: unknown): boolean {
-    const e = err as { code?: string; constraint?: string; driverError?: { code?: string; constraint?: string } };
+    const e = err as {
+      code?: string;
+      constraint?: string;
+      driverError?: { code?: string; constraint?: string };
+    };
     const code = e.code ?? e.driverError?.code;
     const constraint = e.constraint ?? e.driverError?.constraint;
-    return code === '23505' && constraint !== undefined && ATTEMPT_CONFLICT_CONSTRAINTS.has(constraint);
+    return (
+      code === '23505' && constraint !== undefined && ATTEMPT_CONFLICT_CONSTRAINTS.has(constraint)
+    );
   }
 }

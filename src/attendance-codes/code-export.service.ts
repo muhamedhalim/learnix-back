@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { LessThan, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { applyCodeSelection, CodeSelection } from './code-query.util';
 import { CodeExportFilterDto, CreateCodeExportDto } from './dto';
@@ -247,7 +248,7 @@ export class CodeExportService {
       where: { id },
       relations: ['creator'],
     });
-    if (!record) throw new NotFoundException('Export not found');
+    if (!record) throw new NotFoundException(biBody('Export not found', 'التصدير غير موجود'));
     return record;
   }
 
@@ -265,7 +266,7 @@ export class CodeExportService {
       !record.file_path ||
       !existsSync(record.file_path)
     ) {
-      throw new NotFoundException('Export file is not available');
+      throw new NotFoundException(biBody('Export file is not available', 'ملف التصدير غير متاح'));
     }
 
     await this.auditRepo.insert({

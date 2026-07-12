@@ -1,14 +1,11 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, IsNull, Repository } from 'typeorm';
 
 import { CartService } from '../cart/cart.service';
 import { CartItemType } from '../cart/entities/cart-item.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import {
@@ -60,7 +57,9 @@ export class WishlistService {
     });
 
     if (existing) {
-      throw new ConflictException('Item is already in your wishlist');
+      throw new ConflictException(
+        biBody('Item is already in your wishlist', 'العنصر موجود بالفعل في قائمة رغباتك'),
+      );
     }
 
     const entry = this.wishlistRepository.create({
@@ -79,10 +78,7 @@ export class WishlistService {
    * catalogue "heart" button can flip without knowing the wishlist entry id.
    * Idempotent by design (calling twice returns to the original state).
    */
-  public async toggle(
-    userId: string,
-    dto: AddToWishlistDto,
-  ): Promise<{ wishlisted: boolean }> {
+  public async toggle(userId: string, dto: AddToWishlistDto): Promise<{ wishlisted: boolean }> {
     const existing = await this.wishlistRepository.findOne({
       where: {
         user_id: userId,
@@ -110,10 +106,7 @@ export class WishlistService {
    * List the user's wishlist with resolved item details, filtered and sorted.
    * Item details are resolved in at most two `IN (...)` queries (no N+1).
    */
-  public async getWishlist(
-    userId: string,
-    query: WishlistQueryDto,
-  ): Promise<WishlistResponseDto> {
+  public async getWishlist(userId: string, query: WishlistQueryDto): Promise<WishlistResponseDto> {
     const where = query.itemType
       ? { user_id: userId, item_type: query.itemType }
       : { user_id: userId };
@@ -161,7 +154,9 @@ export class WishlistService {
     });
 
     if (!entry) {
-      throw new NotFoundException('Wishlist item not found');
+      throw new NotFoundException(
+        biBody('Wishlist item not found', 'عنصر قائمة الرغبات غير موجود'),
+      );
     }
 
     await this.wishlistRepository.remove(entry);
@@ -179,7 +174,9 @@ export class WishlistService {
     });
 
     if (!entry) {
-      throw new NotFoundException('Wishlist item not found');
+      throw new NotFoundException(
+        biBody('Wishlist item not found', 'عنصر قائمة الرغبات غير موجود'),
+      );
     }
 
     try {
@@ -251,10 +248,7 @@ export class WishlistService {
     };
   }
 
-  private sortItems(
-    items: WishlistItemResponseDto[],
-    sort: WishlistSort,
-  ): void {
+  private sortItems(items: WishlistItemResponseDto[], sort: WishlistSort): void {
     switch (sort) {
       case WishlistSort.OLDEST:
         items.sort((a, b) => a.addedAt.getTime() - b.addedAt.getTime());
@@ -322,17 +316,16 @@ export class WishlistService {
     return resolved;
   }
 
-  private async assertItemExists(
-    itemType: WishlistItemType,
-    itemId: string,
-  ): Promise<void> {
+  private async assertItemExists(itemType: WishlistItemType, itemId: string): Promise<void> {
     if (itemType === WishlistItemType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: itemId, deleted_at: IsNull() },
         select: { id: true },
       });
       if (!lesson) {
-        throw new NotFoundException(`Lesson with ID ${itemId} not found`);
+        throw new NotFoundException(
+          biBody(`Lesson with ID ${itemId} not found`, `الدرس بالمعرّف ${itemId} غير موجود`),
+        );
       }
       return;
     }
@@ -342,7 +335,9 @@ export class WishlistService {
       select: { id: true },
     });
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${itemId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${itemId} not found`, `الباقة بالمعرّف ${itemId} غير موجودة`),
+      );
     }
   }
 }

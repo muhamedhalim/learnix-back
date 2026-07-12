@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { User } from './users/entities/user.entity';
 import { UserRole } from './users/entities/user-role.enum';
 import { UserStatus } from './users/entities/user-status.enum';
+import { biBody } from './i18n/error-translator.util';
 
 @Injectable()
 export class AppService implements OnApplicationBootstrap {
@@ -26,7 +27,9 @@ export class AppService implements OnApplicationBootstrap {
     try {
       await this.initAdmin();
     } catch (error) {
-      this.logger.warn(`Admin auto-initialization skipped: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.warn(
+        `Admin auto-initialization skipped: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -77,7 +80,10 @@ export class AppService implements OnApplicationBootstrap {
       adminPassword === ''
     ) {
       throw new BadRequestException(
-        'Admin initialization requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables to be set.',
+        biBody(
+          'Admin initialization requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables to be set.',
+          'يتطلب تهيئة المسؤول ضبط متغيرات البيئة ADMIN_INIT_EMAIL وADMIN_INIT_PASSWORD.',
+        ),
       );
     }
 

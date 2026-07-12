@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { StorageObjectNotFoundError, StoredObject } from '../../storage/storage.interface';
 import { StorageService } from '../../storage/storage.service';
 import { BookFilterDto } from '../dto';
@@ -57,7 +58,9 @@ export class BookPurchasesService {
     // Check if already purchased
     const existing = await this.checkAlreadyPurchased(studentId, bookId);
     if (existing) {
-      throw new ConflictException('You have already purchased this book');
+      throw new ConflictException(
+        biBody('You have already purchased this book', 'لقد قمت بشراء هذا الكتاب بالفعل'),
+      );
     }
 
     // Verify book exists
@@ -188,7 +191,7 @@ export class BookPurchasesService {
       return { object, book };
     } catch (err) {
       if (err instanceof StorageObjectNotFoundError) {
-        throw new NotFoundException('Book file not found');
+        throw new NotFoundException(biBody('Book file not found', 'ملف الكتاب غير موجود'));
       }
       throw err;
     }
@@ -199,7 +202,9 @@ export class BookPurchasesService {
     const purchase = await this.checkAlreadyPurchased(studentId, bookId);
 
     if (!purchase) {
-      throw new ForbiddenException('You have not purchased this book');
+      throw new ForbiddenException(
+        biBody('You have not purchased this book', 'لم تقم بشراء هذا الكتاب'),
+      );
     }
 
     const book = await this.booksService.findOne(bookId);
@@ -216,7 +221,9 @@ export class BookPurchasesService {
     });
 
     if (!purchase) {
-      throw new NotFoundException(`Purchase with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Purchase with ID ${id} not found`, `عملية الشراء بالمعرّف ${id} غير موجودة`),
+      );
     }
 
     return purchase;

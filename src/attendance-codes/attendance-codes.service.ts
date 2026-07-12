@@ -6,6 +6,7 @@ import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { computeAccessExpiresAt } from '../common/utils/lesson-access.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import {
@@ -58,14 +59,14 @@ export class AttendanceCodesService {
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
       if (!lesson) {
-        throw new NotFoundException('Lesson not found');
+        throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
       }
     } else if (dto.type === AttendanceCodeType.PACKAGE) {
       const pkg = await this.packagesRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
       });
       if (!pkg) {
-        throw new NotFoundException('Package not found');
+        throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
       }
     }
 
@@ -178,7 +179,12 @@ export class AttendanceCodesService {
       });
 
       if (!code) {
-        throw new NotFoundException('Invalid, expired, or deactivated purchase code');
+        throw new NotFoundException(
+          biBody(
+            'Invalid, expired, or deactivated purchase code',
+            'رمز الشراء غير صالح أو منتهي الصلاحية أو معطل',
+          ),
+        );
       }
 
       // Mark as used (canonical lifecycle → REDEEMED) and record the audit.
@@ -276,7 +282,7 @@ export class AttendanceCodesService {
     });
 
     if (!pkg) {
-      throw new NotFoundException('Package not found');
+      throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
     }
 
     // Create package purchase
@@ -388,22 +394,28 @@ export class AttendanceCodesService {
     });
 
     if (!attendanceCode) {
-      throw new NotFoundException('Purchase code not found');
+      throw new NotFoundException(biBody('Purchase code not found', 'رمز الشراء غير موجود'));
     }
 
     if (attendanceCode.is_used) {
-      throw new BadRequestException('Cannot update a used purchase code');
+      throw new BadRequestException(
+        biBody('Cannot update a used purchase code', 'لا يمكن تعديل رمز شراء تم استخدامه بالفعل'),
+      );
     }
 
     if (!attendanceCode.is_active) {
-      throw new BadRequestException('Cannot update a deactivated purchase code');
+      throw new BadRequestException(
+        biBody('Cannot update a deactivated purchase code', 'لا يمكن تعديل رمز شراء تم تعطيله'),
+      );
     }
 
     // Update expiration date if provided
     if (typeof dto.expires_at === 'string') {
       const newExpiresAt = new Date(dto.expires_at);
       if (newExpiresAt <= new Date()) {
-        throw new BadRequestException('Expiration date must be in the future');
+        throw new BadRequestException(
+          biBody('Expiration date must be in the future', 'يجب أن يكون تاريخ الانتهاء في المستقبل'),
+        );
       }
       attendanceCode.expires_at = newExpiresAt;
     }
@@ -425,15 +437,22 @@ export class AttendanceCodesService {
     });
 
     if (!attendanceCode) {
-      throw new NotFoundException('Purchase code not found');
+      throw new NotFoundException(biBody('Purchase code not found', 'رمز الشراء غير موجود'));
     }
 
     if (attendanceCode.is_used) {
-      throw new BadRequestException('Cannot deactivate a used purchase code');
+      throw new BadRequestException(
+        biBody(
+          'Cannot deactivate a used purchase code',
+          'لا يمكن تعطيل رمز شراء تم استخدامه بالفعل',
+        ),
+      );
     }
 
     if (!attendanceCode.is_active) {
-      throw new BadRequestException('Purchase code is already deactivated');
+      throw new BadRequestException(
+        biBody('Purchase code is already deactivated', 'رمز الشراء معطل بالفعل'),
+      );
     }
 
     attendanceCode.is_active = false;
@@ -453,21 +472,31 @@ export class AttendanceCodesService {
     });
 
     if (!attendanceCode) {
-      throw new NotFoundException('Purchase code not found');
+      throw new NotFoundException(biBody('Purchase code not found', 'رمز الشراء غير موجود'));
     }
 
     if (attendanceCode.is_used) {
-      throw new BadRequestException('Cannot reactivate a used purchase code');
+      throw new BadRequestException(
+        biBody(
+          'Cannot reactivate a used purchase code',
+          'لا يمكن إعادة تفعيل رمز شراء تم استخدامه بالفعل',
+        ),
+      );
     }
 
     if (attendanceCode.is_active) {
-      throw new BadRequestException('Purchase code is already active');
+      throw new BadRequestException(
+        biBody('Purchase code is already active', 'رمز الشراء مفعّل بالفعل'),
+      );
     }
 
     // Check if code is expired
     if (attendanceCode.expires_at < new Date()) {
       throw new BadRequestException(
-        'Cannot reactivate an expired code. Update the expiration date first.',
+        biBody(
+          'Cannot reactivate an expired code. Update the expiration date first.',
+          'لا يمكن إعادة تفعيل رمز منتهي الصلاحية. يرجى تحديث تاريخ الانتهاء أولاً.',
+        ),
       );
     }
 
@@ -503,7 +532,7 @@ export class AttendanceCodesService {
     });
 
     if (!attendanceCode) {
-      throw new NotFoundException('Purchase code not found');
+      throw new NotFoundException(biBody('Purchase code not found', 'رمز الشراء غير موجود'));
     }
 
     return {
@@ -534,11 +563,13 @@ export class AttendanceCodesService {
     });
 
     if (!attendanceCode) {
-      throw new NotFoundException('Purchase code not found');
+      throw new NotFoundException(biBody('Purchase code not found', 'رمز الشراء غير موجود'));
     }
 
     if (attendanceCode.is_used) {
-      throw new BadRequestException('Cannot delete a used purchase code');
+      throw new BadRequestException(
+        biBody('Cannot delete a used purchase code', 'لا يمكن حذف رمز شراء تم استخدامه بالفعل'),
+      );
     }
 
     await this.attendanceCodesRepository.remove(attendanceCode);

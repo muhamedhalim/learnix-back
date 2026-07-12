@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 
 import { logAndThrow } from '../common/utils/error-handler.util';
+import { biBody } from '../i18n/error-translator.util';
 
 @Injectable()
 export class FirebaseService {
@@ -48,9 +49,7 @@ export class FirebaseService {
 
         // Basic validation logging (redacted)
         if (!formattedKey.includes('-----BEGIN PRIVATE KEY-----')) {
-          this.logger.error(
-            'Firebase Private Key seems to be missing the standard header.',
-          );
+          this.logger.error('Firebase Private Key seems to be missing the standard header.');
         }
 
         this.firebaseApp = admin.initializeApp({
@@ -69,11 +68,11 @@ export class FirebaseService {
     }
   }
 
-  public async verifyToken(
-    idToken: string,
-  ): Promise<admin.auth.DecodedIdToken> {
+  public async verifyToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
     if (!this.firebaseApp) {
-      throw new UnauthorizedException('Firebase is not initialized');
+      throw new UnauthorizedException(
+        biBody('Firebase is not initialized', 'لم يتم تهيئة Firebase'),
+      );
     }
 
     try {
@@ -83,7 +82,9 @@ export class FirebaseService {
         this.logger,
         error,
         'Firebase token verification failed',
-        new UnauthorizedException('Invalid or expired Firebase token'),
+        new UnauthorizedException(
+          biBody('Invalid or expired Firebase token', 'رمز Firebase غير صالح أو منتهي الصلاحية'),
+        ),
       );
     }
   }

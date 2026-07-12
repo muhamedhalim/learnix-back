@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { biBody } from '../../i18n/error-translator.util';
 import { StorageService } from '../../storage/storage.service';
 import { CreateOmrSheetDto } from '../dto';
 import { Exam, OmrSheet, OmrSheetStatus } from '../entities';
@@ -44,15 +50,31 @@ export class OmrSheetsService {
   ): Promise<OmrSheet> {
     await this.assertOwned(examId, teacherId);
 
-    if (!file) throw new BadRequestException('No answer sheet image provided');
+    if (!file) {
+      throw new BadRequestException(
+        biBody('No answer sheet image provided', 'لم يتم تقديم صورة ورقة الإجابة'),
+      );
+    }
     if (!IMAGE_TYPES.includes(file.mimetype)) {
-      throw new BadRequestException(`Unsupported image type: ${file.mimetype}`);
+      throw new BadRequestException(
+        biBody(
+          `Unsupported image type: ${file.mimetype}`,
+          `نوع الصورة غير مدعوم: ${file.mimetype}`,
+        ),
+      );
     }
     if (file.size > MAX_IMAGE_BYTES) {
-      throw new BadRequestException(`Image too large (max ${String(MAX_IMAGE_BYTES / (1024 * 1024))} MB)`);
+      throw new BadRequestException(
+        biBody(
+          `Image too large (max ${String(MAX_IMAGE_BYTES / (1024 * 1024))} MB)`,
+          `حجم الصورة كبير جدًا (الحد الأقصى ${String(MAX_IMAGE_BYTES / (1024 * 1024))} ميجابايت)`,
+        ),
+      );
     }
     if (dto.answers.length === 0) {
-      throw new BadRequestException('No detected answers provided');
+      throw new BadRequestException(
+        biBody('No detected answers provided', 'لم يتم تقديم أي إجابات مكتشفة'),
+      );
     }
 
     const key = `omr-sheets/${randomUUID()}${extname(file.originalname) || '.jpg'}`;
@@ -87,13 +109,18 @@ export class OmrSheetsService {
   public async findOne(examId: string, teacherId: string, sheetId: string): Promise<OmrSheet> {
     await this.assertOwned(examId, teacherId);
     const sheet = await this.sheets.findOne({ where: { id: sheetId, exam_id: examId } });
-    if (!sheet) throw new NotFoundException('OMR sheet not found');
+    if (!sheet)
+      throw new NotFoundException(biBody('OMR sheet not found', 'ورقة الإجابة غير موجودة'));
     return sheet;
   }
 
   private async assertOwned(examId: string, teacherId: string): Promise<void> {
     const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
-    if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.teacher_id !== teacherId) throw new ForbiddenException('You can only manage your own exams');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
+    if (exam.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only manage your own exams', 'يمكنك فقط إدارة اختباراتك الخاصة'),
+      );
+    }
   }
 }

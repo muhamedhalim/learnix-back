@@ -11,6 +11,8 @@ import { ConfigService } from '@nestjs/config';
 
 import type { Request } from 'express';
 
+import { biBody } from '../i18n/error-translator.util';
+
 @Injectable()
 export class MetricsBearerGuard implements CanActivate {
   public constructor(private readonly configService: ConfigService) {}
@@ -20,7 +22,10 @@ export class MetricsBearerGuard implements CanActivate {
 
     if (!configuredToken) {
       throw new ServiceUnavailableException(
-        'Metrics endpoint is disabled until METRICS_BEARER_TOKEN is configured',
+        biBody(
+          'Metrics endpoint is disabled until METRICS_BEARER_TOKEN is configured',
+          'نقطة نهاية المقاييس معطلة حتى يتم ضبط METRICS_BEARER_TOKEN',
+        ),
       );
     }
 
@@ -31,7 +36,9 @@ export class MetricsBearerGuard implements CanActivate {
       : '';
 
     if (!this.tokensMatch(suppliedToken, configuredToken)) {
-      throw new UnauthorizedException('Invalid metrics bearer token');
+      throw new UnauthorizedException(
+        biBody('Invalid metrics bearer token', 'رمز المقاييس غير صالح'),
+      );
     }
 
     return true;

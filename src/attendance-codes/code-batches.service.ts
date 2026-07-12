@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { In, IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
@@ -257,7 +258,7 @@ export class CodeBatchesService {
       where: { id },
       relations: ['creator'],
     });
-    if (!batch) throw new NotFoundException('Batch not found');
+    if (!batch) throw new NotFoundException(biBody('Batch not found', 'الدفعة غير موجودة'));
     const analytics = await this.getAnalytics({ batch_id: id });
     return Object.assign(batch, { analytics });
   }
@@ -402,7 +403,7 @@ export class CodeBatchesService {
    */
   public async getTimeline(batchId: string): Promise<BatchTimelineEvent[]> {
     const batch = await this.batchRepo.findOne({ where: { id: batchId } });
-    if (!batch) throw new NotFoundException('Batch not found');
+    if (!batch) throw new NotFoundException(biBody('Batch not found', 'الدفعة غير موجودة'));
 
     const audits = await this.auditRepo
       .createQueryBuilder('audit')
@@ -558,7 +559,7 @@ export class CodeBatchesService {
   /** PNG QR image for a single code (admin preview / single-print). */
   public async getCodeQrPng(codeId: string): Promise<Buffer> {
     const code = await this.codeRepo.findOne({ where: { id: codeId } });
-    if (!code) throw new NotFoundException('Code not found');
+    if (!code) throw new NotFoundException(biBody('Code not found', 'الرمز غير موجود'));
     const base = process.env['CODE_REDEEM_BASE_URL'] ?? '';
     return generateQrPngBuffer(code.code, base);
   }
@@ -575,12 +576,12 @@ export class CodeBatchesService {
       const found = await this.lessonsRepo.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
-      if (!found) throw new NotFoundException('Lesson not found');
+      if (!found) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     } else if (type === AttendanceCodeType.PACKAGE) {
       const found = await this.packagesRepo.findOne({
         where: { id: itemId, deleted_at: IsNull() },
       });
-      if (!found) throw new NotFoundException('Package not found');
+      if (!found) throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
     }
     // BOOK items are validated by the books module elsewhere; parity with the
     // existing single-code generation which does not re-validate books here.

@@ -10,6 +10,7 @@ import { QuestionSolve, StudentGameProfile, StudentSubjectRating } from '../enti
 import { levelProgress } from '../logic/leveling';
 import { LeaderboardService } from './leaderboard.service';
 import { RankService } from './rank.service';
+import { biBody } from '../../i18n/error-translator.util';
 
 /**
  * Builds the PUBLIC student profile (`/u/:username`) — safe to serve to
@@ -22,7 +23,8 @@ export class PublicProfileService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(StudentProfile) private readonly studentProfiles: Repository<StudentProfile>,
     @InjectRepository(StudentGameProfile) private readonly games: Repository<StudentGameProfile>,
-    @InjectRepository(StudentSubjectRating) private readonly subjectRatings: Repository<StudentSubjectRating>,
+    @InjectRepository(StudentSubjectRating)
+    private readonly subjectRatings: Repository<StudentSubjectRating>,
     @InjectRepository(QuestionSolve) private readonly solves: Repository<QuestionSolve>,
     private readonly rankService: RankService,
     private readonly leaderboard: LeaderboardService,
@@ -32,7 +34,7 @@ export class PublicProfileService {
     const user = await this.users.findOne({
       where: { username, role: UserRole.STUDENT },
     });
-    if (!user) throw new NotFoundException('Student not found');
+    if (!user) throw new NotFoundException(biBody('Student not found', 'الطالب غير موجود'));
 
     const [game, studentProfile] = await Promise.all([
       this.games.findOne({ where: { user_id: user.id } }),
@@ -56,7 +58,13 @@ export class PublicProfileService {
         .addSelect('ssr.correct', 'correct')
         .orderBy('ssr.rating', 'DESC')
         .limit(12)
-        .getRawMany<{ subject_id: string; subject_name: string; rating: string; solved: number; correct: number }>(),
+        .getRawMany<{
+          subject_id: string;
+          subject_name: string;
+          rating: string;
+          solved: number;
+          correct: number;
+        }>(),
       this.solves
         .createQueryBuilder('qs')
         .leftJoin('subjects', 's', 's.id = qs.subject_id')
@@ -69,7 +77,14 @@ export class PublicProfileService {
         .addSelect('qs.created_at', 'created_at')
         .orderBy('qs.created_at', 'DESC')
         .limit(15)
-        .getRawMany<{ id: string; subject_name: string; difficulty: string; is_correct: boolean; xp_awarded: number; created_at: Date }>(),
+        .getRawMany<{
+          id: string;
+          subject_name: string;
+          difficulty: string;
+          is_correct: boolean;
+          xp_awarded: number;
+          created_at: Date;
+        }>(),
     ]);
 
     const totalSolved = game ? game.total_solved : 0;

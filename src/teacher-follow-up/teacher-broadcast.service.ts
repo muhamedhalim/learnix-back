@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -14,6 +19,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { PARENT_EVENT_CHANNEL, TeacherMessageEvent } from '../notifications/events/parent-events';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { User } from '../users/entities/user.entity';
 import { BroadcastScope, TeacherBroadcastDto } from './dto/teacher-broadcast.dto';
 
@@ -47,8 +53,10 @@ export class TeacherBroadcastService {
     @InjectRepository(User) private readonly users: Repository<User>,
     @InjectRepository(Lesson) private readonly lessons: Repository<Lesson>,
     @InjectRepository(LessonPurchase) private readonly lessonPurchases: Repository<LessonPurchase>,
-    @InjectRepository(PackagePurchase) private readonly packagePurchases: Repository<PackagePurchase>,
-    @InjectRepository(AttendanceRecord) private readonly attendanceRecords: Repository<AttendanceRecord>,
+    @InjectRepository(PackagePurchase)
+    private readonly packagePurchases: Repository<PackagePurchase>,
+    @InjectRepository(AttendanceRecord)
+    private readonly attendanceRecords: Repository<AttendanceRecord>,
     @InjectRepository(ExamAttempt) private readonly examAttempts: Repository<ExamAttempt>,
     private readonly guardians: GuardiansService,
     private readonly events: EventEmitter2,
@@ -126,16 +134,26 @@ export class TeacherBroadcastService {
 
   private requireLessonId(dto: TeacherBroadcastDto): string {
     if (dto.lessonId === undefined) {
-      throw new BadRequestException(`lessonId is required for the "${dto.scope}" scope`);
+      throw new BadRequestException(
+        biBody(
+          `lessonId is required for the "${dto.scope}" scope`,
+          `معرّف الدرس مطلوب لنطاق "${dto.scope}"`,
+        ),
+      );
     }
     return dto.lessonId;
   }
 
   private async assertOwnsLesson(teacherId: string, lessonId: string): Promise<void> {
     const lesson = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
-    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (!lesson) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only message students in your own lessons');
+      throw new ForbiddenException(
+        biBody(
+          'You can only message students in your own lessons',
+          'يمكنك مراسلة الطلاب في دروسك الخاصة فقط',
+        ),
+      );
     }
   }
 

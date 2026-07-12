@@ -15,6 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { biBody } from '../i18n/error-translator.util';
 import { StorageService } from '../storage/storage.service';
 
 interface MulterFile {
@@ -91,14 +92,19 @@ export class TeacherUploadsController {
     @UploadedFile() file?: MulterFile,
   ): Promise<{ key: string; name: string; size: number }> {
     if (!file) {
-      throw new BadRequestException('No file provided');
+      throw new BadRequestException(biBody('No file provided', 'لم يتم توفير أي ملف'));
     }
     if (file.mimetype !== 'application/pdf') {
-      throw new BadRequestException('Book files must be PDF');
+      throw new BadRequestException(
+        biBody('Book files must be PDF', 'يجب أن تكون ملفات الكتب بصيغة PDF'),
+      );
     }
     if (file.size > MAX_BOOK) {
       throw new BadRequestException(
-        `File too large (max ${Math.round(MAX_BOOK / (1024 * 1024))} MB)`,
+        biBody(
+          `File too large (max ${Math.round(MAX_BOOK / (1024 * 1024))} MB)`,
+          `حجم الملف كبير جدًا (الحد الأقصى ${Math.round(MAX_BOOK / (1024 * 1024))} ميجابايت)`,
+        ),
       );
     }
     const key = `books/${randomUUID()}.pdf`;
@@ -118,14 +124,19 @@ export class TeacherUploadsController {
     folder: string,
   ): Promise<{ url: string; key: string; name: string; type: string; size: number }> {
     if (!file) {
-      throw new BadRequestException('No file provided');
+      throw new BadRequestException(biBody('No file provided', 'لم يتم توفير أي ملف'));
     }
     if (!allowed.includes(file.mimetype)) {
-      throw new BadRequestException(`Unsupported file type: ${file.mimetype}`);
+      throw new BadRequestException(
+        biBody(`Unsupported file type: ${file.mimetype}`, `نوع ملف غير مدعوم: ${file.mimetype}`),
+      );
     }
     if (file.size > maxBytes) {
       throw new BadRequestException(
-        `File too large (max ${Math.round(maxBytes / (1024 * 1024))} MB)`,
+        biBody(
+          `File too large (max ${Math.round(maxBytes / (1024 * 1024))} MB)`,
+          `حجم الملف كبير جدًا (الحد الأقصى ${Math.round(maxBytes / (1024 * 1024))} ميجابايت)`,
+        ),
       );
     }
     const ext = extname(file.originalname) || '';

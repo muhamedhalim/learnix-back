@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { CreateQuestionDto, QuestionFilterDto, UpdateQuestionDto } from '../dto';
@@ -154,13 +155,14 @@ export class QuestionBankService {
     if (filter.difficulty) qb.andWhere('q.difficulty = :d', { d: filter.difficulty });
     if (filter.tag) qb.andWhere(':tag = ANY(q.tags)', { tag: filter.tag });
     if (filter.search !== undefined && filter.search !== '') {
-      qb.andWhere(
-        "(q.content->'prompt'->>'en' ILIKE :q OR q.content->'prompt'->>'ar' ILIKE :q)",
-        { q: `%${filter.search}%` },
-      );
+      qb.andWhere("(q.content->'prompt'->>'en' ILIKE :q OR q.content->'prompt'->>'ar' ILIKE :q)", {
+        q: `%${filter.search}%`,
+      });
     }
 
-    qb.orderBy('q.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+    qb.orderBy('q.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
     const [data, total] = await qb.getManyAndCount();
     return { data, meta: this.meta(total, page, limit) };
   }
@@ -169,9 +171,11 @@ export class QuestionBankService {
 
   private async findOwned(id: string, teacherId: string): Promise<Question> {
     const question = await this.questions.findOne({ where: { id, deleted_at: IsNull() } });
-    if (!question) throw new NotFoundException('Question not found');
+    if (!question) throw new NotFoundException(biBody('Question not found', 'السؤال غير موجود'));
     if (question.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only manage your own questions');
+      throw new ForbiddenException(
+        biBody('You can only manage your own questions', 'يمكنك فقط إدارة أسئلتك الخاصة'),
+      );
     }
     return question;
   }
@@ -189,16 +193,31 @@ export class QuestionBankService {
 
   private async assertSubject(subjectId: string): Promise<void> {
     const exists = await this.subjects.findOne({ where: { id: subjectId, deleted_at: IsNull() } });
-    if (!exists) throw new NotFoundException(`Subject ${subjectId} not found`);
+    if (!exists) {
+      throw new NotFoundException(
+        biBody(`Subject ${subjectId} not found`, `المادة ${subjectId} غير موجودة`),
+      );
+    }
   }
 
   private async assertLesson(lessonId: string): Promise<void> {
     const exists = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
-    if (!exists) throw new NotFoundException(`Lesson ${lessonId} not found`);
+    if (!exists) {
+      throw new NotFoundException(
+        biBody(`Lesson ${lessonId} not found`, `الدرس ${lessonId} غير موجود`),
+      );
+    }
   }
 
   private meta(total: number, page: number, limit: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
-    return { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 }

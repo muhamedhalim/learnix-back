@@ -1,14 +1,10 @@
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { LessThan, Repository } from 'typeorm';
 
+import { biBody } from '../i18n/error-translator.util';
 import type { UserSessionDto } from './dto/user-session.dto';
 import { UserSession } from './entities/user-session.entity';
 
@@ -100,19 +96,25 @@ export class SessionsService {
     });
 
     if (session === null) {
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException(biBody('Session not found', 'الجلسة غير موجودة'));
     }
 
     if (session.user_id !== userId) {
       throw new ForbiddenException(
-        'Cannot delete session belonging to another user',
+        biBody(
+          'Cannot delete session belonging to another user',
+          'لا يمكن حذف جلسة تخص مستخدمًا آخر',
+        ),
       );
     }
 
     // Check if trying to delete current session
     if (session.refresh_token_id === currentTokenId) {
       throw new ForbiddenException(
-        'Cannot delete current session. Use logout endpoint instead.',
+        biBody(
+          'Cannot delete current session. Use logout endpoint instead.',
+          'لا يمكن حذف الجلسة الحالية. يرجى استخدام واجهة تسجيل الخروج بدلاً من ذلك.',
+        ),
       );
     }
 
@@ -127,9 +129,7 @@ export class SessionsService {
     const result = await this.sessionRepository.delete({ user_id: userId });
     const deletedCount = result.affected ?? 0;
 
-    this.logger.log(
-      `All ${String(deletedCount)} sessions deleted for user ${userId}`,
-    );
+    this.logger.log(`All ${String(deletedCount)} sessions deleted for user ${userId}`);
     return deletedCount;
   }
 
@@ -167,17 +167,13 @@ export class SessionsService {
         expires_at: newExpiresAt,
       },
     );
-    this.logger.debug(
-      `Session token rotated from ${oldTokenId} to ${newTokenId}`,
-    );
+    this.logger.debug(`Session token rotated from ${oldTokenId} to ${newTokenId}`);
   }
 
   /**
    * Get session by refresh token ID
    */
-  public async getSessionByTokenId(
-    refreshTokenId: string,
-  ): Promise<UserSession | null> {
+  public async getSessionByTokenId(refreshTokenId: string): Promise<UserSession | null> {
     return await this.sessionRepository.findOne({
       where: { refresh_token_id: refreshTokenId },
     });

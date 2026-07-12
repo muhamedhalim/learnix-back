@@ -10,14 +10,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import { Book } from '../books/entities/book.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-import type {
-  FileDetailsDto,
-  FileReferenceDto,
-  FileUsageDto,
-} from './dto/file-details.dto';
+import type { FileDetailsDto, FileReferenceDto, FileUsageDto } from './dto/file-details.dto';
 import type { UploadFolderType } from './entities/uploaded-file.entity';
 import { UploadedFile } from './entities/uploaded-file.entity';
 import { UploadService } from './upload.service';
@@ -59,19 +56,14 @@ export class FileManagementService {
     });
 
     const saved = await this.uploadedFilesRepository.save(file);
-    this.logger.log(
-      `File tracked: ${params.filename} by user ${params.uploaderId ?? 'anonymous'}`,
-    );
+    this.logger.log(`File tracked: ${params.filename} by user ${params.uploaderId ?? 'anonymous'}`);
     return saved;
   }
 
   /**
    * Get all files uploaded by a specific user
    */
-  public async getUserFiles(
-    userId: string,
-    folder?: UploadFolderType,
-  ): Promise<FileDetailsDto[]> {
+  public async getUserFiles(userId: string, folder?: UploadFolderType): Promise<FileDetailsDto[]> {
     const whereClause: {
       uploader_id: string;
       deleted_at: ReturnType<typeof IsNull>;
@@ -223,12 +215,14 @@ export class FileManagementService {
     });
 
     if (file === null) {
-      throw new NotFoundException('File not found');
+      throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }
 
     // Check ownership (only uploader or admin can delete)
     if (file.uploader_id !== userId && userRole !== UserRole.ADMIN) {
-      throw new ForbiddenException('You can only delete your own files');
+      throw new ForbiddenException(
+        biBody('You can only delete your own files', 'يمكنك فقط حذف ملفاتك الخاصة'),
+      );
     }
 
     // Check file usage
@@ -253,9 +247,7 @@ export class FileManagementService {
     if (!usage.isInUse) {
       try {
         await this.uploadService.deleteFile(file.folder, file.filename);
-        this.logger.log(
-          `Physical file deleted: ${file.folder}/${file.filename}`,
-        );
+        this.logger.log(`Physical file deleted: ${file.folder}/${file.filename}`);
       } catch (error) {
         this.logger.warn(
           `Failed to delete physical file: ${file.folder}/${file.filename} - ${String(error)}`,
@@ -276,9 +268,7 @@ export class FileManagementService {
   /**
    * Get file by filename
    */
-  public async getFileByFilename(
-    filename: string,
-  ): Promise<UploadedFile | null> {
+  public async getFileByFilename(filename: string): Promise<UploadedFile | null> {
     return await this.uploadedFilesRepository.findOne({
       where: { filename, deleted_at: IsNull() },
     });

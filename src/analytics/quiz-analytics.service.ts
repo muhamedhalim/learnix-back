@@ -7,6 +7,7 @@ import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
 import { Question } from '../exams/entities/question.entity';
+import { biBody } from '../i18n/error-translator.util';
 
 /**
  * Quiz/exam analytics derived from the attempt engine's data. All score
@@ -42,14 +43,8 @@ export class QuizAnalyticsService {
     const summary = await this.attemptsRepository
       .createQueryBuilder('a')
       .select('COUNT(*)', 'attempts')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
-      .addSelect(
-        'AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100',
-        'passRate',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
+      .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
       .addSelect(
         'COALESCE(SUM(EXTRACT(EPOCH FROM (a.submitted_at - a.started_at))), 0)',
         'timeSeconds',
@@ -151,10 +146,7 @@ export class QuizAnalyticsService {
       .innerJoin('exams', 'e', 'e.id = a.exam_id')
       .select('COUNT(*)', 'total')
       .addSelect('COUNT(a.score_total)', 'scored')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
       .where('e.teacher_id = :teacherId', teacherExams)
       .getRawOne<{
@@ -206,10 +198,7 @@ export class QuizAnalyticsService {
       .innerJoin('users', 'u', 'u.id = a.student_id')
       .select('u.name', 'studentName')
       .addSelect('COUNT(*)', 'attempts')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('u.id')
@@ -223,10 +212,7 @@ export class QuizAnalyticsService {
       .innerJoin('exams', 'e', 'e.id = a.exam_id')
       .innerJoin('lessons', 'l', 'l.id = e.lesson_id')
       .select('l.title', 'lessonTitle')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('l.id')
@@ -269,22 +255,26 @@ export class QuizAnalyticsService {
   public async getExamQuestionAnalytics(
     examId: string,
     teacherId: string,
-  ): Promise<{
-    questionId: string;
-    topic: string | null;
-    difficulty: number;
-    discrimination: number;
-    attempts: number;
-  }[]> {
+  ): Promise<
+    {
+      questionId: string;
+      topic: string | null;
+      difficulty: number;
+      discrimination: number;
+      attempts: number;
+    }[]
+  > {
     const exam = await this.examsRepository.findOne({
       where: { id: examId },
       select: { id: true, teacher_id: true },
     });
     if (!exam) {
-      throw new NotFoundException('Exam not found');
+      throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
     }
     if (exam.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only analyse your own exams');
+      throw new ForbiddenException(
+        biBody('You can only analyse your own exams', 'يمكنك تحليل اختباراتك الخاصة فقط'),
+      );
     }
 
     // Per-answer rows with the attempt's overall percentage — enough to compute
@@ -380,10 +370,7 @@ export class QuizAnalyticsService {
       .createQueryBuilder('a')
       .select('COUNT(*)', 'total')
       .addSelect('COUNT(a.score_total)', 'scored')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
       .getRawOne<{
         total: string;
@@ -407,10 +394,7 @@ export class QuizAnalyticsService {
       .innerJoin('users', 'u', 'u.id = e.teacher_id')
       .select('u.name', 'teacherName')
       .addSelect('COUNT(*)', 'attempts')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('a.score_total IS NOT NULL')
       .groupBy('u.id')
       .addGroupBy('u.name')
@@ -424,10 +408,7 @@ export class QuizAnalyticsService {
       .innerJoin('subjects', 's', 's.id = e.subject_id')
       .select('s.name', 'subject')
       .addSelect('COUNT(*)', 'attempts')
-      .addSelect(
-        'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100',
-        'avgPercent',
-      )
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('a.score_total IS NOT NULL')
       .groupBy('s.id')
       .addGroupBy('s.name')

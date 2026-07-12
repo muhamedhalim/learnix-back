@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import sharp from 'sharp';
 
 import { FILE_LIMITS, UploadFolder } from '../common/constants';
+import { biBody } from '../i18n/error-translator.util';
 import { StorageService } from '../storage/storage.service';
 
 /**
@@ -74,21 +75,26 @@ export class UploadService {
         `Upload rejected - File too large: ${String(file.size)} bytes (max: ${String(maxSize)})`,
       );
       throw new BadRequestException(
-        `File size exceeds maximum allowed size of ${String(maxSize / 1024 / 1024)}MB`,
+        biBody(
+          `File size exceeds maximum allowed size of ${String(maxSize / 1024 / 1024)}MB`,
+          `حجم الملف يتجاوز الحد الأقصى المسموح به وهو ${String(maxSize / 1024 / 1024)} ميجابايت`,
+        ),
       );
     }
   }
 
   private validateContentType(file: Express.Multer.File): void {
     if (file.mimetype !== file.mimetype.toLowerCase()) {
-      throw new BadRequestException('Invalid Content-Type header');
+      throw new BadRequestException(
+        biBody('Invalid Content-Type header', 'ترويسة Content-Type غير صالحة'),
+      );
     }
   }
 
   private validatePathTraversal(filename: string): void {
     if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
       this.logger.error(`Upload rejected - Path traversal attempt: ${filename}`);
-      throw new BadRequestException('Invalid filename');
+      throw new BadRequestException(biBody('Invalid filename', 'اسم الملف غير صالح'));
     }
   }
 
@@ -143,7 +149,9 @@ export class UploadService {
       !allowedResourceExtensions.includes(fileExtension)
     ) {
       this.logger.warn(`Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`);
-      throw new BadRequestException('Invalid file extension for resources.');
+      throw new BadRequestException(
+        biBody('Invalid file extension for resources.', 'امتداد ملف غير صالح للموارد.'),
+      );
     }
 
     // Images fall through to Sharp processing.
@@ -173,7 +181,10 @@ export class UploadService {
     if (!allowedMimeTypes.includes(file.mimetype)) {
       this.logger.warn(`Upload rejected - Invalid MIME type: ${file.mimetype}`);
       throw new BadRequestException(
-        `Invalid file type. Only ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')} are allowed`,
+        biBody(
+          `Invalid file type. Only ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')} are allowed`,
+          `نوع ملف غير صالح. يُسمح فقط بـ ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')}`,
+        ),
       );
     }
 
@@ -189,7 +200,10 @@ export class UploadService {
     ) {
       this.logger.warn(`Upload rejected - Invalid extension: ${fileExtension ?? 'none'}`);
       throw new BadRequestException(
-        'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
+        biBody(
+          'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
+          'امتداد ملف غير صالح. يُسمح فقط بـ jpg وjpeg وpng وwebp.',
+        ),
       );
     }
 
@@ -209,7 +223,7 @@ export class UploadService {
 
     if (metadata.width === 0 || metadata.height === 0) {
       this.logger.error('Upload failed - Unable to read image dimensions');
-      throw new BadRequestException('Invalid image file');
+      throw new BadRequestException(biBody('Invalid image file', 'ملف صورة غير صالح'));
     }
 
     this.validateImageDimensions(metadata.width, metadata.height);
@@ -243,14 +257,20 @@ export class UploadService {
     if (width < this.minImageWidth || height < this.minImageHeight) {
       this.logger.warn(`Upload rejected - Image too small: ${String(width)}x${String(height)}`);
       throw new BadRequestException(
-        `Image dimensions too small. Minimum size: ${String(this.minImageWidth)}x${String(this.minImageHeight)}px`,
+        biBody(
+          `Image dimensions too small. Minimum size: ${String(this.minImageWidth)}x${String(this.minImageHeight)}px`,
+          `أبعاد الصورة صغيرة جدًا. الحد الأدنى للحجم: ${String(this.minImageWidth)}x${String(this.minImageHeight)} بكسل`,
+        ),
       );
     }
 
     if (width > this.maxImageDimension || height > this.maxImageDimension) {
       this.logger.warn(`Upload rejected - Image too large: ${String(width)}x${String(height)}`);
       throw new BadRequestException(
-        `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
+        biBody(
+          `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
+          `أبعاد الصورة كبيرة جدًا. الحد الأقصى للحجم: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)} بكسل`,
+        ),
       );
     }
   }
@@ -265,10 +285,14 @@ export class UploadService {
     }
 
     if (error instanceof Error && error.message.includes('Input buffer')) {
-      throw new BadRequestException('Invalid or corrupted image file');
+      throw new BadRequestException(
+        biBody('Invalid or corrupted image file', 'ملف الصورة غير صالح أو تالف'),
+      );
     }
 
-    throw new InternalServerErrorException('Failed to process image upload');
+    throw new InternalServerErrorException(
+      biBody('Failed to process image upload', 'فشل في معالجة رفع الصورة'),
+    );
   }
 
   /**
@@ -335,7 +359,9 @@ export class UploadService {
       };
     } catch (error) {
       this.logger.error(`Profile picture processing failed: ${String(error)}`);
-      throw new InternalServerErrorException('Failed to process profile picture');
+      throw new InternalServerErrorException(
+        biBody('Failed to process profile picture', 'فشل في معالجة الصورة الشخصية'),
+      );
     }
   }
 
@@ -348,7 +374,10 @@ export class UploadService {
     if (!allowedMimeTypes.includes(file.mimetype)) {
       this.logger.warn(`Upload rejected - Invalid MIME type: ${file.mimetype}`);
       throw new BadRequestException(
-        `Invalid file type. Only ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')} are allowed`,
+        biBody(
+          `Invalid file type. Only ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')} are allowed`,
+          `نوع ملف غير صالح. يُسمح فقط بـ ${FILE_LIMITS.ALLOWED_IMAGE_TYPES.join(', ')}`,
+        ),
       );
     }
 
@@ -361,7 +390,10 @@ export class UploadService {
       !allowedExtensions.includes(fileExtension)
     ) {
       throw new BadRequestException(
-        'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
+        biBody(
+          'Invalid file extension. Only jpg, jpeg, png, and webp are allowed.',
+          'امتداد ملف غير صالح. يُسمح فقط بـ jpg وjpeg وpng وwebp.',
+        ),
       );
     }
 
@@ -370,19 +402,29 @@ export class UploadService {
       const { width, height } = metadata;
 
       if (width < 150 || height < 150) {
-        throw new BadRequestException('Profile picture must be at least 150x150 pixels');
+        throw new BadRequestException(
+          biBody(
+            'Profile picture must be at least 150x150 pixels',
+            'يجب أن تكون الصورة الشخصية 150×150 بكسل على الأقل',
+          ),
+        );
       }
 
       if (width > this.maxImageDimension || height > this.maxImageDimension) {
         throw new BadRequestException(
-          `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
+          biBody(
+            `Image dimensions too large. Maximum size: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)}px`,
+            `أبعاد الصورة كبيرة جدًا. الحد الأقصى للحجم: ${String(this.maxImageDimension)}x${String(this.maxImageDimension)} بكسل`,
+          ),
         );
       }
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Failed to validate image dimensions');
+      throw new BadRequestException(
+        biBody('Failed to validate image dimensions', 'فشل في التحقق من أبعاد الصورة'),
+      );
     }
   }
 
@@ -400,7 +442,7 @@ export class UploadService {
       filename.includes('\\')
     ) {
       this.logger.error(`Delete rejected - Path traversal attempt: ${folder}/${filename}`);
-      throw new BadRequestException('Invalid file path');
+      throw new BadRequestException(biBody('Invalid file path', 'مسار ملف غير صالح'));
     }
 
     await this.storageService.delete(`${folder}/${filename}`);

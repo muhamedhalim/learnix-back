@@ -14,11 +14,9 @@ import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { User } from '../users/entities/user.entity';
-import {
-  generateCertificateNumber,
-  generateVerificationCode,
-} from './certificate-code.util';
+import { generateCertificateNumber, generateVerificationCode } from './certificate-code.util';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto';
 import { Certificate } from './entities/certificate.entity';
@@ -59,10 +57,7 @@ export class CertificatesService {
   /* ===================== Completion ===================== */
 
   /** How much of a course (package) a student has completed. */
-  public async getCourseProgress(
-    studentId: string,
-    packageId: string,
-  ): Promise<CourseProgress> {
+  public async getCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
     const total = await this.packageItemsRepository.count({
       where: { package_id: packageId },
     });
@@ -103,11 +98,16 @@ export class CertificatesService {
 
     const progress = await this.getCourseProgress(studentId, packageId);
     if (progress.total === 0) {
-      throw new BadRequestException('This course has no lessons to complete.');
+      throw new BadRequestException(
+        biBody('This course has no lessons to complete.', 'لا تحتوي هذه الدورة على دروس لإكمالها.'),
+      );
     }
     if (progress.percentage < 100 && !options.force) {
       throw new BadRequestException(
-        'Course is not yet complete — a certificate cannot be issued.',
+        biBody(
+          'Course is not yet complete — a certificate cannot be issued.',
+          'الدورة لم تكتمل بعد — لا يمكن إصدار الشهادة.',
+        ),
       );
     }
 
@@ -119,10 +119,10 @@ export class CertificatesService {
       }),
     ]);
     if (!student) {
-      throw new NotFoundException('Student not found');
+      throw new NotFoundException(biBody('Student not found', 'الطالب غير موجود'));
     }
     if (!pkg) {
-      throw new NotFoundException('Course not found');
+      throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
 
     const template = await this.findDefaultTemplate();
@@ -158,10 +158,7 @@ export class CertificatesService {
    * is now fully complete. Best-effort: a failure on one course is logged and
    * does not block the others.
    */
-  public async autoIssueForCompletedLesson(
-    studentId: string,
-    lessonId: string,
-  ): Promise<void> {
+  public async autoIssueForCompletedLesson(studentId: string, lessonId: string): Promise<void> {
     const rows = await this.packagePurchasesRepository
       .createQueryBuilder('pp')
       .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = pp.package_id')
@@ -195,15 +192,12 @@ export class CertificatesService {
     });
   }
 
-  public async getOwnedCertificate(
-    id: string,
-    studentId: string,
-  ): Promise<Certificate> {
+  public async getOwnedCertificate(id: string, studentId: string): Promise<Certificate> {
     const certificate = await this.certificatesRepository.findOne({
       where: { id, student_id: studentId },
     });
     if (!certificate) {
-      throw new NotFoundException('Certificate not found');
+      throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
     }
     return certificate;
   }
@@ -214,7 +208,7 @@ export class CertificatesService {
       where: { verification_code: code },
     });
     if (!certificate) {
-      throw new NotFoundException('Certificate not found');
+      throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
     }
     return certificate;
   }
@@ -244,10 +238,12 @@ export class CertificatesService {
       relations: ['teacher'],
     });
     if (!pkg) {
-      throw new NotFoundException('Course not found');
+      throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
     if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only preview your own courses');
+      throw new ForbiddenException(
+        biBody('You can only preview your own courses', 'يمكنك معاينة دوراتك الخاصة فقط'),
+      );
     }
 
     const template = await this.findDefaultTemplate();
@@ -331,14 +327,12 @@ export class CertificatesService {
   public async getTemplate(id: string): Promise<CertificateTemplate> {
     const template = await this.templatesRepository.findOne({ where: { id } });
     if (!template) {
-      throw new NotFoundException('Template not found');
+      throw new NotFoundException(biBody('Template not found', 'القالب غير موجود'));
     }
     return template;
   }
 
-  public async createTemplate(
-    dto: CreateTemplateDto,
-  ): Promise<CertificateTemplate> {
+  public async createTemplate(dto: CreateTemplateDto): Promise<CertificateTemplate> {
     const template = this.templatesRepository.create(dto);
     const saved = await this.templatesRepository.save(template);
     if (saved.is_default) {
@@ -347,10 +341,7 @@ export class CertificatesService {
     return saved;
   }
 
-  public async updateTemplate(
-    id: string,
-    dto: UpdateTemplateDto,
-  ): Promise<CertificateTemplate> {
+  public async updateTemplate(id: string, dto: UpdateTemplateDto): Promise<CertificateTemplate> {
     const template = await this.getTemplate(id);
     Object.assign(template, dto);
     const saved = await this.templatesRepository.save(template);

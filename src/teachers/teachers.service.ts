@@ -13,10 +13,8 @@ import type { Cache } from 'cache-manager';
 
 import { DataSource, In, Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -116,16 +114,16 @@ export class TeachersService {
    * Get a teacher's own profile by user ID
    * Used by teachers to view their profile
    */
-  public async findTeacherProfile(
-    userId: string,
-  ): Promise<TeacherProfileWithDetails> {
+  public async findTeacherProfile(userId: string): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { user_id: userId },
       relations: ['user', 'subjects'],
     });
 
     if (!profile) {
-      throw new NotFoundException('Teacher profile not found');
+      throw new NotFoundException(
+        biBody('Teacher profile not found', 'الملف الشخصي للمعلم غير موجود'),
+      );
     }
 
     return this.mapToProfileWithDetails(profile);
@@ -145,7 +143,9 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException('Teacher profile not found');
+      throw new NotFoundException(
+        biBody('Teacher profile not found', 'الملف الشخصي للمعلم غير موجود'),
+      );
     }
 
     // Update profile fields
@@ -175,7 +175,10 @@ export class TeachersService {
 
     if (!updatedProfile) {
       throw new NotFoundException(
-        `Failed to reload teacher profile ${savedProfile.id}`,
+        biBody(
+          `Failed to reload teacher profile ${savedProfile.id}`,
+          `فشل في إعادة تحميل الملف الشخصي للمعلم ${savedProfile.id}`,
+        ),
       );
     }
 
@@ -323,16 +326,16 @@ export class TeachersService {
    * Public, unauthenticated single-teacher lookup.
    * Only returns APPROVED teachers, and only the sanitized projection.
    */
-  public async findApprovedTeacherByIdPublic(
-    id: string,
-  ): Promise<PublicTeacherProfile> {
+  public async findApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherProfile> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id, user: { status: UserStatus.APPROVED } },
       relations: ['user', 'subjects'],
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${id} not found`, `المعلم بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return this.mapToPublicProfile(profile);
@@ -349,7 +352,9 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${id} not found`, `المعلم بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return this.mapToProfileWithDetails(profile);
@@ -371,11 +376,13 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     if (profile.user.status === UserStatus.APPROVED) {
-      throw new ConflictException('Teacher is already approved');
+      throw new ConflictException(biBody('Teacher is already approved', 'المعلم معتمد بالفعل'));
     }
 
     // Update user status
@@ -410,11 +417,13 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     if (profile.user.status === UserStatus.REJECTED) {
-      throw new ConflictException('Teacher is already rejected');
+      throw new ConflictException(biBody('Teacher is already rejected', 'المعلم مرفوض بالفعل'));
     }
 
     // Update user status with rejection reason
@@ -445,7 +454,9 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     // Validate all subject IDs exist
@@ -457,7 +468,10 @@ export class TeachersService {
       const foundIds = new Set(subjects.map((s) => s.id));
       const missingIds = dto.subjectIds.filter((id) => !foundIds.has(id));
       throw new BadRequestException(
-        `Subjects not found: ${missingIds.join(', ')}`,
+        biBody(
+          `Subjects not found: ${missingIds.join(', ')}`,
+          `المواد التالية غير موجودة: ${missingIds.join(', ')}`,
+        ),
       );
     }
 
@@ -473,7 +487,10 @@ export class TeachersService {
 
     if (!updatedProfile) {
       throw new NotFoundException(
-        `Failed to reload teacher profile ${profileId}`,
+        biBody(
+          `Failed to reload teacher profile ${profileId}`,
+          `فشل في إعادة تحميل الملف الشخصي للمعلم ${profileId}`,
+        ),
       );
     }
 
@@ -490,7 +507,9 @@ export class TeachersService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     // TODO: Implement actual stats queries when Lessons and Purchases modules are ready
@@ -519,11 +538,15 @@ export class TeachersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+      );
     }
 
     if (user.role !== UserRole.TEACHER) {
-      throw new BadRequestException('User must have TEACHER role');
+      throw new BadRequestException(
+        biBody('User must have TEACHER role', 'يجب أن يكون المستخدم بدور معلم'),
+      );
     }
 
     // Check if profile already exists
@@ -533,7 +556,10 @@ export class TeachersService {
 
     if (existingProfile) {
       throw new ConflictException(
-        'Teacher profile already exists for this user',
+        biBody(
+          'Teacher profile already exists for this user',
+          'يوجد بالفعل ملف شخصي كمعلم لهذا المستخدم',
+        ),
       );
     }
 
@@ -569,14 +595,19 @@ export class TeachersService {
 
       const user = await userRepo.findOne({ where: { id: userId } });
       if (!user) {
-        throw new NotFoundException(`User with ID ${userId} not found`);
+        throw new NotFoundException(
+          biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+        );
       }
       if (user.role === UserRole.TEACHER) {
-        throw new ConflictException('User is already a teacher');
+        throw new ConflictException(biBody('User is already a teacher', 'المستخدم معلم بالفعل'));
       }
       if (user.role !== UserRole.STUDENT) {
         throw new BadRequestException(
-          'Only student accounts can be promoted to teacher',
+          biBody(
+            'Only student accounts can be promoted to teacher',
+            'يمكن ترقية حسابات الطلاب فقط إلى معلم',
+          ),
         );
       }
 
@@ -603,10 +634,8 @@ export class TeachersService {
       let profile: TeacherProfile;
       if (existing) {
         existing.deleted_at = null;
-        existing.qualifications =
-          dto.qualifications ?? existing.qualifications ?? 'Pending review';
-        existing.years_of_experience =
-          dto.years_of_experience ?? existing.years_of_experience ?? 0;
+        existing.qualifications = dto.qualifications ?? existing.qualifications ?? 'Pending review';
+        existing.years_of_experience = dto.years_of_experience ?? existing.years_of_experience ?? 0;
         existing.bio = dto.bio ?? existing.bio ?? null;
         profile = await teacherRepo.save(existing);
       } else {
@@ -636,16 +665,15 @@ export class TeachersService {
    * Update teacher rating (called when a student rates)
    * Recalculates average rating
    */
-  public async updateTeacherRating(
-    profileId: string,
-    newRating: number,
-  ): Promise<void> {
+  public async updateTeacherRating(profileId: string, newRating: number): Promise<void> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id: profileId },
     });
 
     if (!profile) {
-      throw new NotFoundException(`Teacher with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     // Calculate new average rating
@@ -685,9 +713,7 @@ export class TeachersService {
     };
   }
 
-  private mapToProfileWithDetails(
-    profile: TeacherProfile,
-  ): TeacherProfileWithDetails {
+  private mapToProfileWithDetails(profile: TeacherProfile): TeacherProfileWithDetails {
     return {
       id: profile.id,
       user: {

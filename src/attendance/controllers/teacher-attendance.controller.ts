@@ -29,6 +29,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { AttendanceService } from '../attendance.service';
 import { AttendanceFilterDto, MarkAttendanceDto } from '../dto';
@@ -150,8 +151,7 @@ export class TeacherAttendanceController {
   @Get(':lessonId/attendance')
   @ApiOperation({
     summary: 'Get lesson attendance',
-    description:
-      'Get all attendance records for a lesson. Teacher must own the lesson.',
+    description: 'Get all attendance records for a lesson. Teacher must own the lesson.',
   })
   @ApiParam({ name: 'lessonId', description: 'Lesson ID' })
   @ApiQuery({
@@ -225,21 +225,23 @@ export class TeacherAttendanceController {
   /**
    * Validate teacher owns the lesson
    */
-  private async validateOwnership(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<Lesson> {
+  private async validateOwnership(lessonId: string, teacherId: string): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
     if (!lesson) {
-      throw new ForbiddenException(`Lesson with ID ${lessonId} not found`);
+      throw new ForbiddenException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس ذو المعرف ${lessonId} غير موجود`),
+      );
     }
 
     if (lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
-        'You can only manage attendance for your own lessons',
+        biBody(
+          'You can only manage attendance for your own lessons',
+          'يمكنك فقط إدارة الحضور الخاص بدروسك أنت',
+        ),
       );
     }
 

@@ -12,11 +12,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -123,13 +121,10 @@ export class StudentsService {
    * Used by students to view their profile
    * Includes purchased lessons and exam attempts with caching (5-min TTL)
    */
-  public async findStudentProfile(
-    userId: string,
-  ): Promise<StudentProfileWithDetails> {
+  public async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
     // Check cache first
     const cacheKey = `student:profile:${userId}`;
-    const cached =
-      await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
+    const cached = await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -141,7 +136,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException('Student profile not found');
+      throw new NotFoundException(
+        biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
+      );
     }
 
     // Fetch purchased lessons with lesson details
@@ -208,7 +205,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException('Student profile not found');
+      throw new NotFoundException(
+        biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
+      );
     }
 
     // Guardian phone numbers are no longer editable here — see
@@ -236,7 +235,9 @@ export class StudentsService {
     });
 
     if (!updatedProfile) {
-      throw new NotFoundException('Failed to load updated profile');
+      throw new NotFoundException(
+        biBody('Failed to load updated profile', 'فشل في تحميل الملف الشخصي المحدث'),
+      );
     }
 
     return this.mapToProfileWithDetails(updatedProfile);
@@ -255,7 +256,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException('Student profile not found');
+      throw new NotFoundException(
+        biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
+      );
     }
 
     profile.notification_settings = dto.notification_settings;
@@ -269,7 +272,9 @@ export class StudentsService {
     });
 
     if (!updatedProfile) {
-      throw new NotFoundException('Failed to load updated profile');
+      throw new NotFoundException(
+        biBody('Failed to load updated profile', 'فشل في تحميل الملف الشخصي المحدث'),
+      );
     }
 
     return this.mapToProfileWithDetails(updatedProfile);
@@ -414,9 +419,7 @@ export class StudentsService {
    * Public, unauthenticated single-student lookup.
    * Only returns APPROVED students, and only the sanitized projection.
    */
-  public async findApprovedStudentByIdPublic(
-    id: string,
-  ): Promise<PublicStudentProfile> {
+  public async findApprovedStudentByIdPublic(id: string): Promise<PublicStudentProfile> {
     const profile = await this.studentProfilesRepository.findOne({
       where: [
         { id, user: { status: UserStatus.APPROVED } },
@@ -426,7 +429,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${id} not found`, `الطالب بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return this.mapToPublicProfile(profile);
@@ -443,7 +448,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${id} not found`, `الطالب بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return this.mapToProfileWithDetails(profile);
@@ -465,11 +472,13 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${profileId} not found`, `الطالب بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     if (profile.user.status === UserStatus.APPROVED) {
-      throw new ConflictException('Student is already approved');
+      throw new ConflictException(biBody('Student is already approved', 'الطالب معتمد بالفعل'));
     }
 
     // Update user status
@@ -505,11 +514,13 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${profileId} not found`, `الطالب بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     if (profile.user.status === UserStatus.REJECTED) {
-      throw new ConflictException('Student is already rejected');
+      throw new ConflictException(biBody('Student is already rejected', 'الطالب مرفوض بالفعل'));
     }
 
     // Update user status with rejection reason
@@ -540,7 +551,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${profileId} not found`, `الطالب بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     profile.grade_level = gradeLevel;
@@ -560,7 +573,9 @@ export class StudentsService {
     });
 
     if (!profile) {
-      throw new NotFoundException(`Student with ID ${profileId} not found`);
+      throw new NotFoundException(
+        biBody(`Student with ID ${profileId} not found`, `الطالب بالمعرّف ${profileId} غير موجود`),
+      );
     }
 
     // TODO: Implement actual stats queries when Lessons, Purchases, and Exams modules are ready
@@ -577,21 +592,22 @@ export class StudentsService {
    * Create a student profile for a user
    * Called during student registration
    */
-  public async createStudentProfile(
-    userId: string,
-    gradeLevel?: string,
-  ): Promise<StudentProfile> {
+  public async createStudentProfile(userId: string, gradeLevel?: string): Promise<StudentProfile> {
     // Check if user exists and has student role
     const user = await this.usersRepository.findOne({
       where: { id: userId },
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+      );
     }
 
     if (user.role !== UserRole.STUDENT) {
-      throw new BadRequestException('User must have STUDENT role');
+      throw new BadRequestException(
+        biBody('User must have STUDENT role', 'يجب أن يكون المستخدم بدور طالب'),
+      );
     }
 
     // Check if profile already exists
@@ -601,7 +617,10 @@ export class StudentsService {
 
     if (existingProfile) {
       throw new ConflictException(
-        'Student profile already exists for this user',
+        biBody(
+          'Student profile already exists for this user',
+          'يوجد بالفعل ملف شخصي كطالب لهذا المستخدم',
+        ),
       );
     }
 
@@ -645,9 +664,7 @@ export class StudentsService {
     };
   }
 
-  private mapToProfileWithDetails(
-    profile: StudentProfile,
-  ): StudentProfileWithDetails {
+  private mapToProfileWithDetails(profile: StudentProfile): StudentProfileWithDetails {
     return {
       id: profile.id,
       user: {

@@ -8,22 +8,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { CreateReviewDto, UpdateReviewDto } from './dto';
-import {
-  ReviewHelpfulVote,
-  ReviewTargetType,
-} from './entities/review-helpful-vote.entity';
+import { ReviewHelpfulVote, ReviewTargetType } from './entities/review-helpful-vote.entity';
 import { ReviewStatus } from './entities/review-status.enum';
 import { LessonReview } from './entities/lesson-review.entity';
 import { TeacherReview } from './entities/teacher-review.entity';
@@ -137,16 +132,16 @@ export class ReviewsService {
       where: { id: teacherId, role: UserRole.TEACHER },
     });
     if (!teacher) {
-      throw new NotFoundException('Teacher not found');
+      throw new NotFoundException(biBody('Teacher not found', 'المعلم غير موجود'));
     }
 
-    const hasPurchase = await this.validateStudentHasPurchasedFromTeacher(
-      studentId,
-      teacherId,
-    );
+    const hasPurchase = await this.validateStudentHasPurchasedFromTeacher(studentId, teacherId);
     if (!hasPurchase) {
       throw new ForbiddenException(
-        'You must purchase a lesson from this teacher before reviewing',
+        biBody(
+          'You must purchase a lesson from this teacher before reviewing',
+          'يجب شراء درس من هذا المعلم قبل تقييمه',
+        ),
       );
     }
 
@@ -154,7 +149,9 @@ export class ReviewsService {
       where: { teacher_id: teacherId, student_id: studentId },
     });
     if (existingReview) {
-      throw new ConflictException('You have already reviewed this teacher.');
+      throw new ConflictException(
+        biBody('You have already reviewed this teacher.', 'لقد قمت بتقييم هذا المعلم مسبقًا.'),
+      );
     }
 
     const review = this.teacherReviewsRepository.create({
@@ -176,27 +173,24 @@ export class ReviewsService {
       where: { id: lessonId },
     });
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
-    const hasPurchase = await this.validateStudentHasPurchasedLesson(
-      studentId,
-      lessonId,
-    );
+    const hasPurchase = await this.validateStudentHasPurchasedLesson(studentId, lessonId);
     if (!hasPurchase) {
       throw new ForbiddenException(
-        'You must purchase this lesson before reviewing',
+        biBody('You must purchase this lesson before reviewing', 'يجب شراء هذا الدرس قبل تقييمه'),
       );
     }
 
     // Reviews are only allowed after the lesson has been completed.
-    const hasCompleted = await this.validateStudentCompletedLesson(
-      studentId,
-      lessonId,
-    );
+    const hasCompleted = await this.validateStudentCompletedLesson(studentId, lessonId);
     if (!hasCompleted) {
       throw new ForbiddenException(
-        'You can review this lesson only after completing it',
+        biBody(
+          'You can review this lesson only after completing it',
+          'يمكنك تقييم هذا الدرس فقط بعد إكماله',
+        ),
       );
     }
 
@@ -204,7 +198,9 @@ export class ReviewsService {
       where: { lesson_id: lessonId, student_id: studentId },
     });
     if (existingReview) {
-      throw new ConflictException('You have already reviewed this lesson.');
+      throw new ConflictException(
+        biBody('You have already reviewed this lesson.', 'لقد قمت بتقييم هذا الدرس مسبقًا.'),
+      );
     }
 
     const review = this.lessonReviewsRepository.create({
@@ -228,21 +224,18 @@ export class ReviewsService {
       where: { lesson_id: lessonId, student_id: studentId },
     });
     if (!review) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
     this.applyReviewUpdate(review, dto);
     return this.lessonReviewsRepository.save(review);
   }
 
-  public async deleteLessonReview(
-    lessonId: string,
-    studentId: string,
-  ): Promise<void> {
+  public async deleteLessonReview(lessonId: string, studentId: string): Promise<void> {
     const review = await this.lessonReviewsRepository.findOne({
       where: { lesson_id: lessonId, student_id: studentId },
     });
     if (!review) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
     await this.deleteReviewRow(ReviewTargetType.LESSON, review.id);
     await this.lessonReviewsRepository.remove(review);
@@ -257,30 +250,24 @@ export class ReviewsService {
       where: { teacher_id: teacherId, student_id: studentId },
     });
     if (!review) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
     this.applyReviewUpdate(review, dto);
     return this.teacherReviewsRepository.save(review);
   }
 
-  public async deleteTeacherReview(
-    teacherId: string,
-    studentId: string,
-  ): Promise<void> {
+  public async deleteTeacherReview(teacherId: string, studentId: string): Promise<void> {
     const review = await this.teacherReviewsRepository.findOne({
       where: { teacher_id: teacherId, student_id: studentId },
     });
     if (!review) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
     await this.deleteReviewRow(ReviewTargetType.TEACHER, review.id);
     await this.teacherReviewsRepository.remove(review);
   }
 
-  private applyReviewUpdate(
-    review: LessonReview | TeacherReview,
-    dto: UpdateReviewDto,
-  ): void {
+  private applyReviewUpdate(review: LessonReview | TeacherReview, dto: UpdateReviewDto): void {
     if (dto.rating !== undefined) {
       review.rating = dto.rating;
     }
@@ -302,11 +289,14 @@ export class ReviewsService {
       relations: ['lesson'],
     });
     if (!review) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
     if (review.lesson.teacher_id !== teacherId) {
       throw new ForbiddenException(
-        'You can only reply to reviews on your own lessons',
+        biBody(
+          'You can only reply to reviews on your own lessons',
+          'يمكنك الرد فقط على التقييمات الخاصة بدروسك',
+        ),
       );
     }
 
@@ -404,7 +394,7 @@ export class ReviewsService {
         where: { id: reviewId },
       });
       if (!review) {
-        throw new NotFoundException('Review not found');
+        throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
       }
       review.status = status;
       await this.lessonReviewsRepository.save(review);
@@ -413,7 +403,7 @@ export class ReviewsService {
         where: { id: reviewId },
       });
       if (!review) {
-        throw new NotFoundException('Review not found');
+        throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
       }
       review.status = status;
       await this.teacherReviewsRepository.save(review);
@@ -421,16 +411,13 @@ export class ReviewsService {
     return { id: reviewId, status };
   }
 
-  public async adminDeleteReview(
-    type: ReviewTargetType,
-    reviewId: string,
-  ): Promise<void> {
+  public async adminDeleteReview(type: ReviewTargetType, reviewId: string): Promise<void> {
     if (type === ReviewTargetType.LESSON) {
       const review = await this.lessonReviewsRepository.findOne({
         where: { id: reviewId },
       });
       if (!review) {
-        throw new NotFoundException('Review not found');
+        throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
       }
       await this.deleteReviewRow(type, reviewId);
       await this.lessonReviewsRepository.remove(review);
@@ -439,7 +426,7 @@ export class ReviewsService {
         where: { id: reviewId },
       });
       if (!review) {
-        throw new NotFoundException('Review not found');
+        throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
       }
       await this.deleteReviewRow(type, reviewId);
       await this.teacherReviewsRepository.remove(review);
@@ -506,14 +493,12 @@ export class ReviewsService {
     teacherId: string,
     page = 1,
     limit = 20,
-  ): Promise<
-    PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }
-  > {
+  ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
     const teacher = await this.usersRepository.findOne({
       where: { id: teacherId, role: UserRole.TEACHER },
     });
     if (!teacher) {
-      throw new NotFoundException('Teacher not found');
+      throw new NotFoundException(biBody('Teacher not found', 'المعلم غير موجود'));
     }
 
     const [reviews, total] = await this.teacherReviewsRepository.findAndCount({
@@ -534,14 +519,12 @@ export class ReviewsService {
     lessonId: string,
     page = 1,
     limit = 20,
-  ): Promise<
-    PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }
-  > {
+  ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     const [reviews, total] = await this.lessonReviewsRepository.findAndCount({
@@ -562,15 +545,13 @@ export class ReviewsService {
    * Rating aggregates for a course (package), derived from the reviews of the
    * lessons it contains — no separate package_reviews table needed.
    */
-  public async getPackageAggregates(
-    packageId: string,
-  ): Promise<ReviewAggregates> {
+  public async getPackageAggregates(packageId: string): Promise<ReviewAggregates> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId },
       select: { id: true },
     });
     if (!pkg) {
-      throw new NotFoundException('Package not found');
+      throw new NotFoundException(biBody('Package not found', 'الحزمة غير موجودة'));
     }
 
     const reviews = await this.lessonReviewsRepository
@@ -658,10 +639,7 @@ export class ReviewsService {
     };
   }
 
-  private async assertReviewExists(
-    type: ReviewTargetType,
-    reviewId: string,
-  ): Promise<void> {
+  private async assertReviewExists(type: ReviewTargetType, reviewId: string): Promise<void> {
     const exists =
       type === ReviewTargetType.LESSON
         ? await this.lessonReviewsRepository.findOne({
@@ -673,7 +651,7 @@ export class ReviewsService {
             select: { id: true },
           });
     if (!exists) {
-      throw new NotFoundException('Review not found');
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
     }
   }
 
@@ -711,10 +689,7 @@ export class ReviewsService {
   }
 
   /** Remove any helpful votes attached to a review being deleted. */
-  private async deleteReviewRow(
-    type: ReviewTargetType,
-    reviewId: string,
-  ): Promise<void> {
+  private async deleteReviewRow(type: ReviewTargetType, reviewId: string): Promise<void> {
     await this.helpfulVotesRepository.delete({
       review_type: type,
       review_id: reviewId,

@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import {
@@ -91,8 +92,9 @@ export class ExamAuthoringService {
       where: { id: examId, deleted_at: IsNull() },
       relations: ['sections', 'exam_questions', 'subject'],
     });
-    if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.teacher_id !== teacherId) throw new ForbiddenException('Not your exam');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
+    if (exam.teacher_id !== teacherId)
+      throw new ForbiddenException(biBody('Not your exam', 'هذا الاختبار ليس ملكك'));
     exam.sections.sort((a, b) => a.order_index - b.order_index);
     exam.exam_questions.sort((a, b) => a.order_index - b.order_index);
     return exam;
@@ -165,20 +167,30 @@ export class ExamAuthoringService {
     this.assertDraft(exam);
 
     const section = await this.sections.findOne({ where: { id: dto.section_id, exam_id: examId } });
-    if (!section) throw new BadRequestException('Section does not belong to this exam');
+    if (!section) {
+      throw new BadRequestException(
+        biBody('Section does not belong to this exam', 'هذا القسم لا ينتمي إلى هذا الاختبار'),
+      );
+    }
 
     const question = await this.questions.findOne({
       where: { id: dto.question_id, deleted_at: IsNull() },
     });
-    if (!question) throw new NotFoundException('Question not found');
+    if (!question) throw new NotFoundException(biBody('Question not found', 'السؤال غير موجود'));
     if (question.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only add your own questions');
+      throw new ForbiddenException(
+        biBody('You can only add your own questions', 'يمكنك فقط إضافة أسئلتك الخاصة'),
+      );
     }
 
     const duplicate = await this.examQuestions.findOne({
       where: { exam_id: examId, question_id: dto.question_id },
     });
-    if (duplicate) throw new BadRequestException('Question is already in this exam');
+    if (duplicate) {
+      throw new BadRequestException(
+        biBody('Question is already in this exam', 'هذا السؤال موجود بالفعل في هذا الاختبار'),
+      );
+    }
 
     const count = await this.examQuestions.count({ where: { exam_id: examId } });
 
@@ -222,19 +234,30 @@ export class ExamAuthoringService {
   public async publish(examId: string, teacherId: string): Promise<Exam> {
     const exam = await this.findOwned(examId, teacherId);
     if (exam.status !== ExamStatus.DRAFT) {
-      throw new BadRequestException(`Only a draft exam can be published (current: ${exam.status})`);
+      throw new BadRequestException(
+        biBody(
+          `Only a draft exam can be published (current: ${exam.status})`,
+          `يمكن نشر الاختبارات في حالة المسودة فقط (الحالة الحالية: ${exam.status})`,
+        ),
+      );
     }
     const questionCount = await this.examQuestions.count({ where: { exam_id: examId } });
     if (questionCount === 0) {
-      throw new BadRequestException('Cannot publish an exam with no questions');
+      throw new BadRequestException(
+        biBody('Cannot publish an exam with no questions', 'لا يمكن نشر اختبار لا يحتوي على أسئلة'),
+      );
     }
     if (exam.passing_marks > exam.total_marks) {
       throw new BadRequestException(
-        `Passing marks (${String(exam.passing_marks)}) exceed total marks (${String(exam.total_marks)})`,
+        biBody(
+          `Passing marks (${String(exam.passing_marks)}) exceed total marks (${String(exam.total_marks)})`,
+          `درجة النجاح (${String(exam.passing_marks)}) تتجاوز الدرجة الكلية (${String(exam.total_marks)})`,
+        ),
       );
     }
     const start = exam.config.start_window_at;
-    const scheduled = start !== null && start !== undefined && new Date(start).getTime() > Date.now();
+    const scheduled =
+      start !== null && start !== undefined && new Date(start).getTime() > Date.now();
     exam.status = scheduled ? ExamStatus.SCHEDULED : ExamStatus.PUBLISHED;
     return this.exams.save(exam);
   }
@@ -248,7 +271,12 @@ export class ExamAuthoringService {
   public async unarchive(examId: string, teacherId: string): Promise<Exam> {
     const exam = await this.findOwned(examId, teacherId);
     if (exam.status !== ExamStatus.ARCHIVED) {
-      throw new BadRequestException(`Only an archived exam can be unarchived (current: ${exam.status})`);
+      throw new BadRequestException(
+        biBody(
+          `Only an archived exam can be unarchived (current: ${exam.status})`,
+          `يمكن إلغاء أرشفة الاختبارات المؤرشفة فقط (الحالة الحالية: ${exam.status})`,
+        ),
+      );
     }
     exam.status = ExamStatus.PUBLISHED;
     return this.exams.save(exam);
@@ -265,7 +293,12 @@ export class ExamAuthoringService {
   public async unarchiveAsAdmin(examId: string): Promise<Exam> {
     const exam = await this.findAny(examId);
     if (exam.status !== ExamStatus.ARCHIVED) {
-      throw new BadRequestException(`Only an archived exam can be unarchived (current: ${exam.status})`);
+      throw new BadRequestException(
+        biBody(
+          `Only an archived exam can be unarchived (current: ${exam.status})`,
+          `يمكن إلغاء أرشفة الاختبارات المؤرشفة فقط (الحالة الحالية: ${exam.status})`,
+        ),
+      );
     }
     exam.status = ExamStatus.PUBLISHED;
     return this.exams.save(exam);
@@ -290,20 +323,29 @@ export class ExamAuthoringService {
 
   private async findOwned(examId: string, teacherId: string): Promise<Exam> {
     const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
-    if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.teacher_id !== teacherId) throw new ForbiddenException('You can only manage your own exams');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
+    if (exam.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only manage your own exams', 'يمكنك فقط إدارة اختباراتك الخاصة'),
+      );
+    }
     return exam;
   }
 
   private async findAny(examId: string): Promise<Exam> {
     const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
-    if (!exam) throw new NotFoundException('Exam not found');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
     return exam;
   }
 
   private assertDraft(exam: Exam): void {
     if (exam.status !== ExamStatus.DRAFT) {
-      throw new BadRequestException('Exam structure can only be edited while it is a draft');
+      throw new BadRequestException(
+        biBody(
+          'Exam structure can only be edited while it is a draft',
+          'لا يمكن تعديل بنية الاختبار إلا أثناء وجوده في حالة المسودة',
+        ),
+      );
     }
   }
 
@@ -313,16 +355,31 @@ export class ExamAuthoringService {
 
   private async assertSubject(subjectId: string): Promise<void> {
     const exists = await this.subjects.findOne({ where: { id: subjectId, deleted_at: IsNull() } });
-    if (!exists) throw new NotFoundException(`Subject ${subjectId} not found`);
+    if (!exists) {
+      throw new NotFoundException(
+        biBody(`Subject ${subjectId} not found`, `المادة ${subjectId} غير موجودة`),
+      );
+    }
   }
 
   private async assertLesson(lessonId: string): Promise<void> {
     const exists = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
-    if (!exists) throw new NotFoundException(`Lesson ${lessonId} not found`);
+    if (!exists) {
+      throw new NotFoundException(
+        biBody(`Lesson ${lessonId} not found`, `الدرس ${lessonId} غير موجود`),
+      );
+    }
   }
 
   private meta(total: number, page: number, limit: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
-    return { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 }

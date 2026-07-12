@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, IsNull, Repository } from 'typeorm';
 
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AddToCartDto, CartItemResponseDto, CartResponseDto, CheckoutCartDto } from './dto';
@@ -50,7 +51,7 @@ export class CartService {
     );
 
     if (existingItem) {
-      throw new ConflictException('Item already in cart');
+      throw new ConflictException(biBody('Item already in cart', 'العنصر موجود بالفعل في السلة'));
     }
 
     // Fetch item price
@@ -130,13 +131,13 @@ export class CartService {
     });
 
     if (!cart) {
-      throw new NotFoundException('Cart not found');
+      throw new NotFoundException(biBody('Cart not found', 'السلة غير موجودة'));
     }
 
     const item = cart.items.find((i) => i.id === itemId);
 
     if (!item) {
-      throw new NotFoundException('Item not found in cart');
+      throw new NotFoundException(biBody('Item not found in cart', 'العنصر غير موجود في السلة'));
     }
 
     await this.cartItemsRepository.remove(item);
@@ -165,7 +166,10 @@ export class CartService {
     _dto: CheckoutCartDto,
   ): Promise<{ message: string; data: unknown }> {
     throw new NotImplementedException(
-      'Cart checkout is not available yet. Please purchase items individually.',
+      biBody(
+        'Cart checkout is not available yet. Please purchase items individually.',
+        'الدفع من السلة غير متاح حاليًا. يرجى شراء العناصر بشكل منفصل.',
+      ),
     );
   }
 
@@ -179,7 +183,9 @@ export class CartService {
       });
 
       if (!lesson) {
-        throw new NotFoundException(`Lesson with ID ${itemId} not found`);
+        throw new NotFoundException(
+          biBody(`Lesson with ID ${itemId} not found`, `الدرس بالمعرّف ${itemId} غير موجود`),
+        );
       }
 
       return lesson.price;
@@ -190,7 +196,9 @@ export class CartService {
     });
 
     if (!pkg) {
-      throw new NotFoundException(`Package with ID ${itemId} not found`);
+      throw new NotFoundException(
+        biBody(`Package with ID ${itemId} not found`, `الباقة بالمعرّف ${itemId} غير موجودة`),
+      );
     }
 
     return pkg.price;

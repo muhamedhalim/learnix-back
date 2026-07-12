@@ -27,6 +27,7 @@ import { computeAccessExpiresAt } from '../../common/utils/lesson-access.util';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
+import { biBody } from '../../i18n/error-translator.util';
 import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
@@ -191,14 +192,18 @@ export class PaymentsService {
     });
 
     if (lesson === null) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Check if student already has active access
     const existingAccess = await this.checkLessonAccess(userId, dto.lesson_id);
     if (existingAccess.has_access) {
+      const expiresLabel = existingAccess.expires_at?.toISOString() ?? 'unlimited';
       throw new ConflictException(
-        `You already have access to this lesson until ${existingAccess.expires_at?.toISOString() ?? 'unlimited'}`,
+        biBody(
+          `You already have access to this lesson until ${expiresLabel}`,
+          `لديك بالفعل صلاحية الوصول إلى هذا الدرس حتى ${expiresLabel}`,
+        ),
       );
     }
 
@@ -321,7 +326,9 @@ export class PaymentsService {
     });
 
     if (pkg === null) {
-      throw new NotFoundException('Package not found or not active');
+      throw new NotFoundException(
+        biBody('Package not found or not active', 'الباقة غير موجودة أو غير مفعّلة'),
+      );
     }
 
     // Apply discount code if provided
@@ -417,10 +424,7 @@ export class PaymentsService {
   /**
    * Purchase a book - initiates payment with EasyKash
    */
-  public async purchaseBook(
-    dto: PurchaseBookPaymentDto,
-    userId: string,
-  ): Promise<PaymentResponse> {
+  public async purchaseBook(dto: PurchaseBookPaymentDto, userId: string): Promise<PaymentResponse> {
     // Generate idempotency key if not provided
     const idempotencyKey =
       dto.idempotency_key ?? `book-${userId}-${dto.book_id}-${Date.now().toString()}`;
@@ -445,7 +449,7 @@ export class PaymentsService {
     });
 
     if (book === null) {
-      throw new NotFoundException('Book not found');
+      throw new NotFoundException(biBody('Book not found', 'الكتاب غير موجود'));
     }
 
     // Books are a one-time purchase (no expiry) — reject if already owned.
@@ -453,7 +457,9 @@ export class PaymentsService {
       where: { student_id: userId, book_id: dto.book_id },
     });
     if (existingPurchase) {
-      throw new ConflictException('You have already purchased this book');
+      throw new ConflictException(
+        biBody('You have already purchased this book', 'لقد قمت بشراء هذا الكتاب بالفعل'),
+      );
     }
 
     // Apply discount code if provided
@@ -566,7 +572,10 @@ export class PaymentsService {
 
     if (!expiredPurchase) {
       throw new BadRequestException(
-        'You have not previously purchased this lesson or access is still active',
+        biBody(
+          'You have not previously purchased this lesson or access is still active',
+          'لم تقم بشراء هذا الدرس من قبل أو أن صلاحية الوصول ما زالت سارية',
+        ),
       );
     }
 
@@ -576,7 +585,7 @@ export class PaymentsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Calculate 50% reopen price
@@ -654,7 +663,7 @@ export class PaymentsService {
       });
 
       if (!payment) {
-        throw new NotFoundException('Payment not found');
+        throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
       }
 
       if (payment.status === PaymentStatus.COMPLETED) {
@@ -708,7 +717,10 @@ export class PaymentsService {
     } catch (err) {
       if (this.isOpenPaymentConflict(err)) {
         throw new ConflictException(
-          'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+          biBody(
+            'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+            'توجد بالفعل عملية دفع جارية لهذا العنصر. يرجى إكمالها أو الانتظار بضع دقائق قبل المحاولة مرة أخرى.',
+          ),
         );
       }
       throw err;
@@ -754,7 +766,10 @@ export class PaymentsService {
     const ageMs = Date.now() - open.created_at.getTime();
     if (ageMs < OPEN_PAYMENT_TTL_MS) {
       throw new ConflictException(
-        'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+        biBody(
+          'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
+          'توجد بالفعل عملية دفع جارية لهذا العنصر. يرجى إكمالها أو الانتظار بضع دقائق قبل المحاولة مرة أخرى.',
+        ),
       );
     }
 
@@ -777,7 +792,12 @@ export class PaymentsService {
    */
   private assertChargeableAmount(finalAmount: number): void {
     if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
-      throw new BadRequestException('Order total must be greater than zero after discounts');
+      throw new BadRequestException(
+        biBody(
+          'Order total must be greater than zero after discounts',
+          'يجب أن يكون إجمالي الطلب أكبر من صفر بعد الخصومات',
+        ),
+      );
     }
   }
 
@@ -801,7 +821,12 @@ export class PaymentsService {
         `Amount mismatch for payment ${payment.id}: captured ` +
           `${String(verification.amountCents)} cents, expected ${String(expectedCents)} cents`,
       );
-      throw new BadRequestException('Captured amount does not match the expected order total');
+      throw new BadRequestException(
+        biBody(
+          'Captured amount does not match the expected order total',
+          'المبلغ المحصّل لا يطابق إجمالي الطلب المتوقع',
+        ),
+      );
     }
 
     if (verification.currency.toUpperCase() !== EXPECTED_CURRENCY) {
@@ -809,7 +834,7 @@ export class PaymentsService {
         `Currency mismatch for payment ${payment.id}: got ${verification.currency}, ` +
           `expected ${EXPECTED_CURRENCY}`,
       );
-      throw new BadRequestException('Unexpected payment currency');
+      throw new BadRequestException(biBody('Unexpected payment currency', 'عملة الدفع غير متوقعة'));
     }
   }
 
@@ -890,7 +915,7 @@ export class PaymentsService {
     });
 
     if (!pkg) {
-      throw new NotFoundException('Package not found');
+      throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
     }
 
     // Create package purchase record
@@ -1025,7 +1050,7 @@ export class PaymentsService {
     });
 
     if (!purchase) {
-      throw new NotFoundException('Purchase not found');
+      throw new NotFoundException(biBody('Purchase not found', 'عملية الشراء غير موجودة'));
     }
 
     // Extend by 1 day

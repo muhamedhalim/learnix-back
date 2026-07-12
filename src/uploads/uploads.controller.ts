@@ -36,6 +36,7 @@ import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { SkipCsrf } from '../common/guards/csrf.guard';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { UserRole } from '../users/entities/user-role.enum';
 import type {
   FileDeleteResponseDto,
@@ -55,8 +56,7 @@ export class UploadsController {
     private readonly configService: ConfigService,
     private readonly fileManagementService: FileManagementService,
   ) {
-    this.uploadDir =
-      this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
+    this.uploadDir = this.configService.get<string>('UPLOAD_DIR') ?? '/app/uploads';
     this.logger.log(`Uploads controller serving from: ${this.uploadDir}`);
   }
 
@@ -92,10 +92,7 @@ export class UploadsController {
     @GetUser() user: JwtPayload,
     @Query('folder') folder?: 'resources' | 'thumbnails' | 'profiles',
   ): Promise<FileListResponseDto> {
-    const files = await this.fileManagementService.getUserFiles(
-      user.userId,
-      folder,
-    );
+    const files = await this.fileManagementService.getUserFiles(user.userId, folder);
     return { data: files };
   }
 
@@ -108,8 +105,7 @@ export class UploadsController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'List files for a specific user (Admin only)',
-    description:
-      'Returns a list of all files uploaded by a specific user. Admin only.',
+    description: 'Returns a list of all files uploaded by a specific user. Admin only.',
   })
   @ApiQuery({
     name: 'userId',
@@ -168,7 +164,7 @@ export class UploadsController {
   ): Promise<{ data: FileDetailsDto }> {
     const file = await this.fileManagementService.getFileById(fileId);
     if (file === null) {
-      throw new NotFoundException('File not found');
+      throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }
 
     const usage = await this.fileManagementService.getFileUsage(file.filename);
@@ -289,7 +285,10 @@ export class UploadsController {
     if (!validFolders.includes(folder)) {
       this.logger.warn(`Invalid folder requested: ${folder}`);
       throw new BadRequestException(
-        `Invalid folder. Allowed: ${UPLOAD_FOLDERS.join(', ')}`,
+        biBody(
+          `Invalid folder. Allowed: ${UPLOAD_FOLDERS.join(', ')}`,
+          `مجلد غير صالح. المسموح به: ${UPLOAD_FOLDERS.join(', ')}`,
+        ),
       );
     }
 
@@ -302,16 +301,14 @@ export class UploadsController {
       filename.includes('/') ||
       filename.includes('\\')
     ) {
-      this.logger.error(
-        `Path traversal attempt: folder=${folder}, filename=${filename}`,
-      );
-      throw new BadRequestException('Invalid file path');
+      this.logger.error(`Path traversal attempt: folder=${folder}, filename=${filename}`);
+      throw new BadRequestException(biBody('Invalid file path', 'مسار ملف غير صالح'));
     }
 
     // Validation 3: Filename must have an extension
     if (!filename.includes('.')) {
       this.logger.warn(`Filename missing extension: ${filename}`);
-      throw new BadRequestException('Invalid filename');
+      throw new BadRequestException(biBody('Invalid filename', 'اسم ملف غير صالح'));
     }
 
     // Build safe file path
@@ -322,7 +319,7 @@ export class UploadsController {
       await access(filepath);
     } catch {
       this.logger.warn(`File not found: ${filepath}`);
-      throw new NotFoundException('File not found');
+      throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }
 
     // Set explicit CORS headers for cross-origin image loading

@@ -24,6 +24,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { BulkOperationsService } from './bulk-operations.service';
 import {
   BulkAttendanceCodesDto,
@@ -63,8 +64,7 @@ export class BulkOperationsController {
         file: {
           type: 'string',
           format: 'binary',
-          description:
-            'CSV file with columns: name, email, phone, parent_phone, grade_level',
+          description: 'CSV file with columns: name, email, phone, parent_phone, grade_level',
         },
       },
     },
@@ -78,12 +78,11 @@ export class BulkOperationsController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ data: BulkImportPreviewDto }> {
     if (!file) {
-      throw new BadRequestException('No file uploaded');
+      throw new BadRequestException(biBody('No file uploaded', 'لم يتم رفع أي ملف'));
     }
 
     const csvContent = file.buffer.toString('utf-8');
-    const preview =
-      await this.bulkOperationsService.previewStudentImport(csvContent);
+    const preview = await this.bulkOperationsService.previewStudentImport(csvContent);
 
     return { data: preview };
   }
@@ -109,8 +108,7 @@ export class BulkOperationsController {
         file: {
           type: 'string',
           format: 'binary',
-          description:
-            'CSV file with columns: name, email, phone, parent_phone, grade_level',
+          description: 'CSV file with columns: name, email, phone, parent_phone, grade_level',
         },
       },
     },
@@ -125,14 +123,11 @@ export class BulkOperationsController {
     @UploadedFile() file: Express.Multer.File | undefined,
   ): Promise<{ data: BulkImportResultDto }> {
     if (!file) {
-      throw new BadRequestException('No file uploaded');
+      throw new BadRequestException(biBody('No file uploaded', 'لم يتم رفع أي ملف'));
     }
 
     const csvContent = file.buffer.toString('utf-8');
-    const result = await this.bulkOperationsService.importStudents(
-      csvContent,
-      user.userId,
-    );
+    const result = await this.bulkOperationsService.importStudents(csvContent, user.userId);
 
     return { data: result };
   }
@@ -158,10 +153,7 @@ export class BulkOperationsController {
     @GetUser() user: JwtPayload,
     @Body() dto: BulkUserActionDto,
   ): Promise<{ data: BulkUserActionResultDto }> {
-    const result = await this.bulkOperationsService.performBulkUserAction(
-      dto,
-      user.userId,
-    );
+    const result = await this.bulkOperationsService.performBulkUserAction(dto, user.userId);
 
     return { data: result };
   }
@@ -187,10 +179,7 @@ export class BulkOperationsController {
     @GetUser() user: JwtPayload,
     @Body() dto: BulkNotificationDto,
   ): Promise<{ data: BulkNotificationResultDto }> {
-    const result = await this.bulkOperationsService.sendBulkNotifications(
-      dto,
-      user.userId,
-    );
+    const result = await this.bulkOperationsService.sendBulkNotifications(dto, user.userId);
 
     return { data: result };
   }
@@ -216,10 +205,7 @@ export class BulkOperationsController {
     @GetUser() user: JwtPayload,
     @Body() dto: BulkAttendanceCodesDto,
   ): Promise<{ data: BulkAttendanceCodesResultDto }> {
-    const result = await this.bulkOperationsService.generateBulkAttendanceCodes(
-      dto,
-      user.userId,
-    );
+    const result = await this.bulkOperationsService.generateBulkAttendanceCodes(dto, user.userId);
 
     return { data: result };
   }

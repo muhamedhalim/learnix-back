@@ -1,26 +1,16 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
-import {
-  AttendanceMarkedEvent,
-  PARENT_EVENT_CHANNEL,
-} from '../notifications/events/parent-events';
+import { AttendanceMarkedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
 import { User } from '../users/entities/user.entity';
 import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
-import {
-  AttendanceRecord,
-  AttendanceStatus,
-} from './entities/attendance-record.entity';
+import { AttendanceRecord, AttendanceStatus } from './entities/attendance-record.entity';
 import { LessonSession } from './entities/lesson-session.entity';
 
 const AUTO_ATTENDANCE_THRESHOLD = 80; // 80% video watch = auto present
@@ -59,14 +49,14 @@ export class AttendanceService {
     isAutoMarked = false,
   ): Promise<AttendanceRecord> {
     // Check if already marked
-    const existing = await this.checkAttendanceExists(
-      dto.student_id,
-      dto.lesson_id,
-    );
+    const existing = await this.checkAttendanceExists(dto.student_id, dto.lesson_id);
 
     if (existing) {
       throw new ConflictException(
-        'Attendance already marked for this student and lesson',
+        biBody(
+          'Attendance already marked for this student and lesson',
+          'تم تسجيل الحضور لهذا الطالب في هذا الدرس بالفعل',
+        ),
       );
     }
 
@@ -76,7 +66,12 @@ export class AttendanceService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${dto.lesson_id} not found`);
+      throw new NotFoundException(
+        biBody(
+          `Lesson with ID ${dto.lesson_id} not found`,
+          `الدرس ذو المعرف ${dto.lesson_id} غير موجود`,
+        ),
+      );
     }
 
     // Create attendance record
@@ -86,9 +81,7 @@ export class AttendanceService {
       status: dto.status,
       marked_by: markerId,
       is_auto_marked: isAutoMarked,
-      notes:
-        dto.notes ??
-        (isAutoMarked ? 'Auto-marked: 80% video completion' : null),
+      notes: dto.notes ?? (isAutoMarked ? 'Auto-marked: 80% video completion' : null),
     });
 
     const saved = await this.attendanceRepository.save(attendance);
@@ -181,7 +174,9 @@ export class AttendanceService {
     });
 
     if (!attendance) {
-      throw new NotFoundException(`Attendance record with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Attendance record with ID ${id} not found`, `سجل الحضور ذو المعرف ${id} غير موجود`),
+      );
     }
 
     return attendance;
@@ -202,7 +197,9 @@ export class AttendanceService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس ذو المعرف ${lessonId} غير موجود`),
+      );
     }
 
     // Create session
@@ -215,9 +212,7 @@ export class AttendanceService {
 
     const saved = await this.sessionsRepository.save(session);
 
-    this.logger.log(
-      `Session started: student ${studentId}, lesson ${lessonId}`,
-    );
+    this.logger.log(`Session started: student ${studentId}, lesson ${lessonId}`);
 
     return saved;
   }
@@ -262,10 +257,7 @@ export class AttendanceService {
   ): Promise<LessonSession> {
     const session = await this.findSessionById(sessionId);
 
-    session.video_progress_percent = Math.max(
-      session.video_progress_percent,
-      watchPercentage,
-    );
+    session.video_progress_percent = Math.max(session.video_progress_percent, watchPercentage);
 
     await this.sessionsRepository.save(session);
 
@@ -275,14 +267,9 @@ export class AttendanceService {
   /**
    * Check and auto-mark attendance if threshold met
    */
-  private async checkAndAutoMarkAttendance(
-    session: LessonSession,
-  ): Promise<boolean> {
+  private async checkAndAutoMarkAttendance(session: LessonSession): Promise<boolean> {
     // Check if already marked
-    const existing = await this.checkAttendanceExists(
-      session.student_id,
-      session.lesson_id,
-    );
+    const existing = await this.checkAttendanceExists(session.student_id, session.lesson_id);
 
     if (existing) {
       this.logger.log(
@@ -325,7 +312,9 @@ export class AttendanceService {
     });
 
     if (!session) {
-      throw new NotFoundException(`Session with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Session with ID ${id} not found`, `الجلسة ذات المعرف ${id} غير موجودة`),
+      );
     }
 
     return session;
@@ -565,8 +554,7 @@ export class AttendanceService {
       absent: result ? Number(result.absent) : 0,
       late,
       excused: result ? Number(result.excused) : 0,
-      attendance_rate:
-        total > 0 ? Math.round(((present + late) / total) * 100) : 0,
+      attendance_rate: total > 0 ? Math.round(((present + late) / total) * 100) : 0,
     };
   }
 
@@ -603,8 +591,7 @@ export class AttendanceService {
       absent: result ? Number(result.absent) : 0,
       late,
       excused: result ? Number(result.excused) : 0,
-      attendance_rate:
-        total > 0 ? Math.round(((present + late) / total) * 100) : 0,
+      attendance_rate: total > 0 ? Math.round(((present + late) / total) * 100) : 0,
     };
   }
 }

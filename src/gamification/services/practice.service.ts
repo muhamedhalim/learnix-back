@@ -13,6 +13,7 @@ import { PracticeSession } from '../entities';
 import { GameNotificationsService } from './game-notifications.service';
 import { GamificationService, SolveResult } from './gamification.service';
 import { RankService } from './rank.service';
+import { biBody } from '../../i18n/error-translator.util';
 
 /** A question rendered for practice — never carries the answer key. */
 export interface RenderedQuestion {
@@ -124,12 +125,17 @@ export class PracticeService {
   /** Grade a submission, apply the economy, and build the post-answer payload. */
   public async submitAnswer(
     userId: string,
-    dto: { questionId: string; response: Record<string, unknown> | null; timeMs: number; sessionId?: string | null },
+    dto: {
+      questionId: string;
+      response: Record<string, unknown> | null;
+      timeMs: number;
+      sessionId?: string | null;
+    },
   ): Promise<SubmitResult> {
     const question = await this.questions.findOne({
       where: { id: dto.questionId, is_active: true },
     });
-    if (!question) throw new NotFoundException('Question not found');
+    if (!question) throw new NotFoundException(biBody('Question not found', 'السؤال غير موجود'));
 
     const definition = this.registry.require(question.type);
     const response = dto.response ?? null;
@@ -143,7 +149,12 @@ export class PracticeService {
     const grade = definition.grade(response, question.answer_key);
     // Practice is objective-only: a manual-grading type has no instant verdict.
     if (grade.manualRequired || grade.isCorrect === null) {
-      throw new BadRequestException('This question type cannot be practiced (requires manual grading)');
+      throw new BadRequestException(
+        biBody(
+          'This question type cannot be practiced (requires manual grading)',
+          'لا يمكن التدرب على هذا النوع من الأسئلة (يتطلب تصحيحًا يدويًا)',
+        ),
+      );
     }
 
     const result = await this.gamification.recordSolve({
@@ -160,7 +171,10 @@ export class PracticeService {
     });
 
     const referenceLesson = question.lesson_id
-      ? await this.lessons.findOne({ where: { id: question.lesson_id }, select: { id: true, title: true } })
+      ? await this.lessons.findOne({
+          where: { id: question.lesson_id },
+          select: { id: true, title: true },
+        })
       : null;
 
     const explanationRaw = (question.content as Record<string, unknown>)['explanation'];
@@ -177,7 +191,9 @@ export class PracticeService {
       ...result,
       solution: question.answer_key,
       explanation,
-      reference_lesson: referenceLesson ? { id: referenceLesson.id, title: referenceLesson.title } : null,
+      reference_lesson: referenceLesson
+        ? { id: referenceLesson.id, title: referenceLesson.title }
+        : null,
     };
   }
 

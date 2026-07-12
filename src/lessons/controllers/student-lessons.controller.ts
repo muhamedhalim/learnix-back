@@ -11,18 +11,13 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { UserRequest } from '../../common/interfaces/user-request.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { PaymentsService } from '../../payments/services/payments.service';
 import {
   AllProgressResponseDto,
@@ -113,9 +108,7 @@ export class StudentLessonsController {
     status: HttpStatus.OK,
     description: 'List of available lessons',
   })
-  public async browseLessons(
-    @Query() filter: LessonFilterDto,
-  ): Promise<unknown> {
+  public async browseLessons(@Query() filter: LessonFilterDto): Promise<unknown> {
     return await this.lessonsService.findAll(filter);
   }
 
@@ -149,7 +142,7 @@ export class StudentLessonsController {
   ): Promise<LessonProgressResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
 
     // Recording watch progress implies the student is actively watching, so
@@ -157,13 +150,13 @@ export class StudentLessonsController {
     // direct purchase, or a package purchase covering this lesson) — a
     // student whose access has expired must not be able to keep progress
     // ticking on this lesson.
-    const hasAccess = await this.paymentsService.hasLessonPlaybackAccess(
-      userId,
-      lessonId,
-    );
+    const hasAccess = await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId);
     if (!hasAccess) {
       throw new ForbiddenException(
-        'You must have active access to this lesson to record progress.',
+        biBody(
+          'You must have active access to this lesson to record progress.',
+          'يجب أن يكون لديك وصول فعّال لهذا الدرس لتسجيل التقدم.',
+        ),
       );
     }
 
@@ -201,7 +194,7 @@ export class StudentLessonsController {
   ): Promise<LessonProgressNullableResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
 
     const progress = await this.progressService.getProgress(userId, lessonId);
@@ -216,20 +209,17 @@ export class StudentLessonsController {
   @Get('my/progress')
   @ApiOperation({
     summary: 'Get all lesson progress',
-    description:
-      'Returns all lessons with their watch progress for the current student.',
+    description: 'Returns all lessons with their watch progress for the current student.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Array of progress records',
     type: AllProgressResponseDto,
   })
-  public async getAllProgress(
-    @Request() req: UserRequest,
-  ): Promise<AllProgressResponseDto> {
+  public async getAllProgress(@Request() req: UserRequest): Promise<AllProgressResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
 
     const progressRecords = await this.progressService.getAllProgress(userId);

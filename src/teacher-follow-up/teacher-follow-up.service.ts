@@ -13,6 +13,7 @@ import { ParentMessage } from '../notifications/entities';
 import { ParentMessageAdminService } from '../notifications/services/parent-message-admin.service';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { biBody } from '../i18n/error-translator.util';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import type {
@@ -72,7 +73,8 @@ export class TeacherFollowUpService {
     private readonly attendanceRecords: Repository<AttendanceRecord>,
     @InjectRepository(LessonSession) private readonly lessonSessions: Repository<LessonSession>,
     @InjectRepository(ParentMessage) private readonly parentMessages: Repository<ParentMessage>,
-    @InjectRepository(StudentGuardian) private readonly studentGuardians: Repository<StudentGuardian>,
+    @InjectRepository(StudentGuardian)
+    private readonly studentGuardians: Repository<StudentGuardian>,
     private readonly parentMessageAdmin: ParentMessageAdminService,
   ) {}
 
@@ -123,7 +125,9 @@ export class TeacherFollowUpService {
     ]);
 
     if (lessonCount === 0 && packageCount === 0) {
-      throw new ForbiddenException('You can only access your own students');
+      throw new ForbiddenException(
+        biBody('You can only access your own students', 'يمكنك الوصول إلى طلابك الخاصين فقط'),
+      );
     }
   }
 
@@ -173,7 +177,10 @@ export class TeacherFollowUpService {
     };
   }
 
-  public async getStudentSummary(teacherId: string, studentId: string): Promise<TeacherStudentSummary> {
+  public async getStudentSummary(
+    teacherId: string,
+    studentId: string,
+  ): Promise<TeacherStudentSummary> {
     await this.assertOwnsStudent(teacherId, studentId);
     const student = await this.users.findOneOrFail({ where: { id: studentId } });
     const summaries = await this.buildSummaries(teacherId, [studentId]);
@@ -460,7 +467,10 @@ export class TeacherFollowUpService {
     return this.fetchAttemptRows(teacherId, [studentId]);
   }
 
-  public async fetchAttendanceRowsFor(teacherId: string, studentId: string): Promise<AttendanceRow[]> {
+  public async fetchAttendanceRowsFor(
+    teacherId: string,
+    studentId: string,
+  ): Promise<AttendanceRow[]> {
     return this.fetchAttendanceRows(teacherId, [studentId]);
   }
 
@@ -531,7 +541,9 @@ function summarizeExams(rows: AttemptRow[]): {
   const averageExamScore =
     Math.round((percentages.reduce((sum, p) => sum + p, 0) / percentages.length) * 100) / 100;
 
-  const latest = graded.reduce((a, b) => ((b.graded_at ?? new Date(0)) > (a.graded_at ?? new Date(0)) ? b : a));
+  const latest = graded.reduce((a, b) =>
+    (b.graded_at ?? new Date(0)) > (a.graded_at ?? new Date(0)) ? b : a,
+  );
   const maxScore = Number.parseFloat(latest.max_score);
   const score = Number.parseFloat(latest.score_total ?? '0');
 
@@ -590,7 +602,13 @@ function assessRisk(input: {
   }
 
   const level: RiskLevel =
-    factors.length === 0 ? 'low' : factors.length === 1 ? 'medium' : factors.length === 2 ? 'high' : 'critical';
+    factors.length === 0
+      ? 'low'
+      : factors.length === 1
+        ? 'medium'
+        : factors.length === 2
+          ? 'high'
+          : 'critical';
 
   return { level, factors };
 }

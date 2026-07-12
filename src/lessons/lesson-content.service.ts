@@ -1,17 +1,10 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import {
-  CreateAttachmentDto,
-  CreateHomeworkDto,
-  UpdateHomeworkDto,
-} from './dto';
+import { biBody } from '../i18n/error-translator.util';
+import { CreateAttachmentDto, CreateHomeworkDto, UpdateHomeworkDto } from './dto';
 import { Lesson } from './entities/lesson.entity';
 import { LessonAttachment } from './entities/lesson-attachment.entity';
 import { LessonHomework } from './entities/lesson-homework.entity';
@@ -30,27 +23,25 @@ export class LessonContentService {
     private readonly notesRepository: Repository<LessonNote>,
   ) {}
 
-  private async assertOwnedLesson(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<void> {
+  private async assertOwnedLesson(lessonId: string, teacherId: string): Promise<void> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only manage your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only manage your own lessons', 'يمكنك إدارة دروسك الخاصة فقط'),
+      );
     }
   }
 
   /* ===================== Attachments ===================== */
 
-  public async listAttachments(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<LessonAttachment[]> {
+  public async listAttachments(lessonId: string, teacherId: string): Promise<LessonAttachment[]> {
     await this.assertOwnedLesson(lessonId, teacherId);
     return this.attachmentsRepository.find({
       where: { lesson_id: lessonId },
@@ -62,9 +53,7 @@ export class LessonContentService {
    * Raw attachments read with NO ownership check. Callers (viewer routes) must
    * authorize first via LessonsService.assertViewerAccess.
    */
-  public async getAttachmentsForLesson(
-    lessonId: string,
-  ): Promise<LessonAttachment[]> {
+  public async getAttachmentsForLesson(lessonId: string): Promise<LessonAttachment[]> {
     return this.attachmentsRepository.find({
       where: { lesson_id: lessonId },
       order: { created_at: 'ASC' },
@@ -74,21 +63,14 @@ export class LessonContentService {
   /* ===================== Personal notes ===================== */
 
   /** The caller's private note for a lesson, or null if none saved yet. */
-  public async getNote(
-    userId: string,
-    lessonId: string,
-  ): Promise<LessonNote | null> {
+  public async getNote(userId: string, lessonId: string): Promise<LessonNote | null> {
     return this.notesRepository.findOne({
       where: { user_id: userId, lesson_id: lessonId },
     });
   }
 
   /** Create-or-update the caller's private note for a lesson. */
-  public async upsertNote(
-    userId: string,
-    lessonId: string,
-    content: string,
-  ): Promise<LessonNote> {
+  public async upsertNote(userId: string, lessonId: string, content: string): Promise<LessonNote> {
     const existing = await this.getNote(userId, lessonId);
     if (existing) {
       existing.content = content;
@@ -129,17 +111,14 @@ export class LessonContentService {
       where: { id: attachmentId, lesson_id: lessonId },
     });
     if (!attachment) {
-      throw new NotFoundException('Attachment not found');
+      throw new NotFoundException(biBody('Attachment not found', 'المرفق غير موجود'));
     }
     await this.attachmentsRepository.remove(attachment);
   }
 
   /* ===================== Homework ===================== */
 
-  public async listHomework(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<LessonHomework[]> {
+  public async listHomework(lessonId: string, teacherId: string): Promise<LessonHomework[]> {
     await this.assertOwnedLesson(lessonId, teacherId);
     return this.homeworkRepository.find({
       where: { lesson_id: lessonId },
@@ -175,7 +154,7 @@ export class LessonContentService {
       where: { id: homeworkId, lesson_id: lessonId },
     });
     if (!homework) {
-      throw new NotFoundException('Homework not found');
+      throw new NotFoundException(biBody('Homework not found', 'الواجب غير موجود'));
     }
     if (dto.title !== undefined) homework.title = dto.title;
     if (dto.description !== undefined) homework.description = dto.description;
@@ -197,7 +176,7 @@ export class LessonContentService {
       where: { id: homeworkId, lesson_id: lessonId },
     });
     if (!homework) {
-      throw new NotFoundException('Homework not found');
+      throw new NotFoundException(biBody('Homework not found', 'الواجب غير موجود'));
     }
     await this.homeworkRepository.softRemove(homework);
   }

@@ -13,6 +13,7 @@ import type { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
 import { Repository } from 'typeorm';
 
+import { biBody } from '../i18n/error-translator.util';
 import { UploadService } from '../uploads/upload.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
@@ -109,7 +110,9 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${id} not found`, `المستخدم بالمعرّف ${id} غير موجود`),
+      );
     }
 
     const userProfile = {
@@ -138,22 +141,10 @@ export class UsersService {
     });
   }
 
-  public async findByRole(
-    role: UserRole,
-    page = 1,
-    limit = 10,
-  ): Promise<unknown> {
+  public async findByRole(role: UserRole, page = 1, limit = 10): Promise<unknown> {
     const [users, total] = await this.userRepository.findAndCount({
       where: { role },
-      select: [
-        'id',
-        'name',
-        'email',
-        'phone',
-        'is_active',
-        'role',
-        'created_at',
-      ],
+      select: ['id', 'name', 'email', 'phone', 'is_active', 'role', 'created_at'],
       skip: (page - 1) * limit,
       take: limit,
       order: { created_at: 'DESC' },
@@ -170,10 +161,7 @@ export class UsersService {
     };
   }
 
-  public async update(
-    id: string,
-    updateUserDto: UpdateUserDto,
-  ): Promise<unknown> {
+  public async update(id: string, updateUserDto: UpdateUserDto): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -189,7 +177,9 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${id} not found`, `المستخدم بالمعرّف ${id} غير موجود`),
+      );
     }
 
     if (
@@ -201,7 +191,9 @@ export class UsersService {
         where: { email: updateUserDto.email },
       });
       if (emailExists) {
-        throw new ConflictException('Email already in use');
+        throw new ConflictException(
+          biBody('Email already in use', 'البريد الإلكتروني مستخدم بالفعل'),
+        );
       }
     }
 
@@ -214,7 +206,9 @@ export class UsersService {
         where: { phone: updateUserDto.phone },
       });
       if (phoneExists) {
-        throw new ConflictException('Phone number already in use');
+        throw new ConflictException(
+          biBody('Phone number already in use', 'رقم الهاتف مستخدم بالفعل'),
+        );
       }
     }
 
@@ -254,7 +248,9 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${id} not found`, `المستخدم بالمعرّف ${id} غير موجود`),
+      );
     }
 
     // Check if user is an admin
@@ -266,7 +262,10 @@ export class UsersService {
 
       if (adminCount <= 1) {
         throw new ForbiddenException(
-          'Cannot delete the last admin account. Please create another admin first.',
+          biBody(
+            'Cannot delete the last admin account. Please create another admin first.',
+            'لا يمكن حذف حساب المسؤول الأخير. يرجى إنشاء مسؤول آخر أولاً.',
+          ),
         );
       }
     }
@@ -277,18 +276,14 @@ export class UsersService {
     // Invalidate user profile cache
     await this.invalidateUserCache(id);
 
-    this.logger.warn(
-      `User ID ${user.id} account deactivated - Role: ${user.role}`,
-    );
+    this.logger.warn(`User ID ${user.id} account deactivated - Role: ${user.role}`);
 
     return {
       message: 'User account deleted successfully',
     };
   }
 
-  public async syncFirebaseUser(
-    firebaseToken: admin.auth.DecodedIdToken,
-  ): Promise<User> {
+  public async syncFirebaseUser(firebaseToken: admin.auth.DecodedIdToken): Promise<User> {
     const { uid, email, name } = firebaseToken;
 
     let user = await this.userRepository.findOne({
@@ -298,9 +293,7 @@ export class UsersService {
     if (!user) {
       const firebaseName = name as string | undefined;
       const safeName: string =
-        firebaseName !== undefined && firebaseName !== ''
-          ? firebaseName
-          : 'Firebase User';
+        firebaseName !== undefined && firebaseName !== '' ? firebaseName : 'Firebase User';
 
       user = this.userRepository.create({
         firebase_uid: uid,
@@ -313,24 +306,21 @@ export class UsersService {
       });
 
       user = await this.userRepository.save(user);
-      this.logger.log(
-        `New Firebase user created - ID: ${user.id}, Email: ${String(email)}`,
-      );
+      this.logger.log(`New Firebase user created - ID: ${user.id}, Email: ${String(email)}`);
     }
 
     return user;
   }
 
-  public async uploadProfilePicture(
-    userId: string,
-    file: Express.Multer.File,
-  ): Promise<unknown> {
+  public async uploadProfilePicture(userId: string, file: Express.Multer.File): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+      );
     }
 
     // Delete old profile picture and thumbnail if they exist
@@ -345,27 +335,19 @@ export class UsersService {
       }
     }
 
-    if (
-      user.profile_picture_thumbnail_url !== null &&
-      user.profile_picture_thumbnail_url !== ''
-    ) {
-      const thumbnailFilename = user.profile_picture_thumbnail_url
-        .split('/')
-        .pop();
+    if (user.profile_picture_thumbnail_url !== null && user.profile_picture_thumbnail_url !== '') {
+      const thumbnailFilename = user.profile_picture_thumbnail_url.split('/').pop();
       if (thumbnailFilename !== undefined && thumbnailFilename !== '') {
         try {
           await this.uploadService.deleteFile('profiles', thumbnailFilename);
         } catch {
-          this.logger.warn(
-            `Failed to delete old thumbnail: ${thumbnailFilename}`,
-          );
+          this.logger.warn(`Failed to delete old thumbnail: ${thumbnailFilename}`);
         }
       }
     }
 
     // Upload new profile picture with thumbnail generation
-    const { url, thumbnailUrl } =
-      await this.uploadService.uploadProfilePicture(file);
+    const { url, thumbnailUrl } = await this.uploadService.uploadProfilePicture(file);
     user.profile_picture_url = url;
     user.profile_picture_thumbnail_url = thumbnailUrl;
 
@@ -392,7 +374,9 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+      );
     }
 
     if (user.profile_picture_url === null || user.profile_picture_url === '') {
@@ -410,13 +394,8 @@ export class UsersService {
     }
 
     // Delete thumbnail
-    if (
-      user.profile_picture_thumbnail_url !== null &&
-      user.profile_picture_thumbnail_url !== ''
-    ) {
-      const thumbnailFilename = user.profile_picture_thumbnail_url
-        .split('/')
-        .pop();
+    if (user.profile_picture_thumbnail_url !== null && user.profile_picture_thumbnail_url !== '') {
+      const thumbnailFilename = user.profile_picture_thumbnail_url.split('/').pop();
       if (thumbnailFilename !== undefined && thumbnailFilename !== '') {
         try {
           await this.uploadService.deleteFile('profiles', thumbnailFilename);
@@ -448,7 +427,9 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
+      throw new NotFoundException(
+        biBody(`User with ID ${userId} not found`, `المستخدم بالمعرّف ${userId} غير موجود`),
+      );
     }
 
     // Prevent removing the last admin
@@ -459,7 +440,10 @@ export class UsersService {
 
       if (adminCount <= 1) {
         throw new ForbiddenException(
-          'Cannot remove admin role from the last admin account.',
+          biBody(
+            'Cannot remove admin role from the last admin account.',
+            'لا يمكن إزالة صلاحية المسؤول من حساب المسؤول الأخير.',
+          ),
         );
       }
     }

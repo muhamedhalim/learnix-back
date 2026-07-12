@@ -16,6 +16,7 @@ import {
 } from '../common/events/parent-event-type.enum';
 import { maskPhone } from '../common/utils/mask.util';
 import { InvalidPhoneNumberError, isEgyptianMobile, toE164 } from '../common/utils/phone.util';
+import { biBody } from '../i18n/error-translator.util';
 import {
   Guardian,
   GuardianRelationship,
@@ -147,10 +148,7 @@ export class GuardiansService {
    * Runs in a transaction because promoting a new primary must demote the old
    * one atomically or the partial unique index will reject the insert.
    */
-  public async linkGuardian(
-    studentId: string,
-    input: LinkGuardianInput,
-  ): Promise<StudentGuardian> {
+  public async linkGuardian(studentId: string, input: LinkGuardianInput): Promise<StudentGuardian> {
     return this.dataSource.transaction((manager) =>
       this.linkGuardianWith(manager, studentId, input),
     );
@@ -227,7 +225,10 @@ export class GuardiansService {
       const link = await manager.findOne(StudentGuardian, {
         where: { student_id: studentId, guardian_id: guardianId },
       });
-      if (!link) throw new NotFoundException('Guardian is not linked to this student');
+      if (!link)
+        throw new NotFoundException(
+          biBody('Guardian is not linked to this student', 'الوصي غير مرتبط بهذا الطالب'),
+        );
 
       await this.demotePrimaries(manager, studentId);
       await manager.update(StudentGuardian, { id: link.id }, { is_primary: true });
@@ -247,7 +248,10 @@ export class GuardiansService {
       where: { student_id: studentId, guardian_id: guardianId },
       relations: ['guardian'],
     });
-    if (!link) throw new NotFoundException('Guardian is not linked to this student');
+    if (!link)
+      throw new NotFoundException(
+        biBody('Guardian is not linked to this student', 'الوصي غير مرتبط بهذا الطالب'),
+      );
     return link;
   }
 
@@ -268,7 +272,10 @@ export class GuardiansService {
 
     if (link.guardian.verification_status === GuardianVerificationStatus.VERIFIED) {
       throw new ForbiddenException(
-        'This guardian phone number is verified and cannot be changed. Remove the guardian and add the new number to verify it.',
+        biBody(
+          'This guardian phone number is verified and cannot be changed. Remove the guardian and add the new number to verify it.',
+          'رقم هاتف هذا الوصي موثّق ولا يمكن تغييره. يرجى إزالة الوصي وإضافة الرقم الجديد للتحقق منه.',
+        ),
       );
     }
 
@@ -279,7 +286,12 @@ export class GuardiansService {
       where: { phone_e164: phone, deleted_at: IsNull() },
     });
     if (clash && clash.id !== guardianId) {
-      throw new BadRequestException('Another guardian already uses this phone number');
+      throw new BadRequestException(
+        biBody(
+          'Another guardian already uses this phone number',
+          'يوجد وصي آخر يستخدم رقم الهاتف هذا بالفعل',
+        ),
+      );
     }
 
     await this.guardians.update(guardianId, {
@@ -335,7 +347,7 @@ export class GuardiansService {
     const guardian = await this.guardians.findOne({
       where: { id: guardianId, deleted_at: IsNull() },
     });
-    if (!guardian) throw new NotFoundException('Guardian not found');
+    if (!guardian) throw new NotFoundException(biBody('Guardian not found', 'الوصي غير موجود'));
     return guardian;
   }
 

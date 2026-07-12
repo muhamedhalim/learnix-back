@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { QUEUE_NAMES } from '../../queues/queues.constants';
 import { ParentMessageFilterDto } from '../dto/parent-message-filter.dto';
 import { ParentMessage, ParentMessageStatus } from '../entities';
@@ -66,10 +67,13 @@ export class ParentMessageAdminService {
 
     if (scopeStudentIds) qb.andWhere('m.student_id IN (:...scopeStudentIds)', { scopeStudentIds });
     if (filter.status) qb.andWhere('m.status = :status', { status: filter.status });
-    if (filter.event_type) qb.andWhere('m.event_type = :eventType', { eventType: filter.event_type });
+    if (filter.event_type)
+      qb.andWhere('m.event_type = :eventType', { eventType: filter.event_type });
     if (filter.channel) qb.andWhere('m.channel = :channel', { channel: filter.channel });
-    if (filter.student_id) qb.andWhere('m.student_id = :studentId', { studentId: filter.student_id });
-    if (filter.guardian_id) qb.andWhere('m.guardian_id = :guardianId', { guardianId: filter.guardian_id });
+    if (filter.student_id)
+      qb.andWhere('m.student_id = :studentId', { studentId: filter.student_id });
+    if (filter.guardian_id)
+      qb.andWhere('m.guardian_id = :guardianId', { guardianId: filter.guardian_id });
     if (filter.search !== undefined && filter.search !== '') {
       qb.andWhere('m.body ILIKE :q', { q: `%${filter.search}%` });
     }
@@ -128,13 +132,7 @@ export class ParentMessageAdminService {
   }
 
   private async countsFor(queue: Queue): Promise<QueueHealth> {
-    const counts = await queue.getJobCounts(
-      'waiting',
-      'active',
-      'completed',
-      'failed',
-      'delayed',
-    );
+    const counts = await queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
     return {
       name: queue.name,
       waiting: counts['waiting'] ?? 0,
@@ -156,9 +154,11 @@ export class ParentMessageAdminService {
    */
   public async retry(id: string, scopeStudentIds?: string[]): Promise<{ queued: boolean }> {
     const message = await this.messages.findOne({ where: { id } });
-    if (!message) throw new NotFoundException('Parent message not found');
+    if (!message) {
+      throw new NotFoundException(biBody('Parent message not found', 'رسالة ولي الأمر غير موجودة'));
+    }
     if (scopeStudentIds && !scopeStudentIds.includes(message.student_id)) {
-      throw new NotFoundException('Parent message not found');
+      throw new NotFoundException(biBody('Parent message not found', 'رسالة ولي الأمر غير موجودة'));
     }
 
     if (
@@ -174,6 +174,13 @@ export class ParentMessageAdminService {
 
   private meta(total: number, page: number, limit: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
-    return { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 }

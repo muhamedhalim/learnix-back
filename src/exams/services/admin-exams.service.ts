@@ -6,6 +6,7 @@ import { IsNull, Repository } from 'typeorm';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { ExamAnalyticsDto } from '../../analytics/dto';
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { AdminExamFilterDto } from '../dto';
 import { AttemptState, Exam, ExamAttempt, ExamStatus } from '../entities';
 
@@ -69,13 +70,16 @@ export class AdminExamsService {
       .leftJoinAndSelect('exam.subject', 'subject')
       .where('exam.deleted_at IS NULL');
 
-    if (filter.subject_id) qb.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subject_id });
-    if (filter.teacher_id) qb.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacher_id });
+    if (filter.subject_id)
+      qb.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subject_id });
+    if (filter.teacher_id)
+      qb.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacher_id });
     if (filter.status) qb.andWhere('exam.status = :status', { status: filter.status });
     if (filter.search !== undefined && filter.search !== '') {
       qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
     }
-    if (filter.date_from) qb.andWhere('exam.created_at >= :dateFrom', { dateFrom: filter.date_from });
+    if (filter.date_from)
+      qb.andWhere('exam.created_at >= :dateFrom', { dateFrom: filter.date_from });
     if (filter.date_to) qb.andWhere('exam.created_at <= :dateTo', { dateTo: filter.date_to });
 
     qb.orderBy(`exam.${filter.sort_by ?? 'created_at'}`, filter.sort_order ?? 'DESC')
@@ -93,7 +97,7 @@ export class AdminExamsService {
       where: { id: examId, deleted_at: IsNull() },
       relations: ['teacher', 'subject'],
     });
-    if (!exam) throw new NotFoundException('Exam not found');
+    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
 
     const stats = await this.getAttemptStats([examId]);
     const listItem = this.toListItem(exam, stats.get(examId));
@@ -116,12 +120,18 @@ export class AdminExamsService {
       .innerJoin(Exam, 'e', 'e.id = ea.exam_id')
       .select('ea.exam_id', 'exam_id')
       .addSelect('COUNT(*)', 'total_attempts')
-      .addSelect(`COUNT(*) FILTER (WHERE ea.state = '${AttemptState.GRADED}')`, 'completed_attempts')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE ea.state = '${AttemptState.GRADED}')`,
+        'completed_attempts',
+      )
       .addSelect(
         `COUNT(*) FILTER (WHERE ea.state = '${AttemptState.GRADED}' AND ea.score_total >= e.passing_marks)`,
         'passed_attempts',
       )
-      .addSelect(`AVG(ea.score_total) FILTER (WHERE ea.state = '${AttemptState.GRADED}')`, 'average_score')
+      .addSelect(
+        `AVG(ea.score_total) FILTER (WHERE ea.state = '${AttemptState.GRADED}')`,
+        'average_score',
+      )
       .addSelect('MAX(ea.updated_at)', 'last_activity')
       .where('ea.exam_id IN (:...examIds)', { examIds })
       .groupBy('ea.exam_id')
@@ -139,7 +149,9 @@ export class AdminExamsService {
             ? Math.round((passedAttempts / completedAttempts) * 100 * 100) / 100
             : null,
         average_score:
-          row.average_score !== null ? Math.round(Number.parseFloat(row.average_score) * 100) / 100 : null,
+          row.average_score !== null
+            ? Math.round(Number.parseFloat(row.average_score) * 100) / 100
+            : null,
         last_activity: row.last_activity,
       });
     }
@@ -167,6 +179,13 @@ export class AdminExamsService {
 
   private meta(total: number, page: number, limit: number): PaginationMeta {
     const totalPages = Math.ceil(total / limit);
-    return { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
   }
 }

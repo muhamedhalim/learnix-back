@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { biBody } from '../../i18n/error-translator.util';
 import { StorageService } from '../../storage/storage.service';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
@@ -37,7 +38,12 @@ export class BooksService {
     });
 
     if (!subject) {
-      throw new NotFoundException(`Subject with ID ${dto.subject_id} not found`);
+      throw new NotFoundException(
+        biBody(
+          `Subject with ID ${dto.subject_id} not found`,
+          `المادة ذات المعرّف ${dto.subject_id} غير موجودة`,
+        ),
+      );
     }
 
     // Check for duplicate title by same teacher
@@ -50,7 +56,9 @@ export class BooksService {
     });
 
     if (existing) {
-      throw new ConflictException('You already have a book with this title');
+      throw new ConflictException(
+        biBody('You already have a book with this title', 'لديك بالفعل كتاب بهذا العنوان'),
+      );
     }
 
     const book = this.booksRepository.create(Object.assign({}, dto, { teacher_id: teacherId }));
@@ -143,7 +151,9 @@ export class BooksService {
     });
 
     if (!book) {
-      throw new NotFoundException(`Book with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Book with ID ${id} not found`, `الكتاب بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return book;
@@ -160,7 +170,9 @@ export class BooksService {
     });
 
     if (!book) {
-      throw new NotFoundException(`Book with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Book with ID ${id} not found`, `الكتاب بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return book;
@@ -174,7 +186,9 @@ export class BooksService {
 
     // Ownership validation
     if (book.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own books');
+      throw new ForbiddenException(
+        biBody('You can only update your own books', 'لا يمكنك تحديث سوى كتبك الخاصة'),
+      );
     }
 
     // If updating subject, validate it exists
@@ -184,7 +198,12 @@ export class BooksService {
       });
 
       if (!subject) {
-        throw new NotFoundException(`Subject with ID ${dto.subject_id} not found`);
+        throw new NotFoundException(
+          biBody(
+            `Subject with ID ${dto.subject_id} not found`,
+            `المادة ذات المعرّف ${dto.subject_id} غير موجودة`,
+          ),
+        );
       }
     }
 
@@ -199,7 +218,9 @@ export class BooksService {
       });
 
       if (existing && existing.id !== id) {
-        throw new ConflictException('You already have a book with this title');
+        throw new ConflictException(
+          biBody('You already have a book with this title', 'لديك بالفعل كتاب بهذا العنوان'),
+        );
       }
     }
 
@@ -236,7 +257,9 @@ export class BooksService {
 
     // Ownership validation
     if (book.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only delete your own books');
+      throw new ForbiddenException(
+        biBody('You can only delete your own books', 'لا يمكنك حذف سوى كتبك الخاصة'),
+      );
     }
 
     await this.booksRepository.softDelete(id);
@@ -267,7 +290,7 @@ export class BooksService {
     const book = await this.findOneAdmin(id);
 
     if (!book.deleted_at) {
-      throw new ConflictException('Book is not deleted');
+      throw new ConflictException(biBody('Book is not deleted', 'الكتاب غير محذوف'));
     }
 
     await this.booksRepository.restore(id);

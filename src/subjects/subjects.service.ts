@@ -1,14 +1,10 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { CreateSubjectDto, SubjectFilterDto, UpdateSubjectDto } from './dto';
 import { Subject } from './entities/subject.entity';
 import { SubjectWithCounts } from './interfaces';
@@ -33,7 +29,10 @@ export class SubjectsService {
 
     if (existingByName) {
       throw new ConflictException(
-        `Subject with name "${createSubjectDto.name}" already exists`,
+        biBody(
+          `Subject with name "${createSubjectDto.name}" already exists`,
+          `توجد مادة بالاسم "${createSubjectDto.name}" بالفعل`,
+        ),
       );
     }
 
@@ -45,9 +44,7 @@ export class SubjectsService {
     });
     const savedSubject = await this.subjectsRepository.save(subject);
 
-    this.logger.log(
-      `Created subject: ${savedSubject.name} (ID: ${savedSubject.id})`,
-    );
+    this.logger.log(`Created subject: ${savedSubject.name} (ID: ${savedSubject.id})`);
 
     return savedSubject;
   }
@@ -55,9 +52,7 @@ export class SubjectsService {
   /**
    * Find all subjects with pagination and optional search
    */
-  public async findAll(
-    filter: SubjectFilterDto,
-  ): Promise<PaginatedResponse<SubjectWithCounts>> {
+  public async findAll(filter: SubjectFilterDto): Promise<PaginatedResponse<SubjectWithCounts>> {
     const { search, page = 1, limit = 20 } = filter;
     const skip = (page - 1) * limit;
 
@@ -123,7 +118,9 @@ export class SubjectsService {
     });
 
     if (!subject) {
-      throw new NotFoundException(`Subject with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Subject with ID ${id} not found`, `المادة بالمعرّف ${id} غير موجودة`),
+      );
     }
 
     return subject;
@@ -132,10 +129,7 @@ export class SubjectsService {
   /**
    * Update a subject
    */
-  public async update(
-    id: string,
-    updateSubjectDto: UpdateSubjectDto,
-  ): Promise<Subject> {
+  public async update(id: string, updateSubjectDto: UpdateSubjectDto): Promise<Subject> {
     const subject = await this.findOne(id);
 
     // Check for duplicate name if being updated
@@ -150,7 +144,10 @@ export class SubjectsService {
 
       if (existingByName) {
         throw new ConflictException(
-          `Subject with name "${updateSubjectDto.name}" already exists`,
+          biBody(
+            `Subject with name "${updateSubjectDto.name}" already exists`,
+            `توجد مادة بالاسم "${updateSubjectDto.name}" بالفعل`,
+          ),
         );
       }
     }

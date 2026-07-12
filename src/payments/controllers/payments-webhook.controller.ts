@@ -3,6 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
+import { biBody } from '../../i18n/error-translator.util';
 import { IdempotencyService } from '../../idempotency/idempotency.service';
 import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
 import { EasyKashService } from '../services/easykash.service';
@@ -54,7 +55,7 @@ export class PaymentsWebhookController {
     if (!isValidHmac) {
       performanceMetrics.recordFailure('webhook');
       this.logger.warn(`HMAC verification failed for callback ${dto.easykashRef}`);
-      throw new UnauthorizedException('Invalid HMAC signature');
+      throw new UnauthorizedException(biBody('Invalid HMAC signature', 'توقيع HMAC غير صالح'));
     }
 
     // `customerReference` is our payment.id, echoed back by EasyKash.

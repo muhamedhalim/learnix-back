@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, IsNull, Repository } from 'typeorm';
 
+import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonStatus } from '../lessons/entities/lesson-status.enum';
 import { MediaService } from '../media/media.service';
@@ -65,24 +66,20 @@ export class CoursePreviewService {
       relations: ['teacher'],
     });
     if (!pkg) {
-      throw new NotFoundException('Course not found');
+      throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
 
-    const [instructor, curriculum, rating, studentsCount, related] =
-      await Promise.all([
-        this.buildInstructor(pkg.teacher_id, pkg.teacher),
-        this.buildCurriculum(packageId),
-        this.reviewsService.getPackageAggregates(packageId),
-        this.packagePurchasesRepository.count({
-          where: { package_id: packageId },
-        }),
-        this.buildRelated(pkg),
-      ]);
+    const [instructor, curriculum, rating, studentsCount, related] = await Promise.all([
+      this.buildInstructor(pkg.teacher_id, pkg.teacher),
+      this.buildCurriculum(packageId),
+      this.reviewsService.getPackageAggregates(packageId),
+      this.packagePurchasesRepository.count({
+        where: { package_id: packageId },
+      }),
+      this.buildRelated(pkg),
+    ]);
 
-    const lessonsCount = curriculum.reduce(
-      (sum, section) => sum + section.lessons.length,
-      0,
-    );
+    const lessonsCount = curriculum.reduce((sum, section) => sum + section.lessons.length, 0);
 
     return {
       id: pkg.id,
@@ -109,10 +106,7 @@ export class CoursePreviewService {
     };
   }
 
-  private async buildInstructor(
-    teacherId: string,
-    teacher: User | null,
-  ): Promise<unknown> {
+  private async buildInstructor(teacherId: string, teacher: User | null): Promise<unknown> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { user_id: teacherId },
       select: { bio: true, years_of_experience: true },
@@ -126,9 +120,9 @@ export class CoursePreviewService {
     };
   }
 
-  private async buildCurriculum(packageId: string): Promise<
-    { chapter: { id: string; title: string } | null; lessons: PreviewLesson[] }[]
-  > {
+  private async buildCurriculum(
+    packageId: string,
+  ): Promise<{ chapter: { id: string; title: string } | null; lessons: PreviewLesson[] }[]> {
     const [chapters, items] = await Promise.all([
       this.chaptersRepository.find({
         where: { package_id: packageId },

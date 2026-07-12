@@ -8,12 +8,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-export type BunnyVideoStatus =
-  | 'created'
-  | 'uploading'
-  | 'processing'
-  | 'ready'
-  | 'failed';
+import { biBody } from '../i18n/error-translator.util';
+
+export type BunnyVideoStatus = 'created' | 'uploading' | 'processing' | 'ready' | 'failed';
 
 export interface BunnyCreatedVideo {
   videoId: string;
@@ -84,7 +81,10 @@ export class BunnyStreamService {
   private assertConfigured(): void {
     if (!this.isConfigured) {
       throw new ServiceUnavailableException(
-        'Video uploads are not available: Bunny Stream is not configured on the server.',
+        biBody(
+          'Video uploads are not available: Bunny Stream is not configured on the server.',
+          'رفع الفيديوهات غير متاح حاليًا: لم يتم إعداد خدمة Bunny Stream على الخادم.',
+        ),
       );
     }
   }
@@ -106,15 +106,10 @@ export class BunnyStreamService {
     return `https://iframe.mediadelivery.net/embed/${this.libraryId}/${videoId}`;
   }
 
-  public generateSignedEmbedUrl(
-    videoId: string,
-    ttlSeconds = 60 * 60,
-  ): string | null {
+  public generateSignedEmbedUrl(videoId: string, ttlSeconds = 60 * 60): string | null {
     if (!this.tokenKey) return null;
     const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-    const token = createHash('sha256')
-      .update(`${this.tokenKey}${videoId}${expires}`)
-      .digest('hex');
+    const token = createHash('sha256').update(`${this.tokenKey}${videoId}${expires}`).digest('hex');
     return `${this.buildEmbedUrl(videoId)}?token=${token}&expires=${expires}`;
   }
 
@@ -125,10 +120,7 @@ export class BunnyStreamService {
     return this.buildEmbedUrl(videoId);
   }
 
-  private buildThumbnailUrl(
-    videoId: string,
-    thumbnailFileName?: string,
-  ): string | null {
+  private buildThumbnailUrl(videoId: string, thumbnailFileName?: string): string | null {
     if (!this.cdnHostname) return null;
     const file = thumbnailFileName?.trim() || 'thumbnail.jpg';
     return `https://${this.cdnHostname}/${videoId}/${file}`;
@@ -149,33 +141,43 @@ export class BunnyStreamService {
       Status: ${res.status}
       Response: ${error}
       `);
-      throw new BadRequestException('Failed to create video on Bunny Stream.');
+      throw new BadRequestException(
+        biBody(
+          'Failed to create video on Bunny Stream.',
+          'فشل إنشاء الفيديو على خدمة Bunny Stream.',
+        ),
+      );
     }
     const data = (await res.json()) as { guid?: string };
     if (!data.guid) {
-      throw new BadRequestException('Bunny Stream did not return a video id.');
+      throw new BadRequestException(
+        biBody(
+          'Bunny Stream did not return a video id.',
+          'لم تُرجع خدمة Bunny Stream معرّف فيديو.',
+        ),
+      );
     }
     return { videoId: data.guid, libraryId: this.libraryId };
   }
 
   public async uploadVideo(videoId: string, body: Buffer): Promise<void> {
     this.assertConfigured();
-    const res = await fetch(
-      `${this.apiBase}/${this.libraryId}/videos/${videoId}`,
-      {
-        method: 'PUT',
-        headers: {
-          AccessKey: this.apiKey,
-          accept: 'application/json',
-          'content-type': 'application/octet-stream',
-        },
-        body: new Uint8Array(body),
+    const res = await fetch(`${this.apiBase}/${this.libraryId}/videos/${videoId}`, {
+      method: 'PUT',
+      headers: {
+        AccessKey: this.apiKey,
+        accept: 'application/json',
+        'content-type': 'application/octet-stream',
       },
-    );
+      body: new Uint8Array(body),
+    });
     if (!res.ok) {
       this.logger.error(`Bunny uploadVideo failed (${res.status}) ${videoId}`);
       throw new ServiceUnavailableException(
-        'Failed to upload the video to Bunny Stream.',
+        biBody(
+          'Failed to upload the video to Bunny Stream.',
+          'فشل رفع الفيديو إلى خدمة Bunny Stream.',
+        ),
       );
     }
   }
@@ -183,22 +185,25 @@ export class BunnyStreamService {
   /** Fetch + normalize the current state of a video from Bunny Stream. */
   public async getVideo(videoId: string): Promise<BunnyVideoMetadata> {
     this.assertConfigured();
-    const res = await fetch(
-      `${this.apiBase}/${this.libraryId}/videos/${videoId}`,
-      { method: 'GET', headers: this.headers() },
-    );
+    const res = await fetch(`${this.apiBase}/${this.libraryId}/videos/${videoId}`, {
+      method: 'GET',
+      headers: this.headers(),
+    });
     if (res.status === 404) {
-      throw new BadRequestException('Video not found on Bunny Stream.');
+      throw new BadRequestException(
+        biBody('Video not found on Bunny Stream.', 'الفيديو غير موجود على خدمة Bunny Stream.'),
+      );
     }
     if (!res.ok) {
       this.logger.error(`Bunny getVideo failed (${res.status})`);
-      throw new ServiceUnavailableException('Failed to reach Bunny Stream.');
+      throw new ServiceUnavailableException(
+        biBody('Failed to reach Bunny Stream.', 'تعذّر الاتصال بخدمة Bunny Stream.'),
+      );
     }
     const v = (await res.json()) as BunnyVideoResponse;
     return {
       status: this.mapStatus(v.status),
-      progress:
-        typeof v.encodeProgress === 'number' ? v.encodeProgress : 0,
+      progress: typeof v.encodeProgress === 'number' ? v.encodeProgress : 0,
       durationSeconds: v.length && v.length > 0 ? Math.round(v.length) : null,
       width: v.width && v.width > 0 ? v.width : null,
       height: v.height && v.height > 0 ? v.height : null,
@@ -213,18 +218,16 @@ export class BunnyStreamService {
   public async deleteVideo(videoId: string): Promise<void> {
     if (!this.isConfigured) return;
     try {
-      const res = await fetch(
-        `${this.apiBase}/${this.libraryId}/videos/${videoId}`,
-        { method: 'DELETE', headers: this.headers() },
-      );
+      const res = await fetch(`${this.apiBase}/${this.libraryId}/videos/${videoId}`, {
+        method: 'DELETE',
+        headers: this.headers(),
+      });
       if (!res.ok && res.status !== 404) {
         this.logger.warn(`Bunny deleteVideo failed (${res.status}) ${videoId}`);
       }
     } catch (err) {
       // Cleanup is best-effort — never block the caller on Bunny availability.
-      this.logger.warn(
-        `Bunny deleteVideo error for ${videoId}: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Bunny deleteVideo error for ${videoId}: ${(err as Error).message}`);
     }
   }
 

@@ -1,14 +1,10 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { biBody } from '../i18n/error-translator.util';
 import type { LessonProgressDto } from './dto/lesson-progress.dto';
 import { Lesson } from './entities/lesson.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
@@ -49,30 +45,31 @@ export class ProgressService {
     });
 
     if (lesson === null) {
-      throw new NotFoundException('Lesson not found');
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
     // Use provided totalDuration or lesson's duration
-    const totalDuration =
-      totalDurationOverride ?? lesson.duration ?? watchedDuration;
+    const totalDuration = totalDurationOverride ?? lesson.duration ?? watchedDuration;
 
     if (totalDuration <= 0) {
-      throw new BadRequestException('Total duration must be greater than 0');
+      throw new BadRequestException(
+        biBody('Total duration must be greater than 0', 'يجب أن تكون المدة الإجمالية أكبر من 0'),
+      );
     }
 
     // Validate watchedDuration is reasonable (max 150% of total for replays)
     const maxWatchedDuration = Math.ceil(totalDuration * 1.5);
     if (watchedDuration > maxWatchedDuration) {
       throw new BadRequestException(
-        `Watched duration cannot exceed ${String(maxWatchedDuration)} seconds (150% of total duration)`,
+        biBody(
+          `Watched duration cannot exceed ${String(maxWatchedDuration)} seconds (150% of total duration)`,
+          `لا يمكن أن تتجاوز مدة المشاهدة ${String(maxWatchedDuration)} ثانية (150% من المدة الإجمالية)`,
+        ),
       );
     }
 
     // Calculate progress percentage (capped at 100)
-    const progressPercent = Math.min(
-      100,
-      Math.round((watchedDuration / totalDuration) * 100),
-    );
+    const progressPercent = Math.min(100, Math.round((watchedDuration / totalDuration) * 100));
     const completed = progressPercent >= 100;
 
     // Check if progress already exists
@@ -132,10 +129,7 @@ export class ProgressService {
   /**
    * Get progress for a specific lesson
    */
-  public async getProgress(
-    studentId: string,
-    lessonId: string,
-  ): Promise<LessonProgressDto | null> {
+  public async getProgress(studentId: string, lessonId: string): Promise<LessonProgressDto | null> {
     const progress = await this.progressRepository
       .createQueryBuilder('progress')
       .innerJoinAndSelect('progress.lesson', 'lesson')

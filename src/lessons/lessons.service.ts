@@ -10,25 +10,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { VIDEO_URL_PATTERNS } from '../common/constants';
-import {
-  PaginatedResponse,
-  PaginationMeta,
-} from '../common/interfaces/pagination.interface';
+import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-import {
-  CreateLessonDto,
-  LessonFilterDto,
-  UpdateLessonDto,
-  UpdateVimeoInfoDto,
-} from './dto';
+import { CreateLessonDto, LessonFilterDto, UpdateLessonDto, UpdateVimeoInfoDto } from './dto';
 import { PaymentsService } from '../payments/services/payments.service';
-import {
-  BunnyStreamService,
-  BunnyVideoMetadata,
-} from './bunny-stream.service';
+import { BunnyStreamService, BunnyVideoMetadata } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
 
@@ -105,21 +95,22 @@ export class LessonsService {
    * Create a new lesson
    * Only teachers can create lessons
    */
-  public async create(
-    teacherId: string,
-    dto: CreateLessonDto,
-  ): Promise<LessonWithDetails> {
+  public async create(teacherId: string, dto: CreateLessonDto): Promise<LessonWithDetails> {
     // Validate teacher exists and has correct role
     const teacher = await this.usersRepository.findOne({
       where: { id: teacherId },
     });
 
     if (!teacher) {
-      throw new NotFoundException(`Teacher with ID ${teacherId} not found`);
+      throw new NotFoundException(
+        biBody(`Teacher with ID ${teacherId} not found`, `المعلم بالمعرّف ${teacherId} غير موجود`),
+      );
     }
 
     if (teacher.role !== UserRole.TEACHER) {
-      throw new BadRequestException('Only teachers can create lessons');
+      throw new BadRequestException(
+        biBody('Only teachers can create lessons', 'المعلمون فقط يمكنهم إنشاء الدروس'),
+      );
     }
 
     // Validate subject exists
@@ -129,7 +120,10 @@ export class LessonsService {
 
     if (!subject) {
       throw new NotFoundException(
-        `Subject with ID ${dto.subject_id} not found`,
+        biBody(
+          `Subject with ID ${dto.subject_id} not found`,
+          `المادة بالمعرّف ${dto.subject_id} غير موجودة`,
+        ),
       );
     }
 
@@ -167,7 +161,9 @@ export class LessonsService {
     });
 
     if (!fullLesson) {
-      throw new NotFoundException('Failed to load created lesson');
+      throw new NotFoundException(
+        biBody('Failed to load created lesson', 'فشل تحميل الدرس الذي تم إنشاؤه'),
+      );
     }
 
     return this.mapToLessonWithDetails(fullLesson);
@@ -176,9 +172,7 @@ export class LessonsService {
   /**
    * Find all lessons with filtering, sorting, and pagination
    */
-  public async findAll(
-    filter: LessonFilterDto,
-  ): Promise<PaginatedResponse<LessonWithDetails>> {
+  public async findAll(filter: LessonFilterDto): Promise<PaginatedResponse<LessonWithDetails>> {
     const { page = 1, limit = 20 } = filter;
 
     const queryBuilder = this.lessonsRepository
@@ -222,10 +216,7 @@ export class LessonsService {
   /**
    * Applies all filters to the lesson query builder
    */
-  private applyAllFilters(
-    queryBuilder: SelectQueryBuilder<Lesson>,
-    filter: LessonFilterDto,
-  ): void {
+  private applyAllFilters(queryBuilder: SelectQueryBuilder<Lesson>, filter: LessonFilterDto): void {
     const {
       search,
       teacher_id: teacherId,
@@ -256,10 +247,9 @@ export class LessonsService {
     }
 
     if (search !== undefined && search !== '') {
-      queryBuilder.andWhere(
-        '(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      queryBuilder.andWhere('(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
   }
 
@@ -319,7 +309,9 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${id} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${id} not found`, `الدرس بالمعرّف ${id} غير موجود`),
+      );
     }
 
     return this.mapToLessonWithDetails(lesson);
@@ -340,12 +332,16 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // Verify ownership
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
+      );
     }
 
     // Validate subject change
@@ -363,23 +359,25 @@ export class LessonsService {
     });
 
     if (!fullLesson) {
-      throw new NotFoundException('Failed to load updated lesson');
+      throw new NotFoundException(
+        biBody('Failed to load updated lesson', 'فشل تحميل الدرس المُحدَّث'),
+      );
     }
 
     return this.mapToLessonWithDetails(fullLesson);
   }
 
-  private async validateSubjectChange(
-    dto: UpdateLessonDto,
-    lesson: Lesson,
-  ): Promise<void> {
+  private async validateSubjectChange(dto: UpdateLessonDto, lesson: Lesson): Promise<void> {
     if (dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
       const subject = await this.subjectsRepository.findOne({
         where: { id: dto.subject_id },
       });
       if (!subject) {
         throw new NotFoundException(
-          `Subject with ID ${dto.subject_id} not found`,
+          biBody(
+            `Subject with ID ${dto.subject_id} not found`,
+            `المادة بالمعرّف ${dto.subject_id} غير موجودة`,
+          ),
         );
       }
     }
@@ -437,12 +435,16 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // Verify ownership
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only delete your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only delete your own lessons', 'يمكنك حذف دروسك الخاصة فقط'),
+      );
     }
 
     // Clean up the Bunny Stream asset so deleted lessons don't leak storage.
@@ -462,7 +464,9 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     await this.lessonsRepository.softDelete(lessonId);
@@ -496,18 +500,21 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // Verify ownership
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
+      );
     }
 
     // Update Vimeo fields
     lesson.vimeo_video_id = dto.vimeo_video_id;
-    lesson.vimeo_embed_url =
-      dto.vimeo_embed_url ?? this.generateVimeoEmbedUrl(dto.vimeo_video_id);
+    lesson.vimeo_embed_url = dto.vimeo_embed_url ?? this.generateVimeoEmbedUrl(dto.vimeo_video_id);
     if (dto.duration !== undefined) {
       lesson.duration = dto.duration;
     }
@@ -521,7 +528,9 @@ export class LessonsService {
     });
 
     if (!fullLesson) {
-      throw new NotFoundException('Failed to load updated lesson');
+      throw new NotFoundException(
+        biBody('Failed to load updated lesson', 'فشل تحميل الدرس المُحدَّث'),
+      );
     }
 
     return this.mapToLessonWithDetails(fullLesson);
@@ -556,12 +565,16 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // Verify ownership
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
+      );
     }
 
     // Validate Bunny.net URL format using regex from constants
@@ -569,7 +582,10 @@ export class LessonsService {
 
     if (match?.[1] === undefined || match[2] === undefined) {
       throw new BadRequestException(
-        'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
+        biBody(
+          'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
+          'صيغة رابط Bunny.net غير صالحة. الصيغة المتوقعة: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
+        ),
       );
     }
 
@@ -616,18 +632,25 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // Verify ownership
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
+      );
     }
 
     // Validate Vimeo URL format
     if (!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
       throw new BadRequestException(
-        'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
+        biBody(
+          'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
+          'صيغة رابط Vimeo غير صالحة. يرجى تقديم رابط فيديو Vimeo صالح.',
+        ),
       );
     }
 
@@ -657,7 +680,9 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     // TODO: Implement actual stats queries when Purchases module is ready
@@ -679,7 +704,9 @@ export class LessonsService {
     });
 
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     lesson.students_count += 1;
@@ -690,18 +717,19 @@ export class LessonsService {
    * Bunny Stream — secure direct (TUS) upload orchestration
    * ============================================================ */
 
-  private async findOwnedLesson(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<Lesson> {
+  private async findOwnedLesson(lessonId: string, teacherId: string): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
     if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException('You can only update your own lessons');
+      throw new ForbiddenException(
+        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
+      );
     }
     return lesson;
   }
@@ -775,7 +803,12 @@ export class LessonsService {
   ): Promise<BunnyVideoMetadata & { lessonId: string }> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
     if (!lesson.bunny_video_id) {
-      throw new BadRequestException('This lesson has no Bunny Stream video.');
+      throw new BadRequestException(
+        biBody(
+          'This lesson has no Bunny Stream video.',
+          'لا يحتوي هذا الدرس على فيديو Bunny Stream.',
+        ),
+      );
     }
 
     const meta = await this.bunnyStream.getVideo(lesson.bunny_video_id);
@@ -793,10 +826,7 @@ export class LessonsService {
   }
 
   /** Remove the lesson's Bunny video (from Bunny + clear stored metadata). */
-  public async removeBunnyVideo(
-    lessonId: string,
-    teacherId: string,
-  ): Promise<void> {
+  public async removeBunnyVideo(lessonId: string, teacherId: string): Promise<void> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
     if (lesson.bunny_video_id) {
       await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
@@ -818,28 +848,27 @@ export class LessonsService {
    * active lesson purchase / package enrolment. Returns the lesson so callers
    * avoid a second fetch.
    */
-  public async assertViewerAccess(
-    lessonId: string,
-    userId: string,
-    role: string,
-  ): Promise<Lesson> {
+  public async assertViewerAccess(lessonId: string, userId: string, role: string): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
     if (!lesson) {
-      throw new NotFoundException(`Lesson with ID ${lessonId} not found`);
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
+      );
     }
 
     const isOwner = lesson.teacher_id === userId;
     const isAdmin = role === UserRole.ADMIN;
     const hasAccess =
-      isOwner ||
-      isAdmin ||
-      (await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId));
+      isOwner || isAdmin || (await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId));
 
     if (!hasAccess) {
       throw new ForbiddenException(
-        'You must enrol in this course to access this lesson.',
+        biBody(
+          'You must enrol in this course to access this lesson.',
+          'يجب أن تكون مسجّلاً في هذه الدورة للوصول إلى هذا الدرس.',
+        ),
       );
     }
     return lesson;
@@ -858,16 +887,18 @@ export class LessonsService {
   ): Promise<{ signedUrl: string; expiresIn: number }> {
     const lesson = await this.assertViewerAccess(lessonId, userId, role);
     if (!lesson.bunny_video_id || lesson.bunny_video_status !== 'ready') {
-      throw new BadRequestException('This lesson has no ready video.');
+      throw new BadRequestException(
+        biBody('This lesson has no ready video.', 'لا يوجد لهذا الدرس فيديو جاهز.'),
+      );
     }
 
-    const signedUrl = this.bunnyStream.generateSignedEmbedUrl(
-      lesson.bunny_video_id,
-      ttlSeconds,
-    );
+    const signedUrl = this.bunnyStream.generateSignedEmbedUrl(lesson.bunny_video_id, ttlSeconds);
     if (!signedUrl) {
       throw new ServiceUnavailableException(
-        'Secure video playback is not configured on the server.',
+        biBody(
+          'Secure video playback is not configured on the server.',
+          'التشغيل الآمن للفيديو غير مُهيَّأ على الخادم.',
+        ),
       );
     }
 
@@ -881,7 +912,10 @@ export class LessonsService {
   public assertVideoReadyForPublish(lesson: Lesson): void {
     if (lesson.bunny_video_id && lesson.bunny_video_status !== 'ready') {
       throw new BadRequestException(
-        'Video is still processing. You can publish once it is ready.',
+        biBody(
+          'Video is still processing. You can publish once it is ready.',
+          'الفيديو ما زال قيد المعالجة. يمكنك النشر بمجرد أن يصبح جاهزًا.',
+        ),
       );
     }
   }
@@ -918,10 +952,7 @@ export class LessonsService {
       video_width: lesson.video_width,
       video_height: lesson.video_height,
       video_thumbnail: lesson.video_thumbnail,
-      video_size_bytes:
-        lesson.video_size_bytes == null
-          ? null
-          : Number(lesson.video_size_bytes),
+      video_size_bytes: lesson.video_size_bytes == null ? null : Number(lesson.video_size_bytes),
       // Legacy Vimeo fields (backward compatibility)
       vimeo_video_id: lesson.vimeo_video_id,
       vimeo_embed_url: lesson.vimeo_embed_url,

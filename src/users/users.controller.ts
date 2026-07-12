@@ -18,12 +18,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
@@ -32,11 +27,9 @@ import { FILE_LIMITS, THROTTLE } from '../common/constants';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import type { UserRequest } from '../common/interfaces/user-request.interface';
+import { biBody } from '../i18n/error-translator.util';
 import { UpdateUserDto } from './dto/update-user.dto';
-import type {
-  DeleteSessionResponseDto,
-  UserSessionListResponseDto,
-} from './dto/user-session.dto';
+import type { DeleteSessionResponseDto, UserSessionListResponseDto } from './dto/user-session.dto';
 import { SessionsService } from './sessions.service';
 import { UsersService } from './users.service';
 
@@ -63,7 +56,7 @@ export class UsersController {
   public async getProfile(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.findOne(userId);
   }
@@ -72,9 +65,7 @@ export class UsersController {
   @UseGuards(RolesGuard)
   @Roles('admin')
   @ApiOperation({ summary: 'Get user by ID (admin only)' })
-  public async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return await this.usersService.findOne(id);
   }
 
@@ -86,7 +77,7 @@ export class UsersController {
   ): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.update(userId, updateUserDto);
   }
@@ -127,7 +118,7 @@ export class UsersController {
   ): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.uploadProfilePicture(userId, file);
   }
@@ -137,12 +128,10 @@ export class UsersController {
     summary: 'Delete profile picture',
     description: 'Deletes the current user profile picture and thumbnail.',
   })
-  public async deleteProfilePicture(
-    @Request() req: UserRequest,
-  ): Promise<unknown> {
+  public async deleteProfilePicture(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.deleteProfilePicture(userId);
   }
@@ -150,19 +139,16 @@ export class UsersController {
   @Get('me/sessions')
   @ApiOperation({
     summary: 'List active sessions',
-    description:
-      'Returns all active sessions for the current user across all devices.',
+    description: 'Returns all active sessions for the current user across all devices.',
   })
   @ApiResponse({
     status: 200,
     description: 'Array of active sessions',
   })
-  public async getUserSessions(
-    @Request() req: UserRequest,
-  ): Promise<UserSessionListResponseDto> {
+  public async getUserSessions(@Request() req: UserRequest): Promise<UserSessionListResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     const sessions = await this.sessionsService.getUserSessions(userId, null);
     return { data: sessions };
@@ -180,8 +166,7 @@ export class UsersController {
   })
   @ApiResponse({
     status: 403,
-    description:
-      'Cannot delete current session or session belonging to another user',
+    description: 'Cannot delete current session or session belonging to another user',
   })
   @ApiResponse({
     status: 404,
@@ -193,7 +178,7 @@ export class UsersController {
   ): Promise<DeleteSessionResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     await this.sessionsService.deleteSession(userId, sessionId, null);
     return { message: 'Session deleted successfully' };
@@ -204,7 +189,7 @@ export class UsersController {
   public async deleteOwnAccount(@Request() req: UserRequest): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.remove(userId);
   }
@@ -219,11 +204,14 @@ export class UsersController {
   ): Promise<unknown> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
-      throw new ForbiddenException('User not authenticated');
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     if (id === userId) {
       throw new ForbiddenException(
-        'Cannot delete your own account through admin endpoint. Use DELETE /users/me instead.',
+        biBody(
+          'Cannot delete your own account through admin endpoint. Use DELETE /users/me instead.',
+          'لا يمكنك حذف حسابك الخاص عبر واجهة الإدارة. يرجى استخدام DELETE /users/me بدلاً من ذلك.',
+        ),
       );
     }
     return await this.usersService.remove(id);

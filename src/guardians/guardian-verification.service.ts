@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -12,6 +6,7 @@ import * as crypto from 'node:crypto';
 import { IsNull, LessThan, MoreThan, Repository } from 'typeorm';
 
 import { maskPhone } from '../common/utils/mask.util';
+import { biBody } from '../i18n/error-translator.util';
 import { GuardianVerificationRequestedEvent } from './events/guardian-verification-requested.event';
 import { Guardian, GuardianVerification, GuardianVerificationStatus } from './entities';
 import { GuardiansService } from './guardians.service';
@@ -27,7 +22,7 @@ const MAX_CHALLENGES_PER_HOUR = 5;
 
 /** 429 — `@nestjs/common` ships no dedicated exception for this status. */
 class TooManyRequestsException extends HttpException {
-  public constructor(message: string) {
+  public constructor(message: string | Record<string, unknown>) {
     super(message, HttpStatus.TOO_MANY_REQUESTS);
   }
 }
@@ -66,7 +61,9 @@ export class GuardianVerificationService {
     const guardian = link.guardian;
 
     if (guardian.verification_status === GuardianVerificationStatus.VERIFIED) {
-      throw new BadRequestException('This guardian is already verified');
+      throw new BadRequestException(
+        biBody('This guardian is already verified', 'هذا الوصي موثّق بالفعل'),
+      );
     }
 
     await this.assertNotRateLimited(guardianId);
@@ -123,7 +120,10 @@ export class GuardianVerificationService {
 
     if (newest && Date.now() - newest.created_at.getTime() < RESEND_COOLDOWN_MS) {
       throw new TooManyRequestsException(
-        'Please wait a minute before requesting another verification code',
+        biBody(
+          'Please wait a minute before requesting another verification code',
+          'يرجى الانتظار دقيقة قبل طلب رمز تحقق آخر',
+        ),
       );
     }
 
@@ -133,7 +133,10 @@ export class GuardianVerificationService {
     });
     if (recent >= MAX_CHALLENGES_PER_HOUR) {
       throw new TooManyRequestsException(
-        'Too many verification attempts. Please try again in an hour.',
+        biBody(
+          'Too many verification attempts. Please try again in an hour.',
+          'عدد كبير جدًا من محاولات التحقق. يرجى المحاولة مرة أخرى بعد ساعة.',
+        ),
       );
     }
   }
@@ -159,17 +162,27 @@ export class GuardianVerificationService {
     });
 
     if (!challenge) {
-      throw new BadRequestException('No active verification code. Please request a new one.');
+      throw new BadRequestException(
+        biBody(
+          'No active verification code. Please request a new one.',
+          'لا يوجد رمز تحقق نشط. يرجى طلب رمز جديد.',
+        ),
+      );
     }
 
     if (challenge.attempts >= MAX_ATTEMPTS) {
       await this.verifications.update(challenge.id, { consumed_at: new Date() });
-      throw new BadRequestException('Too many incorrect attempts. Please request a new code.');
+      throw new BadRequestException(
+        biBody(
+          'Too many incorrect attempts. Please request a new code.',
+          'عدد كبير جدًا من المحاولات الخاطئة. يرجى طلب رمز جديد.',
+        ),
+      );
     }
 
     if (!this.matches(code, challenge.code_hash)) {
       await this.verifications.increment({ id: challenge.id }, 'attempts', 1);
-      throw new BadRequestException('Incorrect verification code');
+      throw new BadRequestException(biBody('Incorrect verification code', 'رمز التحقق غير صحيح'));
     }
 
     const now = new Date();
