@@ -31,7 +31,7 @@ export class LessonAttachment {
   @Column({ length: 255 })
   name!: string;
 
-  @Column({ length: 255, nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   name_ar!: string | null;
 
   @Column({ length: 1000 })
