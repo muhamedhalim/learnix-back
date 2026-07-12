@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { UserRole } from './user-role.enum';
 import { UserStatus } from './user-status.enum';
 
@@ -66,6 +67,20 @@ export class User {
   // Rejection reason (only set when status = REJECTED)
   @Column({ type: 'text', nullable: true })
   rejection_reason!: string | null;
+
+  /**
+   * Preferred UI/content language. Nullable for backward compatibility — a
+   * null value resolves to English via the localized-content fallback (see
+   * i18n/localized-content.util). Reuses the same `PreferredLanguage` enum
+   * that already drives guardian-message localization.
+   */
+  @Column({
+    type: 'enum',
+    enum: PreferredLanguage,
+    nullable: true,
+    name: 'preferred_language',
+  })
+  preferred_language!: PreferredLanguage | null;
 
   @Column({ type: 'varchar', nullable: true })
   profile_picture_url!: string | null;

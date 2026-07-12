@@ -1,12 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+
+import { bi } from '../../i18n/error-translator.util';
 
 export class RegisterDto {
   @MaxLength(100)
@@ -25,8 +21,10 @@ export class RegisterDto {
   // `[0125]`, not `[0-2,5]` — the latter is a character class containing a
   // literal comma, so it accepted `01,12345678`.
   @Matches(/^01[0125]\d{8}$/, {
-    message:
+    message: bi(
       'Phone must be a valid Egyptian phone number (11 digits starting with 01)',
+      'يجب أن يكون رقم الهاتف رقمًا مصريًا صالحًا (11 رقمًا يبدأ بـ 01)',
+    ),
   })
   public phone!: string;
 

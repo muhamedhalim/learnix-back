@@ -9,6 +9,13 @@ import {
 
 import { Request, Response } from 'express';
 
+import {
+  resolveRequestLocale,
+  translateBody,
+  translateMessage,
+  translateMessages,
+} from '../../i18n/error-translator.util';
+
 /**
  * RFC 7807 Problem Details for HTTP APIs
  * https://tools.ietf.org/html/rfc7807
@@ -32,6 +39,7 @@ interface ProblemDetails {
 interface NestExceptionResponse {
   error?: string;
   message?: string | string[];
+  message_ar?: string;
   errors?: string[];
   statusCode?: number;
 }
@@ -46,7 +54,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     // Create RFC 7807 Problem Details response
-    const problemDetails = this.createProblemDetails(exception, request);
+    const locale = resolveRequestLocale(request);
+    const problemDetails = this.createProblemDetails(exception, request, locale);
     const { status } = problemDetails;
 
     // Log the error with appropriate level
@@ -54,10 +63,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const logMessage = `${request.method} ${request.url} - ${String(status)} ${problemDetails.title}: ${problemDetails.detail}`;
 
     if (logLevel === 'error') {
-      this.logger.error(
-        logMessage,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      this.logger.error(logMessage, exception instanceof Error ? exception.stack : undefined);
     } else if (logLevel === 'warn') {
       this.logger.warn(logMessage);
     } else {
@@ -74,6 +80,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private createProblemDetails(
     exception: unknown,
     request: Request,
+    locale: ReturnType<typeof resolveRequestLocale>,
   ): ProblemDetails {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let title = 'Internal Server Error';
@@ -87,24 +94,29 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       // Extract error details from NestJS validation errors
       if (typeof exceptionResponse === 'object') {
-        const responseObj = exceptionResponse as NestExceptionResponse;
+        const responseObj = translateBody(
+          exceptionResponse as unknown as Record<string, unknown>,
+          locale,
+        ) as unknown as NestExceptionResponse;
 
         title = responseObj.error ?? exception.name;
         detail = Array.isArray(responseObj.message)
-          ? responseObj.message.join(', ')
-          : (responseObj.message ?? detail);
+          ? translateMessages(responseObj.message, locale).join(', ')
+          : responseObj.message !== undefined
+            ? translateMessage(responseObj.message, locale)
+            : detail;
 
         // Include validation errors if present (either the class-validator
         // shape, where `message` itself is the array, or the question-type
         // registry shape, which keeps `message` human-readable and puts the
         // per-field failures in a sibling `errors` array).
         if (Array.isArray(responseObj.message)) {
-          errors = responseObj.message;
+          errors = translateMessages(responseObj.message, locale);
         } else if (Array.isArray(responseObj.errors)) {
-          errors = responseObj.errors;
+          errors = translateMessages(responseObj.errors, locale);
         }
       } else if (typeof exceptionResponse === 'string') {
-        detail = exceptionResponse;
+        detail = translateMessage(exceptionResponse, locale);
         title = exception.name;
       }
 

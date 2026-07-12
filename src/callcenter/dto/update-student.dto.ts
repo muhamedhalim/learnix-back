@@ -1,5 +1,9 @@
 import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
+
+const INVALID_EGYPTIAN_PHONE = bi('Invalid Egyptian phone number', 'رقم هاتف مصري غير صالح');
+
 export class CallCenterUpdateStudentDto {
   @IsOptional()
   @IsString()
@@ -8,7 +12,7 @@ export class CallCenterUpdateStudentDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^01[0125]\d{8}$/, { message: 'Invalid Egyptian phone number' })
+  @Matches(/^01[0125]\d{8}$/, { message: INVALID_EGYPTIAN_PHONE })
   public phone?: string;
 
   @IsOptional()
@@ -18,6 +22,6 @@ export class CallCenterUpdateStudentDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^01[0125]\d{8}$/, { message: 'Invalid Egyptian phone number' })
+  @Matches(/^01[0125]\d{8}$/, { message: INVALID_EGYPTIAN_PHONE })
   public parent_phone?: string;
 }

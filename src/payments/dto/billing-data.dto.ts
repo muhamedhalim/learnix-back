@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
+
 export class BillingDataDto {
   @MaxLength(100)
   public first_name!: string;
@@ -19,7 +21,10 @@ export class BillingDataDto {
   @IsString()
   @IsNotEmpty()
   @Matches(/^01[0-2,5]\d{8}$/, {
-    message: 'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
+    message: bi(
+      'Phone must be a valid Egyptian mobile number (e.g., 01012345678)',
+      'يجب أن يكون رقم الهاتف رقم موبايل مصري صالح (مثال: 01012345678)',
+    ),
   })
   public phone_number!: string;
 

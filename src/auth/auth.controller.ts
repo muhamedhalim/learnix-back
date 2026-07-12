@@ -18,6 +18,7 @@ import type { Request, Response } from 'express';
 import { THROTTLE } from '../common/constants';
 import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
 import { durationToMilliseconds as parseDurationToMs } from '../common/utils/duration.util';
+import { biBody } from '../i18n/error-translator.util';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -74,11 +75,7 @@ export class AuthController {
     };
   }
 
-  private setRefreshTokenCookie(
-    request: Request,
-    response: Response,
-    refreshToken: string,
-  ): void {
+  private setRefreshTokenCookie(request: Request, response: Response, refreshToken: string): void {
     response.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
       ...this.refreshCookieOptions(request),
       maxAge: durationToMilliseconds(process.env['JWT_REFRESH_EXPIRATION'] ?? '7d'),
@@ -89,11 +86,7 @@ export class AuthController {
     response.clearCookie(REFRESH_TOKEN_COOKIE, this.refreshCookieOptions(request));
   }
 
-  private stripRefreshToken(
-    result: unknown,
-    request: Request,
-    response: Response,
-  ): unknown {
+  private stripRefreshToken(result: unknown, request: Request, response: Response): unknown {
     if (
       typeof result === 'object' &&
       result !== null &&
@@ -148,7 +141,9 @@ export class AuthController {
     const refreshToken =
       request.signedCookies?.[REFRESH_TOKEN_COOKIE] ?? request.cookies?.[REFRESH_TOKEN_COOKIE];
     if (typeof refreshToken !== 'string' || refreshToken === '') {
-      throw new UnauthorizedException('Refresh token cookie is missing');
+      throw new UnauthorizedException(
+        biBody('Refresh token cookie is missing', 'كوكيز رمز التحديث غير موجود'),
+      );
     }
 
     const result = await this.authService.refresh(refreshToken);
@@ -201,7 +196,7 @@ export class AuthController {
     const { userId } = request.user as { userId: string };
     await this.authService.logout(userId);
     this.clearRefreshTokenCookie(request, response);
-    return { message: 'Logged out successfully' };
+    return biBody('Logged out successfully', 'تم تسجيل الخروج بنجاح');
   }
 
   @Get('csrf-token')

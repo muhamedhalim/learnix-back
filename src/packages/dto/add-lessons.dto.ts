@@ -10,6 +10,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
+
 export class PackageLessonItemDto {
   @IsString()
   public lessonId!: string;
@@ -34,8 +36,12 @@ export class AddLessonsDto {
   })
   @IsArray()
   @ValidateNested({ each: true })
-  @ArrayMinSize(1, { message: 'At least one lesson is required' })
-  @ArrayMaxSize(20, { message: 'Maximum 20 lessons per package' })
+  @ArrayMinSize(1, {
+    message: bi('At least one lesson is required', 'يلزم درس واحد على الأقل'),
+  })
+  @ArrayMaxSize(20, {
+    message: bi('Maximum 20 lessons per package', 'الحد الأقصى 20 درسًا لكل باقة'),
+  })
   @Type(() => PackageLessonItemDto)
   public lessons!: PackageLessonItemDto[];
 }

@@ -3,12 +3,7 @@ import './polyfills';
 // its auto-instrumentation can hook HTTP/DB/Redis. No-op when SENTRY_DSN is unset.
 import './instrument';
 
-import {
-  Logger,
-  type LogLevel,
-  RequestMethod,
-  ValidationPipe,
-} from '@nestjs/common';
+import { Logger, type LogLevel, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -20,20 +15,14 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
+import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 
 const logger = new Logger('Bootstrap');
 
 function getLogLevels(): LogLevel[] {
   const configured = process.env['LOG_LEVELS'];
   if (configured) {
-    const validLevels = new Set<LogLevel>([
-      'fatal',
-      'error',
-      'warn',
-      'log',
-      'debug',
-      'verbose',
-    ]);
+    const validLevels = new Set<LogLevel>(['fatal', 'error', 'warn', 'log', 'debug', 'verbose']);
     const levels = configured
       .split(',')
       .map((level) => level.trim() as LogLevel)
@@ -170,6 +159,7 @@ async function bootstrap(): Promise<void> {
   );
 
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ResponseLocalizationInterceptor());
 
   app.useGlobalGuards(new CsrfGuard(new Reflector()));
 

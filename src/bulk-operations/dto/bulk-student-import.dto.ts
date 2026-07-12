@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { IsEmail, IsOptional, IsString, Matches } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
+
 /**
  * DTO for a single student row in CSV import
  */
@@ -23,7 +25,10 @@ export class StudentImportRowDto {
   })
   @IsString()
   @Matches(/^01[0125]\d{8}$/, {
-    message: 'Phone must be Egyptian format (01XXXXXXXXX)',
+    message: bi(
+      'Phone must be Egyptian format (01XXXXXXXXX)',
+      'يجب أن يكون رقم الهاتف بصيغة مصرية (01XXXXXXXXX)',
+    ),
   })
   public phone!: string;
 
@@ -34,7 +39,10 @@ export class StudentImportRowDto {
   @IsOptional()
   @IsString()
   @Matches(/^01[0125]\d{8}$/, {
-    message: 'Parent phone must be Egyptian format (01XXXXXXXXX)',
+    message: bi(
+      'Parent phone must be Egyptian format (01XXXXXXXXX)',
+      'يجب أن يكون رقم هاتف ولي الأمر بصيغة مصرية (01XXXXXXXXX)',
+    ),
   })
   public parent_phone?: string | undefined;
 

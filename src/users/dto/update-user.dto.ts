@@ -10,6 +10,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
+
 export class UpdateUserDto {
   @ApiProperty({ required: false })
   @IsOptional()
@@ -28,7 +30,10 @@ export class UpdateUserDto {
   @IsString()
   // `[0125]`, not `[0-2,5]` — the latter admitted a literal comma.
   @Matches(/^01[0125]\d{8}$/, {
-    message: 'Phone must be a valid Egyptian phone number',
+    message: bi(
+      'Phone must be a valid Egyptian phone number',
+      'يجب أن يكون رقم الهاتف رقمًا مصريًا صالحًا',
+    ),
   })
   public phone?: string;
 

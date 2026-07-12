@@ -14,6 +14,7 @@ import {
   Min,
 } from 'class-validator';
 
+import { bi } from '../../i18n/error-translator.util';
 import { ApplicableItem } from '../entities/applicable-item.enum';
 import { DiscountType } from '../entities/discount-type.enum';
 
@@ -32,7 +33,10 @@ export class CreateDiscountCodeDto {
   @IsNumber()
   @Min(0)
   @Max(100, {
-    message: 'Percentage discount cannot exceed 100%',
+    message: bi(
+      'Percentage discount cannot exceed 100%',
+      'لا يمكن أن يتجاوز الخصم بالنسبة المئوية 100%',
+    ),
   })
   @Type(() => Number)
   public discount_value!: number;

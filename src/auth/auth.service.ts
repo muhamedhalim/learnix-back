@@ -17,6 +17,7 @@ import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
 
 import { parseDuration } from '../common/utils/duration.util';
+import { biBody } from '../i18n/error-translator.util';
 import { GuardianRelationship } from '../guardians/entities';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
@@ -57,7 +58,10 @@ export class AuthService {
 
     if (existingUser) {
       throw new ConflictException(
-        'Registration failed. Please try different credentials.',
+        biBody(
+          'Registration failed. Please try different credentials.',
+          'فشل التسجيل. يرجى تجربة بيانات مختلفة.',
+        ),
       );
     }
 
@@ -99,7 +103,10 @@ export class AuthService {
     // Return pending approval message instead of tokens
     // Use the UUID directly as the user identifier
     return {
-      message: 'Registration request received. Pending approval',
+      ...biBody(
+        'Registration request received. Pending approval',
+        'تم استلام طلب التسجيل. بانتظار الموافقة',
+      ),
       userId: savedUser.id,
     };
   }
@@ -120,44 +127,44 @@ export class AuthService {
     if (!user) {
       // Do not log the raw email (PII). Enumeration protection also benefits.
       this.logger.warn('Failed login attempt for non-existent account');
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(biBody('Invalid credentials', 'بيانات الاعتماد غير صحيحة'));
     }
 
     if (user.password_hash === null || user.password_hash === '') {
-      this.logger.warn(
-        `Failed login attempt for Firebase-only account (ID: ${user.id})`,
-      );
+      this.logger.warn(`Failed login attempt for Firebase-only account (ID: ${user.id})`);
       throw new UnauthorizedException(
-        'This account uses Firebase authentication. Please sign in with your Firebase provider.',
+        biBody(
+          'This account uses Firebase authentication. Please sign in with your Firebase provider.',
+          'يستخدم هذا الحساب مصادقة Firebase. يرجى تسجيل الدخول عبر مزود Firebase.',
+        ),
       );
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid) {
-      this.logger.warn(
-        `Failed login attempt - invalid password (ID: ${user.id})`,
-      );
-      throw new UnauthorizedException('Invalid credentials');
+      this.logger.warn(`Failed login attempt - invalid password (ID: ${user.id})`);
+      throw new UnauthorizedException(biBody('Invalid credentials', 'بيانات الاعتماد غير صحيحة'));
     }
 
     // Check user status (BREAKING CHANGE: new response format)
     if (user.status === UserStatus.PENDING) {
-      this.logger.log(
-        `Login attempt with pending account (ID: ${user.id})`,
-      );
+      this.logger.log(`Login attempt with pending account (ID: ${user.id})`);
       return {
         status: 'pending',
-        message:
+        ...biBody(
           'Your account is under review. Please wait for admin approval.',
+          'حسابك قيد المراجعة. يرجى انتظار موافقة الإدارة.',
+        ),
       };
     }
 
     if (user.status === UserStatus.REJECTED) {
-      this.logger.warn(
-        `Login attempt with rejected account (ID: ${user.id})`,
-      );
+      this.logger.warn(`Login attempt with rejected account (ID: ${user.id})`);
       throw new UnauthorizedException(
-        `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
+        biBody(
+          `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
+          `تم رفض الحساب: ${user.rejection_reason ?? 'يرجى التواصل مع الدعم لمزيد من المعلومات.'}`,
+        ),
       );
     }
 
@@ -173,10 +180,7 @@ export class AuthService {
 
     // Generate and store refresh token
     const refreshToken = this.generateRefreshToken();
-    const { tokenId, expiresAt } = await this.storeRefreshToken(
-      user.id,
-      refreshToken,
-    );
+    const { tokenId, expiresAt } = await this.storeRefreshToken(user.id, refreshToken);
 
     // Create session record for device tracking
     await this.sessionsService.createSession({
@@ -243,10 +247,7 @@ export class AuthService {
   /**
    * Verify refresh token against stored hash
    */
-  private async verifyRefreshToken(
-    token: string,
-    hash: string,
-  ): Promise<boolean> {
+  private async verifyRefreshToken(token: string, hash: string): Promise<boolean> {
     return await bcrypt.compare(token, hash);
   }
 
@@ -260,8 +261,7 @@ export class AuthService {
   ): Promise<{ tokenId: string; expiresAt: Date }> {
     const hashedToken = await this.hashRefreshToken(refreshToken);
     const tokenId = this.generateTokenId(refreshToken);
-    const refreshExpiresIn =
-      this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d';
+    const refreshExpiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d';
 
     // Calculate expiration date based on duration string (e.g., "7d", "30d")
     const expiresAt = this.calculateTokenExpiration(refreshExpiresIn);
@@ -328,57 +328,47 @@ export class AuthService {
 
     if (user?.refresh_token == null) {
       this.logger.warn('Invalid refresh token attempt');
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
     }
 
     // Single BCrypt verification (not a loop)
-    const isValid = await this.verifyRefreshToken(
-      refreshToken,
-      user.refresh_token,
-    );
+    const isValid = await this.verifyRefreshToken(refreshToken, user.refresh_token);
 
     if (!isValid) {
-      this.logger.warn(
-        `Refresh token verification failed - ID: ${user.id}`,
-      );
-      throw new UnauthorizedException('Invalid refresh token');
+      this.logger.warn(`Refresh token verification failed - ID: ${user.id}`);
+      throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
     }
 
     // Check if token is expired
-    if (
-      !user.refresh_token_expires_at ||
-      user.refresh_token_expires_at < new Date()
-    ) {
-      this.logger.warn(
-        `Expired refresh token used - ID: ${user.id}`,
-      );
-      throw new UnauthorizedException('Refresh token expired');
+    if (!user.refresh_token_expires_at || user.refresh_token_expires_at < new Date()) {
+      this.logger.warn(`Expired refresh token used - ID: ${user.id}`);
+      throw new UnauthorizedException(biBody('Refresh token expired', 'انتهت صلاحية رمز التحديث'));
     }
 
     // Check if user is active
     if (!user.is_active) {
-      this.logger.warn(
-        `Inactive user attempted token refresh - ID: ${user.id}`,
-      );
-      throw new UnauthorizedException('User account is inactive');
+      this.logger.warn(`Inactive user attempted token refresh - ID: ${user.id}`);
+      throw new UnauthorizedException(biBody('User account is inactive', 'حساب المستخدم غير نشط'));
     }
 
     // Check user status (BREAKING CHANGE: new response format)
     if (user.status === UserStatus.PENDING) {
-      this.logger.warn(
-        `Pending user attempted token refresh - ID: ${user.id}`,
-      );
+      this.logger.warn(`Pending user attempted token refresh - ID: ${user.id}`);
       throw new UnauthorizedException(
-        'Your account is under review. Please wait for admin approval.',
+        biBody(
+          'Your account is under review. Please wait for admin approval.',
+          'حسابك قيد المراجعة. يرجى انتظار موافقة الإدارة.',
+        ),
       );
     }
 
     if (user.status === UserStatus.REJECTED) {
-      this.logger.warn(
-        `Rejected user attempted token refresh - ID: ${user.id}`,
-      );
+      this.logger.warn(`Rejected user attempted token refresh - ID: ${user.id}`);
       throw new UnauthorizedException(
-        `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
+        biBody(
+          `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
+          `تم رفض الحساب: ${user.rejection_reason ?? 'يرجى التواصل مع الدعم لمزيد من المعلومات.'}`,
+        ),
       );
     }
 
@@ -394,15 +384,13 @@ export class AuthService {
 
     // Generate new refresh token (token rotation for security)
     const newRefreshToken = this.generateRefreshToken();
-    const { tokenId: newTokenId, expiresAt: newExpiresAt } =
-      await this.storeRefreshToken(user.id, newRefreshToken);
+    const { tokenId: newTokenId, expiresAt: newExpiresAt } = await this.storeRefreshToken(
+      user.id,
+      newRefreshToken,
+    );
 
     // Update session with new token ID (token rotation)
-    await this.sessionsService.updateSessionTokenId(
-      tokenId,
-      newTokenId,
-      newExpiresAt,
-    );
+    await this.sessionsService.updateSessionTokenId(tokenId, newTokenId, newExpiresAt);
 
     this.logger.log(`Token refreshed - ID: ${user.id}`);
 
@@ -416,11 +404,11 @@ export class AuthService {
     };
   }
 
-  public async forgotPassword(
-    email: string,
-  ): Promise<{ message: string; resetToken?: string }> {
-    const genericMessage =
-      'If an account exists for that email, a password reset link has been sent.';
+  public async forgotPassword(email: string): Promise<{ message: string; resetToken?: string }> {
+    const genericMessage = biBody(
+      'If an account exists for that email, a password reset link has been sent.',
+      'إذا كان هناك حساب مرتبط بهذا البريد الإلكتروني، فقد تم إرسال رابط إعادة تعيين كلمة المرور.',
+    );
 
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -431,24 +419,16 @@ export class AuthService {
       .getOne();
 
     // Silently no-op for unknown, inactive, or Firebase-only accounts.
-    if (
-      !user ||
-      !user.is_active ||
-      user.password_hash === null ||
-      user.password_hash === ''
-    ) {
-      this.logger.log(
-        'Password reset requested for a non-eligible account',
-      );
-      return { message: genericMessage };
+    if (!user || !user.is_active || user.password_hash === null || user.password_hash === '') {
+      this.logger.log('Password reset requested for a non-eligible account');
+      return genericMessage;
     }
 
     // Generate + store a fresh single-use token (overwrites any previous one).
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenId = this.generateTokenId(rawToken);
     const hashedToken = await bcrypt.hash(rawToken, this.bcryptRounds);
-    const expiration =
-      this.configService.get<string>('PASSWORD_RESET_EXPIRATION') ?? '1h';
+    const expiration = this.configService.get<string>('PASSWORD_RESET_EXPIRATION') ?? '1h';
     const expiresAt = this.calculateTokenExpiration(expiration);
 
     await this.userRepository.update(user.id, {
@@ -457,9 +437,7 @@ export class AuthService {
       password_reset_expires_at: expiresAt,
     });
 
-    const frontendUrl = (
-      this.configService.get<string>('FRONTEND_URL') ?? ''
-    ).replace(/\/+$/, '');
+    const frontendUrl = (this.configService.get<string>('FRONTEND_URL') ?? '').replace(/\/+$/, '');
     const resetUrl = `${frontendUrl}/auth/reset-password?token=${rawToken}`;
 
     await this.mailService.sendPasswordResetEmail(
@@ -471,20 +449,17 @@ export class AuthService {
 
     this.logger.log(`Password reset token issued for user ${user.id}`);
 
-    const isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
 
-    return isProduction
-      ? { message: genericMessage }
-      : { message: genericMessage, resetToken: rawToken };
+    return isProduction ? genericMessage : { ...genericMessage, resetToken: rawToken };
   }
 
-  public async resetPassword(
-    token: string,
-    newPassword: string,
-  ): Promise<{ message: string }> {
+  public async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
     const invalidTokenError = new BadRequestException(
-      'This password reset link is invalid or has expired. Please request a new one.',
+      biBody(
+        'This password reset link is invalid or has expired. Please request a new one.',
+        'رابط إعادة تعيين كلمة المرور غير صالح أو منتهي الصلاحية. يرجى طلب رابط جديد.',
+      ),
     );
 
     const tokenId = this.generateTokenId(token);
@@ -506,10 +481,7 @@ export class AuthService {
       throw invalidTokenError;
     }
 
-    if (
-      !user.password_reset_expires_at ||
-      user.password_reset_expires_at < new Date()
-    ) {
+    if (!user.password_reset_expires_at || user.password_reset_expires_at < new Date()) {
       this.logger.warn(`Expired password reset token used for user ${user.id}`);
       // Consume the stale token so it cannot be retried.
       await this.userRepository.update(user.id, {
@@ -538,10 +510,10 @@ export class AuthService {
 
     this.logger.log(`Password reset completed for user ${user.id}`);
 
-    return {
-      message:
-        'Your password has been reset successfully. You can now sign in with your new password.',
-    };
+    return biBody(
+      'Your password has been reset successfully. You can now sign in with your new password.',
+      'تم إعادة تعيين كلمة المرور بنجاح. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.',
+    );
   }
 
   /**
