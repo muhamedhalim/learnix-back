@@ -1,12 +1,9 @@
-import {
-  Controller,
-  Get,
-  Header,
-  Param,
-  StreamableFile,
-} from '@nestjs/common';
+import { Controller, Get, Header, Param, Req, StreamableFile } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import type { Request } from 'express';
+
+import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificateStatus } from '../entities/certificate-status.enum';
 import { CertificatesService } from '../certificates.service';
 
@@ -47,9 +44,9 @@ export class PublicCertificatesController {
   @Get('verify/:code/pdf')
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Download a verified certificate PDF (public)' })
-  public async pdf(@Param('code') code: string): Promise<StreamableFile> {
+  public async pdf(@Param('code') code: string, @Req() request: Request): Promise<StreamableFile> {
     const cert = await this.certificatesService.getByVerificationCode(code);
-    const buffer = await this.certificatesService.renderPdf(cert);
+    const buffer = await this.certificatesService.renderPdf(cert, resolveRequestLocale(request));
     return new StreamableFile(buffer, {
       type: 'application/pdf',
       disposition: `inline; filename="certificate-${cert.certificate_number}.pdf"`,

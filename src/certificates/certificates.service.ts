@@ -15,6 +15,7 @@ import { LessonPackageItem } from '../packages/entities/lesson-package-item.enti
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { biBody } from '../i18n/error-translator.util';
+import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { User } from '../users/entities/user.entity';
 import { generateCertificateNumber, generateVerificationCode } from './certificate-code.util';
 import { CertificatePdfService } from './certificate-pdf.service';
@@ -215,13 +216,16 @@ export class CertificatesService {
 
   /* ===================== PDF ===================== */
 
-  public async renderPdf(certificate: Certificate): Promise<Buffer> {
+  public async renderPdf(
+    certificate: Certificate,
+    locale: PreferredLanguage = PreferredLanguage.EN,
+  ): Promise<Buffer> {
     const template = certificate.template_id
       ? await this.templatesRepository.findOne({
           where: { id: certificate.template_id },
         })
       : await this.findDefaultTemplate();
-    return this.pdfService.render(certificate, template);
+    return this.pdfService.render(certificate, template, locale);
   }
 
   /**
@@ -232,6 +236,7 @@ export class CertificatesService {
     teacherId: string,
     packageId: string,
     sampleName = 'Student Name',
+    locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId },
@@ -257,7 +262,7 @@ export class CertificatesService {
       status: CertificateStatus.ISSUED,
       issued_at: new Date(),
     });
-    return this.pdfService.render(sample, template);
+    return this.pdfService.render(sample, template, locale);
   }
 
   /* ===================== Analytics ===================== */
