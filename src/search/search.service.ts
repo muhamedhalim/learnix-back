@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import { Repository } from 'typeorm';
 
+import { normalizeArabicQuery } from '../common/utils/arabic-search.util';
 import { CourseStatus } from '../packages/entities/course-status.enum';
 import { CourseChapter } from '../packages/entities/course-chapter.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -59,7 +60,7 @@ export class SearchService {
   ) {}
 
   private normalize(q: string): string {
-    return q.trim();
+    return normalizeArabicQuery(q);
   }
 
   /** Grouped overview across all surfaces (limited per group) — for the dropdown. */
@@ -144,7 +145,7 @@ export class SearchService {
     const chapters = await this.chaptersRepository
       .createQueryBuilder('c')
       .where('c.package_id = :packageId', { packageId })
-      .andWhere('c.title ILIKE :like', { like })
+      .andWhere('(c.title ILIKE :like OR c.title_ar ILIKE :like)', { like })
       .limit(20)
       .getMany();
 
@@ -318,7 +319,12 @@ export class SearchService {
         : qb.orderBy('l.title', 'ASC');
     });
 
-    return this.paginate(rows.map((l) => this.lessonItem(l)), page, limit, total);
+    return this.paginate(
+      rows.map((l) => this.lessonItem(l)),
+      page,
+      limit,
+      total,
+    );
   }
 
   private async searchTeachers(q: string, page: number, limit: number): Promise<PaginatedResults> {
@@ -359,7 +365,9 @@ export class SearchService {
   private async searchSubjects(q: string, page: number, limit: number): Promise<PaginatedResults> {
     const like = `%${q}%`;
     const base = (): SelectQueryBuilder<Subject> =>
-      this.subjectsRepository.createQueryBuilder('s').where('s.name ILIKE :like', { like });
+      this.subjectsRepository
+        .createQueryBuilder('s')
+        .where('(s.name ILIKE :like OR s.name_ar ILIKE :like)', { like });
 
     const total = await base().getCount();
     const rows = await this.safeGetMany((useSimilarity) => {
