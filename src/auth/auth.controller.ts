@@ -18,7 +18,7 @@ import type { Request, Response } from 'express';
 import { THROTTLE } from '../common/constants';
 import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
 import { durationToMilliseconds as parseDurationToMs } from '../common/utils/duration.util';
-import { biBody } from '../i18n/error-translator.util';
+import { biBody, resolveRequestLocale } from '../i18n/error-translator.util';
 import { AuthService } from './auth.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -105,8 +105,11 @@ export class AuthController {
   @Post('register')
   @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
-  public async register(@Body() registerDto: RegisterDto): Promise<unknown> {
-    return await this.authService.register(registerDto);
+  public async register(
+    @Body() registerDto: RegisterDto,
+    @Req() request: Request,
+  ): Promise<unknown> {
+    return await this.authService.register(registerDto, resolveRequestLocale(request));
   }
 
   @Post('login')

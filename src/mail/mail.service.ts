@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
 import { maskEmail } from '../common/utils/mask.util';
+import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 
 @Injectable()
@@ -18,8 +19,7 @@ export class MailService {
       this.configService.get<string>('MAIL_FROM') ??
       this.configService.get<string>('SMTP_USER') ??
       'no-reply@learning-center.local';
-    const fromName =
-      this.configService.get<string>('MAIL_FROM_NAME') ?? 'Learning Center';
+    const fromName = this.configService.get<string>('MAIL_FROM_NAME') ?? 'Learning Center';
     this.from = `"${fromName}" <${fromAddress}>`;
 
     if (host === undefined || host === '') {
@@ -31,8 +31,7 @@ export class MailService {
     }
 
     const port = this.configService.get<number>('SMTP_PORT') ?? 587;
-    const secure =
-      this.configService.get<string>('SMTP_SECURE') === 'true' || port === 465;
+    const secure = this.configService.get<string>('SMTP_SECURE') === 'true' || port === 465;
     const user = this.configService.get<string>('SMTP_USER');
     const pass = this.configService.get<string>('SMTP_PASSWORD');
 
@@ -40,10 +39,7 @@ export class MailService {
       host,
       port,
       secure,
-      auth:
-        user !== undefined && user !== ''
-          ? { user, pass: pass ?? '' }
-          : undefined,
+      auth: user !== undefined && user !== '' ? { user, pass: pass ?? '' } : undefined,
     });
   }
 
@@ -88,6 +84,19 @@ export class MailService {
     name: string,
     resetUrl: string,
     expiresInLabel: string,
+    locale: PreferredLanguage = PreferredLanguage.EN,
+  ): Promise<boolean> {
+    if (locale === PreferredLanguage.AR) {
+      return this.sendPasswordResetEmailAr(to, name, resetUrl, expiresInLabel);
+    }
+    return this.sendPasswordResetEmailEn(to, name, resetUrl, expiresInLabel);
+  }
+
+  private async sendPasswordResetEmailEn(
+    to: string,
+    name: string,
+    resetUrl: string,
+    expiresInLabel: string,
   ): Promise<boolean> {
     const subject = 'Reset your password';
     const greeting = name.trim() === '' ? 'Hello' : `Hello ${name.trim()}`;
@@ -102,7 +111,7 @@ export class MailService {
     ].join('\n');
 
     const html = `
-      <div style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2937;">
+      <div dir="ltr" style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2937;">
         <h2 style="color: #111827;">Reset your password</h2>
         <p>${greeting},</p>
         <p>We received a request to reset your password. Click the button below to choose a new one:</p>
@@ -112,6 +121,41 @@ export class MailService {
         <p style="font-size: 13px; color: #6b7280;">Or paste this link into your browser:<br/><a href="${resetUrl}">${resetUrl}</a></p>
         <p style="font-size: 13px; color: #6b7280;">This link expires in ${expiresInLabel} and can only be used once.</p>
         <p style="font-size: 13px; color: #6b7280;">If you didn't request this, you can safely ignore this email — your password will not change.</p>
+      </div>
+    `;
+
+    return this.send({ to, subject, html, text });
+  }
+
+  private async sendPasswordResetEmailAr(
+    to: string,
+    name: string,
+    resetUrl: string,
+    expiresInLabel: string,
+  ): Promise<boolean> {
+    const subject = 'إعادة تعيين كلمة المرور';
+    const greeting = name.trim() === '' ? 'مرحبًا' : `مرحبًا ${name.trim()}`;
+    const text = [
+      `${greeting}،`,
+      '',
+      'تلقينا طلبًا لإعادة تعيين كلمة المرور الخاصة بك. استخدم الرابط أدناه لاختيار كلمة مرور جديدة:',
+      resetUrl,
+      '',
+      `تنتهي صلاحية هذا الرابط خلال ${expiresInLabel} ويمكن استخدامه مرة واحدة فقط.`,
+      'إذا لم تطلب هذا، يمكنك تجاهل هذا البريد الإلكتروني بأمان — لن يتم تغيير كلمة المرور الخاصة بك.',
+    ].join('\n');
+
+    const html = `
+      <div dir="rtl" style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2937; text-align: right;">
+        <h2 style="color: #111827;">إعادة تعيين كلمة المرور</h2>
+        <p>${greeting}،</p>
+        <p>تلقينا طلبًا لإعادة تعيين كلمة المرور الخاصة بك. اضغط على الزر أدناه لاختيار كلمة مرور جديدة:</p>
+        <p style="text-align: center; margin: 28px 0;">
+          <a href="${resetUrl}" style="background: #2563eb; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">إعادة تعيين كلمة المرور</a>
+        </p>
+        <p style="font-size: 13px; color: #6b7280;">أو الصق هذا الرابط في متصفحك:<br/><a href="${resetUrl}">${resetUrl}</a></p>
+        <p style="font-size: 13px; color: #6b7280;">تنتهي صلاحية هذا الرابط خلال ${expiresInLabel} ويمكن استخدامه مرة واحدة فقط.</p>
+        <p style="font-size: 13px; color: #6b7280;">إذا لم تطلب هذا، يمكنك تجاهل هذا البريد الإلكتروني بأمان — لن يتم تغيير كلمة المرور الخاصة بك.</p>
       </div>
     `;
 

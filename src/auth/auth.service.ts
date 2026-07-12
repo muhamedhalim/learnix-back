@@ -19,6 +19,7 @@ import { Repository } from 'typeorm';
 import { parseDuration } from '../common/utils/duration.util';
 import { biBody } from '../i18n/error-translator.util';
 import { GuardianRelationship } from '../guardians/entities';
+import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
 import { StudentsService } from '../students/students.service';
@@ -48,7 +49,10 @@ export class AuthService {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
 
-  public async register(registerDto: RegisterDto): Promise<unknown> {
+  public async register(
+    registerDto: RegisterDto,
+    preferredLanguage: PreferredLanguage = PreferredLanguage.EN,
+  ): Promise<unknown> {
     const { email, password, phone, name, parentPhone } = registerDto;
 
     // Use generic error to prevent email/phone enumeration
@@ -81,6 +85,7 @@ export class AuthService {
       role: UserRole.STUDENT, // Default role for registration
       is_active: true,
       status: UserStatus.PENDING, // Pending approval
+      preferred_language: preferredLanguage,
     });
 
     const savedUser = await this.userRepository.save(newUser);
@@ -445,6 +450,7 @@ export class AuthService {
       user.name,
       resetUrl,
       this.humanizeDuration(expiration),
+      user.preferred_language ?? PreferredLanguage.EN,
     );
 
     this.logger.log(`Password reset token issued for user ${user.id}`);
