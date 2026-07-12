@@ -66,3 +66,8 @@ firebase-debug.log
 ormconfig.json
 *.sqlite
 *.db
+
+# Internal audit documents
+BACKEND_PERFORMANCE_AUDIT.md
+PERFORMANCE_VERIFICATION.md
+SECURITY_AUDIT_REPORT.md

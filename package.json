@@ -12,7 +12,7 @@
     "prestart:dev": "npm run migration:run",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main.js",
     "start:migrate:prod": "npm run migration:run:prod && npm run start:prod",
     "lint": "eslint . --fix --cache && prettier --check .",
     "test": "jest",
@@ -26,7 +26,7 @@
     "migration:generate": "npm run typeorm -- -d src/data-source.ts migration:generate",
     "migration:create": "npm run typeorm -- migration:create",
     "migration:run": "npm run typeorm -- -d src/data-source.ts migration:run",
-    "migration:run:prod": "typeorm -d dist/data-source.js migration:run",
+    "migration:run:prod": "typeorm -d dist/src/data-source.js migration:run",
     "migration:revert": "npm run typeorm -- -d src/data-source.ts migration:revert",
     "migration:show": "npm run typeorm -- -d src/data-source.ts migration:show",
     "migration:check": "npm run typeorm -- -d src/data-source.ts schema:log"
