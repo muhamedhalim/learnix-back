@@ -1,12 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsEnum,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 import { GradeLevel } from './create-subject.dto';
 
@@ -24,6 +18,16 @@ export class UpdateSubjectDto {
   public name?: string;
 
   @ApiProperty({
+    description: 'Subject name (Arabic)',
+    required: false,
+    maxLength: 255,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  public name_ar?: string;
+
+  @ApiProperty({
     description: 'Subject description',
     required: false,
     maxLength: 2000,
@@ -32,6 +36,16 @@ export class UpdateSubjectDto {
   @IsOptional()
   @MaxLength(2000)
   public description?: string;
+
+  @ApiProperty({
+    description: 'Subject description (Arabic)',
+    required: false,
+    maxLength: 2000,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  public description_ar?: string;
 
   @ApiProperty({
     description: 'Grade level',

@@ -38,7 +38,9 @@ export class SubjectsService {
 
     const subject = this.subjectsRepository.create({
       name: createSubjectDto.name,
+      name_ar: createSubjectDto.name_ar ?? null,
       description: createSubjectDto.description ?? null,
+      description_ar: createSubjectDto.description_ar ?? null,
       grade_level: createSubjectDto.gradeLevel,
       thumbnail: createSubjectDto.thumbnail ?? null,
     });
@@ -61,7 +63,9 @@ export class SubjectsService {
       .select([
         'subject.id',
         'subject.name',
+        'subject.name_ar',
         'subject.description',
+        'subject.description_ar',
         'subject.grade_level',
         'subject.thumbnail',
         'subject.created_at',
@@ -156,8 +160,14 @@ export class SubjectsService {
     if (updateSubjectDto.name !== undefined && updateSubjectDto.name !== '') {
       subject.name = updateSubjectDto.name;
     }
+    if (updateSubjectDto.name_ar !== undefined) {
+      subject.name_ar = updateSubjectDto.name_ar;
+    }
     if (updateSubjectDto.description !== undefined) {
       subject.description = updateSubjectDto.description;
+    }
+    if (updateSubjectDto.description_ar !== undefined) {
+      subject.description_ar = updateSubjectDto.description_ar;
     }
     if (updateSubjectDto.gradeLevel !== undefined) {
       subject.grade_level = updateSubjectDto.gradeLevel;

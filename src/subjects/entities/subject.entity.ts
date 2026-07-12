@@ -17,8 +17,14 @@ export class Subject {
   @Index('IDX_subjects_name')
   name!: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  name_ar!: string | null;
+
   @Column({ type: 'text', nullable: true })
   description!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  description_ar!: string | null;
 
   @Column({
     type: 'varchar',

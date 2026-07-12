@@ -13,6 +13,17 @@ export class CreateSubjectDto {
   public name!: string;
 
   @ApiProperty({
+    description: 'Subject name (Arabic)',
+    example: 'الفيزياء',
+    required: false,
+    maxLength: 255,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  public name_ar?: string;
+
+  @ApiProperty({
     description: 'Subject description',
     example: 'مادة الفيزياء للصف الثالث الثانوي',
     required: false,
@@ -22,6 +33,16 @@ export class CreateSubjectDto {
   @IsOptional()
   @MaxLength(2000)
   public description?: string;
+
+  @ApiProperty({
+    description: 'Subject description (Arabic)',
+    required: false,
+    maxLength: 2000,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  public description_ar?: string;
 
   @IsNotEmpty()
   public gradeLevel!: GradeLevel;

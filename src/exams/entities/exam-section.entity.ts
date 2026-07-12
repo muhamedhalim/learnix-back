@@ -43,6 +43,9 @@ export class ExamSection {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  @Column({ type: 'text', nullable: true, name: 'description_ar' })
+  description_ar!: string | null;
+
   @Column({ type: 'boolean', name: 'shuffle_questions', default: false })
   shuffle_questions!: boolean;
 
