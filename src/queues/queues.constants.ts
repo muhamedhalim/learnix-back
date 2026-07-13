@@ -1,4 +1,4 @@
-import type { ConnectionOptions } from 'bullmq';
+import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connection.util';
 
 /**
  * Queue Names and Configuration Constants
@@ -125,31 +125,32 @@ export const JOB_TYPES = {
 } as const;
 
 /**
- * Build Redis connection object from REDIS_URL
- * Required in all environments.
+ * Whether BullMQ queues should actually connect to Redis.
+ *
+ * Read directly from `process.env` (not `ConfigService`) because this is
+ * consulted from static `@Module()` `imports` arrays — evaluated at class
+ * definition time, before Nest's DI container exists. Production is the only
+ * environment where this may legitimately be relied upon to be `true`: the
+ * `BullModule.forRootAsync` factory in `queues.module.ts` throws at boot if
+ * `NODE_ENV=production` and Redis isn't configured, so by the time any
+ * consuming module asks, production has already failed fast one way or the
+ * other. In development, `false` means every queue registered via
+ * `registerQueues` (see `register-queues.util.ts`) becomes a `NoopQueue`
+ * instead of a real Redis-backed queue — see that file for why.
  */
-function getRedisConnection(): ConnectionOptions {
-  const redisUrl = process.env['REDIS_URL'];
-
-  if (redisUrl === undefined || redisUrl === '') {
-    throw new Error(
-      'CRITICAL: REDIS_URL is required. BullMQ cannot start without a Redis connection.',
-    );
-  }
-
-  return {
-    url: redisUrl,
-  };
+export function areQueuesEnabled(): boolean {
+  return resolveRedisUrl(processEnvReader()) !== undefined;
 }
 
 /**
  * Default Queue Configuration
- * Applied to all queues unless overridden
+ * Applied to all queues unless overridden. Connection is intentionally not
+ * part of this: it's supplied once, at the shared default, by
+ * `BullModule.forRootAsync` in `queues.module.ts` — every `registerQueue`
+ * call inherits it automatically unless it specifies its own override, which
+ * none of ours do.
  */
 export const DEFAULT_QUEUE_CONFIG = {
-  /** Redis connection options */
-  connection: getRedisConnection(),
-
   /** Job retry configuration */
   defaultJobOptions: {
     /** Number of retry attempts (QUEUE_DEFAULT_ATTEMPTS, legacy QUEUE_MAX_ATTEMPTS, default 3). */
@@ -190,9 +191,6 @@ export const WORKER_CONFIG = {
     process.env['WORKER_CONCURRENCY'] ?? process.env['QUEUE_CONCURRENCY'] ?? '5',
     10,
   ),
-
-  /** Redis connection (same as queue) */
-  connection: DEFAULT_QUEUE_CONFIG.connection,
 };
 
 /**

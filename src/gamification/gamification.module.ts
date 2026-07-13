@@ -1,4 +1,3 @@
-import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -6,7 +5,8 @@ import { ExamsModule } from '../exams/exams.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { Question } from '../exams/entities';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { registerQueues } from '../queues/register-queues.util';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -59,11 +59,9 @@ import { RankService } from './services/rank.service';
     ExamsModule,
     // In-app gamification notifications (rank-up, streak milestones).
     NotificationsModule,
-    // Gamification maintenance queue (streak-reset sweep).
-    BullModule.registerQueue({
-      name: QUEUE_NAMES.GAMIFICATION,
-      ...QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION],
-    }),
+    // Gamification maintenance queue (streak-reset sweep). NoopQueue-backed
+    // when Redis isn't configured in development.
+    registerQueues({ name: QUEUE_NAMES.GAMIFICATION, config: QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION] }),
   ],
   controllers: [StudentPracticeController, GamificationPublicController],
   providers: [
@@ -75,7 +73,9 @@ import { RankService } from './services/rank.service';
     PublicProfileService,
     GameNotificationsService,
     GameJobsService,
-    GameSweepProcessor,
+    // The worker needs a real queue connection to pull jobs from; skip it
+    // entirely when queues are disabled rather than let it attempt one.
+    ...(areQueuesEnabled() ? [GameSweepProcessor] : []),
   ],
   exports: [TypeOrmModule, GamificationService, RankService],
 })

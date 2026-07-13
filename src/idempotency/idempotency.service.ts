@@ -91,22 +91,48 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    this.redisClient = createClient({ url: redisUrl });
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
 
-    this.redisClient.on('error', (err: Error) => {
+    const client: RedisClientType = createClient({
+      url: redisUrl,
+      // Development: node-redis's default reconnectStrategy retries forever,
+      // which is what turned an unreachable REDIS_URL (e.g. still pointing at
+      // a production-only host) into unbounded "Redis connection error" log
+      // spam — the client kept retrying in the background even after the
+      // failed connect() below was caught. Production keeps the default
+      // strategy unchanged so a transient outage still recovers on its own.
+      ...(isProduction ? {} : { socket: { reconnectStrategy: false as const } }),
+    });
+
+    client.on('error', (err: Error) => {
       this.logger.error(`Redis connection error: ${err.message}`);
     });
 
-    this.redisClient.on('connect', () => {
-      this.logger.log('Redis connected for idempotency service');
-    });
-
     try {
-      await this.redisClient.connect();
+      await client.connect();
+      // Only wired up on success — every `isReady` check below already
+      // treats an unset client as "unavailable", and this guarantees the
+      // failure branch below is the only place that needs to tear the
+      // client down.
+      this.redisClient = client;
+      this.logger.log('Redis connected for idempotency service');
     } catch (error) {
       this.logger.error(
-        `Failed to connect to Redis: ${(error as Error).message}`,
+        `Failed to connect to Redis: ${(error as Error).message}. Idempotency disabled.`,
       );
+      // Tear down explicitly so no background reconnect attempt keeps
+      // running against a host that was already unreachable once. With
+      // reconnectStrategy: false (development), node-redis has usually
+      // already self-destroyed the socket by the time connect() rejects —
+      // disconnect() on an already-closed client throws synchronously
+      // (ClientClosedError), so this must be a try/catch, not `.catch()`.
+      if (client.isOpen) {
+        try {
+          await client.disconnect();
+        } catch {
+          // Already closing/closed — nothing further to do.
+        }
+      }
     }
   }
 

@@ -1,11 +1,11 @@
-import { BullModule } from '@nestjs/bullmq';
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { GuardiansModule } from '../guardians/guardians.module';
-import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { registerQueues } from '../queues/register-queues.util';
 import { User } from '../users/entities/user.entity';
 import { ChannelRegistryService } from './channels/channel-registry.service';
 import { SmsChannel } from './channels/sms.channel';
@@ -48,14 +48,15 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     GuardiansModule,
     // The Meta Cloud API adapter is the only HTTP consumer here.
     HttpModule,
-    BullModule.registerQueue(
+    // NoopQueue-backed when Redis isn't configured in development.
+    registerQueues(
       {
         name: QUEUE_NAMES.PARENT_NOTIFICATIONS,
-        ...QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS],
+        config: QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS],
       },
       {
         name: QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ,
-        ...QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ],
+        config: QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ],
       },
     ),
     TypeOrmModule.forFeature([Notification, NotificationSettings, ParentMessage, User]),
@@ -81,7 +82,9 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     ParentMessageAdminService,
     ParentNotificationJobsService,
     ParentNotificationListener,
-    ParentNotificationProcessor,
+    // The worker needs a real queue connection to pull jobs from; skip it
+    // entirely when queues are disabled rather than let it attempt one.
+    ...(areQueuesEnabled() ? [ParentNotificationProcessor] : []),
   ],
   exports: [
     NotificationsService,

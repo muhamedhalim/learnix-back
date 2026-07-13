@@ -12,6 +12,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { redisStore } from 'cache-manager-redis-yet';
+import Redis from 'ioredis';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { AdminInitModule } from './admin-init/admin-init.module';
@@ -32,6 +33,7 @@ import { CommentsModule } from './comments/comments.module';
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
 import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
+import { resolveRedisUrl } from './common/utils/redis-connection.util';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { validate } from './config/env.validation';
 import { DiscountCodesModule } from './discount-codes/discount-codes.module';
@@ -71,24 +73,11 @@ import { UsersModule } from './users/users.module';
  * Build a `redis://` connection URL from the configured Redis settings, or
  * `undefined` when Redis is not configured (local development). Shared by the
  * cache store and the rate-limiter storage so both target the same instance.
+ * Thin `ConfigService`-backed wrapper around `resolveRedisUrl`, the same
+ * resolution logic BullMQ's queue registration uses (see `queues.constants.ts`).
  */
 function buildRedisUrl(configService: ConfigService): string | undefined {
-  const explicitUrl = configService.get<string>('REDIS_URL');
-  if (explicitUrl !== undefined && explicitUrl !== '') {
-    return explicitUrl;
-  }
-
-  const host = configService.get<string>('REDIS_HOST');
-  if (host === undefined || host === '') {
-    return undefined;
-  }
-
-  const port = configService.get<number>('REDIS_PORT') ?? 6379;
-  const password = configService.get<string>('REDIS_PASSWORD');
-
-  return password !== undefined && password !== ''
-    ? `redis://:${password}@${host}:${port.toString()}`
-    : `redis://${host}:${port.toString()}`;
+  return resolveRedisUrl((key) => configService.get<string>(key));
 }
 
 @Module({
@@ -125,6 +114,13 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
             url: redisUrl,
             socket: {
               connectTimeout: 10_000,
+              // Development: node-redis's default reconnectStrategy retries
+              // forever, which would otherwise keep hammering an unreachable
+              // host (e.g. REDIS_URL still pointing at a production-only
+              // network) with background reconnect noise even after this
+              // catch block already fell back to the in-memory cache.
+              // Production keeps the default strategy unchanged.
+              ...(isProduction ? {} : { reconnectStrategy: false as const }),
             },
           });
 
@@ -174,7 +170,7 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
+      useFactory: async (configService: ConfigService) => {
         const throttlers = [{ name: 'default', ...THROTTLE.GLOBAL }];
         const redisUrl = buildRedisUrl(configService);
 
@@ -182,10 +178,39 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
           return { throttlers };
         }
 
-        return {
-          throttlers,
-          storage: new ThrottlerStorageRedisService(redisUrl),
-        };
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
+
+        if (isProduction) {
+          // Unchanged: production always wires up Redis-backed storage
+          // directly. A connection failure here is a production incident,
+          // not something to silently degrade from.
+          return { throttlers, storage: new ThrottlerStorageRedisService(redisUrl) };
+        }
+
+        // Development: verify Redis is actually reachable before wiring it
+        // up — ThrottlerStorageRedisService's underlying ioredis client
+        // retries forever by default, which is what turned an unreachable
+        // REDIS_URL into unbounded "[ioredis] Unhandled error event" log
+        // spam. Same failure class already solved for the cache store above.
+        const logger = new Logger('ThrottlerModule');
+        const client = new Redis(redisUrl, {
+          lazyConnect: true,
+          connectTimeout: 5000,
+          retryStrategy: () => null,
+          maxRetriesPerRequest: 1,
+        });
+
+        try {
+          await client.connect();
+          return { throttlers, storage: new ThrottlerStorageRedisService(client) };
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          logger.warn(
+            `Failed to connect to Redis: ${errorMessage}. Using in-memory rate-limit storage (development only).`,
+          );
+          client.disconnect();
+          return { throttlers };
+        }
       },
     }),
     TypeOrmModule.forRootAsync({

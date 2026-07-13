@@ -1,11 +1,11 @@
-import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPurchase, PackagePurchase, Payment } from '../payments/entities';
-import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { registerQueues } from '../queues/register-queues.util';
 import { AttendanceCodesService } from './attendance-codes.service';
 import { CodeBatchesService } from './code-batches.service';
 import { CodeExportService } from './code-export.service';
@@ -35,16 +35,11 @@ import { CodeGenerationProcessor } from './processors/code-generation.processor'
     ]),
     // Register the generation + export queues here so the producers
     // (services) and workers (processors) share them. Connection comes from
-    // the shared queue config.
-    BullModule.registerQueue(
-      {
-        name: QUEUE_NAMES.CODE_GENERATION,
-        ...QUEUE_CONFIGS[QUEUE_NAMES.CODE_GENERATION],
-      },
-      {
-        name: QUEUE_NAMES.CODE_EXPORT,
-        ...QUEUE_CONFIGS[QUEUE_NAMES.CODE_EXPORT],
-      },
+    // the shared queue config — or a NoopQueue when Redis isn't configured
+    // in development (see registerQueues).
+    registerQueues(
+      { name: QUEUE_NAMES.CODE_GENERATION, config: QUEUE_CONFIGS[QUEUE_NAMES.CODE_GENERATION] },
+      { name: QUEUE_NAMES.CODE_EXPORT, config: QUEUE_CONFIGS[QUEUE_NAMES.CODE_EXPORT] },
     ),
   ],
   controllers: [
@@ -58,8 +53,9 @@ import { CodeGenerationProcessor } from './processors/code-generation.processor'
     AttendanceCodesService,
     CodeBatchesService,
     CodeExportService,
-    CodeGenerationProcessor,
-    CodeExportProcessor,
+    // Workers need a real queue connection to pull jobs from; skip them
+    // entirely when queues are disabled rather than let them attempt one.
+    ...(areQueuesEnabled() ? [CodeGenerationProcessor, CodeExportProcessor] : []),
   ],
   exports: [AttendanceCodesService, CodeBatchesService, CodeExportService],
 })

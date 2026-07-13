@@ -1,11 +1,11 @@
-import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { PaymentsModule } from '../payments/payments.module';
-import { QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { registerQueues } from '../queues/register-queues.util';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { AdminExamsController } from './controllers/admin-exams.controller';
@@ -63,11 +63,12 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       User,
     ]),
     // Exam background queues (producers + workers share these registrations).
-    BullModule.registerQueue(
-      { name: QUEUE_NAMES.EXAM_AUTO_SUBMIT, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AUTO_SUBMIT] },
-      { name: QUEUE_NAMES.EXAM_ANALYTICS, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_ANALYTICS] },
-      { name: QUEUE_NAMES.EXAM_AI_GRADING, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AI_GRADING] },
-      { name: QUEUE_NAMES.EXAM_OMR, ...QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR] },
+    // Becomes NoopQueue-backed when Redis isn't configured in development.
+    registerQueues(
+      { name: QUEUE_NAMES.EXAM_AUTO_SUBMIT, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AUTO_SUBMIT] },
+      { name: QUEUE_NAMES.EXAM_ANALYTICS, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_ANALYTICS] },
+      { name: QUEUE_NAMES.EXAM_AI_GRADING, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AI_GRADING] },
+      { name: QUEUE_NAMES.EXAM_OMR, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR] },
     ),
     PaymentsModule, // enrollment/access checks (hasLessonPlaybackAccess)
     AnalyticsModule, // exam analytics recomputation
@@ -96,10 +97,11 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     ExamGradedPublisher,
     // Jobs (producer + workers)
     ExamJobsService,
-    ExamAutoSubmitProcessor,
-    ExamAnalyticsProcessor,
-    ExamAiGradingProcessor,
-    OmrProcessor,
+    // Workers need a real queue connection to pull jobs from; skip them
+    // entirely when queues are disabled rather than let them attempt one.
+    ...(areQueuesEnabled()
+      ? [ExamAutoSubmitProcessor, ExamAnalyticsProcessor, ExamAiGradingProcessor, OmrProcessor]
+      : []),
   ],
   exports: [TypeOrmModule, QuestionTypeRegistry, GradingService],
 })

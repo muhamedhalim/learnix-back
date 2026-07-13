@@ -33,6 +33,17 @@ const logger = new Logger('Bootstrap');
 // This uses TypeORM's own migration runner (`runMigrations`), which is
 // idempotent — already-applied migrations are skipped — and never touches
 // `synchronize`.
+//
+// Production-only (see call site below): a developer running `start:dev`
+// wants to iterate against whatever schema state their local DB is already
+// in and apply migrations manually (`npm run migration:run`) on their own
+// schedule — an automatic run blocking every dev restart on a migration
+// that fails (or a DB that isn't reachable yet) defeats that. Gating this on
+// `NODE_ENV === 'production'` doesn't change production's behavior at all:
+// by the time `main.js` runs there, `npm run start:migrate:prod` has always
+// already run `migration:run:prod` first, so this call is already a no-op
+// idempotency check in practice — it stays only as the from-inside-the-app
+// safety net the comment above describes.
 async function runPendingMigrations(): Promise<void> {
   const dataSource = await AppDataSource.initialize();
   try {
@@ -82,7 +93,9 @@ function getLogLevels(): LogLevel[] {
   }
 
 async function bootstrap(): Promise<void> {
-  await runPendingMigrations();
+  if (process.env['NODE_ENV'] === 'production') {
+    await runPendingMigrations();
+  }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: getLogLevels(),

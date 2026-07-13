@@ -45,13 +45,20 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
       return;
     }
 
+    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
+    // Development: never retry forever against an unreachable host — see
+    // IdempotencyService.onModuleInit for the same fix and the reconnect-loop
+    // it silences. Production keeps node-redis's default strategy unchanged.
+    const noReconnect = isProduction ? {} : { reconnectStrategy: false as const };
+
     const client = createClient(
       redisUrl
-        ? { url: redisUrl }
+        ? { url: redisUrl, socket: { ...noReconnect } }
         : {
             socket: {
               host: redisHost!,
               port: this.configService.get<number>('REDIS_PORT') ?? 6379,
+              ...noReconnect,
             },
             ...(redisPassword ? { password: redisPassword } : {}),
           },
@@ -67,7 +74,17 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
       this.logger.error(
         `Redis lock client unavailable: ${error instanceof Error ? error.message : String(error)}`,
       );
-      await client.disconnect().catch(() => undefined);
+      // With reconnectStrategy: false (development), node-redis has usually
+      // already self-destroyed the socket by the time connect() rejects —
+      // disconnect() on an already-closed client throws synchronously
+      // (ClientClosedError), so this must be a try/catch, not `.catch()`.
+      if (client.isOpen) {
+        try {
+          await client.disconnect();
+        } catch {
+          // Already closing/closed — nothing further to do.
+        }
+      }
     }
   }
 

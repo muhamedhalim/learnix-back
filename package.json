@@ -9,7 +9,6 @@
     "build": "tsc --noEmit -p tsconfig.build.json && nest build --builder swc",
     "format": "prettier --write .",
     "start": "nest start",
-    "prestart:dev": "npm run migration:run",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main.js",
