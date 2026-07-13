@@ -6,12 +6,14 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import * as bcrypt from 'bcryptjs';
-import type { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
+import type { EntityManager, Repository } from 'typeorm';
 
 import { GuardianRelationship } from '../guardians/entities';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
-import { StudentsService } from '../students/students.service';
+import { StudentProfile } from '../students/entities/student-profile.entity';
+import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
@@ -46,7 +48,7 @@ interface LoginResponse {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let guardiansService: jest.Mocked<Pick<GuardiansService, 'linkGuardian'>>;
+  let guardiansService: jest.Mocked<Pick<GuardiansService, 'linkGuardianWith'>>;
   let userRepository: jest.Mocked<Repository<User>>;
   let jwtService: jest.Mocked<JwtService>;
   let configService: jest.Mocked<ConfigService>;
@@ -59,6 +61,20 @@ describe('AuthService', () => {
     password_hash: 'hashedpassword',
     is_active: true,
     role: UserRole.STUDENT,
+  };
+
+  // Stand-in for the transactional EntityManager passed into
+  // `dataSource.transaction(cb)`. `create` just echoes the given data (as the
+  // real TypeORM `create` does — no DB round trip); `save` resolves with the
+  // data, stamping an id onto the User row the way a real INSERT would.
+  const mockManager = {
+    create: jest.fn((_entity: unknown, data: unknown) => data),
+    save: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+      if (entity === User) {
+        return Promise.resolve({ id: 'stu_789012', ...data });
+      }
+      return Promise.resolve(data);
+    }),
   };
 
   beforeEach(async () => {
@@ -76,6 +92,12 @@ describe('AuthService', () => {
 
     const mockConfigService = {
       get: jest.fn(),
+    };
+
+    const mockDataSource = {
+      transaction: jest.fn((cb: (manager: EntityManager) => Promise<unknown>) =>
+        cb(mockManager as unknown as EntityManager),
+      ),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -103,15 +125,9 @@ describe('AuthService', () => {
           },
         },
         {
-          provide: StudentsService,
-          useValue: {
-            createStudentProfile: jest.fn(),
-          },
-        },
-        {
           provide: GuardiansService,
           useValue: {
-            linkGuardian: jest.fn(),
+            linkGuardianWith: jest.fn(),
           },
         },
         {
@@ -120,6 +136,10 @@ describe('AuthService', () => {
             sendPasswordResetEmail: jest.fn().mockResolvedValue(true),
             isConfigured: jest.fn().mockReturnValue(false),
           },
+        },
+        {
+          provide: DataSource,
+          useValue: mockDataSource,
         },
       ],
     }).compile();
@@ -146,73 +166,100 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    const registerDto: RegisterDto = {
+    const studentRegisterDto: RegisterDto = {
       name: 'Ahmed Ali',
       password: '123456',
       phone: '01000000000',
       email: 'test@test.com',
+      requestedRole: UserRole.STUDENT,
       parentPhone: '01011111111',
     };
 
-    it('should successfully register a new user with pending approval', async () => {
+    const teacherRegisterDto: RegisterDto = {
+      name: 'Sara Mostafa',
+      password: '123456',
+      phone: '01000000001',
+      email: 'teacher@test.com',
+      requestedRole: UserRole.TEACHER,
+      qualifications: 'B.Sc. Mathematics',
+      yearsOfExperience: 5,
+    };
+
+    beforeEach(() => {
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+    });
+
+    it('should successfully register a student application with pending approval', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
 
-      const newUser: User = Object.assign(new User(), mockUser, {
-        id: 'stu_789012',
-        name: registerDto.name,
-        email: registerDto.email,
-        phone: registerDto.phone,
-      });
-
-      userRepository.create.mockReturnValue(newUser);
-      userRepository.save.mockResolvedValue(newUser);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
-
-      const result = await service.register(registerDto);
+      const result = await service.register(studentRegisterDto);
 
       expect(result).toHaveProperty('message');
-      expect(result).toHaveProperty('userId');
+      expect(result).toHaveProperty('userId', 'stu_789012');
       expect((result as RegisterResponse).message).toBe(
         'Registration request received. Pending approval',
       );
-      expect((result as RegisterResponse).userId).toContain('u_');
     });
 
-    it('links the supplied parent phone as a primary guardian', async () => {
+    it('creates the user with status PENDING and the requested role, not an automatically granted one', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
-      const newUser: User = Object.assign(new User(), mockUser, { id: 'stu_789012' });
-      userRepository.create.mockReturnValue(newUser);
-      userRepository.save.mockResolvedValue(newUser);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
 
-      await service.register(registerDto);
+      await service.register(teacherRegisterDto);
 
-      expect(guardiansService.linkGuardian).toHaveBeenCalledWith('stu_789012', {
-        phone: registerDto.parentPhone,
+      expect(mockManager.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({ role: UserRole.TEACHER, status: UserStatus.PENDING }),
+      );
+    });
+
+    it('links the supplied parent phone as a primary guardian for a student application', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+
+      await service.register(studentRegisterDto);
+
+      expect(guardiansService.linkGuardianWith).toHaveBeenCalledWith(mockManager, 'stu_789012', {
+        phone: studentRegisterDto.parentPhone,
         relationship: GuardianRelationship.OTHER,
         is_primary: true,
       });
     });
 
-    it('creates no guardian when no parent phone is supplied', async () => {
+    it('creates a teacher profile and no guardian for a teacher application', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
-      const newUser: User = Object.assign(new User(), mockUser, { id: 'stu_789012' });
-      userRepository.create.mockReturnValue(newUser);
-      userRepository.save.mockResolvedValue(newUser);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
 
-      // The old code wrote '' into a NOT NULL parent_phone column here.
-      const { parentPhone: _omitted, ...withoutParent } = registerDto;
-      await service.register(withoutParent as RegisterDto);
+      await service.register(teacherRegisterDto);
 
-      expect(guardiansService.linkGuardian).not.toHaveBeenCalled();
+      expect(mockManager.create).toHaveBeenCalledWith(
+        TeacherProfile,
+        expect.objectContaining({
+          user_id: 'stu_789012',
+          qualifications: teacherRegisterDto.qualifications,
+          years_of_experience: teacherRegisterDto.yearsOfExperience,
+        }),
+      );
+      expect(guardiansService.linkGuardianWith).not.toHaveBeenCalled();
+    });
+
+    it('creates a student profile and no teacher profile for a student application', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+
+      await service.register(studentRegisterDto);
+
+      expect(mockManager.create).toHaveBeenCalledWith(
+        StudentProfile,
+        expect.objectContaining({ user_id: 'stu_789012' }),
+      );
+      expect(mockManager.create).not.toHaveBeenCalledWith(
+        TeacherProfile,
+        expect.anything(),
+      );
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {
       // Service uses generic error to prevent email/username enumeration
       userRepository.findOne.mockResolvedValue(mockUser as User);
 
-      await expect(service.register(registerDto)).rejects.toThrow(
+      await expect(service.register(studentRegisterDto)).rejects.toThrow(
         new ConflictException('Registration failed. Please try different credentials.'),
       );
     });

@@ -1,4 +1,4 @@
-import { Global, Module, forwardRef } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -7,7 +7,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { durationToMilliseconds } from '../common/utils/duration.util';
 import { FirebaseModule } from '../firebase/firebase.module';
 import { GuardiansModule } from '../guardians/guardians.module';
-import { StudentsModule } from '../students/students.module';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
@@ -47,7 +46,6 @@ function capAccessTokenTtl(configured: string | undefined): string {
     PassportModule.register({ defaultStrategy: 'jwt' }),
     TypeOrmModule.forFeature([User]),
     UsersModule,
-    forwardRef(() => StudentsModule),
     GuardiansModule,
   ],
   controllers: [AuthController, FirebaseAuthController],

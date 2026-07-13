@@ -3,18 +3,16 @@ import * as crypto from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  Inject,
   Injectable,
   Logger,
   UnauthorizedException,
-  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { parseDuration } from '../common/utils/duration.util';
 import { biBody } from '../i18n/error-translator.util';
@@ -22,7 +20,8 @@ import { GuardianRelationship } from '../guardians/entities';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
-import { StudentsService } from '../students/students.service';
+import { StudentProfile } from '../students/entities/student-profile.entity';
+import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
@@ -42,18 +41,35 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly sessionsService: SessionsService,
     private readonly mailService: MailService,
-    @Inject(forwardRef(() => StudentsService))
-    private readonly studentsService: StudentsService,
     private readonly guardiansService: GuardiansService,
+    private readonly dataSource: DataSource,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
 
+  /**
+   * Registers an application for either a STUDENT or a TEACHER account.
+   *
+   * `requestedRole` is exactly that — a request, not a grant. Every account is
+   * created with `status = PENDING` regardless of which role was requested,
+   * and cannot log in until an admin approves it via the existing
+   * `admin/students` or `admin/teachers` approval endpoints (StudentsService /
+   * TeachersService `approve*`/`reject*` — unchanged by this method). Those
+   * endpoints already expect a profile to exist ahead of approval, so the
+   * user row and its role-specific profile (+ guardian link, for students)
+   * are created together, atomically, right here — mirroring the pattern
+   * already used by the bulk student importer
+   * (`BulkOperationsService.saveImportedStudent`), which creates User +
+   * StudentProfile (+ guardian via `linkGuardianWith`) in one transaction for
+   * the same reason: a mid-way failure must never leave an orphaned user with
+   * no profile or a student with no guardian.
+   */
   public async register(
     registerDto: RegisterDto,
     preferredLanguage: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<unknown> {
-    const { password, phone, name, parentPhone } = registerDto;
+    const { password, phone, name, requestedRole, parentPhone, qualifications, yearsOfExperience, bio } =
+      registerDto;
     // Normalized identically to login()/forgotPassword()/AdminInitializationService
     // so every entry point that writes or queries `email` agrees on its casing.
     const email = registerDto.email.trim().toLowerCase();
@@ -79,34 +95,58 @@ export class AuthService {
     const randomSuffix = crypto.randomBytes(3).toString('hex');
     const username = `${emailPrefix}_${randomSuffix}`;
 
-    const newUser = this.userRepository.create({
-      username,
-      name: name.trim(),
-      email,
-      phone,
-      password_hash: hashedPassword,
-      role: UserRole.STUDENT, // Default role for registration
-      is_active: true,
-      status: UserStatus.PENDING, // Pending approval
-      preferred_language: preferredLanguage,
-    });
-
-    const savedUser = await this.userRepository.save(newUser);
-
-    // Grade level is unknown at registration.
-    await this.studentsService.createStudentProfile(savedUser.id);
-
-    // A supplied guardian phone becomes an UNVERIFIED Guardian: captured, but
-    // unable to receive any educational notification until an OTP proves the
-    // parent owns it. Absent input simply means "no guardian yet" — never the
-    // empty-string placeholder the old NOT NULL column forced.
-    if (parentPhone !== undefined && parentPhone !== '') {
-      await this.guardiansService.linkGuardian(savedUser.id, {
-        phone: parentPhone,
-        relationship: GuardianRelationship.OTHER,
-        is_primary: true,
+    const savedUser = await this.dataSource.transaction(async (manager) => {
+      const user = manager.create(User, {
+        username,
+        name: name.trim(),
+        email,
+        phone,
+        password_hash: hashedPassword,
+        role: requestedRole,
+        is_active: true,
+        status: UserStatus.PENDING, // Pending admin approval — see docstring above.
+        preferred_language: preferredLanguage,
       });
-    }
+      const createdUser = await manager.save(User, user);
+
+      if (requestedRole === UserRole.STUDENT) {
+        const profile = manager.create(StudentProfile, {
+          user_id: createdUser.id,
+          grade_level: null, // Unknown at registration; set by admin after approval.
+          notification_settings: {
+            sms_enabled: true,
+            email_enabled: true,
+            lesson_reminders: true,
+            exam_results: true,
+            payment_notifications: true,
+          },
+        });
+        await manager.save(StudentProfile, profile);
+
+        // RegisterDto guarantees `parentPhone` is present for a student
+        // request (`@ValidateIf` + `@IsNotEmpty`). Becomes an UNVERIFIED
+        // Guardian: captured, but unable to receive any educational
+        // notification until an OTP proves the parent owns it.
+        await this.guardiansService.linkGuardianWith(manager, createdUser.id, {
+          phone: parentPhone as string,
+          relationship: GuardianRelationship.OTHER,
+          is_primary: true,
+        });
+      } else {
+        const profile = manager.create(TeacherProfile, {
+          user_id: createdUser.id,
+          // RegisterDto guarantees these are present for a teacher request.
+          qualifications: qualifications as string,
+          years_of_experience: yearsOfExperience as number,
+          bio: bio ?? null,
+          rating: 0,
+          total_ratings: 0,
+        });
+        await manager.save(TeacherProfile, profile);
+      }
+
+      return createdUser;
+    });
 
     // Return pending approval message instead of tokens
     // Use the UUID directly as the user identifier
