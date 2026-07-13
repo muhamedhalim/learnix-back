@@ -1,6 +1,8 @@
 import { Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import { AdminInitializationService } from './admin-init/admin-initialization.service';
+import type { AdminInitResult } from './admin-init/admin-initialization.service';
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
 import { SkipCsrf } from './common/guards/csrf.guard';
@@ -8,7 +10,10 @@ import { SkipCsrf } from './common/guards/csrf.guard';
 @ApiTags('System')
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(
+    private readonly appService: AppService,
+    private readonly adminInitializationService: AdminInitializationService,
+  ) {}
 
   @ApiOperation({
     summary: 'API root endpoint',
@@ -72,9 +77,12 @@ export class AppController {
   @SkipCsrf()
   @UseGuards(InitAdminGuard)
   @ApiOperation({
-    summary: 'Initialize first admin user',
+    summary: 'Manually (re-)run admin initialization',
     description:
-      'Creates the first admin user. This endpoint is self-disabling - it can only be called when no admin exists and requires a secret token.',
+      'Runs the exact same AdminInitializationService.initialize() used automatically at every ' +
+      'boot. This endpoint is self-disabling — it can only be called when no admin exists yet and ' +
+      'requires a secret token — since it is a manual trigger for the same idempotent operation, ' +
+      'not a separate code path.',
   })
   @ApiHeader({
     name: 'X-Init-Secret',
@@ -84,31 +92,16 @@ export class AppController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Admin user successfully created',
+    description: 'Admin initialization outcome',
     schema: {
-      example: {
-        success: true,
-        message: 'Admin initialization completed',
-        adminEmail: 'admin@example.com',
-        results: ['Admin user created: admin@example.com'],
-      },
+      example: { outcome: 'created', adminEmail: 'admin@example.com' },
     },
-  })
-  @ApiResponse({
-    status: 400,
-    description:
-      'Missing required environment variables (ADMIN_INIT_EMAIL, ADMIN_INIT_PASSWORD)',
   })
   @ApiResponse({
     status: 403,
     description: 'Admin already exists - endpoint is disabled',
   })
-  public async initAdmin(): Promise<{
-    success: boolean;
-    message: string;
-    adminEmail?: string;
-    results: string[];
-  }> {
-    return await this.appService.initAdmin();
+  public async initAdmin(): Promise<AdminInitResult> {
+    return await this.adminInitializationService.initialize();
   }
 }

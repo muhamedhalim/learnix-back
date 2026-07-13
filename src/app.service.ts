@@ -1,36 +1,14 @@
-import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
 
-import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
-
-import { User } from './users/entities/user.entity';
 import { UserRole } from './users/entities/user-role.enum';
-import { UserStatus } from './users/entities/user-status.enum';
-import { biBody } from './i18n/error-translator.util';
 
 @Injectable()
-export class AppService implements OnApplicationBootstrap {
-  private readonly logger = new Logger(AppService.name);
+export class AppService {
   private readonly startTime: number;
 
-  constructor(
-    private readonly configService: ConfigService,
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
-  ) {
+  constructor(private readonly configService: ConfigService) {
     this.startTime = Date.now();
-  }
-
-  public async onApplicationBootstrap() {
-    try {
-      await this.initAdmin();
-    } catch (error) {
-      this.logger.warn(
-        `Admin auto-initialization skipped: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
   }
 
   public getHello(): string {
@@ -54,92 +32,6 @@ export class AppService implements OnApplicationBootstrap {
       uptime: uptimeSeconds,
       environment: this.configService.get<string>('NODE_ENV') ?? 'development',
       version: '1.0.0',
-    };
-  }
-
-  /**
-   * Initialize admin user (one-time setup)
-   * Requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables
-   */
-  public async initAdmin(): Promise<{
-    success: boolean;
-    message: string;
-    adminEmail?: string;
-    results: string[];
-  }> {
-    const results: string[] = [];
-
-    // Validate required environment variables
-    const adminEmail = this.configService.get<string>('ADMIN_INIT_EMAIL');
-    const adminPassword = this.configService.get<string>('ADMIN_INIT_PASSWORD');
-
-    if (
-      adminEmail === undefined ||
-      adminEmail === '' ||
-      adminPassword === undefined ||
-      adminPassword === ''
-    ) {
-      throw new BadRequestException(
-        biBody(
-          'Admin initialization requires ADMIN_INIT_EMAIL and ADMIN_INIT_PASSWORD environment variables to be set.',
-          'يتطلب تهيئة المسؤول ضبط متغيرات البيئة ADMIN_INIT_EMAIL وADMIN_INIT_PASSWORD.',
-        ),
-      );
-    }
-
-    // Check if admin already exists
-    const existingAdmin = await this.userRepository.findOne({
-      where: { email: adminEmail },
-    });
-
-    if (existingAdmin) {
-      results.push(`Admin user already exists: ${adminEmail}`);
-      return {
-        success: true,
-        message: 'Admin already exists',
-        adminEmail,
-        results,
-      };
-    }
-
-    // Check if any admin exists at all
-    const anyAdmin = await this.userRepository.findOne({
-      where: { role: UserRole.ADMIN },
-    });
-
-    if (anyAdmin) {
-      results.push('An admin user already exists in the system');
-      return {
-        success: false,
-        message: 'Admin initialization already completed',
-        results,
-      };
-    }
-
-    // Create admin user
-    const hashedPassword = await bcrypt.hash(adminPassword, 12);
-
-    const admin = this.userRepository.create({
-      name: 'Admin User',
-      username: 'admin',
-      email: adminEmail,
-      phone: '01099999999', // Default admin phone (changed to avoid conflicts)
-      password_hash: hashedPassword,
-      role: UserRole.ADMIN,
-      status: UserStatus.APPROVED, // Explicitly set status to APPROVED
-      is_active: true,
-    });
-
-    await this.userRepository.save(admin);
-    results.push(`Admin user created: ${adminEmail}`);
-
-    this.logger.log(`Admin user initialized: ${adminEmail}`);
-
-    return {
-      success: true,
-      message: 'Admin initialization completed',
-      adminEmail,
-      results,
     };
   }
 

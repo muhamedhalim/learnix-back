@@ -1,14 +1,22 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
 import { Logger } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+
+import { AdminInitializationService } from '../admin-init/admin-initialization.service';
+import { AppModule } from '../app.module';
 
 /**
- * Admin Seeding Script
- * Production-safe version
+ * Manual admin-initialization entry point (`npm run seed:admin`).
+ *
+ * Calls the exact same `AdminInitializationService.initialize()` used
+ * automatically at every application boot (see `main.ts`) — there is no
+ * separate seeding implementation. The previous version of this script
+ * called `app.get('ADMIN_SEEDER_SERVICE')`, a string DI token that was never
+ * registered as a provider anywhere in this codebase; it always failed with
+ * "Nest could not find ADMIN_SEEDER_SERVICE element". That token has been
+ * removed entirely — this now resolves the real, typed provider.
  */
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const logger = new Logger('AdminSeeder');
-
   logger.log('--- Admin User Seeding Started ---');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -16,31 +24,28 @@ async function bootstrap() {
   });
 
   try {
-    const adminService = app.get('ADMIN_SEEDER_SERVICE');
+    const adminInitializationService = app.get(AdminInitializationService);
+    const result = await adminInitializationService.initialize();
 
-    if (!adminService) {
-      throw new Error(
-        'ADMIN_SEEDER_SERVICE not registered in DI container',
-      );
+    switch (result.outcome) {
+      case 'created':
+        logger.log(`SUCCESS: Initial administrator created (${result.adminEmail ?? 'unknown'})`);
+        break;
+      case 'already_exists':
+        logger.log('NOTICE: Administrator already exists. Skipping initialization.');
+        break;
+      case 'skipped_missing_env':
+        logger.warn(
+          'SKIPPED: ADMIN_INIT_EMAIL / ADMIN_INIT_PASSWORD are not configured.',
+        );
+        process.exitCode = 1;
+        break;
     }
-
-    const result = await adminService.initAdmin();
-
-    if (result?.success) {
-      logger.log(`SUCCESS: ${result.message}`);
-
-      if (Array.isArray(result.results)) {
-        result.results.forEach((msg: string) => logger.log(`- ${msg}`));
-      }
-    } else {
-      logger.warn(`NOTICE: ${result?.message ?? 'Unknown result'}`);
-
-      if (Array.isArray(result?.results)) {
-        result.results.forEach((msg: string) => logger.warn(`- ${msg}`));
-      }
-    }
-  } catch (error: any) {
-    logger.error('Admin seeding failed', error?.stack || error?.message);
+  } catch (error) {
+    logger.error(
+      'Admin seeding failed',
+      error instanceof Error ? error.stack : String(error),
+    );
     process.exitCode = 1;
   } finally {
     await app.close();

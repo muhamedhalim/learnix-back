@@ -14,6 +14,7 @@ import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
 import { redisStore } from 'cache-manager-redis-yet';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
+import { AdminInitModule } from './admin-init/admin-init.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -92,6 +93,7 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
 
 @Module({
   imports: [
+    AdminInitModule,
     CacheModule.registerAsync({
       isGlobal: true,
       imports: [ConfigModule],

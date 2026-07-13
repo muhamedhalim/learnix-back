@@ -12,6 +12,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
+import { AdminInitializationService } from './admin-init/admin-initialization.service';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
@@ -90,6 +91,17 @@ async function bootstrap(): Promise<void> {
     // Meta sent — re-serialising the parsed JSON would not reproduce them.
     rawBody: true,
   });
+
+  // Explicit, sequential — not a lifecycle hook — so the ordering the
+  // deployment lifecycle requires (migrations → admin init → HTTP server
+  // listening) is readable directly from this file instead of depending on
+  // NestJS's OnApplicationBootstrap invocation order across every provider
+  // that implements it. A genuine failure here (not the two expected skip
+  // cases, which AdminInitializationService returns rather than throws)
+  // propagates out of bootstrap() below and stops the process before
+  // app.listen() — the server must never come up without this step having
+  // definitely completed one way or another.
+  await app.get(AdminInitializationService).initialize();
 
   const isProd = process.env['NODE_ENV'] === 'production';
 

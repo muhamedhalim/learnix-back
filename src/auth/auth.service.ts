@@ -53,7 +53,10 @@ export class AuthService {
     registerDto: RegisterDto,
     preferredLanguage: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<unknown> {
-    const { email, password, phone, name, parentPhone } = registerDto;
+    const { password, phone, name, parentPhone } = registerDto;
+    // Normalized identically to login()/forgotPassword()/AdminInitializationService
+    // so every entry point that writes or queries `email` agrees on its casing.
+    const email = registerDto.email.trim().toLowerCase();
 
     // Use generic error to prevent email/phone enumeration
     const existingUser = await this.userRepository.findOne({
@@ -121,7 +124,12 @@ export class AuthService {
     deviceInfo: string | null = null,
     ipAddress: string | null = null,
   ): Promise<unknown> {
-    const { email, password } = loginDto;
+    const { password } = loginDto;
+    // Same trim().toLowerCase() normalization as register()/forgotPassword()/
+    // AdminInitializationService — required for the admin row that service
+    // creates (and any user created before this normalization existed) to be
+    // reliably found here regardless of casing.
+    const email = loginDto.email.trim().toLowerCase();
 
     const user = await this.userRepository
       .createQueryBuilder('user')

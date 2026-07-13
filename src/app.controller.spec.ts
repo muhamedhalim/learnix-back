@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { DataSource } from 'typeorm';
 
+import { AdminInitializationService } from './admin-init/admin-initialization.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { InitAdminGuard } from './auth/guards/init-admin.guard';
@@ -43,6 +44,7 @@ describe('AppController', () => {
       controllers: [AppController],
       providers: [
         AppService,
+        AdminInitializationService,
         {
           provide: ConfigService,
           useValue: mockConfigService,
