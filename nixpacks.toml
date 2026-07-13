@@ -8,4 +8,4 @@ cmds = ['npm ci']
 cmds = ['npm run build']
 
 [start]
-cmd = 'npm run migration:run:prod && node dist/main'
+cmd = 'npm run migration:run:prod && node dist/src/main.js'

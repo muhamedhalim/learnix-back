@@ -16,8 +16,33 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
+import { AppDataSource } from './data-source';
 
 const logger = new Logger('Bootstrap');
+
+// Applies any pending TypeORM migrations before the Nest module tree is
+// built. Deploy platforms are typically configured to run
+// `migration:run:prod` as a separate step before starting the process (see
+// Procfile / nixpacks.toml), but that ordering lives in platform-level start
+// commands, which can be overridden or bypassed outside this repo. Modules
+// that query the database from `onModuleInit` (e.g. RankSeederService) run
+// during `NestFactory.create()`, before `bootstrap()` gets a chance to do
+// anything else — so migrations must be guaranteed to have run *before* that
+// call, from inside the app itself, not just as an external shell step.
+// This uses TypeORM's own migration runner (`runMigrations`), which is
+// idempotent — already-applied migrations are skipped — and never touches
+// `synchronize`.
+async function runPendingMigrations(): Promise<void> {
+  const dataSource = await AppDataSource.initialize();
+  try {
+    const executed = await dataSource.runMigrations();
+    if (executed.length > 0) {
+      logger.log(`Applied ${String(executed.length)} pending migration(s): ${executed.map((m) => m.name).join(', ')}`);
+    }
+  } finally {
+    await dataSource.destroy();
+  }
+}
 
 function getLogLevels(): LogLevel[] {
   const configured = process.env['LOG_LEVELS'];
@@ -56,6 +81,8 @@ function getAllowedOrigins(): string[] {
 }
 
 async function bootstrap(): Promise<void> {
+  await runPendingMigrations();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: getLogLevels(),
     // Retains the unparsed request body on `req.rawBody`. Required to verify

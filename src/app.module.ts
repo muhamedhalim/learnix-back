@@ -30,6 +30,7 @@ import { CertificatesModule } from './certificates/certificates.module';
 import { CommentsModule } from './comments/comments.module';
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
+import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { validate } from './config/env.validation';
 import { DiscountCodesModule } from './discount-codes/discount-codes.module';
@@ -233,12 +234,7 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
             idleTimeoutMillis: idleTimeoutMs,
             connectionTimeoutMillis: connectionTimeoutMs,
           },
-          ssl:
-            databaseUrl !== undefined && databaseUrl !== '' && isProduction
-              ? {
-                  rejectUnauthorized: process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false',
-                }
-              : false,
+          ssl: resolveDatabaseSsl(databaseUrl),
         };
       },
     }), // Global XSS protection

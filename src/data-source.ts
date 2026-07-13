@@ -1,6 +1,8 @@
 import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 
+import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
+
 config();
 
 // Determine if running from compiled code (production) or source (development)
@@ -16,13 +18,5 @@ export const AppDataSource = new DataSource({
   synchronize: false, // Always false for migrations
   logging: true,
   migrationsTransactionMode: 'each', // Allow individual migrations to control transaction behavior
-  ssl:
-    typeof process.env['DATABASE_URL'] === 'string' &&
-    process.env['DATABASE_URL'] !== '' &&
-    process.env['NODE_ENV'] === 'production'
-      ? {
-          rejectUnauthorized:
-            process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false',
-        }
-      : false,
+  ssl: resolveDatabaseSsl(process.env['DATABASE_URL']),
 });
