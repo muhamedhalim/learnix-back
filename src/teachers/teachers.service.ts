@@ -15,6 +15,7 @@ import { DataSource, In, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
+import { MediaService } from '../media/media.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -27,7 +28,7 @@ import {
   TeacherFilterDto,
   UpdateTeacherProfileDto,
 } from './dto';
-import { TeacherProfile } from './entities/teacher-profile.entity';
+import { CertificateEntry, EducationEntry, TeacherProfile } from './entities/teacher-profile.entity';
 
 /**
  * Response type for teacher profile with user info and subjects
@@ -48,6 +49,13 @@ export interface TeacherProfileWithDetails {
   years_of_experience: number;
   bio: string | null;
   bio_ar: string | null;
+  professional_title: string | null;
+  professional_title_ar: string | null;
+  specializations: string[];
+  languages: string[];
+  skills: string[];
+  education: EducationEntry[];
+  certificates: CertificateEntry[];
   rating: number;
   total_ratings: number;
   subjects: Subject[];
@@ -72,6 +80,13 @@ export interface PublicTeacherProfile {
   years_of_experience: number;
   bio: string | null;
   bio_ar: string | null;
+  professional_title: string | null;
+  professional_title_ar: string | null;
+  specializations: string[];
+  languages: string[];
+  skills: string[];
+  education: EducationEntry[];
+  certificates: CertificateEntry[];
   rating: number;
   total_ratings: number;
   subjects: Subject[];
@@ -102,6 +117,7 @@ export class TeachersService {
     private readonly dataSource: DataSource,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -162,6 +178,27 @@ export class TeachersService {
     }
     if (dto.bio_ar !== undefined) {
       profile.bio_ar = dto.bio_ar;
+    }
+    if (dto.professional_title !== undefined) {
+      profile.professional_title = dto.professional_title;
+    }
+    if (dto.professional_title_ar !== undefined) {
+      profile.professional_title_ar = dto.professional_title_ar;
+    }
+    if (dto.specializations !== undefined) {
+      profile.specializations = dto.specializations;
+    }
+    if (dto.languages !== undefined) {
+      profile.languages = dto.languages;
+    }
+    if (dto.skills !== undefined) {
+      profile.skills = dto.skills;
+    }
+    if (dto.education !== undefined) {
+      profile.education = dto.education;
+    }
+    if (dto.certificates !== undefined) {
+      profile.certificates = dto.certificates;
     }
 
     // Update phone on user entity
@@ -313,12 +350,19 @@ export class TeachersService {
         user: {
           id: teacher.user.id,
           name: teacher.user.name,
-          profile_picture_url: teacher.user.profile_picture_url,
+          profile_picture_url: this.media.resolveThumbnailUrl(teacher.user.profile_picture_url),
         },
         qualifications: teacher.qualifications,
         years_of_experience: teacher.years_of_experience,
         bio: teacher.bio,
         bio_ar: teacher.bio_ar,
+        professional_title: teacher.professional_title,
+        professional_title_ar: teacher.professional_title_ar,
+        specializations: teacher.specializations,
+        languages: teacher.languages,
+        skills: teacher.skills,
+        education: teacher.education,
+        certificates: teacher.certificates,
         rating: teacher.rating,
         total_ratings: teacher.total_ratings,
         subjects: teacher.subjects,
@@ -707,12 +751,19 @@ export class TeachersService {
       user: {
         id: profile.user.id,
         name: profile.user.name,
-        profile_picture_url: profile.user.profile_picture_url,
+        profile_picture_url: this.media.resolveThumbnailUrl(profile.user.profile_picture_url),
       },
       qualifications: profile.qualifications,
       years_of_experience: profile.years_of_experience,
       bio: profile.bio,
       bio_ar: profile.bio_ar,
+      professional_title: profile.professional_title,
+      professional_title_ar: profile.professional_title_ar,
+      specializations: profile.specializations,
+      languages: profile.languages,
+      skills: profile.skills,
+      education: profile.education,
+      certificates: profile.certificates,
       rating: profile.rating,
       total_ratings: profile.total_ratings,
       subjects: profile.subjects,
@@ -728,7 +779,7 @@ export class TeachersService {
         name: profile.user.name,
         email: profile.user.email,
         phone: profile.user.phone,
-        profile_picture_url: profile.user.profile_picture_url,
+        profile_picture_url: this.media.resolveThumbnailUrl(profile.user.profile_picture_url),
         status: profile.user.status,
         rejection_reason: profile.user.rejection_reason,
         created_at: profile.user.created_at,
@@ -737,6 +788,13 @@ export class TeachersService {
       years_of_experience: profile.years_of_experience,
       bio: profile.bio,
       bio_ar: profile.bio_ar,
+      professional_title: profile.professional_title,
+      professional_title_ar: profile.professional_title_ar,
+      specializations: profile.specializations,
+      languages: profile.languages,
+      skills: profile.skills,
+      education: profile.education,
+      certificates: profile.certificates,
       rating: profile.rating,
       total_ratings: profile.total_ratings,
       subjects: profile.subjects,

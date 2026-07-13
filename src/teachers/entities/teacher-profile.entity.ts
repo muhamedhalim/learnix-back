@@ -15,6 +15,18 @@ import {
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 
+export interface EducationEntry {
+  institution: string;
+  degree: string;
+  year?: string;
+}
+
+export interface CertificateEntry {
+  name: string;
+  issuer?: string;
+  year?: string;
+}
+
 @Entity('teacher_profiles')
 export class TeacherProfile {
   @PrimaryGeneratedColumn('uuid')
@@ -47,6 +59,27 @@ export class TeacherProfile {
 
   @Column({ type: 'text', nullable: true, name: 'bio_ar' })
   bio_ar!: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true, name: 'professional_title' })
+  professional_title!: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true, name: 'professional_title_ar' })
+  professional_title_ar!: string | null;
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  specializations!: string[];
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  languages!: string[];
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  skills!: string[];
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  education!: EducationEntry[];
+
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  certificates!: CertificateEntry[];
 
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   rating!: number;
