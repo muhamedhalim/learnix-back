@@ -60,25 +60,25 @@ function getLogLevels(): LogLevel[] {
     : ['debug', 'log', 'warn', 'error'];
 }
 
-function getAllowedOrigins(): string[] {
-  const env = process.env['CORS_ORIGINS'];
-
-  if (env && env.length > 0) {
-    return env
-      .split(',')
-      .map((o) => o.trim())
-      .filter(Boolean);
+  function normalizeOrigin(origin: string): string {
+    return origin.replace(/\/+$/, "");
   }
 
-  // Explicit allow-list only — no wildcard production origins. Additional
-  // origins (e.g. preview deployments) must be supplied via CORS_ORIGINS.
-  return [
-    'https://learnix.school',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:5173',
-  ];
-}
+  function getAllowedOrigins(): string[] {
+    const env = process.env["CORS_ORIGINS"];
+
+    if (env) {
+      return env
+        .split(",")
+        .map((o) => normalizeOrigin(o.trim()))
+        .filter(Boolean);
+    }
+
+    return [
+      "https://learnix.school",
+      "http://localhost:3000",
+    ];
+  }
 
 async function bootstrap(): Promise<void> {
   await runPendingMigrations();
