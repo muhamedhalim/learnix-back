@@ -14,7 +14,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env['DATABASE_URL'] ?? '',
   entities: [`${baseDir}/**/entities/*.entity.${fileExtension}`],
-  migrations: [`${baseDir}/migrations/**/*.${fileExtension}`],
+  migrations: [`${baseDir}/**/migrations/*.${fileExtension}`],
   synchronize: false, // Always false for migrations
   logging: true,
   migrationsTransactionMode: 'each', // Allow individual migrations to control transaction behavior
