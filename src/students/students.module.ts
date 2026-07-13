@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { GuardiansModule } from '../guardians/guardians.module';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import {
@@ -20,6 +21,7 @@ import { StudentsService } from './students.service';
       LessonPurchase,
       ExamAttempt,
     ]),
+    GuardiansModule,
   ],
   controllers: [
     AdminStudentsController,

@@ -14,6 +14,7 @@ import { Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
+import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
@@ -47,6 +48,8 @@ export interface StudentProfileWithDetails {
   governorate: string | null;
   school: string | null;
   notification_settings: Record<string, boolean>;
+  /** Primary guardian's phone (E.164), or null if none is linked yet (legacy data). */
+  guardian_phone: string | null;
   created_at: Date;
   updated_at: Date;
   purchasedLessons?: Array<{
@@ -114,6 +117,7 @@ export class StudentsService {
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
+    private readonly guardiansService: GuardiansService,
   ) {}
 
   /**
@@ -344,6 +348,12 @@ export class StudentsService {
 
     const students = await queryBuilder.getMany();
 
+    // One batched query for the whole page's primary guardian phones — never
+    // N+1 per row. See GuardiansService.findPrimaryPhonesForStudents.
+    const guardianPhonesByStudent = await this.guardiansService.findPrimaryPhonesForStudents(
+      students.map((s) => s.user_id),
+    );
+
     // Calculate pagination meta
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
@@ -356,7 +366,9 @@ export class StudentsService {
     };
 
     return {
-      data: students.map((s) => this.mapToProfileWithDetails(s)),
+      data: students.map((s) =>
+        this.mapToProfileWithDetails(s, guardianPhonesByStudent.get(s.user_id) ?? null),
+      ),
       meta,
     };
   }
@@ -664,7 +676,10 @@ export class StudentsService {
     };
   }
 
-  private mapToProfileWithDetails(profile: StudentProfile): StudentProfileWithDetails {
+  private mapToProfileWithDetails(
+    profile: StudentProfile,
+    guardianPhone: string | null = null,
+  ): StudentProfileWithDetails {
     return {
       id: profile.id,
       user: {
@@ -682,6 +697,7 @@ export class StudentsService {
       governorate: profile.governorate,
       school: profile.school,
       notification_settings: profile.notification_settings,
+      guardian_phone: guardianPhone,
       created_at: profile.created_at,
       updated_at: profile.updated_at,
     };

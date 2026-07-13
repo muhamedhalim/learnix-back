@@ -235,6 +235,39 @@ export class GuardiansService {
     });
   }
 
+  /**
+   * Batched primary-guardian phone lookup for admin/teacher list views — one
+   * query for the whole page, never N+1 per row.
+   *
+   * "Primary" = the link flagged `is_primary` (at most one per student, DB
+   * enforced by a partial unique index). Legacy students linked before that
+   * flag existed may have none set, so ties fall back to the oldest linked
+   * guardian — same ordering `listForStudent` already uses for a single
+   * student, just resolved across many students in one round trip.
+   */
+  public async findPrimaryPhonesForStudents(studentIds: string[]): Promise<Map<string, string>> {
+    if (studentIds.length === 0) return new Map();
+
+    const rows = await this.links
+      .createQueryBuilder('link')
+      .innerJoin('link.guardian', 'g')
+      .where('link.student_id IN (:...studentIds)', { studentIds })
+      .andWhere('g.deleted_at IS NULL')
+      .select(['link.student_id AS student_id', 'g.phone_e164 AS phone_e164'])
+      .orderBy('link.is_primary', 'DESC')
+      .addOrderBy('link.created_at', 'ASC')
+      .getRawMany<{ student_id: string; phone_e164: string }>();
+
+    const phonesByStudent = new Map<string, string>();
+    for (const row of rows) {
+      // First row per student wins — primary first, then oldest link.
+      if (!phonesByStudent.has(row.student_id)) {
+        phonesByStudent.set(row.student_id, row.phone_e164);
+      }
+    }
+    return phonesByStudent;
+  }
+
   public async listForStudent(studentId: string): Promise<StudentGuardian[]> {
     return this.links.find({
       where: { student_id: studentId },
