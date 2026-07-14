@@ -9,6 +9,17 @@ import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity'
 import { Question } from '../exams/entities/question.entity';
 import { biBody } from '../i18n/error-translator.util';
 
+interface StudentAttemptHighlightsRow {
+  bestQuiz: { title: string; percent: number } | null;
+  worstQuiz: { title: string; percent: number } | null;
+  progress: { date: string; percent: number }[];
+}
+
+interface StudentTopicHighlightsRow {
+  strongTopics: { topic: string; percent: number; answers: number }[];
+  weakTopics: { topic: string; percent: number; answers: number }[];
+}
+
 /**
  * Quiz/exam analytics derived from the attempt engine's data. All score
  * percentages are computed as score_total / max_score (guarded against zero).
@@ -58,68 +69,138 @@ export class QuizAnalyticsService {
         timeSeconds: string | null;
       }>();
 
-    const perExam = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .innerJoin('exams', 'e', 'e.id = a.exam_id')
-      .select('e.title', 'title')
-      .addSelect('a.score_total::numeric / NULLIF(a.max_score, 0) * 100', 'percent')
-      .addSelect('a.submitted_at', 'submittedAt')
-      .where('a.student_id = :studentId', { studentId })
-      .andWhere('a.score_total IS NOT NULL')
-      .orderBy('a.submitted_at', 'ASC')
-      .getRawMany<{ title: string; percent: string; submittedAt: Date }>();
-
-    const scored = perExam
-      .map((r) => ({ title: r.title, percent: Math.round(Number(r.percent)) }))
-      .filter((r) => Number.isFinite(r.percent));
-
-    let best: { title: string; percent: number } | null = null;
-    let worst: { title: string; percent: number } | null = null;
-    for (const row of scored) {
-      if (!best || row.percent > best.percent) best = row;
-      if (!worst || row.percent < worst.percent) worst = row;
-    }
-
-    const progress = perExam
-      .filter((r) => r.submittedAt)
-      .map((r) => ({
-        date: new Date(r.submittedAt).toISOString().slice(0, 10),
-        percent: Math.round(Number(r.percent)),
-      }));
-
-    const topics = await this.answersRepository
-      .createQueryBuilder('aa')
-      .innerJoin('exam_attempts', 'a', 'a.id = aa.attempt_id')
-      .innerJoin('questions', 'q', 'q.id = aa.question_id')
-      .select('q.topic', 'topic')
-      .addSelect('COUNT(*)', 'answers')
-      .addSelect('AVG(CASE WHEN aa.is_correct THEN 1 ELSE 0 END) * 100', 'percent')
-      .where('a.student_id = :studentId', { studentId })
-      .andWhere('aa.is_correct IS NOT NULL')
-      .andWhere('q.topic IS NOT NULL')
-      .groupBy('q.topic')
-      .having('COUNT(*) >= 1')
-      .getRawMany<{ topic: string; answers: string; percent: string | null }>();
-
-    const topicRows = topics.map((t) => ({
-      topic: t.topic,
-      answers: Number.parseInt(t.answers, 10),
-      percent: Math.round(Number(t.percent ?? 0)),
-    }));
-    const sortedDesc = [...topicRows].sort((a, b) => b.percent - a.percent);
-    const sortedAsc = [...topicRows].sort((a, b) => a.percent - b.percent);
+    const [attemptHighlights, topicHighlights] = await Promise.all([
+      this.getStudentAttemptHighlights(studentId),
+      this.getStudentTopicHighlights(studentId),
+    ]);
 
     return {
       totalAttempts: Number.parseInt(summary?.attempts ?? '0', 10),
       averageScore: Math.round(Number(summary?.avgPercent ?? 0)),
       passRate: Math.round(Number(summary?.passRate ?? 0)),
       totalTimeMinutes: Math.round(Number(summary?.timeSeconds ?? 0) / 60),
-      bestQuiz: best,
-      worstQuiz: worst,
-      progress,
-      strongTopics: sortedDesc.slice(0, 5),
-      weakTopics: sortedAsc.slice(0, 5),
+      bestQuiz: attemptHighlights.bestQuiz,
+      worstQuiz: attemptHighlights.worstQuiz,
+      progress: attemptHighlights.progress,
+      strongTopics: topicHighlights.strongTopics,
+      weakTopics: topicHighlights.weakTopics,
     };
+  }
+
+  private async getStudentAttemptHighlights(
+    studentId: string,
+  ): Promise<StudentAttemptHighlightsRow> {
+    const rows = await this.attemptsRepository.query<StudentAttemptHighlightsRow[]>(
+      `
+        WITH scored AS (
+          SELECT
+            exam.title,
+            ROUND(attempt.score_total::numeric / NULLIF(attempt.max_score, 0) * 100)::int AS percent,
+            attempt.submitted_at
+          FROM exam_attempts attempt
+          INNER JOIN exams exam ON exam.id = attempt.exam_id
+          WHERE attempt.student_id = $1
+            AND attempt.score_total IS NOT NULL
+        )
+        SELECT
+          (
+            SELECT jsonb_build_object('title', title, 'percent', percent)
+            FROM scored
+            ORDER BY percent DESC, submitted_at DESC NULLS LAST
+            LIMIT 1
+          ) AS "bestQuiz",
+          (
+            SELECT jsonb_build_object('title', title, 'percent', percent)
+            FROM scored
+            ORDER BY percent ASC, submitted_at DESC NULLS LAST
+            LIMIT 1
+          ) AS "worstQuiz",
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object('date', progress.date, 'percent', progress.percent)
+                ORDER BY progress.submitted_at ASC
+              )
+              FROM (
+                SELECT
+                  TO_CHAR(submitted_at, 'YYYY-MM-DD') AS date,
+                  percent,
+                  submitted_at
+                FROM scored
+                WHERE submitted_at IS NOT NULL
+                ORDER BY submitted_at DESC
+                LIMIT 100
+              ) progress
+            ),
+            '[]'::jsonb
+          ) AS progress
+      `,
+      [studentId],
+    );
+
+    return rows[0] ?? { bestQuiz: null, worstQuiz: null, progress: [] };
+  }
+
+  private async getStudentTopicHighlights(studentId: string): Promise<StudentTopicHighlightsRow> {
+    const rows = await this.answersRepository.query<StudentTopicHighlightsRow[]>(
+      `
+        WITH topic_stats AS (
+          SELECT
+            question.topic,
+            COUNT(*)::int AS answers,
+            ROUND(AVG(answer.is_correct::int) * 100)::int AS percent
+          FROM exam_attempt_answers answer
+          INNER JOIN exam_attempts attempt ON attempt.id = answer.attempt_id
+          INNER JOIN questions question ON question.id = answer.question_id
+          WHERE attempt.student_id = $1
+            AND answer.is_correct IS NOT NULL
+            AND question.topic IS NOT NULL
+          GROUP BY question.topic
+        )
+        SELECT
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'topic', strong.topic,
+                  'answers', strong.answers,
+                  'percent', strong.percent
+                )
+                ORDER BY strong.percent DESC, strong.topic ASC
+              )
+              FROM (
+                SELECT topic, answers, percent
+                FROM topic_stats
+                ORDER BY percent DESC, topic ASC
+                LIMIT 5
+              ) strong
+            ),
+            '[]'::jsonb
+          ) AS "strongTopics",
+          COALESCE(
+            (
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'topic', weak.topic,
+                  'answers', weak.answers,
+                  'percent', weak.percent
+                )
+                ORDER BY weak.percent ASC, weak.topic ASC
+              )
+              FROM (
+                SELECT topic, answers, percent
+                FROM topic_stats
+                ORDER BY percent ASC, topic ASC
+                LIMIT 5
+              ) weak
+            ),
+            '[]'::jsonb
+          ) AS "weakTopics"
+      `,
+      [studentId],
+    );
+
+    return rows[0] ?? { strongTopics: [], weakTopics: [] };
   }
 
   /* ===================== Teacher ===================== */
@@ -277,42 +358,9 @@ export class QuizAnalyticsService {
       );
     }
 
-    // Per-answer rows with the attempt's overall percentage — enough to compute
-    // p-value and a top/bottom-third discrimination index in memory.
-    const rows = await this.answersRepository
-      .createQueryBuilder('aa')
-      .innerJoin('exam_attempts', 'a', 'a.id = aa.attempt_id')
-      .leftJoin('questions', 'q', 'q.id = aa.question_id')
-      .select('aa.question_id', 'questionId')
-      .addSelect('MAX(q.topic)', 'topic')
-      .addSelect('aa.is_correct', 'isCorrect')
-      .addSelect('a.score_total::numeric / NULLIF(a.max_score, 0)', 'attemptPct')
-      .where('a.exam_id = :examId', { examId })
-      .andWhere('aa.is_correct IS NOT NULL')
-      .andWhere('a.score_total IS NOT NULL')
-      .groupBy('aa.question_id')
-      .addGroupBy('aa.is_correct')
-      .addGroupBy('a.id')
-      .getRawMany<{
-        questionId: string;
-        topic: string | null;
-        isCorrect: boolean;
-        attemptPct: string | null;
-      }>();
-
-    // Group rows by question.
-    const byQuestion = new Map<
-      string,
-      { topic: string | null; items: { correct: boolean; pct: number }[] }
-    >();
-    for (const r of rows) {
-      const entry = byQuestion.get(r.questionId) ?? { topic: r.topic, items: [] };
-      entry.items.push({
-        correct: r.isCorrect,
-        pct: Number(r.attemptPct ?? 0),
-      });
-      byQuestion.set(r.questionId, entry);
-    }
+    // PostgreSQL computes p-value and top/bottom-third discrimination without
+    // materializing per-answer rows in the API process.
+    const rows = await this.queryExamQuestionAggregates(examId);
 
     const result: {
       questionId: string;
@@ -322,30 +370,80 @@ export class QuizAnalyticsService {
       attempts: number;
     }[] = [];
 
-    for (const [questionId, { topic, items }] of byQuestion) {
-      const attempts = items.length;
-      const correct = items.filter((i) => i.correct).length;
-      const difficulty = attempts > 0 ? correct / attempts : 0;
-
-      // Discrimination: correct-rate of the top third minus the bottom third,
-      // ranked by overall attempt performance.
-      const ranked = [...items].sort((a, b) => b.pct - a.pct);
-      const groupSize = Math.max(1, Math.floor(attempts / 3));
-      const top = ranked.slice(0, groupSize);
-      const bottom = ranked.slice(-groupSize);
-      const topRate = top.filter((i) => i.correct).length / top.length;
-      const bottomRate = bottom.filter((i) => i.correct).length / bottom.length;
-
+    for (const row of rows) {
       result.push({
-        questionId,
-        topic,
-        difficulty: Math.round(difficulty * 100),
-        discrimination: Math.round((topRate - bottomRate) * 100),
-        attempts,
+        questionId: row.questionId,
+        topic: row.topic,
+        difficulty: Number(row.difficulty),
+        discrimination: Number(row.discrimination),
+        attempts: Number(row.attempts),
       });
     }
 
-    return result.sort((a, b) => a.difficulty - b.difficulty);
+    return result;
+  }
+
+  private async queryExamQuestionAggregates(examId: string): Promise<
+    {
+      questionId: string;
+      topic: string | null;
+      difficulty: number | string;
+      discrimination: number | string;
+      attempts: number | string;
+    }[]
+  > {
+    return await this.answersRepository.query(
+      `
+        WITH ranked_answers AS (
+          SELECT
+            answer.question_id,
+            question.topic,
+            answer.is_correct,
+            ROW_NUMBER() OVER (
+              PARTITION BY answer.question_id
+              ORDER BY
+                attempt.score_total::numeric / NULLIF(attempt.max_score, 0) DESC,
+                attempt.id
+            ) AS top_rank,
+            ROW_NUMBER() OVER (
+              PARTITION BY answer.question_id
+              ORDER BY
+                attempt.score_total::numeric / NULLIF(attempt.max_score, 0) ASC,
+                attempt.id
+            ) AS bottom_rank,
+            COUNT(*) OVER (PARTITION BY answer.question_id) AS answer_count
+          FROM exam_attempt_answers answer
+          INNER JOIN exam_attempts attempt ON attempt.id = answer.attempt_id
+          LEFT JOIN questions question ON question.id = answer.question_id
+          WHERE attempt.exam_id = $1
+            AND answer.is_correct IS NOT NULL
+            AND attempt.score_total IS NOT NULL
+        )
+        SELECT
+          ranked.question_id AS "questionId",
+          MAX(ranked.topic) AS topic,
+          ROUND(AVG(ranked.is_correct::int) * 100)::int AS difficulty,
+          ROUND((
+            AVG(ranked.is_correct::int) FILTER (
+              WHERE ranked.top_rank <= GREATEST(
+                1,
+                FLOOR(ranked.answer_count / 3.0)::int
+              )
+            )
+            - AVG(ranked.is_correct::int) FILTER (
+              WHERE ranked.bottom_rank <= GREATEST(
+                1,
+                FLOOR(ranked.answer_count / 3.0)::int
+              )
+            )
+          ) * 100)::int AS discrimination,
+          COUNT(*)::int AS attempts
+        FROM ranked_answers ranked
+        GROUP BY ranked.question_id
+        ORDER BY difficulty ASC, ranked.question_id ASC
+      `,
+      [examId],
+    );
   }
 
   /* ===================== Admin ===================== */
@@ -417,22 +515,31 @@ export class QuizAnalyticsService {
       .getRawMany<{ subject: string; attempts: string; avgPercent: string | null }>();
 
     const totalQuestions = await this.questionsRepository.count();
-    const usedRow = await this.answersRepository
-      .createQueryBuilder('aa')
-      .select('COUNT(DISTINCT aa.question_id)', 'count')
-      .getRawOne<{ count: string }>();
-    const usedQuestions = Number.parseInt(usedRow?.count ?? '0', 10);
-
-    const difficultyRows = await this.answersRepository
-      .createQueryBuilder('aa')
-      .select('aa.question_id', 'questionId')
-      .addSelect('AVG(CASE WHEN aa.is_correct THEN 1 ELSE 0 END)', 'rate')
-      .where('aa.is_correct IS NOT NULL')
-      .groupBy('aa.question_id')
-      .having('COUNT(*) >= 5')
-      .getRawMany<{ questionId: string; rate: string }>();
-    const tooHard = difficultyRows.filter((r) => Number(r.rate) < 0.3).length;
-    const tooEasy = difficultyRows.filter((r) => Number(r.rate) > 0.9).length;
+    const questionHealth = await this.answersRepository.query<
+      {
+        usedQuestions: number | string;
+        tooHard: number | string;
+        tooEasy: number | string;
+      }[]
+    >(`
+      SELECT
+        (
+          SELECT COUNT(DISTINCT answer.question_id)::int
+          FROM exam_attempt_answers answer
+        ) AS "usedQuestions",
+        COUNT(*) FILTER (WHERE difficulty.correct_rate < 0.3)::int AS "tooHard",
+        COUNT(*) FILTER (WHERE difficulty.correct_rate > 0.9)::int AS "tooEasy"
+      FROM (
+        SELECT AVG(answer.is_correct::int) AS correct_rate
+        FROM exam_attempt_answers answer
+        WHERE answer.is_correct IS NOT NULL
+        GROUP BY answer.question_id
+        HAVING COUNT(*) >= 5
+      ) difficulty
+    `);
+    const usedQuestions = Number(questionHealth[0]?.usedQuestions ?? 0);
+    const tooHard = Number(questionHealth[0]?.tooHard ?? 0);
+    const tooEasy = Number(questionHealth[0]?.tooEasy ?? 0);
 
     return {
       totalAttempts: total,

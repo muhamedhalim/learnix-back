@@ -77,6 +77,41 @@ export interface LessonStats {
   averageRating: number;
 }
 
+interface LessonListRawRow {
+  id: string;
+  title: string;
+  title_ar: string;
+  description: string | null;
+  description_ar: string | null;
+  teacher_id: string;
+  teacher_name: string;
+  teacher_email: string;
+  teacher_profile_picture_url: string | null;
+  subject_id: string;
+  subject_name: string;
+  subject_grade_level: string;
+  thumbnail: string | null;
+  video_url: string | null;
+  video_platform: 'bunny' | 'vimeo';
+  bunny_video_id: string | null;
+  bunny_library_id: string | null;
+  bunny_video_status: string | null;
+  video_width: number | null;
+  video_height: number | null;
+  video_thumbnail: string | null;
+  video_size_bytes: string | number | null;
+  vimeo_video_id: string | null;
+  vimeo_embed_url: string | null;
+  price: string | number;
+  duration: number | null;
+  is_group: boolean;
+  available_for_days: number;
+  students_count: number;
+  status: LessonStatus;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
 @Injectable()
 export class LessonsService {
   constructor(
@@ -175,28 +210,65 @@ export class LessonsService {
   public async findAll(filter: LessonFilterDto): Promise<PaginatedResponse<LessonWithDetails>> {
     const { page = 1, limit = 20 } = filter;
 
-    const queryBuilder = this.lessonsRepository
+    const baseQuery = this.lessonsRepository
       .createQueryBuilder('lesson')
-      .leftJoinAndSelect('lesson.teacher', 'teacher')
-      .leftJoinAndSelect('lesson.subject', 'subject')
       .where('lesson.deleted_at IS NULL');
 
-    // Apply various filters
-    this.applyAllFilters(queryBuilder, filter);
+    this.applyAllFilters(baseQuery, filter);
 
-    // Apply sorting
-    this.applySorting(queryBuilder, filter.sortBy, filter.order);
-
-    // Get total count
-    const total = await queryBuilder.getCount();
-
-    // Apply pagination
     const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
+    const countQuery = baseQuery.clone();
+    const pageIdsQuery = baseQuery.clone().select('lesson.id');
+    this.applySorting(pageIdsQuery, filter.sortBy, filter.order);
+    pageIdsQuery.offset(skip).limit(limit);
 
-    const lessons = await queryBuilder.getMany();
+    // Select the page before joining or projecting relationship data. This
+    // prevents deep offsets from hydrating rows that the database discards.
+    const listQuery = this.lessonsRepository
+      .createQueryBuilder('lesson')
+      .leftJoin('lesson.teacher', 'teacher')
+      .leftJoin('lesson.subject', 'subject')
+      .select('lesson.id', 'id')
+      .addSelect('lesson.title', 'title')
+      .addSelect('lesson.title_ar', 'title_ar')
+      .addSelect('lesson.description', 'description')
+      .addSelect('lesson.description_ar', 'description_ar')
+      .addSelect('teacher.id', 'teacher_id')
+      .addSelect('teacher.name', 'teacher_name')
+      .addSelect('teacher.email', 'teacher_email')
+      .addSelect('teacher.profile_picture_url', 'teacher_profile_picture_url')
+      .addSelect('subject.id', 'subject_id')
+      .addSelect('subject.name', 'subject_name')
+      .addSelect('subject.grade_level', 'subject_grade_level')
+      .addSelect('lesson.thumbnail', 'thumbnail')
+      .addSelect('lesson.video_url', 'video_url')
+      .addSelect('lesson.video_platform', 'video_platform')
+      .addSelect('lesson.bunny_video_id', 'bunny_video_id')
+      .addSelect('lesson.bunny_library_id', 'bunny_library_id')
+      .addSelect('lesson.bunny_video_status', 'bunny_video_status')
+      .addSelect('lesson.video_width', 'video_width')
+      .addSelect('lesson.video_height', 'video_height')
+      .addSelect('lesson.video_thumbnail', 'video_thumbnail')
+      .addSelect('lesson.video_size_bytes', 'video_size_bytes')
+      .addSelect('lesson.vimeo_video_id', 'vimeo_video_id')
+      .addSelect('lesson.vimeo_embed_url', 'vimeo_embed_url')
+      .addSelect('lesson.price', 'price')
+      .addSelect('lesson.duration', 'duration')
+      .addSelect('lesson.is_group', 'is_group')
+      .addSelect('lesson.available_for_days', 'available_for_days')
+      .addSelect('lesson.students_count', 'students_count')
+      .addSelect('lesson.status', 'status')
+      .addSelect('lesson.created_at', 'created_at')
+      .addSelect('lesson.updated_at', 'updated_at')
+      .where(`lesson.id IN (${pageIdsQuery.getQuery()})`)
+      .setParameters(pageIdsQuery.getParameters());
+    this.applySorting(listQuery, filter.sortBy, filter.order);
 
-    // Calculate pagination meta
+    const [total, rows] = await Promise.all([
+      countQuery.getCount(),
+      listQuery.getRawMany<LessonListRawRow>(),
+    ]);
+
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
       total,
@@ -207,10 +279,12 @@ export class LessonsService {
       hasPrevPage: page > 1,
     };
 
-    return {
-      data: lessons.map((l) => this.mapToLessonWithDetails(l)),
-      meta,
-    };
+    const data: LessonWithDetails[] = [];
+    for (const row of rows) {
+      data.push(this.mapListRowToLessonWithDetails(row));
+    }
+
+    return { data, meta };
   }
 
   /**
@@ -271,6 +345,49 @@ export class LessonsService {
             : 'lesson.created_at';
 
     queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    queryBuilder.addOrderBy('lesson.id', order.toUpperCase() as 'ASC' | 'DESC');
+  }
+
+  private mapListRowToLessonWithDetails(row: LessonListRawRow): LessonWithDetails {
+    return {
+      id: row.id,
+      title: row.title,
+      title_ar: row.title_ar,
+      description: row.description,
+      description_ar: row.description_ar,
+      teacher: {
+        id: row.teacher_id,
+        name: row.teacher_name,
+        email: row.teacher_email,
+        profile_picture_url: row.teacher_profile_picture_url,
+      },
+      subject: {
+        id: row.subject_id,
+        name: row.subject_name,
+        grade_level: row.subject_grade_level,
+      },
+      thumbnail: row.thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(row.thumbnail),
+      video_url: row.video_url,
+      video_platform: row.video_platform,
+      bunny_video_id: row.bunny_video_id,
+      bunny_library_id: row.bunny_library_id,
+      bunny_video_status: row.bunny_video_status,
+      video_width: row.video_width,
+      video_height: row.video_height,
+      video_thumbnail: row.video_thumbnail,
+      video_size_bytes: row.video_size_bytes === null ? null : Number(row.video_size_bytes),
+      vimeo_video_id: row.vimeo_video_id,
+      vimeo_embed_url: row.vimeo_embed_url,
+      price: Number(row.price),
+      duration: row.duration,
+      is_group: row.is_group,
+      available_for_days: row.available_for_days,
+      students_count: row.students_count,
+      status: row.status,
+      created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
+    };
   }
 
   /**

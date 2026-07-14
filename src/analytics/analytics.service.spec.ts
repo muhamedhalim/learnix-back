@@ -77,7 +77,6 @@ describe('AnalyticsService.getAdminDashboard', () => {
       {} as Repository<never>,
       {} as Repository<never>,
       {} as Repository<never>,
-      {} as Repository<never>,
       cache as unknown as Cache,
       singleFlight as never,
     );
@@ -135,5 +134,118 @@ describe('AnalyticsService.getAdminDashboard', () => {
       },
     });
     expect(singleFlight.getOrCompute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AnalyticsService.getExamAnalytics', () => {
+  it('aggregates attempt statistics, score buckets, and question results in two queries', async () => {
+    const attemptBuilder = queryBuilder(
+      Promise.resolve({
+        total_submissions: '100000',
+        in_progress_count: '12',
+        pending_grading_count: '3',
+        average_score: '72.50',
+        highest_score: '100',
+        lowest_score: '5',
+        pass_rate: '81.25',
+        bucket_0_20: '1000',
+        bucket_21_40: '4000',
+        bucket_41_60: '15000',
+        bucket_61_80: '40000',
+        bucket_81_100: '40000',
+      }),
+    );
+    const questionRows = [
+      {
+        question_index: 0,
+        question_type: 'single_choice',
+        correct_answers: '75000',
+        wrong_answers: '25000',
+        average_score: '1.50',
+        max_marks: 2,
+      },
+    ];
+
+    const examsRepository = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'exam-1',
+        passing_marks: 50,
+        total_marks: 100,
+      }),
+    };
+    const attemptsRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(attemptBuilder),
+      count: jest.fn(),
+      find: jest.fn(),
+    };
+    const examQuestionsRepository = {
+      query: jest.fn().mockResolvedValue(questionRows),
+      find: jest.fn(),
+    };
+    const cache = {
+      get: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const service = new AnalyticsService(
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      examsRepository as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      attemptsRepository as unknown as Repository<never>,
+      examQuestionsRepository as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      cache as unknown as Cache,
+      {} as never,
+    );
+
+    const result = await service.getExamAnalytics('exam-1');
+
+    expect(attemptBuilder.getRawOne).toHaveBeenCalledTimes(1);
+    expect(examQuestionsRepository.query).toHaveBeenCalledTimes(1);
+    expect(attemptsRepository.count).not.toHaveBeenCalled();
+    expect(attemptsRepository.find).not.toHaveBeenCalled();
+    expect(examQuestionsRepository.find).not.toHaveBeenCalled();
+
+    const attemptSelects = attemptBuilder.addSelect?.mock.calls.map(
+      ([expression]) => expression as string,
+    );
+    expect(attemptSelects?.some((expression) => expression.includes('COUNT(*) FILTER'))).toBe(true);
+    const attemptAliases = attemptBuilder.addSelect?.mock.calls.map(([, alias]) => alias as string);
+    expect(attemptAliases).toEqual(
+      expect.arrayContaining(['bucket_0_20', 'bucket_81_100', 'pass_rate']),
+    );
+    const questionSql = examQuestionsRepository.query.mock.calls[0]?.[0] as string;
+    expect(questionSql).toContain('WITH answer_stats AS');
+    expect(questionSql).toContain('GROUP BY answer.exam_question_id');
+    expect(result).toMatchObject({
+      total_submissions: 100000,
+      in_progress_count: 12,
+      pending_grading_count: 3,
+      average_score: 72.5,
+      highest_score: 100,
+      lowest_score: 5,
+      pass_rate: 81.25,
+      question_analysis: [
+        {
+          question_index: 0,
+          correct_answers: 75000,
+          wrong_answers: 25000,
+          average_score: 1.5,
+        },
+      ],
+      score_distribution: {
+        '0-20': 1000,
+        '21-40': 4000,
+        '41-60': 15000,
+        '61-80': 40000,
+        '81-100': 40000,
+      },
+    });
   });
 });

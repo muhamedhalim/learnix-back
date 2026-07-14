@@ -11,7 +11,6 @@ import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
-import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
 import { ExamQuestion } from '../exams/entities/exam-question.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { ItemType } from '../payments/entities/item-type.enum';
@@ -76,11 +75,28 @@ interface AdminRevenueRow {
   book_revenue: string;
 }
 
-/** Raw per-question aggregation row for exam question analysis. */
-interface QuestionAnswerAggRow {
-  exam_question_id: string;
-  is_correct: boolean | null;
-  score: string | null;
+interface ExamAttemptStatsRow {
+  total_submissions: string;
+  in_progress_count: string;
+  pending_grading_count: string;
+  average_score: string | null;
+  highest_score: string | null;
+  lowest_score: string | null;
+  pass_rate: string | null;
+  bucket_0_20: string;
+  bucket_21_40: string;
+  bucket_41_60: string;
+  bucket_61_80: string;
+  bucket_81_100: string;
+}
+
+interface QuestionAnalysisRawRow {
+  question_index: number;
+  question_type: string;
+  correct_answers: string;
+  wrong_answers: string;
+  average_score: string | null;
+  max_marks: number;
 }
 
 @Injectable()
@@ -106,8 +122,6 @@ export class AnalyticsService {
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
     @InjectRepository(ExamQuestion)
     private readonly examQuestionsRepository: Repository<ExamQuestion>,
-    @InjectRepository(ExamAttemptAnswer)
-    private readonly examAttemptAnswersRepository: Repository<ExamAttemptAnswer>,
     @InjectRepository(LessonSession)
     private readonly lessonSessionsRepository: Repository<LessonSession>,
     @InjectRepository(LessonReview)
@@ -632,35 +646,22 @@ export class AnalyticsService {
       );
     }
 
-    const { totalSubmissions, inProgressCount, pendingGradingCount } =
-      await this.getExamSubmissionCounts(examId);
-
-    const { averageScore, highestScore, lowestScore } = await this.getExamScoreStats(examId);
-
-    // Calculate pass rate
-    const passRate = await this.calculatePassRate(examId, totalSubmissions, exam.passing_marks);
-
-    // Analyze each question from the normalized per-answer rows
-    const questionAnalysis: QuestionAnalysisDto[] = await this.analyzeExamQuestions(examId);
-
-    // Calculate score distribution (percentage buckets)
-    const scoreDistribution = await this.calculateScoreDistribution(
-      examId,
-      totalSubmissions,
-      exam.total_marks,
-    );
+    const [attemptStats, questionAnalysis] = await Promise.all([
+      this.getExamAttemptStats(examId, exam.passing_marks, exam.total_marks),
+      this.analyzeExamQuestions(examId),
+    ]);
 
     const analytics: ExamAnalyticsDto = {
       exam_id: examId,
-      total_submissions: totalSubmissions,
-      in_progress_count: inProgressCount,
-      pending_grading_count: pendingGradingCount,
-      average_score: averageScore,
-      highest_score: highestScore,
-      lowest_score: lowestScore,
-      pass_rate: passRate,
+      total_submissions: attemptStats.totalSubmissions,
+      in_progress_count: attemptStats.inProgressCount,
+      pending_grading_count: attemptStats.pendingGradingCount,
+      average_score: attemptStats.averageScore,
+      highest_score: attemptStats.highestScore,
+      lowest_score: attemptStats.lowestScore,
+      pass_rate: attemptStats.passRate,
       question_analysis: questionAnalysis,
-      score_distribution: scoreDistribution,
+      score_distribution: attemptStats.scoreDistribution,
       calculated_at: new Date(),
     };
 
@@ -684,90 +685,122 @@ export class AnalyticsService {
     }
   }
 
-  /**
-   * Helper to get exam submission counts
-   */
-  private async getExamSubmissionCounts(examId: string): Promise<{
+  private async getExamAttemptStats(
+    examId: string,
+    passingMarks: number,
+    totalMarks: number,
+  ): Promise<{
     totalSubmissions: number;
     inProgressCount: number;
     pendingGradingCount: number;
-  }> {
-    const totalSubmissions = await this.examAttemptsRepository.count({
-      where: { exam_id: examId, state: AttemptState.GRADED },
-    });
-
-    const inProgressCount = await this.examAttemptsRepository.count({
-      where: { exam_id: examId, state: AttemptState.IN_PROGRESS },
-    });
-
-    const pendingGradingCount = await this.examAttemptsRepository.count({
-      where: {
-        exam_id: examId,
-        state: In([AttemptState.SUBMITTED, AttemptState.GRADING]),
-      },
-    });
-
-    return { totalSubmissions, inProgressCount, pendingGradingCount };
-  }
-
-  /**
-   * Helper to get exam score statistics
-   */
-  private async getExamScoreStats(examId: string): Promise<{
     averageScore: number | null;
     highestScore: number | null;
     lowestScore: number | null;
+    passRate: number | null;
+    scoreDistribution: {
+      '0-20': number;
+      '21-40': number;
+      '41-60': number;
+      '61-80': number;
+      '81-100': number;
+    };
   }> {
-    const scoreStats = await this.examAttemptsRepository
+    const row = await this.examAttemptsRepository
       .createQueryBuilder('ea')
       .where('ea.exam_id = :examId', { examId })
-      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
-      .andWhere('ea.score_total IS NOT NULL')
-      .select([
-        'AVG(ea.score_total) as avg_score',
-        'MAX(ea.score_total) as max_score',
-        'MIN(ea.score_total) as min_score',
-      ])
-      .getRawOne<{
-        avg_score: string | null;
-        max_score: string | null;
-        min_score: string | null;
-      }>();
-
-    const averageScore =
-      typeof scoreStats?.avg_score === 'string'
-        ? Math.round(Number.parseFloat(scoreStats.avg_score) * 100) / 100
-        : null;
-    const highestScore =
-      typeof scoreStats?.max_score === 'string' ? Number.parseFloat(scoreStats.max_score) : null;
-    const lowestScore =
-      typeof scoreStats?.min_score === 'string' ? Number.parseFloat(scoreStats.min_score) : null;
-
-    return { averageScore, highestScore, lowestScore };
-  }
-
-  /**
-   * Helper to calculate exam pass rate
-   */
-  private async calculatePassRate(
-    examId: string,
-    totalSubmissions: number,
-    passingMarks: number,
-  ): Promise<number | null> {
-    if (totalSubmissions <= 0) {
-      return null;
-    }
-
-    const passedCount = await this.examAttemptsRepository
-      .createQueryBuilder('ea')
-      .where('ea.exam_id = :examId', { examId })
-      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
-      .andWhere('ea.score_total >= :passingMarks', {
+      .select(`COUNT(*) FILTER (WHERE ea.state = :gradedState)`, 'total_submissions')
+      .addSelect(`COUNT(*) FILTER (WHERE ea.state = :inProgressState)`, 'in_progress_count')
+      .addSelect(`COUNT(*) FILTER (WHERE ea.state IN (:...pendingStates))`, 'pending_grading_count')
+      .addSelect(
+        `ROUND(AVG(ea.score_total) FILTER (WHERE ea.state = :gradedState), 2)`,
+        'average_score',
+      )
+      .addSelect(`MAX(ea.score_total) FILTER (WHERE ea.state = :gradedState)`, 'highest_score')
+      .addSelect(`MIN(ea.score_total) FILTER (WHERE ea.state = :gradedState)`, 'lowest_score')
+      .addSelect(
+        `ROUND(
+          (COUNT(*) FILTER (
+            WHERE ea.state = :gradedState AND ea.score_total >= :passingMarks
+          ))::numeric
+          / NULLIF(COUNT(*) FILTER (WHERE ea.state = :gradedState), 0)
+          * 100,
+          2
+        )`,
+        'pass_rate',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE ea.state = :gradedState
+            AND ea.score_total IS NOT NULL
+            AND :totalMarks > 0
+            AND ea.score_total / :totalMarks::numeric * 100 <= 20
+        )`,
+        'bucket_0_20',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE ea.state = :gradedState
+            AND ea.score_total IS NOT NULL
+            AND :totalMarks > 0
+            AND ea.score_total / :totalMarks::numeric * 100 > 20
+            AND ea.score_total / :totalMarks::numeric * 100 <= 40
+        )`,
+        'bucket_21_40',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE ea.state = :gradedState
+            AND ea.score_total IS NOT NULL
+            AND :totalMarks > 0
+            AND ea.score_total / :totalMarks::numeric * 100 > 40
+            AND ea.score_total / :totalMarks::numeric * 100 <= 60
+        )`,
+        'bucket_41_60',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE ea.state = :gradedState
+            AND ea.score_total IS NOT NULL
+            AND :totalMarks > 0
+            AND ea.score_total / :totalMarks::numeric * 100 > 60
+            AND ea.score_total / :totalMarks::numeric * 100 <= 80
+        )`,
+        'bucket_61_80',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE ea.state = :gradedState
+            AND ea.score_total IS NOT NULL
+            AND :totalMarks > 0
+            AND ea.score_total / :totalMarks::numeric * 100 > 80
+        )`,
+        'bucket_81_100',
+      )
+      .setParameters({
+        gradedState: AttemptState.GRADED,
+        inProgressState: AttemptState.IN_PROGRESS,
+        pendingStates: [AttemptState.SUBMITTED, AttemptState.GRADING],
         passingMarks,
+        totalMarks,
       })
-      .getCount();
+      .getRawOne<ExamAttemptStatsRow>();
 
-    return Math.round((passedCount / totalSubmissions) * 100 * 100) / 100;
+    return {
+      totalSubmissions: Number.parseInt(row?.total_submissions ?? '0', 10),
+      inProgressCount: Number.parseInt(row?.in_progress_count ?? '0', 10),
+      pendingGradingCount: Number.parseInt(row?.pending_grading_count ?? '0', 10),
+      averageScore: row?.average_score == null ? null : Number(row.average_score),
+      highestScore: row?.highest_score == null ? null : Number(row.highest_score),
+      lowestScore: row?.lowest_score == null ? null : Number(row.lowest_score),
+      passRate: row?.pass_rate == null ? null : Number(row.pass_rate),
+      scoreDistribution: {
+        '0-20': Number.parseInt(row?.bucket_0_20 ?? '0', 10),
+        '21-40': Number.parseInt(row?.bucket_21_40 ?? '0', 10),
+        '41-60': Number.parseInt(row?.bucket_41_60 ?? '0', 10),
+        '61-80': Number.parseInt(row?.bucket_61_80 ?? '0', 10),
+        '81-100': Number.parseInt(row?.bucket_81_100 ?? '0', 10),
+      },
+    };
   }
 
   /**
@@ -776,106 +809,46 @@ export class AnalyticsService {
    * graders), so this is question-type agnostic.
    */
   private async analyzeExamQuestions(examId: string): Promise<QuestionAnalysisDto[]> {
-    const examQuestions = await this.examQuestionsRepository.find({
-      where: { exam_id: examId },
-      order: { order_index: 'ASC' },
-    });
+    const rows = await this.examQuestionsRepository.query<QuestionAnalysisRawRow[]>(
+      `
+        WITH answer_stats AS (
+          SELECT
+            answer.exam_question_id,
+            COUNT(*) FILTER (WHERE answer.is_correct IS TRUE) AS correct_answers,
+            COUNT(*) FILTER (WHERE answer.is_correct IS FALSE) AS wrong_answers,
+            ROUND(AVG(answer.score) FILTER (WHERE answer.score IS NOT NULL), 2) AS average_score
+          FROM exam_attempt_answers answer
+          INNER JOIN exam_attempts attempt ON attempt.id = answer.attempt_id
+          WHERE attempt.exam_id = $1
+            AND attempt.state = $2
+          GROUP BY answer.exam_question_id
+        )
+        SELECT
+          exam_question.order_index AS question_index,
+          exam_question.type_snapshot AS question_type,
+          COALESCE(answer_stats.correct_answers, 0) AS correct_answers,
+          COALESCE(answer_stats.wrong_answers, 0) AS wrong_answers,
+          answer_stats.average_score,
+          exam_question.marks AS max_marks
+        FROM exam_questions exam_question
+        LEFT JOIN answer_stats ON answer_stats.exam_question_id = exam_question.id
+        WHERE exam_question.exam_id = $1
+        ORDER BY exam_question.order_index ASC
+      `,
+      [examId, AttemptState.GRADED],
+    );
 
-    const rows = await this.examAttemptAnswersRepository
-      .createQueryBuilder('a')
-      .innerJoin(ExamAttempt, 'ea', 'ea.id = a.attempt_id')
-      .where('ea.exam_id = :examId', { examId })
-      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
-      .select('a.exam_question_id', 'exam_question_id')
-      .addSelect('a.is_correct', 'is_correct')
-      .addSelect('a.score', 'score')
-      .getRawMany<QuestionAnswerAggRow>();
-
-    const byQuestion = new Map<string, QuestionAnswerAggRow[]>();
+    const analysis: QuestionAnalysisDto[] = [];
     for (const row of rows) {
-      const list = byQuestion.get(row.exam_question_id) ?? [];
-      list.push(row);
-      byQuestion.set(row.exam_question_id, list);
-    }
-
-    return examQuestions.map((eq) => {
-      const answers = byQuestion.get(eq.id) ?? [];
-      let correctAnswers = 0;
-      let wrongAnswers = 0;
-      let totalScore = 0;
-      let scoreCount = 0;
-
-      for (const a of answers) {
-        if (a.is_correct === true) {
-          correctAnswers++;
-        } else if (a.is_correct === false) {
-          wrongAnswers++;
-        }
-        if (a.score !== null) {
-          totalScore += Number(a.score);
-          scoreCount++;
-        }
-      }
-
-      return {
-        question_index: eq.order_index,
-        question_type: eq.type_snapshot,
-        correct_answers: correctAnswers,
-        wrong_answers: wrongAnswers,
-        average_score: scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) / 100 : null,
-        max_marks: eq.marks,
-      };
-    });
-  }
-
-  /**
-   * Helper to calculate score distribution buckets
-   */
-  private async calculateScoreDistribution(
-    examId: string,
-    totalSubmissions: number,
-    totalMarks: number,
-  ): Promise<{
-    '0-20': number;
-    '21-40': number;
-    '41-60': number;
-    '61-80': number;
-    '81-100': number;
-  }> {
-    const scoreDistribution = {
-      '0-20': 0,
-      '21-40': 0,
-      '41-60': 0,
-      '61-80': 0,
-      '81-100': 0,
-    };
-
-    if (totalSubmissions > 0 && totalMarks > 0) {
-      const allScores = await this.examAttemptsRepository.find({
-        where: { exam_id: examId, state: AttemptState.GRADED },
-        select: ['score_total'],
+      analysis.push({
+        question_index: Number(row.question_index),
+        question_type: row.question_type,
+        correct_answers: Number.parseInt(row.correct_answers, 10),
+        wrong_answers: Number.parseInt(row.wrong_answers, 10),
+        average_score: row.average_score === null ? null : Number(row.average_score),
+        max_marks: Number(row.max_marks),
       });
-
-      for (const attempt of allScores) {
-        if (typeof attempt.score_total !== 'number') {
-          continue;
-        }
-        const percentage = (attempt.score_total / totalMarks) * 100;
-
-        if (percentage <= 20) {
-          scoreDistribution['0-20']++;
-        } else if (percentage <= 40) {
-          scoreDistribution['21-40']++;
-        } else if (percentage <= 60) {
-          scoreDistribution['41-60']++;
-        } else if (percentage <= 80) {
-          scoreDistribution['61-80']++;
-        } else {
-          scoreDistribution['81-100']++;
-        }
-      }
     }
-
-    return scoreDistribution;
+    return analysis;
   }
 }

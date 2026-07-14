@@ -18,6 +18,15 @@ import { User } from '../../users/entities/user.entity';
 import { LessonStatus } from './lesson-status.enum';
 
 @Entity('lessons')
+@Index('IDX_lessons_active_created_id', ['created_at', 'id'], {
+  where: '"deleted_at" IS NULL',
+})
+@Index('IDX_lessons_teacher_active_created_id', ['teacher_id', 'created_at', 'id'], {
+  where: '"deleted_at" IS NULL',
+})
+@Index('IDX_lessons_subject_active_created_id', ['subject_id', 'created_at', 'id'], {
+  where: '"deleted_at" IS NULL',
+})
 export class Lesson {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
