@@ -138,6 +138,10 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  public CORS_ORIGINS?: string;
+
+  @IsString()
+  @IsOptional()
   @MinLength(32)
   public INIT_SECRET?: string;
 
@@ -312,9 +316,7 @@ export class EnvironmentVariables {
   public LESSON_EXTENSION_DAYS?: number;
 }
 
-export function validate(
-  config: Record<string, unknown>,
-): EnvironmentVariables {
+export function validate(config: Record<string, unknown>): EnvironmentVariables {
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });

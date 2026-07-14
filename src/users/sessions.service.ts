@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { LessThan, Repository } from 'typeorm';
+import { LessThan, MoreThan, Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
 import type { UserSessionDto } from './dto/user-session.dto';
@@ -41,6 +41,7 @@ export class SessionsService {
   public async createSession(params: {
     userId: string;
     refreshTokenId: string;
+    refreshTokenHash: string;
     deviceInfo: string | null;
     ipAddress: string | null;
     expiresAt: Date;
@@ -48,6 +49,7 @@ export class SessionsService {
     const session = this.sessionRepository.create({
       user_id: params.userId,
       refresh_token_id: params.refreshTokenId,
+      refresh_token_hash: params.refreshTokenHash,
       device_info: params.deviceInfo,
       ip_address: params.ipAddress,
       last_active: new Date(),
@@ -65,7 +67,7 @@ export class SessionsService {
    */
   public async getUserSessions(
     userId: string,
-    currentTokenId: string | null,
+    currentSessionId: string | null,
   ): Promise<UserSessionDto[]> {
     const sessions = await this.sessionRepository.find({
       where: { user_id: userId },
@@ -79,7 +81,7 @@ export class SessionsService {
       lastActive: session.last_active,
       createdAt: session.created_at,
       expiresAt: session.expires_at,
-      isCurrent: session.refresh_token_id === currentTokenId,
+      isCurrent: session.id === currentSessionId,
     }));
   }
 
@@ -89,7 +91,7 @@ export class SessionsService {
   public async deleteSession(
     userId: string,
     sessionId: string,
-    currentTokenId: string | null,
+    currentSessionId: string | null,
   ): Promise<void> {
     const session = await this.sessionRepository.findOne({
       where: { id: sessionId },
@@ -109,7 +111,7 @@ export class SessionsService {
     }
 
     // Check if trying to delete current session
-    if (session.refresh_token_id === currentTokenId) {
+    if (session.id === currentSessionId) {
       throw new ForbiddenException(
         biBody(
           'Cannot delete current session. Use logout endpoint instead.',
@@ -141,6 +143,12 @@ export class SessionsService {
     this.logger.debug(`Session deleted for token ID ${refreshTokenId}`);
   }
 
+  /** Revoke one session, including every access token bound to its session id. */
+  public async deleteSessionById(userId: string, sessionId: string): Promise<void> {
+    await this.sessionRepository.delete({ id: sessionId, user_id: userId });
+    this.logger.debug(`Session ${sessionId} revoked for user ${userId}`);
+  }
+
   /**
    * Update last_active timestamp for a session
    */
@@ -157,12 +165,14 @@ export class SessionsService {
   public async updateSessionTokenId(
     oldTokenId: string,
     newTokenId: string,
+    newTokenHash: string,
     newExpiresAt: Date,
   ): Promise<void> {
     await this.sessionRepository.update(
       { refresh_token_id: oldTokenId },
       {
         refresh_token_id: newTokenId,
+        refresh_token_hash: newTokenHash,
         last_active: new Date(),
         expires_at: newExpiresAt,
       },
@@ -176,6 +186,18 @@ export class SessionsService {
   public async getSessionByTokenId(refreshTokenId: string): Promise<UserSession | null> {
     return await this.sessionRepository.findOne({
       where: { refresh_token_id: refreshTokenId },
+    });
+  }
+
+  /** Resolve an unexpired access-token session and its user in one query. */
+  public async getActiveSession(userId: string, sessionId: string): Promise<UserSession | null> {
+    return await this.sessionRepository.findOne({
+      where: {
+        id: sessionId,
+        user_id: userId,
+        expires_at: MoreThan(new Date()),
+      },
+      relations: { user: true },
     });
   }
 

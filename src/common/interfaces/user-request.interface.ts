@@ -5,6 +5,7 @@ export interface JwtPayload {
   email: string;
   name: string;
   role: string; // Single role (matches JWT payload from auth.service.ts)
+  sessionId?: string;
 }
 
 export interface UserRequest extends Request {

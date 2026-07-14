@@ -17,30 +17,27 @@ import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
 import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
-import { durationToMilliseconds as parseDurationToMs } from '../common/utils/duration.util';
 import { biBody, resolveRequestLocale } from '../i18n/error-translator.util';
+import {
+  ACCESS_TOKEN_COOKIE,
+  ACCESS_TOKEN_COOKIE_PATH,
+  REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE_PATH,
+} from './auth-cookie.constants';
 import { AuthService } from './auth.service';
+import { accessTokenTtlMilliseconds, refreshTokenTtlMilliseconds } from './auth-token.config';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
-const REFRESH_TOKEN_COOKIE = 'refresh_token';
-
 interface TokenResponse {
   status: string;
-  token: string;
-  refreshToken?: string;
+  accessToken: string;
+  refreshToken: string;
   role: string;
   userId: string;
-}
-
-const DEFAULT_REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Refresh-cookie maxAge in ms, defaulting to 7 days for invalid/unset input. */
-function durationToMilliseconds(duration: string): number {
-  return parseDurationToMs(duration) ?? DEFAULT_REFRESH_TTL_MS;
 }
 
 @ApiTags('Authentication')
@@ -49,17 +46,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * Cookie attributes for the HttpOnly refresh token. In production the SPA and
-   * API are served from different sites (e.g. learnix.school ⟷ *.railway.app),
-   * so the cookie must be `SameSite=None; Secure` (and Partitioned/CHIPS) to be
-   * sent on the cross-site refresh request. Locally (plain HTTP) it stays
-   * `Lax`/non-Secure — derived from the actual request via
-   * `getCrossSiteCookieOptions`, not a bare `NODE_ENV` check, so a `Secure`
-   * cookie is never requested over a connection where the browser would just
-   * silently drop it. CSRF for the refresh endpoint is still enforced by the
-   * double-submit CsrfGuard, so this does not open a CSRF hole.
+   * Both authentication credentials are signed, HttpOnly, host-only cookies.
+   * Production is always `SameSite=None; Secure` for the cross-site SPA/API
+   * topology; development is Lax/non-Secure for localhost. The access cookie is
+   * available to API routes and the refresh cookie only to auth routes.
    */
-  private refreshCookieOptions(request: Request): {
+  private authCookieOptions(
+    request: Request,
+    path: string,
+  ): {
     httpOnly: true;
     secure: boolean;
     sameSite: 'none' | 'lax';
@@ -71,31 +66,49 @@ export class AuthController {
       httpOnly: true,
       signed: true,
       ...getCrossSiteCookieOptions(request),
-      path: '/api/v1/auth',
+      path,
     };
   }
 
-  private setRefreshTokenCookie(request: Request, response: Response, refreshToken: string): void {
+  private setAuthCookies(
+    request: Request,
+    response: Response,
+    accessToken: string,
+    refreshToken: string,
+  ): void {
+    response.cookie(ACCESS_TOKEN_COOKIE, accessToken, {
+      ...this.authCookieOptions(request, ACCESS_TOKEN_COOKIE_PATH),
+      maxAge: accessTokenTtlMilliseconds(process.env['JWT_EXPIRATION']),
+    });
     response.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
-      ...this.refreshCookieOptions(request),
-      maxAge: durationToMilliseconds(process.env['JWT_REFRESH_EXPIRATION'] ?? '7d'),
+      ...this.authCookieOptions(request, REFRESH_TOKEN_COOKIE_PATH),
+      maxAge: refreshTokenTtlMilliseconds(process.env['JWT_REFRESH_EXPIRATION']),
     });
   }
 
-  private clearRefreshTokenCookie(request: Request, response: Response): void {
-    response.clearCookie(REFRESH_TOKEN_COOKIE, this.refreshCookieOptions(request));
+  private clearAuthCookies(request: Request, response: Response): void {
+    response.clearCookie(
+      ACCESS_TOKEN_COOKIE,
+      this.authCookieOptions(request, ACCESS_TOKEN_COOKIE_PATH),
+    );
+    response.clearCookie(
+      REFRESH_TOKEN_COOKIE,
+      this.authCookieOptions(request, REFRESH_TOKEN_COOKIE_PATH),
+    );
   }
 
-  private stripRefreshToken(result: unknown, request: Request, response: Response): unknown {
+  private issueSessionCookies(result: unknown, request: Request, response: Response): unknown {
     if (
       typeof result === 'object' &&
       result !== null &&
+      'accessToken' in result &&
+      typeof (result as TokenResponse).accessToken === 'string' &&
       'refreshToken' in result &&
       typeof (result as TokenResponse).refreshToken === 'string'
     ) {
-      const tokenResult = result as TokenResponse & { refreshToken: string };
-      const { refreshToken, ...body } = tokenResult;
-      this.setRefreshTokenCookie(request, response, refreshToken);
+      const tokenResult = result as TokenResponse;
+      const { accessToken, refreshToken, ...body } = tokenResult;
+      this.setAuthCookies(request, response, accessToken, refreshToken);
       return body;
     }
 
@@ -113,6 +126,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @Throttle({ default: THROTTLE.AUTH })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async login(
@@ -127,10 +141,11 @@ export class AuthController {
       null;
 
     const result = await this.authService.login(loginDto, deviceInfo, ipAddress);
-    return this.stripRefreshToken(result, request, response);
+    return this.issueSessionCookies(result, request, response);
   }
 
   @Post('refresh')
+  @HttpCode(HttpStatus.OK)
   // Tighten from the 300/min global backstop to limit refresh-token brute-force
   // / abuse. Uses the 5/min DEFAULT tier (not the stricter 5-per-5-min AUTH
   // tier) because refresh legitimately fires on every access-token expiry and
@@ -144,13 +159,21 @@ export class AuthController {
     const refreshToken =
       request.signedCookies?.[REFRESH_TOKEN_COOKIE] ?? request.cookies?.[REFRESH_TOKEN_COOKIE];
     if (typeof refreshToken !== 'string' || refreshToken === '') {
+      this.clearAuthCookies(request, response);
       throw new UnauthorizedException(
         biBody('Refresh token cookie is missing', 'كوكيز رمز التحديث غير موجود'),
       );
     }
 
-    const result = await this.authService.refresh(refreshToken);
-    return this.stripRefreshToken(result, request, response);
+    try {
+      const result = await this.authService.refresh(refreshToken);
+      return this.issueSessionCookies(result, request, response);
+    } catch (error) {
+      // Malformed, expired, reused, and revoked refresh credentials all fail
+      // closed and remove both browser credentials.
+      this.clearAuthCookies(request, response);
+      throw error;
+    }
   }
 
   @Post('forgot-password')
@@ -190,15 +213,16 @@ export class AuthController {
   }
 
   @Post('logout')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   public async logout(
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ message: string }> {
-    const { userId } = request.user as { userId: string };
-    await this.authService.logout(userId);
-    this.clearRefreshTokenCookie(request, response);
+    const { userId, sessionId } = request.user as { userId: string; sessionId: string };
+    await this.authService.logout(userId, sessionId);
+    this.clearAuthCookies(request, response);
     return biBody('Logged out successfully', 'تم تسجيل الخروج بنجاح');
   }
 

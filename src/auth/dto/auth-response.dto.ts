@@ -30,18 +30,6 @@ export class ApprovedAuthResponseDto {
   public status!: 'approved';
 
   @ApiProperty({
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    description: 'JWT access token (short-lived, ~15 minutes)',
-  })
-  public token!: string;
-
-  @ApiProperty({
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-    description: 'JWT refresh token (long-lived, ~7 days)',
-  })
-  public refreshToken!: string;
-
-  @ApiProperty({
     example: 'STUDENT',
     description: 'User role',
     enum: ['ADMIN', 'CALL_CENTER', 'TEACHER', 'STUDENT'],

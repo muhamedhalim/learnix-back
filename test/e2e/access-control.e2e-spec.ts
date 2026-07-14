@@ -51,18 +51,12 @@ describe('Access control (e2e)', () => {
   });
 
   it('rejects an authenticated student from an admin-only route', async () => {
-    const { token } = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const { agent } = await createAuthenticatedUser(ctx.app, ctx.dataSource);
 
-    await request(server)
-      .get(`${API_PREFIX}/admin/students`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(403);
+    await agent.get(`${API_PREFIX}/admin/students`).expect(403);
   });
 
   it('returns 400 for a malformed registration body', async () => {
-    await request(server)
-      .post(`${API_PREFIX}/auth/register`)
-      .send({ email: 'x' })
-      .expect(400);
+    await request(server).post(`${API_PREFIX}/auth/register`).send({ email: 'x' }).expect(400);
   });
 });

@@ -1,9 +1,4 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { Request } from 'express';
@@ -13,6 +8,7 @@ import * as jwt from 'jsonwebtoken';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
+import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
 
 /**
  * Optional authentication guard that extracts user info when available
@@ -50,10 +46,7 @@ export class OptionalHybridAuthGuard implements CanActivate {
     }
   }
 
-  private async tryJwtVerify(
-    token: string,
-    request: Request,
-  ): Promise<boolean> {
+  private async tryJwtVerify(token: string, request: Request): Promise<boolean> {
     const jwtSecret = this.configService.get<string>('JWT_SECRET');
     if (jwtSecret === undefined || jwtSecret === '') {
       this.logger.debug('JWT_SECRET not configured, skipping JWT verification');
@@ -68,14 +61,11 @@ export class OptionalHybridAuthGuard implements CanActivate {
       return true;
     }
 
-    const payloadObj: JwtPayload | null =
-      typeof verified === 'object' ? verified : null;
+    const payloadObj: JwtPayload | null = typeof verified === 'object' ? verified : null;
 
     // sub is now a UUID string
     const sub =
-      payloadObj !== null &&
-      'sub' in payloadObj &&
-      typeof payloadObj.sub === 'string'
+      payloadObj !== null && 'sub' in payloadObj && typeof payloadObj.sub === 'string'
         ? payloadObj.sub
         : undefined;
 
@@ -83,16 +73,16 @@ export class OptionalHybridAuthGuard implements CanActivate {
       payloadObj !== null && typeof payloadObj['email'] === 'string'
         ? payloadObj['email']
         : undefined;
+    const sid =
+      payloadObj !== null && typeof payloadObj['sid'] === 'string' ? payloadObj['sid'] : undefined;
 
-    if (sub === undefined || email === undefined) {
-      this.logger.debug(
-        'JWT payload missing required claims, continuing without auth',
-      );
+    if (sub === undefined || email === undefined || sid === undefined) {
+      this.logger.debug('JWT payload missing required claims, continuing without auth');
       return true;
     }
 
     try {
-      const user = await this.authService.validateUser({ sub, email });
+      const user = await this.authService.validateUser({ sub, email, sid });
       if (user) {
         Object.assign(request, { user });
         this.logger.debug(`Optional auth: User ${user.userId} authenticated`);
@@ -106,13 +96,16 @@ export class OptionalHybridAuthGuard implements CanActivate {
 
   public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
+    const cookieToken = request.signedCookies?.[ACCESS_TOKEN_COOKIE];
+    if (typeof cookieToken === 'string' && cookieToken !== '') {
+      return await this.tryJwtVerify(cookieToken, request);
+    }
+
     const authHeader = request.headers.authorization;
 
     // No auth header - allow request without user context
     if (authHeader?.startsWith('Bearer ') !== true) {
-      this.logger.debug(
-        'No auth header provided, continuing as unauthenticated',
-      );
+      this.logger.debug('No auth header provided, continuing as unauthenticated');
       return true;
     }
 
@@ -124,10 +117,11 @@ export class OptionalHybridAuthGuard implements CanActivate {
 
     const header = this.decodeJwtHeader(token);
 
-    // Non-Firebase token (no kid claim)
+    // Application JWTs in headers are ignored; only the cookie extractor above
+    // may establish an application session.
     if (header && !('kid' in header)) {
-      this.logger.debug('Token has no kid claim, trying JWT verification');
-      return await this.tryJwtVerify(token, request);
+      this.logger.debug('Ignoring application JWT supplied in Authorization header');
+      return true;
     }
 
     // Try Firebase verification first
@@ -135,13 +129,11 @@ export class OptionalHybridAuthGuard implements CanActivate {
       const decodedToken = await this.firebaseService.verifyToken(token);
       const user = await this.usersService.syncFirebaseUser(decodedToken);
       request.user = user;
-      this.logger.debug(
-        `Optional auth: Firebase user ${user.id} authenticated`,
-      );
+      this.logger.debug(`Optional auth: Firebase user ${user.id} authenticated`);
       return true;
     } catch {
-      this.logger.debug('Firebase verification failed, trying JWT fallback');
-      return await this.tryJwtVerify(token, request);
+      this.logger.debug('Firebase verification failed; continuing without authentication');
+      return true;
     }
   }
 }

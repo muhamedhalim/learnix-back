@@ -94,17 +94,6 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   last_login!: Date | null;
 
-  // JWT Refresh Token fields
-  @Column({ type: 'text', nullable: true, select: false })
-  refresh_token!: string | null;
-
-  @Column({ type: 'varchar', length: 64, nullable: true })
-  @Index('IDX_users_refresh_token_id')
-  refresh_token_id!: string | null;
-
-  @Column({ type: 'timestamp', nullable: true })
-  refresh_token_expires_at!: Date | null;
-
   // Password reset fields (mirrors the refresh-token storage strategy):
   //  - password_reset_token: bcrypt hash of the raw token (never stored in clear)
   //  - password_reset_token_id: SHA-256 of the raw token for O(1) indexed lookup

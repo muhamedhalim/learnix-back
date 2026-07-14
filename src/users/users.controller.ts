@@ -150,7 +150,10 @@ export class UsersController {
     if (userId === undefined || userId === '') {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
-    const sessions = await this.sessionsService.getUserSessions(userId, null);
+    const sessions = await this.sessionsService.getUserSessions(
+      userId,
+      req.user?.sessionId ?? null,
+    );
     return { data: sessions };
   }
 
@@ -180,7 +183,7 @@ export class UsersController {
     if (userId === undefined || userId === '') {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
-    await this.sessionsService.deleteSession(userId, sessionId, null);
+    await this.sessionsService.deleteSession(userId, sessionId, req.user?.sessionId ?? null);
     return { message: 'Session deleted successfully' };
   }
 

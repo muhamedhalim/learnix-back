@@ -23,6 +23,7 @@ import { MailService } from '../mail/mail.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
+import { UserSession } from '../users/entities/user-session.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import { SessionsService } from '../users/sessions.service';
@@ -68,8 +69,16 @@ export class AuthService {
     registerDto: RegisterDto,
     preferredLanguage: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<unknown> {
-    const { password, phone, name, requestedRole, parentPhone, qualifications, yearsOfExperience, bio } =
-      registerDto;
+    const {
+      password,
+      phone,
+      name,
+      requestedRole,
+      parentPhone,
+      qualifications,
+      yearsOfExperience,
+      bio,
+    } = registerDto;
     // Normalized identically to login()/forgotPassword()/AdminInitializationService
     // so every entry point that writes or queries `email` agrees on its casing.
     const email = registerDto.email.trim().toLowerCase();
@@ -229,47 +238,58 @@ export class AuthService {
       role: user.role,
     };
 
-    const accessToken = this.jwtService.sign(payload);
-
-    // Generate and store refresh token
+    // Generate and store a per-device refresh credential.
     const refreshToken = this.generateRefreshToken();
-    const { tokenId, expiresAt } = await this.storeRefreshToken(user.id, refreshToken);
+    const tokenId = this.generateTokenId(refreshToken);
+    const refreshTokenHash = await this.hashRefreshToken(refreshToken);
+    const expiresAt = this.calculateTokenExpiration(
+      this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d',
+    );
 
-    // Create session record for device tracking
-    await this.sessionsService.createSession({
+    const session = await this.sessionsService.createSession({
       userId: user.id,
       refreshTokenId: tokenId,
+      refreshTokenHash,
       deviceInfo,
       ipAddress,
       expiresAt,
     });
 
+    const accessToken = this.jwtService.sign({ ...payload, sid: session.id });
+
     // Return new response format with status
     return {
       status: 'approved',
-      token: accessToken,
+      accessToken,
       refreshToken,
       role: user.role,
       userId: user.id,
     };
   }
 
-  public async validateUser(payload: { sub: string; email: string }): Promise<{
+  public async validateUser(payload: { sub: string; email: string; sid: string }): Promise<{
     userId: string;
     email: string;
     name: string;
     role: UserRole;
+    sessionId: string;
   } | null> {
-    const user = await this.userRepository.findOne({
-      where: { id: payload.sub },
-    });
+    if (payload.sid === '') return null;
+    const session = await this.sessionsService.getActiveSession(payload.sub, payload.sid);
+    const user = session?.user;
 
-    if (user?.is_active === true) {
+    if (
+      session !== null &&
+      user?.is_active === true &&
+      user.status === UserStatus.APPROVED &&
+      user.email === payload.email
+    ) {
       return {
         userId: user.id,
         email: user.email,
         name: user.name,
         role: user.role,
+        sessionId: session.id,
       };
     }
     return null;
@@ -302,32 +322,6 @@ export class AuthService {
    */
   private async verifyRefreshToken(token: string, hash: string): Promise<boolean> {
     return await bcrypt.compare(token, hash);
-  }
-
-  /**
-   * Store refresh token for a user with indexed token_id for fast lookup
-   * Returns tokenId and expiresAt for session creation
-   */
-  private async storeRefreshToken(
-    userId: string,
-    refreshToken: string,
-  ): Promise<{ tokenId: string; expiresAt: Date }> {
-    const hashedToken = await this.hashRefreshToken(refreshToken);
-    const tokenId = this.generateTokenId(refreshToken);
-    const refreshExpiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d';
-
-    // Calculate expiration date based on duration string (e.g., "7d", "30d")
-    const expiresAt = this.calculateTokenExpiration(refreshExpiresIn);
-
-    await this.userRepository.update(userId, {
-      refresh_token: hashedToken,
-      refresh_token_id: tokenId,
-      refresh_token_expires_at: expiresAt,
-    });
-
-    this.logger.debug(`Refresh token stored for user ${userId}`);
-
-    return { tokenId, expiresAt };
   }
 
   /**
@@ -367,93 +361,81 @@ export class AuthService {
    * Optimized: O(1) database lookup via indexed token_id
    */
   public async refresh(refreshToken: string): Promise<unknown> {
-    // Generate token ID for O(1) indexed lookup
+    return await this.rotateRefreshSession(refreshToken);
+  }
+
+  private async rotateRefreshSession(refreshToken: string): Promise<unknown> {
     const tokenId = this.generateTokenId(refreshToken);
-
-    // Direct O(1) lookup by indexed token_id
-    const user = await this.userRepository
-      .createQueryBuilder('user')
-      .addSelect('user.refresh_token')
-      .addSelect('user.refresh_token_expires_at')
-      .where('user.refresh_token_id = :tokenId', { tokenId })
-      .andWhere('user.refresh_token IS NOT NULL')
-      .getOne();
-
-    if (user?.refresh_token == null) {
-      this.logger.warn('Invalid refresh token attempt');
-      throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
-    }
-
-    // Single BCrypt verification (not a loop)
-    const isValid = await this.verifyRefreshToken(refreshToken, user.refresh_token);
-
-    if (!isValid) {
-      this.logger.warn(`Refresh token verification failed - ID: ${user.id}`);
-      throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
-    }
-
-    // Check if token is expired
-    if (!user.refresh_token_expires_at || user.refresh_token_expires_at < new Date()) {
-      this.logger.warn(`Expired refresh token used - ID: ${user.id}`);
-      throw new UnauthorizedException(biBody('Refresh token expired', 'انتهت صلاحية رمز التحديث'));
-    }
-
-    // Check if user is active
-    if (!user.is_active) {
-      this.logger.warn(`Inactive user attempted token refresh - ID: ${user.id}`);
-      throw new UnauthorizedException(biBody('User account is inactive', 'حساب المستخدم غير نشط'));
-    }
-
-    // Check user status (BREAKING CHANGE: new response format)
-    if (user.status === UserStatus.PENDING) {
-      this.logger.warn(`Pending user attempted token refresh - ID: ${user.id}`);
-      throw new UnauthorizedException(
-        biBody(
-          'Your account is under review. Please wait for admin approval.',
-          'حسابك قيد المراجعة. يرجى انتظار موافقة الإدارة.',
-        ),
-      );
-    }
-
-    if (user.status === UserStatus.REJECTED) {
-      this.logger.warn(`Rejected user attempted token refresh - ID: ${user.id}`);
-      throw new UnauthorizedException(
-        biBody(
-          `Account rejected: ${user.rejection_reason ?? 'Please contact support for more information.'}`,
-          `تم رفض الحساب: ${user.rejection_reason ?? 'يرجى التواصل مع الدعم لمزيد من المعلومات.'}`,
-        ),
-      );
-    }
-
-    // Generate new access token
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-    };
-
-    const accessToken = this.jwtService.sign(payload);
-
-    // Generate new refresh token (token rotation for security)
     const newRefreshToken = this.generateRefreshToken();
-    const { tokenId: newTokenId, expiresAt: newExpiresAt } = await this.storeRefreshToken(
-      user.id,
-      newRefreshToken,
+    const newTokenId = this.generateTokenId(newRefreshToken);
+    const newRefreshTokenHash = await this.hashRefreshToken(newRefreshToken);
+    const newExpiresAt = this.calculateTokenExpiration(
+      this.configService.get<string>('JWT_REFRESH_EXPIRATION') ?? '7d',
     );
 
-    // Update session with new token ID (token rotation)
-    await this.sessionsService.updateSessionTokenId(tokenId, newTokenId, newExpiresAt);
+    const rotated = await this.dataSource.transaction(async (manager) => {
+      const sessionRepository = manager.getRepository(UserSession);
+      const session = await sessionRepository
+        .createQueryBuilder('session')
+        .addSelect('session.refresh_token_hash')
+        .where('session.refresh_token_id = :tokenId', { tokenId })
+        .setLock('pessimistic_write')
+        .getOne();
 
-    this.logger.log(`Token refreshed - ID: ${user.id}`);
+      if (session === null) {
+        this.logger.warn('Invalid, reused, or revoked refresh token attempt');
+        throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
+      }
 
-    // Return new response format with status
+      const isValid = await this.verifyRefreshToken(refreshToken, session.refresh_token_hash);
+      if (!isValid) {
+        await sessionRepository.delete({ id: session.id });
+        throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
+      }
+
+      if (session.expires_at < new Date()) {
+        await sessionRepository.delete({ id: session.id });
+        throw new UnauthorizedException(
+          biBody('Refresh token expired', 'انتهت صلاحية رمز التحديث'),
+        );
+      }
+
+      // PostgreSQL cannot apply FOR UPDATE to the nullable side of the outer
+      // join TypeORM creates for `leftJoinAndSelect`. Lock the session row
+      // first, then fetch its required user within the same transaction.
+      const user = await manager.getRepository(User).findOneBy({ id: session.user_id });
+      if (user === null || !user.is_active || user.status !== UserStatus.APPROVED) {
+        await sessionRepository.delete({ id: session.id });
+        throw new UnauthorizedException(
+          biBody('User account is inactive', 'حساب المستخدم غير نشط'),
+        );
+      }
+
+      await sessionRepository.update(session.id, {
+        refresh_token_id: newTokenId,
+        refresh_token_hash: newRefreshTokenHash,
+        last_active: new Date(),
+        expires_at: newExpiresAt,
+      });
+
+      return { user, sessionId: session.id };
+    });
+
+    const accessToken = this.jwtService.sign({
+      sub: rotated.user.id,
+      email: rotated.user.email,
+      name: rotated.user.name,
+      role: rotated.user.role,
+      sid: rotated.sessionId,
+    });
+
+    this.logger.log(`Token refreshed - ID: ${rotated.user.id}`);
     return {
       status: 'approved',
-      token: accessToken,
+      accessToken,
       refreshToken: newRefreshToken,
-      role: user.role,
-      userId: user.id,
+      role: rotated.user.role,
+      userId: rotated.user.id,
     };
   }
 
@@ -554,9 +536,6 @@ export class AuthService {
       password_reset_token: null,
       password_reset_token_id: null,
       password_reset_expires_at: null,
-      refresh_token: null,
-      refresh_token_id: null,
-      refresh_token_expires_at: null,
     });
 
     // Drop all device sessions — force re-login everywhere after a reset.
@@ -588,21 +567,9 @@ export class AuthService {
     return `${parsed.value} ${unit}${parsed.value === 1 ? '' : 's'}`;
   }
 
-  /**
-   * Logout user by clearing refresh token and token_id
-   */
-  public async logout(userId: string, refreshTokenId?: string): Promise<void> {
-    // Delete the session if refreshTokenId is provided
-    if (refreshTokenId !== undefined && refreshTokenId !== '') {
-      await this.sessionsService.deleteSessionByTokenId(refreshTokenId);
-    }
-
-    await this.userRepository.update(userId, {
-      refresh_token: null,
-      refresh_token_id: null,
-      refresh_token_expires_at: null,
-    });
-
+  /** Revoke the current session and every access/refresh token bound to it. */
+  public async logout(userId: string, sessionId: string): Promise<void> {
+    await this.sessionsService.deleteSessionById(userId, sessionId);
     this.logger.log(`User logged out - ID: ${userId}`);
   }
 
@@ -611,13 +578,6 @@ export class AuthService {
    */
   public async logoutAll(userId: string): Promise<void> {
     await this.sessionsService.deleteAllUserSessions(userId);
-
-    await this.userRepository.update(userId, {
-      refresh_token: null,
-      refresh_token_id: null,
-      refresh_token_expires_at: null,
-    });
-
     this.logger.log(`User logged out from all devices - ID: ${userId}`);
   }
 }

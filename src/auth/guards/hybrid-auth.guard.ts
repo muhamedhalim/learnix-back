@@ -14,6 +14,7 @@ import * as jwt from 'jsonwebtoken';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
+import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
 
 @Injectable()
 export class HybridAuthGuard implements CanActivate {
@@ -83,18 +84,27 @@ export class HybridAuthGuard implements CanActivate {
   private validatePayloadClaims(payloadObj: JwtPayload): {
     sub: string;
     email: string;
+    sid: string;
   } {
     const sub =
       'sub' in payloadObj && typeof payloadObj.sub === 'string' ? payloadObj.sub : undefined;
 
     const email = typeof payloadObj['email'] === 'string' ? payloadObj['email'] : undefined;
+    const sid = typeof payloadObj['sid'] === 'string' ? payloadObj['sid'] : undefined;
 
-    if (sub === undefined || sub === '' || email === undefined || email === '') {
-      this.logger.warn('JWT payload is missing required "sub" or "email" claims.');
+    if (
+      sub === undefined ||
+      sub === '' ||
+      email === undefined ||
+      email === '' ||
+      sid === undefined ||
+      sid === ''
+    ) {
+      this.logger.warn('JWT payload is missing required session claims.');
       throw new UnauthorizedException('Invalid token payload');
     }
 
-    return { sub, email };
+    return { sub, email, sid };
   }
 
   private async tryJwtVerify(token: string, request: Request): Promise<boolean> {
@@ -122,6 +132,11 @@ export class HybridAuthGuard implements CanActivate {
 
   public async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
+    const cookieToken = request.signedCookies?.[ACCESS_TOKEN_COOKIE];
+    if (typeof cookieToken === 'string' && cookieToken !== '') {
+      return await this.tryJwtVerify(cookieToken, request);
+    }
+
     const authHeader = request.headers.authorization;
 
     if (authHeader?.startsWith('Bearer ') !== true) {
@@ -142,12 +157,10 @@ export class HybridAuthGuard implements CanActivate {
       this.logger.debug('Unable to decode auth token header');
     }
 
-    // If token header exists but has no `kid`, treat it as non-Firebase ID token
+    // Bearer credentials are retained only for Firebase ID-token clients.
     if (header && !('kid' in header)) {
-      this.logger.debug(
-        'Auth token header has no "kid" claim — skipping Firebase verification and trying JWT.',
-      );
-      return await this.tryJwtVerify(token, request);
+      this.logger.debug('Rejected application JWT in Authorization header; cookie required.');
+      throw new UnauthorizedException('Application access token cookie is required');
     }
 
     // Otherwise, try Firebase verification first (for regular users)
@@ -157,15 +170,11 @@ export class HybridAuthGuard implements CanActivate {
       Object.assign(request, { user });
       return true;
     } catch (error) {
-      // Log details and fall back to JWT
       this.logger.warn(
-        `Firebase verification failed: ${
-          error instanceof Error ? error.message : String(error)
-        } — falling back to JWT verification.`,
+        `Firebase verification failed: ${error instanceof Error ? error.message : String(error)}.`,
       );
 
-      // Try JWT authentication (for admin / fallback)
-      return await this.tryJwtVerify(token, request);
+      throw new UnauthorizedException('Invalid authentication token');
     }
   }
 }

@@ -11,16 +11,16 @@ import { buildRegisterPayload, type RegisterPayload } from '../factories/user.fa
 
 export interface AuthenticatedUser {
   agent: ReturnType<typeof request.agent>;
-  token: string;
   userId: string;
   role: string;
   credentials: RegisterPayload;
+  cookies: string[];
 }
 
 /**
  * Register a user, approve them directly in the DB (skipping the admin flow),
  * optionally set a role, then log in. Returns a supertest agent that carries the
- * HttpOnly refresh cookie plus the bearer access token.
+ * HttpOnly access and refresh cookies.
  */
 export async function createAuthenticatedUser(
   app: INestApplication,
@@ -50,14 +50,9 @@ export async function createAuthenticatedUser(
 
   return {
     agent,
-    token: loginRes.body.token as string,
     userId,
     role: (loginRes.body.role as string) ?? options.role ?? 'student',
     credentials,
+    cookies: (loginRes.headers['set-cookie'] as unknown as string[]) ?? [],
   };
-}
-
-/** Authorization header helper. */
-export function bearer(token: string): { Authorization: string } {
-  return { Authorization: `Bearer ${token}` };
 }

@@ -101,7 +101,7 @@ describe('SessionsService', () => {
     it('should mark current session correctly', async () => {
       mockSessionRepository.find.mockResolvedValue([mockSession]);
 
-      const result = await service.getUserSessions(mockUserId, mockTokenId);
+      const result = await service.getUserSessions(mockUserId, mockSessionId);
 
       expect(result[0]?.isCurrent).toBe(true);
     });
@@ -109,10 +109,7 @@ describe('SessionsService', () => {
     it('should not mark session as current when token id does not match', async () => {
       mockSessionRepository.find.mockResolvedValue([mockSession]);
 
-      const result = await service.getUserSessions(
-        mockUserId,
-        'different-token',
-      );
+      const result = await service.getUserSessions(mockUserId, 'different-token');
 
       expect(result[0]?.isCurrent).toBe(false);
     });
@@ -134,9 +131,9 @@ describe('SessionsService', () => {
     it('should throw NotFoundException when session not found', async () => {
       mockSessionRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.deleteSession(mockUserId, mockSessionId, null),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.deleteSession(mockUserId, mockSessionId, null)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw ForbiddenException when trying to delete another user session', async () => {
@@ -145,17 +142,17 @@ describe('SessionsService', () => {
         user_id: 'different-user',
       });
 
-      await expect(
-        service.deleteSession(mockUserId, mockSessionId, null),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteSession(mockUserId, mockSessionId, null)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should throw ForbiddenException when trying to delete current session', async () => {
       mockSessionRepository.findOne.mockResolvedValue(mockSession);
 
-      await expect(
-        service.deleteSession(mockUserId, mockSessionId, mockTokenId),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteSession(mockUserId, mockSessionId, mockSessionId)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 
@@ -203,12 +200,13 @@ describe('SessionsService', () => {
       const newExpiresAt = new Date();
       mockSessionRepository.update.mockResolvedValue({ affected: 1 });
 
-      await service.updateSessionTokenId(mockTokenId, newTokenId, newExpiresAt);
+      await service.updateSessionTokenId(mockTokenId, newTokenId, 'new-token-hash', newExpiresAt);
 
       expect(mockSessionRepository.update).toHaveBeenCalledWith(
         { refresh_token_id: mockTokenId },
         {
           refresh_token_id: newTokenId,
+          refresh_token_hash: 'new-token-hash',
           last_active: expect.any(Date),
           expires_at: newExpiresAt,
         },

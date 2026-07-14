@@ -3,8 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import type { Request } from 'express';
 
 import { AuthService } from './auth.service';
+import { ACCESS_TOKEN_COOKIE } from './auth-cookie.constants';
+
+function accessTokenFromSignedCookie(request: Request): string | null {
+  const token = request.signedCookies?.[ACCESS_TOKEN_COOKIE];
+  return typeof token === 'string' && token !== '' ? token : null;
+}
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -27,16 +34,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([accessTokenFromSignedCookie]),
       ignoreExpiration: false,
       secretOrKey: jwtSecret,
     });
   }
 
-  public async validate(payload: {
-    sub: string;
-    email: string;
-  }): Promise<unknown> {
+  public async validate(payload: { sub: string; email: string; sid: string }): Promise<unknown> {
     const user = await this.authService.validateUser(payload);
     if (!user) {
       throw new UnauthorizedException();

@@ -6,7 +6,10 @@ export interface RegisterPayload {
   email: string;
   password: string;
   phone: string;
+  requestedRole: 'student' | 'teacher';
   parentPhone?: string;
+  qualifications?: string;
+  yearsOfExperience?: number;
 }
 
 /** A valid Egyptian mobile number: 010/011/012/015 + 8 digits. */
@@ -22,15 +25,20 @@ function randomEgyptianPhone(): string {
  * Build a unique, valid registration payload. Each call produces distinct
  * email/phone so suites never collide on the users unique constraints.
  */
-export function buildRegisterPayload(
-  overrides: Partial<RegisterPayload> = {},
-): RegisterPayload {
+export function buildRegisterPayload(overrides: Partial<RegisterPayload> = {}): RegisterPayload {
   const suffix = randomBytes(4).toString('hex');
+  const requestedRole = overrides.requestedRole ?? 'student';
+  const isStudent = requestedRole === 'student';
+
   return {
     name: `E2E User ${suffix}`,
     email: `e2e_${suffix}@example.com`,
     password: 'Test1234!@#$',
     phone: randomEgyptianPhone(),
+    requestedRole,
+    ...(isStudent
+      ? { parentPhone: randomEgyptianPhone() }
+      : { qualifications: 'E2E teaching qualification', yearsOfExperience: 1 }),
     ...overrides,
   };
 }

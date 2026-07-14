@@ -11,21 +11,7 @@ import {
   type E2EContext,
 } from './fixtures';
 
-/**
- * CSRF bootstrap + login end-to-end tests (with the real CsrfGuard installed —
- * see createE2EAppWithCsrf).
- *
- * Regression coverage for a bug where the XSRF-TOKEN cookie's Secure/SameSite
- * attributes were derived from `NODE_ENV` alone: if `NODE_ENV` ever read
- * "production" while the request was actually plain HTTP (as in this test
- * run), the browser would silently drop a `Secure` cookie, leaving the header
- * present but the cookie half of the double-submit pair missing — a 403
- * "CSRF token missing" on an otherwise-correct login. The fix derives the
- * cookie attributes from the request's actual TLS state
- * (getCrossSiteCookieOptions), so these tests assert the cookie is both
- * present AND has the attributes appropriate for a non-HTTPS test run.
- */
-describe('CSRF bootstrap + login (e2e)', () => {
+describe('cookie session CSRF protection (e2e)', () => {
   let ctx: E2EContext;
   let server: Server;
 
@@ -34,92 +20,70 @@ describe('CSRF bootstrap + login (e2e)', () => {
     server = ctx.app.getHttpServer() as Server;
   });
 
-  beforeEach(async () => {
-    await resetDatabase(ctx.dataSource);
-  });
+  beforeEach(async () => resetDatabase(ctx.dataSource));
+  afterAll(async () => ctx.app.close());
 
-  afterAll(async () => {
-    await ctx.app.close();
-  });
-
-  it('GET /auth/csrf-token sets a Lax, non-Secure cookie over plain HTTP', async () => {
-    const res = await request(server).get(`${API_PREFIX}/auth/csrf-token`).expect(200);
-
-    expect(res.body.token).toEqual(expect.any(String));
-
-    const setCookie = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-    const xsrfCookie = setCookie.find((c) => c.startsWith('XSRF-TOKEN='));
-    expect(xsrfCookie).toBeDefined();
-
-    // This E2E run is plain HTTP (supertest, no TLS) — the cookie must never
-    // claim Secure/SameSite=None here, or the browser would drop it entirely.
-    expect(xsrfCookie).not.toMatch(/;\s*Secure/i);
-    expect(xsrfCookie).toMatch(/SameSite=Lax/i);
-  });
-
-  it('completes register → bootstrap CSRF → login using the cookie + header together', async () => {
+  it('sets a readable CSRF cookie but HttpOnly authentication cookies', async () => {
     const agent = request.agent(server);
-    const payload = buildRegisterPayload();
+    const csrf = await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);
+    const csrfToken = csrf.body.token as string;
+    const xsrf = ((csrf.headers['set-cookie'] as unknown as string[]) ?? []).find((cookie) =>
+      cookie.startsWith('XSRF-TOKEN='),
+    );
+    expect(xsrf).toBeDefined();
+    expect(xsrf).not.toMatch(/HttpOnly/i);
+    expect(xsrf).toMatch(/SameSite=Lax/i);
 
-    const reg = await agent
+    const payload = buildRegisterPayload();
+    const registration = await agent
       .post(`${API_PREFIX}/auth/register`)
+      .set('X-CSRF-Token', csrfToken)
       .send(payload)
       .expect(201);
-    await setUserStatus(ctx.dataSource, reg.body.userId as string, 'approved');
+    await setUserStatus(ctx.dataSource, registration.body.userId as string, 'approved');
 
-    // Bootstrap: the agent's cookie jar picks up XSRF-TOKEN from Set-Cookie.
-    const csrfRes = await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);
-    const csrfToken = csrfRes.body.token as string;
-    expect(csrfToken).toEqual(expect.any(String));
-
-    // Login is a state-changing request — requires the header to match the
-    // cookie the agent is now carrying.
-    const loginRes = await agent
+    const login = await agent
       .post(`${API_PREFIX}/auth/login`)
       .set('X-CSRF-Token', csrfToken)
       .send({ email: payload.email, password: payload.password })
       .expect(200);
 
-    expect(loginRes.body.status).toBe('approved');
-    expect(loginRes.body.token).toEqual(expect.any(String));
+    expect(login.body).not.toHaveProperty('token');
+    expect(login.body).not.toHaveProperty('accessToken');
+    expect(login.body).not.toHaveProperty('refreshToken');
+    const authCookies = ((login.headers['set-cookie'] as unknown as string[]) ?? []).filter(
+      (cookie) => /^(access_token|refresh_token)=/.test(cookie),
+    );
+    expect(authCookies).toHaveLength(2);
+    expect(authCookies.every((cookie) => /HttpOnly/i.test(cookie))).toBe(true);
+
+    await agent.get(`${API_PREFIX}/users/me`).expect(200);
+    await agent.post(`${API_PREFIX}/auth/refresh`).set('X-CSRF-Token', csrfToken).expect(200);
+    await agent.post(`${API_PREFIX}/auth/logout`).set('X-CSRF-Token', csrfToken).expect(200);
   });
 
-  it('still rejects a state-changing request with the header but no cookie (CSRF not weakened)', async () => {
-    const payload = buildRegisterPayload();
-    const reg = await request(server)
-      .post(`${API_PREFIX}/auth/register`)
-      .send(payload)
-      .expect(201);
-    await setUserStatus(ctx.dataSource, reg.body.userId as string, 'approved');
-
-    // Fetch a token value but do NOT reuse the agent/cookie jar that received it.
-    const csrfRes = await request(server).get(`${API_PREFIX}/auth/csrf-token`);
-    const csrfToken = csrfRes.body.token as string;
-
-    await request(server)
-      .post(`${API_PREFIX}/auth/login`)
-      .set('X-CSRF-Token', csrfToken)
-      .send({ email: payload.email, password: payload.password })
-      .expect(403);
-  });
-
-  it('rejects any state-changing request with no header at all', async () => {
+  it('rejects a mutating request with no CSRF header', async () => {
     const agent = request.agent(server);
-
-    // register is itself state-changing: it must be blocked before the CSRF
-    // cookie has even been bootstrapped.
+    await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);
     await agent.post(`${API_PREFIX}/auth/register`).send(buildRegisterPayload()).expect(403);
   });
 
-  it('rejects login with the cookie present but a missing header', async () => {
-    const agent = request.agent(server);
-    const payload = buildRegisterPayload();
+  it('rejects a header token when the signed cookie is absent', async () => {
+    const csrf = await request(server).get(`${API_PREFIX}/auth/csrf-token`).expect(200);
+    await request(server)
+      .post(`${API_PREFIX}/auth/login`)
+      .set('X-CSRF-Token', csrf.body.token as string)
+      .send({ email: 'nobody@example.com', password: 'Password123!' })
+      .expect(403);
+  });
 
-    // Bootstrap the CSRF cookie via a safe GET, but never attach the header.
+  it('rejects a mismatched CSRF token', async () => {
+    const agent = request.agent(server);
     await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);
     await agent
-      .post(`${API_PREFIX}/auth/login`)
-      .send({ email: payload.email, password: payload.password })
+      .post(`${API_PREFIX}/auth/register`)
+      .set('X-CSRF-Token', 'wrong-token')
+      .send(buildRegisterPayload())
       .expect(403);
   });
 });

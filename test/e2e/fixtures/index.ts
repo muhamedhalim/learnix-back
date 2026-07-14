@@ -9,12 +9,5 @@ export {
   type E2EContext,
 } from '../helpers/app-factory';
 export { resetDatabase, setUserRole, setUserStatus } from '../helpers/database';
-export {
-  bearer,
-  createAuthenticatedUser,
-  type AuthenticatedUser,
-} from '../helpers/auth';
-export {
-  buildRegisterPayload,
-  type RegisterPayload,
-} from '../factories/user.factory';
+export { createAuthenticatedUser, type AuthenticatedUser } from '../helpers/auth';
+export { buildRegisterPayload, type RegisterPayload } from '../factories/user.factory';

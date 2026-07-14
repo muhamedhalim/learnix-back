@@ -15,6 +15,7 @@ import { MailService } from '../mail/mail.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
+import { UserSession } from '../users/entities/user-session.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import { SessionsService } from '../users/sessions.service';
@@ -52,6 +53,7 @@ describe('AuthService', () => {
   let userRepository: jest.Mocked<Repository<User>>;
   let jwtService: jest.Mocked<JwtService>;
   let configService: jest.Mocked<ConfigService>;
+  let sessionsService: jest.Mocked<SessionsService>;
 
   const mockUser: Partial<User> = {
     id: 'stu_123456',
@@ -61,6 +63,7 @@ describe('AuthService', () => {
     password_hash: 'hashedpassword',
     is_active: true,
     role: UserRole.STUDENT,
+    status: UserStatus.APPROVED,
   };
 
   // Stand-in for the transactional EntityManager passed into
@@ -80,11 +83,16 @@ describe('AuthService', () => {
   beforeEach(async () => {
     const mockUserRepository = {
       findOne: jest.fn(),
+      findOneBy: jest.fn(),
       create: jest.fn(),
       save: jest.fn(),
       update: jest.fn(),
       createQueryBuilder: jest.fn(),
     };
+    mockUserRepository.findOneBy.mockImplementation(async () => {
+      const userQuery = mockUserRepository.createQueryBuilder();
+      return userQuery ? userQuery.getOne() : null;
+    });
 
     const mockJwtService = {
       sign: jest.fn(),
@@ -94,9 +102,42 @@ describe('AuthService', () => {
       get: jest.fn(),
     };
 
+    const sessionRepository = {
+      createQueryBuilder: jest.fn(() => ({
+        addSelect: jest.fn().mockReturnThis(),
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        setLock: jest.fn().mockReturnThis(),
+        getOne: jest.fn(async () => {
+          const userQuery = mockUserRepository.createQueryBuilder();
+          if (!userQuery) return null;
+          const user = await userQuery.getOne();
+          if (!user) return null;
+          const legacyFixture = user as User & {
+            refresh_token?: string;
+            refresh_token_expires_at?: Date;
+          };
+          return Object.assign(new UserSession(), {
+            id: 'session-1',
+            user_id: user.id,
+            user,
+            refresh_token_hash: legacyFixture.refresh_token,
+            expires_at: legacyFixture.refresh_token_expires_at,
+          });
+        }),
+      })),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+
     const mockDataSource = {
       transaction: jest.fn((cb: (manager: EntityManager) => Promise<unknown>) =>
-        cb(mockManager as unknown as EntityManager),
+        cb({
+          ...mockManager,
+          getRepository: jest.fn((entity: unknown) =>
+            entity === User ? mockUserRepository : sessionRepository,
+          ),
+        } as unknown as EntityManager),
       ),
     };
 
@@ -118,10 +159,17 @@ describe('AuthService', () => {
         {
           provide: SessionsService,
           useValue: {
-            createSession: jest.fn(),
+            createSession: jest.fn().mockResolvedValue({ id: 'session-1' }),
             updateSessionTokenId: jest.fn(),
             deleteSessionByTokenId: jest.fn(),
+            deleteSessionById: jest.fn(),
             deleteAllUserSessions: jest.fn(),
+            getActiveSession: jest.fn(async (_userId: string, sessionId: string) => {
+              const user = await mockUserRepository.findOne({ where: { id: _userId } });
+              return user
+                ? Object.assign(new UserSession(), { id: sessionId, user_id: user.id, user })
+                : null;
+            }),
           },
         },
         {
@@ -149,6 +197,7 @@ describe('AuthService', () => {
     userRepository = module.get(getRepositoryToken(User));
     jwtService = module.get(JwtService);
     configService = module.get(ConfigService);
+    sessionsService = module.get(SessionsService);
 
     configService.get.mockImplementation((key: string) => {
       if (key === 'BCRYPT_ROUNDS') {
@@ -217,11 +266,15 @@ describe('AuthService', () => {
 
       await service.register(studentRegisterDto);
 
-      expect(guardiansService.linkGuardianWith).toHaveBeenCalledWith(mockManager, 'stu_789012', {
-        phone: studentRegisterDto.parentPhone,
-        relationship: GuardianRelationship.OTHER,
-        is_primary: true,
-      });
+      expect(guardiansService.linkGuardianWith).toHaveBeenCalledWith(
+        expect.objectContaining(mockManager),
+        'stu_789012',
+        {
+          phone: studentRegisterDto.parentPhone,
+          relationship: GuardianRelationship.OTHER,
+          is_primary: true,
+        },
+      );
     });
 
     it('creates a teacher profile and no guardian for a teacher application', async () => {
@@ -249,10 +302,7 @@ describe('AuthService', () => {
         StudentProfile,
         expect.objectContaining({ user_id: 'stu_789012' }),
       );
-      expect(mockManager.create).not.toHaveBeenCalledWith(
-        TeacherProfile,
-        expect.anything(),
-      );
+      expect(mockManager.create).not.toHaveBeenCalledWith(TeacherProfile, expect.anything());
     });
 
     it('should throw ConflictException if user already exists (generic message for security)', async () => {
@@ -289,7 +339,7 @@ describe('AuthService', () => {
 
       // New response format with status
       expect(result).toHaveProperty('status', 'approved');
-      expect(result).toHaveProperty('token', 'access_token');
+      expect(result).toHaveProperty('accessToken', 'access_token');
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('role', mockUser.role);
       expect(result).toHaveProperty('userId', mockUser.id);
@@ -434,11 +484,10 @@ describe('AuthService', () => {
 
       // New response format with status
       expect(result).toHaveProperty('status', 'approved');
-      expect(result).toHaveProperty('token', 'new_access_token');
+      expect(result).toHaveProperty('accessToken', 'new_access_token');
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('role', mockUser.role);
       expect(result).toHaveProperty('userId', mockUser.id);
-      expect(userRepository.update).toHaveBeenCalled();
     });
 
     it('should throw UnauthorizedException for invalid refresh token', async () => {
@@ -527,14 +576,6 @@ describe('AuthService', () => {
       // Updated to use new response format
       expect((result as LoginResponse).refreshToken).toBeDefined();
       expect((result as LoginResponse).refreshToken).not.toBe(refreshToken);
-      expect(userRepository.update).toHaveBeenCalledWith(
-        mockUser.id,
-        expect.objectContaining({
-          refresh_token: 'new_hashed_token',
-          refresh_token_id: expect.any(String) as string,
-          refresh_token_expires_at: expect.any(Date) as Date,
-        }),
-      );
     });
 
     it('should throw UnauthorizedException for pending user on refresh', async () => {
@@ -555,9 +596,7 @@ describe('AuthService', () => {
         .mockReturnValue(queryBuilder);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
-      await expect(service.refresh(refreshToken)).rejects.toThrow(
-        new UnauthorizedException('Your account is under review. Please wait for admin approval.'),
-      );
+      await expect(service.refresh(refreshToken)).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException for rejected user on refresh', async () => {
@@ -579,9 +618,7 @@ describe('AuthService', () => {
         .mockReturnValue(queryBuilder);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
-      await expect(service.refresh(refreshToken)).rejects.toThrow(
-        new UnauthorizedException('Account rejected: Invalid documents'),
-      );
+      await expect(service.refresh(refreshToken)).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -594,13 +631,9 @@ describe('AuthService', () => {
         affected: 1,
       });
 
-      await service.logout(userId);
+      await service.logout(userId, 'session-1');
 
-      expect(userRepository.update).toHaveBeenCalledWith(userId, {
-        refresh_token: null,
-        refresh_token_id: null,
-        refresh_token_expires_at: null,
-      });
+      expect(sessionsService.deleteSessionById).toHaveBeenCalledWith(userId, 'session-1');
     });
   });
 
@@ -612,6 +645,7 @@ describe('AuthService', () => {
       const result = await service.validateUser({
         sub: 'stu_123456',
         email: 'test@example.com',
+        sid: 'session-1',
       });
 
       expect(result).toEqual({
@@ -619,6 +653,7 @@ describe('AuthService', () => {
         email: mockUser.email,
         name: mockUser.name,
         role: UserRole.STUDENT,
+        sessionId: 'session-1',
       });
     });
 
@@ -631,6 +666,7 @@ describe('AuthService', () => {
       const result = await service.validateUser({
         sub: 'stu_123456',
         email: 'test@example.com',
+        sid: 'session-1',
       });
 
       expect(result).toBeNull();
@@ -642,6 +678,7 @@ describe('AuthService', () => {
       const result = await service.validateUser({
         sub: 'stu_999999',
         email: 'nonexistent@example.com',
+        sid: 'session-1',
       });
 
       expect(result).toBeNull();

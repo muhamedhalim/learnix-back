@@ -16,6 +16,7 @@ import { AdminInitializationService } from './admin-init/admin-initialization.se
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
+import { getAllowedOrigins, isOriginAllowed } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
 
@@ -49,7 +50,9 @@ async function runPendingMigrations(): Promise<void> {
   try {
     const executed = await dataSource.runMigrations();
     if (executed.length > 0) {
-      logger.log(`Applied ${String(executed.length)} pending migration(s): ${executed.map((m) => m.name).join(', ')}`);
+      logger.log(
+        `Applied ${String(executed.length)} pending migration(s): ${executed.map((m) => m.name).join(', ')}`,
+      );
     }
   } finally {
     await dataSource.destroy();
@@ -71,26 +74,6 @@ function getLogLevels(): LogLevel[] {
     ? ['error', 'warn', 'log']
     : ['debug', 'log', 'warn', 'error'];
 }
-
-  function normalizeOrigin(origin: string): string {
-    return origin.replace(/\/+$/, "");
-  }
-
-  function getAllowedOrigins(): string[] {
-    const env = process.env["CORS_ORIGINS"];
-
-    if (env) {
-      return env
-        .split(",")
-        .map((o) => normalizeOrigin(o.trim()))
-        .filter(Boolean);
-    }
-
-    return [
-      "https://learnix.school",
-      "http://localhost:3000",
-    ];
-  }
 
 async function bootstrap(): Promise<void> {
   if (process.env['NODE_ENV'] === 'production') {
@@ -184,7 +167,7 @@ async function bootstrap(): Promise<void> {
       // Strict allow-list match — no wildcard suffix matching. This prevents
       // arbitrary *.vercel.app (or any look-alike) origins from making
       // credentialed cross-origin requests.
-      const isAllowed = allowedOrigins.includes(origin);
+      const isAllowed = isOriginAllowed(origin, allowedOrigins);
 
       if (isAllowed) return callback(null, true);
 
@@ -224,6 +207,8 @@ async function bootstrap(): Promise<void> {
       .setTitle('E-Learning Platform API')
       .setDescription('Backend API Documentation')
       .setVersion('1.0')
+      .addCookieAuth('access_token', { type: 'apiKey', in: 'cookie' }, 'cookie-auth')
+      // Retained only for Firebase ID-token endpoints/clients.
       .addBearerAuth(
         {
           type: 'http',

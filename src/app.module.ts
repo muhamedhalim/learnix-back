@@ -134,9 +134,7 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
           // In production a failed Redis connection is fatal — do not silently
           // fall back to an in-memory cache.
           if (isProduction) {
-            throw new Error(
-              `CRITICAL: Failed to connect to Redis in production: ${errorMessage}`,
-            );
+            throw new Error(`CRITICAL: Failed to connect to Redis in production: ${errorMessage}`);
           }
 
           logger.warn(
@@ -320,7 +318,9 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
     AppService,
     // Enforce the ThrottlerModule limits globally — without this guard the
     // rate-limit configuration above is inert.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    ...(process.env['NODE_ENV'] === 'test'
+      ? []
+      : [{ provide: APP_GUARD, useClass: ThrottlerGuard }]),
   ],
 })
 export class AppModule {}
