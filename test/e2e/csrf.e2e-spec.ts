@@ -65,7 +65,11 @@ describe('cookie session CSRF protection (e2e)', () => {
   it('rejects a mutating request with no CSRF header', async () => {
     const agent = request.agent(server);
     await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);
-    await agent.post(`${API_PREFIX}/auth/register`).send(buildRegisterPayload()).expect(403);
+    const response = await agent
+      .post(`${API_PREFIX}/auth/register`)
+      .send(buildRegisterPayload())
+      .expect(403);
+    expect(response.body.code).toBe('CSRF_TOKEN_MISSING');
   });
 
   it('rejects a header token when the signed cookie is absent', async () => {

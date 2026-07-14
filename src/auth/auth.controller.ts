@@ -244,10 +244,18 @@ export class AuthController {
       },
     },
   })
-  public getCsrfToken(@Req() request: Request): {
+  public getCsrfToken(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): {
     token: string | undefined;
     message: string;
   } {
+    // A cached bootstrap response could return a token body without applying
+    // the matching Set-Cookie header, resulting in a legitimate 403 on login.
+    // CSRF token responses are per-browser-session and must never be cached.
+    response.setHeader('Cache-Control', 'no-store, private');
+
     // Token is attached to request by CsrfGuard (handles both existing and new tokens)
     // This ensures the token is available even on the first request when cookie hasn't been set yet
     const token = (request as Request & { csrfToken?: string }).csrfToken;

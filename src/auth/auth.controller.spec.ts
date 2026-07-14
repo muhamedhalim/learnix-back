@@ -73,4 +73,15 @@ describe('AuthController session cookies', () => {
       }),
     );
   });
+
+  it('marks the CSRF bootstrap response as non-cacheable', () => {
+    const response = { setHeader: jest.fn() } as unknown as Response;
+    const result = controller.getCsrfToken(
+      { csrfToken: 'csrf-token' } as unknown as Request,
+      response,
+    );
+
+    expect(result.token).toBe('csrf-token');
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store, private');
+  });
 });

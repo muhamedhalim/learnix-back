@@ -33,6 +33,8 @@ interface ProblemDetails {
   timestamp: string;
   path?: string;
   method?: string;
+  /** Stable machine-readable error code when the exception supplies one. */
+  code?: string;
   errors?: string[];
 }
 
@@ -41,6 +43,7 @@ interface NestExceptionResponse {
   message?: string | string[];
   message_ar?: string;
   errors?: string[];
+  code?: string;
   statusCode?: number;
 }
 
@@ -87,6 +90,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let detail = 'An unexpected error occurred';
     let type = 'about:blank';
     let errors: string[] | undefined = undefined;
+    let code: string | undefined = undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -100,6 +104,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ) as unknown as NestExceptionResponse;
 
         title = responseObj.error ?? exception.name;
+        code = typeof responseObj.code === 'string' ? responseObj.code : undefined;
         detail = Array.isArray(responseObj.message)
           ? translateMessages(responseObj.message, locale).join(', ')
           : responseObj.message !== undefined
@@ -142,6 +147,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       path: request.path,
       method: request.method,
     };
+
+    if (code !== undefined) {
+      problemDetails.code = code;
+    }
 
     // Include validation errors if present
     if (errors !== undefined) {
