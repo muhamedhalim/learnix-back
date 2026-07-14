@@ -18,6 +18,14 @@ export type UploadFolderType = 'resources' | 'thumbnails' | 'profiles';
 @Index('IDX_uploaded_files_filename', ['filename'], { unique: true })
 @Index('IDX_uploaded_files_uploader_id', ['uploader_id'])
 @Index('IDX_uploaded_files_created_at', ['created_at'])
+@Index('IDX_uploaded_files_uploader_created_active', ['uploader_id', 'created_at', 'id'], {
+  where: '"deleted_at" IS NULL',
+})
+@Index(
+  'IDX_uploaded_files_uploader_folder_created_active',
+  ['uploader_id', 'folder', 'created_at', 'id'],
+  { where: '"deleted_at" IS NULL' },
+)
 export class UploadedFile {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

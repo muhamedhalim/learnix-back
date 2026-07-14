@@ -38,11 +38,9 @@ import { SkipCsrf } from '../common/guards/csrf.guard';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { UserRole } from '../users/entities/user-role.enum';
-import type {
-  FileDeleteResponseDto,
-  FileDetailsDto,
-  FileListResponseDto,
-} from './dto/file-details.dto';
+import type { FileDeleteResponseDto, FileDetailsDto } from './dto/file-details.dto';
+import { FileListResponseDto } from './dto/file-details.dto';
+import { AdminFileListQueryDto, FileListQueryDto } from './dto/file-list-query.dto';
 import { FileManagementService } from './file-management.service';
 
 @ApiTags('Uploads')
@@ -70,19 +68,14 @@ export class UploadsController {
   @Roles('teacher')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'List all files uploaded by teacher',
+    summary: 'List files uploaded by teacher',
     description:
-      'Returns a list of all files uploaded by the current teacher, with usage information.',
-  })
-  @ApiQuery({
-    name: 'folder',
-    required: false,
-    enum: ['resources', 'thumbnails', 'profiles'],
-    description: 'Filter by folder type',
+      'Returns a paginated list of files uploaded by the current teacher, with usage information.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of uploaded files',
+    description: 'Paginated list of uploaded files',
+    type: FileListResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
@@ -90,10 +83,9 @@ export class UploadsController {
   })
   public async getTeacherFiles(
     @GetUser() user: JwtPayload,
-    @Query('folder') folder?: 'resources' | 'thumbnails' | 'profiles',
+    @Query() query: FileListQueryDto,
   ): Promise<FileListResponseDto> {
-    const files = await this.fileManagementService.getUserFiles(user.userId, folder);
-    return { data: files };
+    return await this.fileManagementService.getUserFiles(user.userId, query);
   }
 
   /**
@@ -105,34 +97,21 @@ export class UploadsController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'List files for a specific user (Admin only)',
-    description: 'Returns a list of all files uploaded by a specific user. Admin only.',
-  })
-  @ApiQuery({
-    name: 'userId',
-    required: true,
-    type: String,
-    description: 'User ID to get files for',
-  })
-  @ApiQuery({
-    name: 'folder',
-    required: false,
-    enum: ['resources', 'thumbnails', 'profiles'],
-    description: 'Filter by folder type',
+    description: 'Returns a paginated list of files uploaded by a specific user. Admin only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of uploaded files',
+    description: 'Paginated list of uploaded files',
+    type: FileListResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.FORBIDDEN,
     description: 'Forbidden - Admin role required',
   })
   public async getAdminUserFiles(
-    @Query('userId', ParseUUIDPipe) userId: string,
-    @Query('folder') folder?: 'resources' | 'thumbnails' | 'profiles',
+    @Query() query: AdminFileListQueryDto,
   ): Promise<FileListResponseDto> {
-    const files = await this.fileManagementService.getUserFiles(userId, folder);
-    return { data: files };
+    return await this.fileManagementService.getUserFiles(query.userId, query);
   }
 
   /**

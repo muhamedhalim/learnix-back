@@ -9,15 +9,151 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
-import { Book } from '../books/entities/book.entity';
 import { biBody } from '../i18n/error-translator.util';
-import { Lesson } from '../lessons/entities/lesson.entity';
-import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-import type { FileDetailsDto, FileReferenceDto, FileUsageDto } from './dto/file-details.dto';
+import type {
+  FileDetailsDto,
+  FileListResponseDto,
+  FileReferenceDto,
+  FileUsageDto,
+} from './dto/file-details.dto';
+import type { FileListQueryDto } from './dto/file-list-query.dto';
 import type { UploadFolderType } from './entities/uploaded-file.entity';
 import { UploadedFile } from './entities/uploaded-file.entity';
 import { UploadService } from './upload.service';
+
+interface FileListRawRow {
+  id: string;
+  filename: string;
+  original_filename: string;
+  folder: UploadFolderType;
+  mime_type: string;
+  size: string | number;
+  created_at: Date | string;
+  used_in: FileReferenceDto[] | string | null;
+}
+
+interface FileUsageRawRow {
+  filename: string;
+  used_in: FileReferenceDto[] | string | null;
+}
+
+// Usage is intentionally aggregated by PostgreSQL. This keeps both the list and
+// single-file usage paths at a constant number of database round trips.
+const FILE_USAGE_SELECT = `
+  COALESCE(
+    (
+      SELECT jsonb_agg(
+        usage_reference.reference
+        ORDER BY usage_reference.entity_type, usage_reference.entity_id, usage_reference.field_name
+      )
+      FROM (
+        SELECT
+          'lesson' AS entity_type,
+          lesson.id::text AS entity_id,
+          'video_url' AS field_name,
+          jsonb_build_object(
+            'entityType', 'lesson',
+            'entityId', lesson.id,
+            'field', 'video_url',
+            'entityTitle', lesson.title
+          ) AS reference
+        FROM lessons lesson
+        WHERE lesson.deleted_at IS NULL
+          AND POSITION(uploaded_file.filename IN lesson.video_url) > 0
+
+        UNION ALL
+
+        SELECT
+          'lesson',
+          lesson.id::text,
+          'thumbnail',
+          jsonb_build_object(
+            'entityType', 'lesson',
+            'entityId', lesson.id,
+            'field', 'thumbnail',
+            'entityTitle', lesson.title
+          )
+        FROM lessons lesson
+        WHERE lesson.deleted_at IS NULL
+          AND POSITION(uploaded_file.filename IN lesson.thumbnail) > 0
+
+        UNION ALL
+
+        SELECT
+          'book',
+          book.id::text,
+          'book_file',
+          jsonb_build_object(
+            'entityType', 'book',
+            'entityId', book.id,
+            'field', 'book_file',
+            'entityTitle', book.title
+          )
+        FROM books book
+        WHERE book.deleted_at IS NULL
+          AND POSITION(uploaded_file.filename IN book.book_file) > 0
+
+        UNION ALL
+
+        SELECT
+          'book',
+          book.id::text,
+          'cover_image',
+          jsonb_build_object(
+            'entityType', 'book',
+            'entityId', book.id,
+            'field', 'cover_image',
+            'entityTitle', book.title
+          )
+        FROM books book
+        WHERE book.deleted_at IS NULL
+          AND POSITION(uploaded_file.filename IN book.cover_image) > 0
+
+        UNION ALL
+
+        SELECT
+          'user',
+          app_user.id::text,
+          CASE
+            WHEN POSITION(uploaded_file.filename IN app_user.profile_picture_url) > 0
+              THEN 'profile_picture_url'
+            ELSE 'profile_picture_thumbnail_url'
+          END,
+          jsonb_build_object(
+            'entityType', 'user',
+            'entityId', app_user.id,
+            'field', CASE
+              WHEN POSITION(uploaded_file.filename IN app_user.profile_picture_url) > 0
+                THEN 'profile_picture_url'
+              ELSE 'profile_picture_thumbnail_url'
+            END,
+            'entityTitle', app_user.name
+          )
+        FROM users app_user
+        WHERE app_user.deleted_at IS NULL
+          AND (
+            POSITION(uploaded_file.filename IN app_user.profile_picture_url) > 0
+            OR POSITION(uploaded_file.filename IN app_user.profile_picture_thumbnail_url) > 0
+          )
+      ) usage_reference
+    ),
+    '[]'::jsonb
+  )
+`;
+
+function parseFileReferences(value: FileListRawRow['used_in']): FileReferenceDto[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as FileReferenceDto[]) : [];
+  }
+
+  return [];
+}
 
 @Injectable()
 export class FileManagementService {
@@ -26,12 +162,6 @@ export class FileManagementService {
   constructor(
     @InjectRepository(UploadedFile)
     private readonly uploadedFilesRepository: Repository<UploadedFile>,
-    @InjectRepository(Lesson)
-    private readonly lessonsRepository: Repository<Lesson>,
-    @InjectRepository(Book)
-    private readonly booksRepository: Repository<Book>,
-    @InjectRepository(User)
-    private readonly usersRepository: Repository<User>,
     private readonly uploadService: UploadService,
   ) {}
 
@@ -61,138 +191,98 @@ export class FileManagementService {
   }
 
   /**
-   * Get all files uploaded by a specific user
+   * Return one bounded page using exactly two queries: one count and one list
+   * query. Usage references are aggregated in the list query, never per file.
    */
-  public async getUserFiles(userId: string, folder?: UploadFolderType): Promise<FileDetailsDto[]> {
-    const whereClause: {
-      uploader_id: string;
-      deleted_at: ReturnType<typeof IsNull>;
-      folder?: UploadFolderType;
-    } = {
-      uploader_id: userId,
-      deleted_at: IsNull(),
-    };
+  public async getUserFiles(userId: string, query: FileListQueryDto): Promise<FileListResponseDto> {
+    const page = query.page;
+    const limit = query.limit;
+    const offset = (page - 1) * limit;
 
-    if (folder !== undefined) {
-      whereClause.folder = folder;
-    }
+    const baseQuery = this.uploadedFilesRepository
+      .createQueryBuilder('uploaded_file')
+      .where('uploaded_file.uploader_id = :userId', { userId })
+      .andWhere('uploaded_file.deleted_at IS NULL');
 
-    const files = await this.uploadedFilesRepository.find({
-      where: whereClause,
-      order: { created_at: 'DESC' },
-    });
-
-    const filesWithUsage: FileDetailsDto[] = [];
-    for (const file of files) {
-      const usage = await this.getFileUsage(file.filename);
-      filesWithUsage.push({
-        id: file.id,
-        filename: file.filename,
-        originalFilename: file.original_filename,
-        folder: file.folder,
-        mimeType: file.mime_type,
-        size: file.size,
-        uploadedAt: file.created_at,
-        usedIn: usage.usedIn,
+    if (query.folder !== undefined) {
+      baseQuery.andWhere('uploaded_file.folder = :folder', {
+        folder: query.folder,
       });
     }
 
-    return filesWithUsage;
+    if (query.search !== undefined && query.search !== '') {
+      baseQuery.andWhere(
+        '(uploaded_file.filename ILIKE :search OR uploaded_file.original_filename ILIKE :search)',
+        { search: `%${query.search}%` },
+      );
+    }
+
+    const countQuery = baseQuery.clone();
+    const pageIdsQuery = baseQuery
+      .clone()
+      .select('uploaded_file.id')
+      .orderBy('uploaded_file.created_at', 'DESC')
+      .addOrderBy('uploaded_file.id', 'DESC')
+      .offset(offset)
+      .limit(limit);
+
+    // The page is selected before evaluating the correlated usage projection.
+    // Without this subquery PostgreSQL may evaluate usage for every discarded
+    // offset row, making deep pages progressively slower.
+    const listQuery = this.uploadedFilesRepository
+      .createQueryBuilder('uploaded_file')
+      .select('uploaded_file.id', 'id')
+      .addSelect('uploaded_file.filename', 'filename')
+      .addSelect('uploaded_file.original_filename', 'original_filename')
+      .addSelect('uploaded_file.folder', 'folder')
+      .addSelect('uploaded_file.mime_type', 'mime_type')
+      .addSelect('uploaded_file.size', 'size')
+      .addSelect('uploaded_file.created_at', 'created_at')
+      .addSelect(FILE_USAGE_SELECT, 'used_in')
+      .where(`uploaded_file.id IN (${pageIdsQuery.getQuery()})`)
+      .setParameters(pageIdsQuery.getParameters())
+      .orderBy('uploaded_file.created_at', 'DESC')
+      .addOrderBy('uploaded_file.id', 'DESC');
+
+    const [total, rows] = await Promise.all([
+      countQuery.getCount(),
+      listQuery.getRawMany<FileListRawRow>(),
+    ]);
+
+    const data: FileDetailsDto[] = rows.map((row) => ({
+      id: row.id,
+      filename: row.filename,
+      originalFilename: row.original_filename,
+      folder: row.folder,
+      mimeType: row.mime_type,
+      size: Number(row.size),
+      uploadedAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      usedIn: parseFileReferences(row.used_in),
+    }));
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   /**
    * Check where a file is being used across the platform
    */
   public async getFileUsage(filename: string): Promise<FileUsageDto> {
-    const references: FileReferenceDto[] = [];
+    const row = await this.uploadedFilesRepository
+      .createQueryBuilder('uploaded_file')
+      .select('uploaded_file.filename', 'filename')
+      .addSelect(FILE_USAGE_SELECT, 'used_in')
+      .where('uploaded_file.filename = :filename', { filename })
+      .getRawOne<FileUsageRawRow>();
 
-    // Check lessons (video_url, thumbnail_url)
-    const lessonsWithVideo = await this.lessonsRepository
-      .createQueryBuilder('lesson')
-      .where('lesson.deleted_at IS NULL')
-      .andWhere('lesson.video_url LIKE :pattern', { pattern: `%${filename}%` })
-      .select(['lesson.id', 'lesson.title'])
-      .getMany();
-
-    for (const lesson of lessonsWithVideo) {
-      references.push({
-        entityType: 'lesson',
-        entityId: lesson.id,
-        field: 'video_url',
-        entityTitle: lesson.title,
-      });
-    }
-
-    const lessonsWithThumbnail = await this.lessonsRepository
-      .createQueryBuilder('lesson')
-      .where('lesson.deleted_at IS NULL')
-      .andWhere('lesson.thumbnail_url LIKE :pattern', {
-        pattern: `%${filename}%`,
-      })
-      .select(['lesson.id', 'lesson.title'])
-      .getMany();
-
-    for (const lesson of lessonsWithThumbnail) {
-      references.push({
-        entityType: 'lesson',
-        entityId: lesson.id,
-        field: 'thumbnail_url',
-        entityTitle: lesson.title,
-      });
-    }
-
-    // Check books (pdf_url, cover_image)
-    const booksWithPdf = await this.booksRepository
-      .createQueryBuilder('book')
-      .where('book.deleted_at IS NULL')
-      .andWhere('book.pdf_url LIKE :pattern', { pattern: `%${filename}%` })
-      .select(['book.id', 'book.title'])
-      .getMany();
-
-    for (const book of booksWithPdf) {
-      references.push({
-        entityType: 'book',
-        entityId: book.id,
-        field: 'pdf_url',
-        entityTitle: book.title,
-      });
-    }
-
-    const booksWithCover = await this.booksRepository
-      .createQueryBuilder('book')
-      .where('book.deleted_at IS NULL')
-      .andWhere('book.cover_image LIKE :pattern', { pattern: `%${filename}%` })
-      .select(['book.id', 'book.title'])
-      .getMany();
-
-    for (const book of booksWithCover) {
-      references.push({
-        entityType: 'book',
-        entityId: book.id,
-        field: 'cover_image',
-        entityTitle: book.title,
-      });
-    }
-
-    // Check users (profile_picture_url, profile_picture_thumbnail_url)
-    const usersWithProfile = await this.usersRepository
-      .createQueryBuilder('user')
-      .where('user.deleted_at IS NULL')
-      .andWhere(
-        '(user.profile_picture_url LIKE :pattern OR user.profile_picture_thumbnail_url LIKE :pattern)',
-        { pattern: `%${filename}%` },
-      )
-      .select(['user.id', 'user.name'])
-      .getMany();
-
-    for (const user of usersWithProfile) {
-      references.push({
-        entityType: 'user',
-        entityId: user.id,
-        field: 'profile_picture_url',
-        entityTitle: user.name,
-      });
-    }
+    const references = parseFileReferences(row?.used_in ?? null);
 
     return {
       filename,

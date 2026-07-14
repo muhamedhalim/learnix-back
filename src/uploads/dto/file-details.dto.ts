@@ -66,6 +66,17 @@ export class FileDetailsDto {
 export class FileListResponseDto {
   @ApiProperty({ type: [FileDetailsDto], description: 'List of files' })
   public data!: FileDetailsDto[];
+
+  @ApiProperty({
+    description: 'Pagination metadata',
+    example: { page: 1, limit: 10, total: 42, totalPages: 5 },
+  })
+  public meta!: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 export class FileDeleteResponseDto {
