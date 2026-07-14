@@ -84,4 +84,28 @@ describe('AuthController session cookies', () => {
     expect(result.token).toBe('csrf-token');
     expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store, private');
   });
+
+  it('uses secure cross-site cookies on proxied HTTPS even with a bad NODE_ENV', async () => {
+    process.env['NODE_ENV'] = 'development';
+    (authService.login as jest.Mock).mockResolvedValue({
+      status: 'approved',
+      accessToken: 'secret-access',
+      refreshToken: 'secret-refresh',
+      role: 'student',
+      userId: 'user-1',
+    });
+    const response = { cookie: jest.fn(), clearCookie: jest.fn() } as unknown as Response;
+
+    await controller.login(
+      { email: 'student@example.com', password: 'Password123!' },
+      { headers: {}, secure: true } as unknown as Request,
+      response,
+    );
+
+    expect(response.cookie).toHaveBeenCalledWith(
+      ACCESS_TOKEN_COOKIE,
+      'secret-access',
+      expect.objectContaining({ secure: true, sameSite: 'none', partitioned: true }),
+    );
+  });
 });

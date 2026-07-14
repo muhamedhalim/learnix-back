@@ -62,6 +62,20 @@ describe('cookie session CSRF protection (e2e)', () => {
     await agent.post(`${API_PREFIX}/auth/logout`).set('X-CSRF-Token', csrfToken).expect(200);
   });
 
+  it('emits cross-site CSRF cookie attributes behind the HTTPS reverse proxy', async () => {
+    const response = await request(server)
+      .get(`${API_PREFIX}/auth/csrf-token`)
+      .set('X-Forwarded-Proto', 'https')
+      .expect(200);
+    const cookie = ((response.headers['set-cookie'] as unknown as string[]) ?? []).find((value) =>
+      value.startsWith('XSRF-TOKEN='),
+    );
+
+    expect(cookie).toMatch(/Secure/i);
+    expect(cookie).toMatch(/SameSite=None/i);
+    expect(cookie).toMatch(/Partitioned/i);
+  });
+
   it('rejects a mutating request with no CSRF header', async () => {
     const agent = request.agent(server);
     await agent.get(`${API_PREFIX}/auth/csrf-token`).expect(200);

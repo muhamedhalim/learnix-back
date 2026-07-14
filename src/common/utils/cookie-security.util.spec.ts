@@ -29,12 +29,12 @@ describe('getCrossSiteCookieOptions', () => {
     expect(result).toEqual({ secure: true, sameSite: 'none', partitioned: true });
   });
 
-  it('uses Lax/non-Secure in development even over HTTPS', () => {
+  it('uses secure cross-site cookies for HTTPS even when NODE_ENV is misconfigured', () => {
     process.env['NODE_ENV'] = 'development';
 
     const result = getCrossSiteCookieOptions(mockRequest(true));
 
-    expect(result).toEqual({ secure: false, sameSite: 'lax', partitioned: false });
+    expect(result).toEqual({ secure: true, sameSite: 'none', partitioned: true });
   });
 
   it('uses Lax/non-Secure in development over plain HTTP (typical localhost)', () => {

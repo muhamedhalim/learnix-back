@@ -23,6 +23,10 @@ async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
 
   const app = moduleFixture.createNestApplication();
 
+  // Match `main.ts`: production TLS terminates at the reverse proxy, so
+  // `request.secure` must use X-Forwarded-Proto when issuing cookies.
+  app.set('trust proxy', 1);
+
   const cookieSecret =
     process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'] ?? 'test-cookie-secret';
   app.use(cookieParser(cookieSecret));
