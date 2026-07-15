@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -43,6 +44,11 @@ export class CreateExamDto {
   @IsOptional()
   @IsUUID('4')
   public lesson_id?: string;
+
+  @ApiPropertyOptional({ description: 'Explicit opt-in for a public quiz surface', default: false })
+  @IsOptional()
+  @IsBoolean()
+  public is_public?: boolean;
 
   @ApiProperty({ minimum: 0 })
   @IsInt()

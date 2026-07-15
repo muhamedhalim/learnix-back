@@ -73,6 +73,7 @@ export class PracticeService {
     const qb = this.questions
       .createQueryBuilder('q')
       .where('q.is_active = true')
+      .andWhere('q.is_public = true')
       .andWhere('q.deleted_at IS NULL')
       // Practice is objective-only — exclude any type that needs manual grading
       // (e.g. essay), so a served question can always be graded instantly.
@@ -133,7 +134,7 @@ export class PracticeService {
     },
   ): Promise<SubmitResult> {
     const question = await this.questions.findOne({
-      where: { id: dto.questionId, is_active: true },
+      where: { id: dto.questionId, is_active: true, is_public: true },
     });
     if (!question) throw new NotFoundException(biBody('Question not found', 'السؤال غير موجود'));
 

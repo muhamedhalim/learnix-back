@@ -3,7 +3,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
-import { PaymentsModule } from '../payments/payments.module';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -34,6 +33,7 @@ import { AdminExamsService } from './services/admin-exams.service';
 import { AttemptGradingService } from './services/attempt-grading.service';
 import { AttemptService } from './services/attempt.service';
 import { ExamAiGradingService } from './services/exam-ai-grading.service';
+import { ExamAccessService } from './services/exam-access.service';
 import { ExamAuthoringService } from './services/exam-authoring.service';
 import { ExamGradedPublisher } from './services/exam-graded-publisher.service';
 import { ExamJobsService } from './services/exam-jobs.service';
@@ -70,7 +70,6 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       { name: QUEUE_NAMES.EXAM_AI_GRADING, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_AI_GRADING] },
       { name: QUEUE_NAMES.EXAM_OMR, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR] },
     ),
-    PaymentsModule, // enrollment/access checks (hasLessonPlaybackAccess)
     AnalyticsModule, // exam analytics recomputation
   ],
   controllers: [
@@ -86,6 +85,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     QuestionTypeRegistry,
     GradingService,
     QuestionBankService,
+    ExamAccessService,
     ExamAuthoringService,
     AttemptService,
     AttemptGradingService,

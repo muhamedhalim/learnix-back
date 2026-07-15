@@ -49,7 +49,9 @@ export class ExamAuthoringService {
 
   public async createExam(teacherId: string, dto: CreateExamDto): Promise<Exam> {
     await this.assertSubject(dto.subject_id);
-    if (dto.lesson_id !== undefined) await this.assertLesson(dto.lesson_id);
+    if (dto.lesson_id !== undefined) {
+      await this.assertLesson(dto.lesson_id, teacherId, dto.subject_id);
+    }
 
     const exam = this.exams.create({
       teacher_id: teacherId,
@@ -60,6 +62,7 @@ export class ExamAuthoringService {
       description: dto.description ?? null,
       description_ar: dto.description_ar ?? null,
       status: ExamStatus.DRAFT,
+      is_public: dto.is_public ?? false,
       config: this.mergeConfig(DEFAULT_EXAM_CONFIG, dto.config),
       total_marks: 0,
       passing_marks: dto.passing_marks,
@@ -71,7 +74,11 @@ export class ExamAuthoringService {
     const exam = await this.findOwned(examId, teacherId);
     this.assertDraft(exam);
     if (dto.subject_id !== undefined) await this.assertSubject(dto.subject_id);
-    if (dto.lesson_id !== undefined) await this.assertLesson(dto.lesson_id);
+    const nextSubjectId = dto.subject_id ?? exam.subject_id;
+    const nextLessonId = dto.lesson_id ?? exam.lesson_id;
+    if (nextLessonId !== null) {
+      await this.assertLesson(nextLessonId, teacherId, nextSubjectId);
+    }
 
     Object.assign(exam, {
       title: dto.title ?? exam.title,
@@ -80,6 +87,7 @@ export class ExamAuthoringService {
       description_ar: dto.description_ar ?? exam.description_ar,
       subject_id: dto.subject_id ?? exam.subject_id,
       lesson_id: dto.lesson_id ?? exam.lesson_id,
+      is_public: dto.is_public ?? exam.is_public,
       passing_marks: dto.passing_marks ?? exam.passing_marks,
       config: dto.config ? this.mergeConfig(exam.config, dto.config) : exam.config,
     });
@@ -362,11 +370,28 @@ export class ExamAuthoringService {
     }
   }
 
-  private async assertLesson(lessonId: string): Promise<void> {
-    const exists = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
-    if (!exists) {
+  private async assertLesson(
+    lessonId: string,
+    teacherId: string,
+    subjectId: string,
+  ): Promise<void> {
+    const lesson = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
+    if (!lesson) {
       throw new NotFoundException(
         biBody(`Lesson ${lessonId} not found`, `الدرس ${lessonId} غير موجود`),
+      );
+    }
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only target one of your own lessons', 'يمكنك فقط استهداف درس من دروسك'),
+      );
+    }
+    if (lesson.subject_id !== subjectId) {
+      throw new BadRequestException(
+        biBody(
+          'The target lesson does not belong to the selected subject',
+          'الدرس المستهدف لا ينتمي إلى المادة المحددة',
+        ),
       );
     }
   }

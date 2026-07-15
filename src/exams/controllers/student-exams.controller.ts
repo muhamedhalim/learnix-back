@@ -23,6 +23,7 @@ import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagin
 import { ExamFilterDto, SaveAnswersDto, SubmitAttemptDto } from '../dto';
 import { Exam, ExamStatus } from '../entities';
 import { AttemptService } from '../services/attempt.service';
+import { ExamAccessService } from '../services/exam-access.service';
 
 /**
  * Student-facing exam endpoints: browse available exams, start/resume an
@@ -37,12 +38,16 @@ import { AttemptService } from '../services/attempt.service';
 export class StudentExamsController {
   constructor(
     private readonly attempts: AttemptService,
+    private readonly access: ExamAccessService,
     @InjectRepository(Exam) private readonly exams: Repository<Exam>,
   ) {}
 
   @Get()
   @ApiOperation({ summary: 'List published exams available to take' })
-  public async list(@Query() filter: ExamFilterDto): Promise<PaginatedResponse<unknown>> {
+  public async list(
+    @GetUser() user: JwtPayload,
+    @Query() filter: ExamFilterDto,
+  ): Promise<PaginatedResponse<unknown>> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
     const qb = this.exams
@@ -53,9 +58,13 @@ export class StudentExamsController {
       .andWhere('exam.status IN (:...statuses)', {
         statuses: [ExamStatus.PUBLISHED, ExamStatus.SCHEDULED],
       });
+    this.access.applyStudentScope(qb, user.userId);
     if (filter.subject_id) qb.andWhere('exam.subject_id = :s', { s: filter.subject_id });
-    if (filter.search) qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
-    qb.orderBy('exam.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+    if (filter.search)
+      qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
+    qb.orderBy('exam.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
 
     const [rows, total] = await qb.getManyAndCount();
     const data = rows.map((e) => ({
@@ -73,7 +82,12 @@ export class StudentExamsController {
     }));
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
-      total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
     };
     return { data, meta };
   }

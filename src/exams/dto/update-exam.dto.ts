@@ -3,6 +3,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -46,6 +47,11 @@ export class UpdateExamDto {
   @IsOptional()
   @IsUUID('4')
   public lesson_id?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  public is_public?: boolean;
 
   @ApiPropertyOptional({ minimum: 0 })
   @IsOptional()

@@ -10,11 +10,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, In, IsNull, LessThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, Repository } from 'typeorm';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
-import { PaymentsService } from '../../payments/services/payments.service';
 import { SaveAnswersDto, SubmitAttemptDto } from '../dto';
 import {
   AttemptState,
@@ -28,6 +27,7 @@ import {
   ReviewPolicy,
 } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
+import { ExamAccessService } from './exam-access.service';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
 import { deriveSeed, seededShuffle } from './shuffle.util';
@@ -89,15 +89,15 @@ export class AttemptService {
     private readonly dataSource: DataSource,
     private readonly gradingOrchestrator: AttemptGradingService,
     private readonly jobs: ExamJobsService,
-    private readonly payments: PaymentsService,
+    private readonly access: ExamAccessService,
     private readonly examGradedPublisher: ExamGradedPublisher,
   ) {}
 
   // ==================== START / RESUME ====================
 
   public async startAttempt(studentId: string, examId: string): Promise<RenderedAttempt> {
-    const exam = await this.loadOpenExam(examId);
-    await this.assertAccessible(exam, studentId);
+    const exam = await this.access.findAccessiblePrivateExam(studentId, examId);
+    this.assertOpen(exam);
 
     // Resume an existing in-progress attempt rather than creating a second one.
     const inProgress = await this.attempts.findOne({
@@ -196,6 +196,7 @@ export class AttemptService {
    * attempt (in progress or already finalised) as-is rather than duplicating.
    */
   public async createOmrAttempt(examId: string, studentId: string): Promise<ExamAttempt> {
+    await this.access.assertCanAccessPrivateExam(studentId, examId);
     const existing = await this.attempts.findOne({
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },
@@ -248,6 +249,7 @@ export class AttemptService {
   /** Resume/get an attempt (lazily finalises if the deadline already passed). */
   public async getAttempt(studentId: string, attemptId: string): Promise<RenderedAttempt> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
+    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
     return this.renderAttempt(await this.finalizeIfExpired(attempt));
   }
 
@@ -259,6 +261,7 @@ export class AttemptService {
     dto: SaveAnswersDto,
   ): Promise<{ saved: number; state: AttemptState }> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
+    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
     if (attempt.state !== AttemptState.IN_PROGRESS) {
       throw new ConflictException(
         biBody(
@@ -305,6 +308,7 @@ export class AttemptService {
     dto: SubmitAttemptDto,
   ): Promise<SubmissionSummary> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
+    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
     return this.finalize(attempt.id, { auto: false, submitDto: dto });
   }
 
@@ -455,6 +459,7 @@ export class AttemptService {
   // ==================== RESULT ====================
 
   public async getResult(studentId: string, examId: string): Promise<unknown> {
+    await this.access.assertCanAccessPrivateExam(studentId, examId);
     const attempt = await this.attempts.findOne({
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },
@@ -518,13 +523,7 @@ export class AttemptService {
 
   // ==================== HELPERS ====================
 
-  private async loadOpenExam(examId: string): Promise<Exam> {
-    const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
-    if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
-    return exam;
-  }
-
-  private async assertAccessible(exam: Exam, studentId: string): Promise<void> {
+  private assertOpen(exam: Exam): void {
     if (exam.status !== ExamStatus.PUBLISHED && exam.status !== ExamStatus.SCHEDULED) {
       throw new ForbiddenException(biBody('This exam is not available', 'هذا الاختبار غير متاح'));
     }
@@ -537,17 +536,6 @@ export class AttemptService {
     }
     if (end != null && now > new Date(end).getTime()) {
       throw new ForbiddenException(biBody('This exam has closed', 'تم إغلاق هذا الاختبار'));
-    }
-    if (exam.lesson_id != null) {
-      const hasAccess = await this.payments.hasLessonPlaybackAccess(studentId, exam.lesson_id);
-      if (!hasAccess) {
-        throw new ForbiddenException(
-          biBody(
-            'You must be enrolled in the related lesson to take this exam',
-            'يجب أن تكون مسجلاً في الدرس المرتبط لأداء هذا الاختبار',
-          ),
-        );
-      }
     }
   }
 

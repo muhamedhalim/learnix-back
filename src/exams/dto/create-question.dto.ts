@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsObject,
@@ -32,6 +33,14 @@ export class CreateQuestionDto {
   @IsOptional()
   @IsUUID('4')
   public lesson_id?: string;
+
+  @ApiPropertyOptional({
+    description: 'Include in public practice and leaderboard scoring',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  public is_public?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

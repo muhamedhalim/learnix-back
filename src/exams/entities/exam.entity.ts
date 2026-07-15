@@ -74,6 +74,11 @@ export class Exam {
   @Index('IDX_exams_status')
   status!: ExamStatus;
 
+  /** Public quizzes are never mixed into the instructor-assigned exam feed. */
+  @Column({ type: 'boolean', name: 'is_public', default: false })
+  @Index('IDX_exams_is_public')
+  is_public!: boolean;
+
   @Column({ type: 'jsonb' })
   config!: ExamConfig;
 

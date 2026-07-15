@@ -103,6 +103,11 @@ export class Question {
   @Column({ type: 'boolean', name: 'is_active', default: true })
   is_active!: boolean;
 
+  /** Explicit opt-in for the public practice/leaderboard question pool. */
+  @Column({ type: 'boolean', name: 'is_public', default: false })
+  @Index('IDX_questions_is_public')
+  is_public!: boolean;
+
   @OneToMany('QuestionVersion', 'question')
   versions!: Relation<QuestionVersion[]>;
 

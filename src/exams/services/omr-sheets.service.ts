@@ -16,6 +16,7 @@ import { StorageService } from '../../storage/storage.service';
 import { CreateOmrSheetDto } from '../dto';
 import { Exam, OmrSheet, OmrSheetStatus } from '../entities';
 import { ExamJobsService } from './exam-jobs.service';
+import { ExamAccessService } from './exam-access.service';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -40,6 +41,7 @@ export class OmrSheetsService {
     @InjectRepository(OmrSheet) private readonly sheets: Repository<OmrSheet>,
     private readonly storage: StorageService,
     private readonly jobs: ExamJobsService,
+    private readonly access: ExamAccessService,
   ) {}
 
   public async create(
@@ -49,6 +51,7 @@ export class OmrSheetsService {
     file: MulterFile | undefined,
   ): Promise<OmrSheet> {
     await this.assertOwned(examId, teacherId);
+    await this.access.assertCanAccessPrivateExam(dto.student_id, examId);
 
     if (!file) {
       throw new BadRequestException(

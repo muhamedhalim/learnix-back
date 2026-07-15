@@ -35,7 +35,9 @@ export class QuestionBankService {
   /** Create a bank question and snapshot version 1. */
   public async create(teacherId: string, dto: CreateQuestionDto): Promise<Question> {
     await this.assertSubject(dto.subject_id);
-    if (dto.lesson_id !== undefined) await this.assertLesson(dto.lesson_id);
+    if (dto.lesson_id !== undefined) {
+      await this.assertLesson(dto.lesson_id, teacherId, dto.subject_id);
+    }
     this.validatePayload(dto.type, dto.content, dto.answer_key);
 
     return this.dataSource.transaction(async (manager) => {
@@ -53,6 +55,7 @@ export class QuestionBankService {
         default_marks: dto.default_marks,
         tags: dto.tags ?? [],
         current_version: 1,
+        is_public: dto.is_public ?? false,
       });
       const saved = await manager.save(Question, question);
       await manager.save(
@@ -76,7 +79,11 @@ export class QuestionBankService {
     const question = await this.findOwned(id, teacherId);
 
     if (dto.subject_id !== undefined) await this.assertSubject(dto.subject_id);
-    if (dto.lesson_id !== undefined) await this.assertLesson(dto.lesson_id);
+    const nextSubjectId = dto.subject_id ?? question.subject_id;
+    const nextLessonId = dto.lesson_id ?? question.lesson_id;
+    if (nextLessonId !== null) {
+      await this.assertLesson(nextLessonId, teacherId, nextSubjectId);
+    }
 
     const nextContent = dto.content ?? question.content;
     const nextAnswerKey = dto.answer_key ?? question.answer_key;
@@ -99,6 +106,7 @@ export class QuestionBankService {
         answer_key: nextAnswerKey,
         default_marks: dto.default_marks ?? question.default_marks,
         tags: dto.tags ?? question.tags,
+        is_public: dto.is_public ?? question.is_public,
       });
 
       if (contentChanged) {
@@ -200,11 +208,28 @@ export class QuestionBankService {
     }
   }
 
-  private async assertLesson(lessonId: string): Promise<void> {
-    const exists = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
-    if (!exists) {
+  private async assertLesson(
+    lessonId: string,
+    teacherId: string,
+    subjectId: string,
+  ): Promise<void> {
+    const lesson = await this.lessons.findOne({ where: { id: lessonId, deleted_at: IsNull() } });
+    if (!lesson) {
       throw new NotFoundException(
         biBody(`Lesson ${lessonId} not found`, `الدرس ${lessonId} غير موجود`),
+      );
+    }
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only use one of your own lessons', 'يمكنك فقط استخدام درس من دروسك'),
+      );
+    }
+    if (lesson.subject_id !== subjectId) {
+      throw new BadRequestException(
+        biBody(
+          'The lesson does not belong to the selected subject',
+          'الدرس لا ينتمي إلى المادة المحددة',
+        ),
       );
     }
   }
