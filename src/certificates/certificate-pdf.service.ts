@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
@@ -19,6 +21,18 @@ const DEFAULT_TEMPLATE = {
   signature_title: null as string | null,
   signature_title_ar: null as string | null,
   accent_color: '#6d28d9',
+  layout: 'classic' as const,
+  font: 'sans' as const,
+  title_font_size: 34,
+  body_font_size: 16,
+  text_alignment: 'center' as const,
+};
+
+const LEARNIX_QUOTE = {
+  [PreferredLanguage.EN]:
+    'At Learnix, we believe every achievement is a step toward a brighter future. Keep learning, growing, and moving forward.',
+  [PreferredLanguage.AR]:
+    'في Learnix، نؤمن بأن كل إنجاز هو خطوة نحو مستقبل أكثر إشراقاً. واصل التعلّم والتقدّم.',
 };
 
 /**
@@ -71,6 +85,11 @@ export class CertificatePdfService {
     const tpl = template ?? DEFAULT_TEMPLATE;
     const ui = UI_STRINGS[isArabic ? PreferredLanguage.AR : PreferredLanguage.EN];
     const accent = this.safeColor(tpl.accent_color);
+    const alignment = tpl.text_alignment === 'left' || tpl.text_alignment === 'right'
+      ? tpl.text_alignment
+      : 'center';
+    const titleSize = this.clamp(tpl.title_font_size, 24, 54, DEFAULT_TEMPLATE.title_font_size);
+    const bodySize = this.clamp(tpl.body_font_size, 12, 24, DEFAULT_TEMPLATE.body_font_size);
 
     const verifyUrl = this.verificationUrl(certificate.verification_code);
     const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
@@ -89,8 +108,9 @@ export class CertificatePdfService {
     // glyphs at all, and PDFKit performs no Arabic contextual shaping or
     // bidi reordering on its own — both are handled ahead of time by
     // shapeArabicForPdf() before any Arabic string reaches doc.text().
-    doc.registerFont('Body', isArabic ? ARABIC_FONT_REGULAR : 'Helvetica');
-    doc.registerFont('Body-Bold', isArabic ? ARABIC_FONT_BOLD : 'Helvetica-Bold');
+    const serif = tpl.font === 'serif' && !isArabic;
+    doc.registerFont('Body', isArabic ? ARABIC_FONT_REGULAR : serif ? 'Times-Roman' : 'Helvetica');
+    doc.registerFont('Body-Bold', isArabic ? ARABIC_FONT_BOLD : serif ? 'Times-Bold' : 'Helvetica-Bold');
 
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -103,26 +123,35 @@ export class CertificatePdfService {
     const height = doc.page.height;
     const rtlText = (text: string): string => (isArabic ? shapeArabicForPdf(text) : text);
 
-    // Background + decorative border.
-    doc.rect(0, 0, width, height).fill('#ffffff');
-    doc
-      .lineWidth(6)
-      .strokeColor(accent)
-      .rect(24, 24, width - 48, height - 48)
-      .stroke();
-    doc
-      .lineWidth(1)
-      .strokeColor(accent)
-      .rect(36, 36, width - 72, height - 72)
-      .stroke();
+    // Background + fixed, pre-configured layout treatments.
+    doc.rect(0, 0, width, height).fill(tpl.layout === 'modern' ? '#f8fafc' : '#ffffff');
+    if (tpl.layout !== 'minimal') {
+      doc
+        .lineWidth(tpl.layout === 'modern' ? 10 : 6)
+        .strokeColor(accent)
+        .rect(24, 24, width - 48, height - 48)
+        .stroke();
+    }
+    if (tpl.layout === 'classic') {
+      doc
+        .lineWidth(1)
+        .strokeColor(accent)
+        .rect(36, 36, width - 72, height - 72)
+        .stroke();
+    }
+
+    // Platform branding and verification are renderer-owned, never template fields.
+    const logo = this.readLogo();
+    doc.image(logo, width / 2 - 34, 48, { fit: [68, 44] });
+    doc.fillColor(accent).font('Body-Bold').fontSize(16).text('Learnix', 0, 52, { align: 'center' });
 
     // Title.
     const title = isArabic ? tpl.title_ar || tpl.title : tpl.title;
     doc
       .fillColor(accent)
       .font('Body-Bold')
-      .fontSize(34)
-      .text(rtlText(isArabic ? title : title.toUpperCase()), 0, 90, { align: 'center' });
+      .fontSize(titleSize)
+      .text(rtlText(isArabic ? title : title.toUpperCase()), 0, 105, { align: alignment });
 
     // Body with placeholders replaced. The formatted date always mixes a
     // (possibly Arabic) month name with digits, so it is rendered as a
@@ -142,22 +171,39 @@ export class CertificatePdfService {
     doc
       .fillColor('#111827')
       .font('Body')
-      .fontSize(16)
-      .text(rtlText(ui.certifies), 0, 170, { align: 'center' });
+      .fontSize(bodySize)
+      .text(rtlText(ui.certifies), 0, 182, { align: alignment });
 
     doc
       .fillColor('#111827')
       .font('Body-Bold')
       .fontSize(30)
-      .text(rtlText(certificate.student_name), 0, 200, { align: 'center' });
+      .text(rtlText(certificate.student_name), 0, 212, { align: alignment });
 
     doc
       .fillColor('#374151')
       .font('Body')
-      .fontSize(15)
-      .text(rtlText(body), width * 0.15, 250, {
-        align: 'center',
+      .fontSize(bodySize)
+      .text(rtlText(body), width * 0.15, 262, {
+        align: alignment,
         width: width * 0.7,
+      });
+
+    if (certificate.teacher_name) {
+      doc
+        .fillColor('#4b5563')
+        .font('Body')
+        .fontSize(11)
+        .text(rtlText(certificate.teacher_name), 0, 337, { align: alignment });
+    }
+
+    doc
+      .fillColor('#6b7280')
+      .font('Body')
+      .fontSize(9)
+      .text(rtlText(LEARNIX_QUOTE[isArabic ? PreferredLanguage.AR : PreferredLanguage.EN]), width * 0.18, 365, {
+        align: 'center',
+        width: width * 0.64,
       });
 
     // Signature (left) + issue date.
@@ -246,5 +292,25 @@ export class CertificatePdfService {
   /** Guard against a malformed stored colour crashing the renderer. */
   private safeColor(color: string): string {
     return /^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_TEMPLATE.accent_color;
+  }
+
+  private clamp(value: number | undefined, min: number, max: number, fallback: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  /** The fixed platform logo is bundled/configured by the deployment, never user supplied. */
+  private readLogo(): Buffer {
+    const configured = this.configService.get<string>('CERTIFICATE_LOGO_PATH');
+    const candidates = [
+      configured,
+      join(process.cwd(), 'assets', 'Art 2.png'),
+      join(process.cwd(), '..', 'dodline', 'public', 'Art 2.png'),
+    ].filter((path): path is string => Boolean(path));
+    const path = candidates.find((candidate) => existsSync(candidate));
+    if (!path) {
+      throw new Error('Learnix certificate logo is not deployed');
+    }
+    return readFileSync(path);
   }
 }

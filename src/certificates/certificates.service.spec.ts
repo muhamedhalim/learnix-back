@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -30,7 +30,13 @@ describe('CertificatesService', () => {
   let service: CertificatesService;
 
   const certificates = { findOne: jest.fn(), find: jest.fn(), create: jest.fn(), save: jest.fn(), createQueryBuilder: jest.fn() };
-  const templates = { findOne: jest.fn() };
+  const templates = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
   const packages = { findOne: jest.fn() };
   const packageItems = { count: jest.fn() };
   const progress = { createQueryBuilder: jest.fn() };
@@ -41,6 +47,7 @@ describe('CertificatesService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    templates.createQueryBuilder.mockReturnValue(qb(0));
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CertificatesService,
@@ -144,6 +151,33 @@ describe('CertificatesService', () => {
       await service.autoIssueForCompletedLesson('S1', 'L1');
 
       expect(issueSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('template ownership', () => {
+    it('does not expose another teacher’s template', async () => {
+      templates.findOne.mockResolvedValue(null);
+
+      await expect(service.getTemplate('template-1', 'teacher-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(templates.findOne).toHaveBeenCalledWith({
+        where: { id: 'template-1', owner_id: 'teacher-1' },
+      });
+    });
+
+    it('assigns teacher ownership and removes markup from template text', async () => {
+      const input = { name: '<b>Completion</b>', title: '<script>Certificate</script>' };
+      templates.create.mockImplementation((value: unknown) => value);
+      templates.save.mockImplementation((value: unknown) => Promise.resolve(value));
+
+      const result = await service.createTemplate(input, 'teacher-1');
+
+      expect(result).toMatchObject({
+        name: 'bCompletion/b',
+        title: 'scriptCertificate/script',
+        owner_id: 'teacher-1',
+      });
     });
   });
 });

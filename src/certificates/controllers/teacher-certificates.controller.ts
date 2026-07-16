@@ -1,9 +1,13 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Req,
   StreamableFile,
   UseGuards,
@@ -19,6 +23,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
+import { CreateTemplateDto, UpdateTemplateDto } from '../dto';
 
 @ApiTags('Teacher · Certificates')
 @Controller('teacher/certificates')
@@ -32,6 +37,50 @@ export class TeacherCertificatesController {
   @ApiOperation({ summary: "Certificate analytics for the teacher's courses" })
   public analytics(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.certificatesService.getAnalytics(user.userId);
+  }
+
+  @Get('templates')
+  @ApiOperation({ summary: 'List my certificate templates' })
+  public templates(@GetUser() user: JwtPayload): Promise<unknown> {
+    return this.certificatesService.getTemplates(user.userId);
+  }
+
+  @Get('templates/:id')
+  @ApiOperation({ summary: 'Get one of my certificate templates' })
+  public template(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.getTemplate(id, user.userId);
+  }
+
+  @Post('templates')
+  @ApiOperation({ summary: 'Create my certificate template' })
+  public createTemplate(
+    @GetUser() user: JwtPayload,
+    @Body() dto: CreateTemplateDto,
+  ): Promise<unknown> {
+    return this.certificatesService.createTemplate(dto, user.userId);
+  }
+
+  @Patch('templates/:id')
+  @ApiOperation({ summary: 'Update one of my certificate templates' })
+  public updateTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTemplateDto,
+  ): Promise<unknown> {
+    return this.certificatesService.updateTemplate(id, dto, user.userId);
+  }
+
+  @Delete('templates/:id')
+  @ApiOperation({ summary: 'Delete one of my certificate templates' })
+  public async deleteTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string }> {
+    await this.certificatesService.deleteTemplate(id, user.userId);
+    return { message: 'Template deleted' };
   }
 
   @Get('preview/:packageId/pdf')

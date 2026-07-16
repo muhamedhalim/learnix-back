@@ -21,6 +21,11 @@ export class CertificateTemplate {
   @Column({ type: 'varchar', length: 120 })
   name!: string;
 
+  /** Null for platform templates managed by admins; set for teacher-owned templates. */
+  @Column({ type: 'uuid', nullable: true, name: 'owner_id' })
+  @Index('IDX_certificate_templates_owner_id')
+  owner_id!: string | null;
+
   @Column({ type: 'varchar', length: 160, default: 'Certificate of Completion' })
   title!: string;
 
@@ -49,6 +54,22 @@ export class CertificateTemplate {
   /** Accent colour (hex) used for borders/headings in the rendered PDF. */
   @Column({ type: 'varchar', length: 9, default: '#6d28d9', name: 'accent_color' })
   accent_color!: string;
+
+  /** Fixed, reviewed layouts only — never arbitrary user-supplied HTML/CSS. */
+  @Column({ type: 'varchar', length: 24, default: 'classic' })
+  layout!: 'classic' | 'modern' | 'minimal';
+
+  @Column({ type: 'varchar', length: 24, default: 'sans' })
+  font!: 'sans' | 'serif';
+
+  @Column({ type: 'smallint', default: 34, name: 'title_font_size' })
+  title_font_size!: number;
+
+  @Column({ type: 'smallint', default: 16, name: 'body_font_size' })
+  body_font_size!: number;
+
+  @Column({ type: 'varchar', length: 12, default: 'center', name: 'text_alignment' })
+  text_alignment!: 'left' | 'center' | 'right';
 
   @Column({ type: 'boolean', default: false, name: 'is_default' })
   is_default!: boolean;

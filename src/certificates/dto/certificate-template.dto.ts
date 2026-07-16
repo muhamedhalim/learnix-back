@@ -1,10 +1,14 @@
 import {
   IsBoolean,
+  IsIn,
+  IsInt,
   IsHexColor,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
+  Max,
+  Min,
 } from 'class-validator';
 
 export class CreateTemplateDto {
@@ -51,6 +55,30 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsHexColor()
   public accent_color?: string;
+
+  @IsOptional()
+  @IsIn(['classic', 'modern', 'minimal'])
+  public layout?: 'classic' | 'modern' | 'minimal';
+
+  @IsOptional()
+  @IsIn(['sans', 'serif'])
+  public font?: 'sans' | 'serif';
+
+  @IsOptional()
+  @IsInt()
+  @Min(24)
+  @Max(54)
+  public title_font_size?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(12)
+  @Max(24)
+  public body_font_size?: number;
+
+  @IsOptional()
+  @IsIn(['left', 'center', 'right'])
+  public text_alignment?: 'left' | 'center' | 'right';
 
   @IsOptional()
   @IsBoolean()
@@ -101,6 +129,30 @@ export class UpdateTemplateDto {
   @IsOptional()
   @IsHexColor()
   public accent_color?: string;
+
+  @IsOptional()
+  @IsIn(['classic', 'modern', 'minimal'])
+  public layout?: 'classic' | 'modern' | 'minimal';
+
+  @IsOptional()
+  @IsIn(['sans', 'serif'])
+  public font?: 'sans' | 'serif';
+
+  @IsOptional()
+  @IsInt()
+  @Min(24)
+  @Max(54)
+  public title_font_size?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(12)
+  @Max(24)
+  public body_font_size?: number;
+
+  @IsOptional()
+  @IsIn(['left', 'center', 'right'])
+  public text_alignment?: 'left' | 'center' | 'right';
 
   @IsOptional()
   @IsBoolean()

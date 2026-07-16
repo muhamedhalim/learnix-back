@@ -8,7 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
@@ -126,7 +126,8 @@ export class CertificatesService {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
 
-    const template = await this.findDefaultTemplate();
+    const template =
+      (await this.findDefaultTemplate(pkg.teacher_id)) ?? (await this.findDefaultTemplate());
 
     const certificate = this.certificatesRepository.create({
       certificate_number: await this.uniqueNumber(),
@@ -323,58 +324,100 @@ export class CertificatesService {
     };
   }
 
-  /* ===================== Templates (admin) ===================== */
+  /* ===================== Templates ===================== */
 
-  public getTemplates(): Promise<CertificateTemplate[]> {
-    return this.templatesRepository.find({ order: { created_at: 'DESC' } });
+  public getTemplates(ownerId?: string): Promise<CertificateTemplate[]> {
+    return this.templatesRepository.find({
+      ...(ownerId ? { where: { owner_id: ownerId } } : {}),
+      order: { created_at: 'DESC' },
+    });
   }
 
-  public async getTemplate(id: string): Promise<CertificateTemplate> {
-    const template = await this.templatesRepository.findOne({ where: { id } });
+  public async getTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
+    const template = await this.templatesRepository.findOne({
+      where: ownerId ? { id, owner_id: ownerId } : { id },
+    });
     if (!template) {
       throw new NotFoundException(biBody('Template not found', 'القالب غير موجود'));
     }
     return template;
   }
 
-  public async createTemplate(dto: CreateTemplateDto): Promise<CertificateTemplate> {
-    const template = this.templatesRepository.create(dto);
+  public async createTemplate(
+    dto: CreateTemplateDto,
+    ownerId?: string,
+  ): Promise<CertificateTemplate> {
+    const sanitized = this.sanitizeTemplateDto(dto);
+    const template = this.templatesRepository.create({
+      ...sanitized,
+      owner_id: ownerId ?? null,
+      // A teacher's most recently created design becomes the course-completion
+      // default; admin templates remain platform-managed and opt-in defaults.
+      ...(ownerId ? { is_default: true } : {}),
+    });
     const saved = await this.templatesRepository.save(template);
     if (saved.is_default) {
-      await this.unsetOtherDefaults(saved.id);
+      await this.unsetOtherDefaults(saved.id, saved.owner_id);
     }
     return saved;
   }
 
-  public async updateTemplate(id: string, dto: UpdateTemplateDto): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(id);
-    Object.assign(template, dto);
+  public async updateTemplate(
+    id: string,
+    dto: UpdateTemplateDto,
+    ownerId?: string,
+  ): Promise<CertificateTemplate> {
+    const template = await this.getTemplate(id, ownerId);
+    Object.assign(template, this.sanitizeTemplateDto(dto));
     const saved = await this.templatesRepository.save(template);
     if (saved.is_default) {
-      await this.unsetOtherDefaults(saved.id);
+      await this.unsetOtherDefaults(saved.id, saved.owner_id);
     }
     return saved;
   }
 
-  public async deleteTemplate(id: string): Promise<void> {
-    const template = await this.getTemplate(id);
+  public async deleteTemplate(id: string, ownerId?: string): Promise<void> {
+    const template = await this.getTemplate(id, ownerId);
     await this.templatesRepository.remove(template);
   }
 
   /* ===================== Helpers ===================== */
 
-  private findDefaultTemplate(): Promise<CertificateTemplate | null> {
-    return this.templatesRepository.findOne({ where: { is_default: true } });
+  private findDefaultTemplate(ownerId?: string): Promise<CertificateTemplate | null> {
+    return this.templatesRepository.findOne({
+      where: ownerId
+        ? { is_default: true, owner_id: ownerId }
+        : { is_default: true, owner_id: IsNull() },
+    });
   }
 
-  private async unsetOtherDefaults(keepId: string): Promise<void> {
-    await this.templatesRepository
+  private async unsetOtherDefaults(keepId: string, ownerId: string | null): Promise<void> {
+    const query = this.templatesRepository
       .createQueryBuilder()
       .update()
       .set({ is_default: false })
       .where('id != :keepId', { keepId })
-      .andWhere('is_default = true')
-      .execute();
+      .andWhere('is_default = true');
+    if (ownerId) {
+      query.andWhere('owner_id = :ownerId', { ownerId });
+    } else {
+      query.andWhere('owner_id IS NULL');
+    }
+    await query.execute();
+  }
+
+  /** Text is rendered as escaped text in React/PDFKit; never accept markup. */
+  private sanitizeTemplateDto<T extends CreateTemplateDto | UpdateTemplateDto>(dto: T): T {
+    const sanitized = { ...dto } as Record<string, unknown>;
+    for (const [key, value] of Object.entries(sanitized)) {
+      if (typeof value === 'string') {
+        sanitized[key] = value
+          .replace(/[<>]/g, '')
+          .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+          .trim();
+      }
+    }
+    return sanitized as T;
   }
 
   private async uniqueNumber(): Promise<string> {
