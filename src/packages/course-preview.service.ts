@@ -62,6 +62,7 @@ export class CoursePreviewService {
         id: packageId,
         deleted_at: IsNull(),
         status: CourseStatus.PUBLISHED,
+        is_active: true,
       },
       relations: ['teacher'],
     });

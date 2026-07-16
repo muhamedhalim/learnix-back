@@ -136,7 +136,7 @@ export class PackagesController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.packagesService.findOne(id);
+    return await this.packagesService.findPublicOne(id);
   }
 
   /**

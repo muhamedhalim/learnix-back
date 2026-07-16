@@ -140,10 +140,10 @@ export class TeacherPackagesController {
     description: 'Package not found',
   })
   public async findOne(
+    @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    const pkg = await this.packagesService.findOne(id);
-    return pkg;
+    return await this.packagesService.findOneForTeacher(id, user.userId);
   }
 
   /**

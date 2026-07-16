@@ -213,18 +213,60 @@ export class PackagesService {
   }
 
   /**
-   * Find a single package by ID
+   * Find a single package by ID for internal/admin use. This intentionally
+   * includes draft and inactive packages; callers must apply their own role
+   * policy rather than weakening the public catalogue policy.
    */
   public async findOne(id: string): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository
+    return this.findDetailedPackage(id);
+  }
+
+  /** Public package detail: only an active, published, non-deleted course. */
+  public async findPublicOne(id: string): Promise<PackageWithDetails> {
+    return this.findDetailedPackage(id, {
+      is_active: true,
+      status: CourseStatus.PUBLISHED,
+    });
+  }
+
+  /** Teacher detail: distinguish an absent package (404) from another owner's package (403). */
+  public async findOneForTeacher(id: string, teacherId: string): Promise<PackageWithDetails> {
+    const pkg = await this.packagesRepository.findOne({
+      where: { id, deleted_at: IsNull() },
+      select: { id: true, teacher_id: true },
+    });
+    if (!pkg) {
+      throw new NotFoundException(
+        biBody(`Package with ID ${id} not found`, `الباقة بالمعرّف ${id} غير موجودة`),
+      );
+    }
+    if (pkg.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only access your own packages', 'يمكنك فقط الوصول إلى باقاتك الخاصة'),
+      );
+    }
+    return this.findOne(id);
+  }
+
+  private async findDetailedPackage(
+    id: string,
+    visibility?: { is_active: boolean; status: CourseStatus },
+  ): Promise<PackageWithDetails> {
+    const queryBuilder = this.packagesRepository
       .createQueryBuilder('package')
       .leftJoinAndSelect('package.teacher', 'teacher')
       .leftJoinAndSelect('package.items', 'items')
       .leftJoinAndSelect('items.lesson', 'lesson')
       .where('package.id = :id', { id })
-      .andWhere('package.deleted_at IS NULL')
-      .orderBy('items.order_index', 'ASC')
-      .getOne();
+      .andWhere('package.deleted_at IS NULL');
+
+    if (visibility) {
+      queryBuilder
+        .andWhere('package.is_active = :isActive', { isActive: visibility.is_active })
+        .andWhere('package.status = :status', { status: visibility.status });
+    }
+
+    const pkg = await queryBuilder.orderBy('items.order_index', 'ASC').getOne();
 
     if (!pkg) {
       throw new NotFoundException(
