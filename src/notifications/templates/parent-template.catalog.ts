@@ -66,11 +66,15 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
       body: (v) =>
         `أتمّ ${str(v, 'studentName')} امتحان "${str(v, 'examName')}".\n` +
         `الدرجة: ${String(num(v, 'score'))}/${String(num(v, 'totalMarks'))} (${String(num(v, 'percentage'))}%)\n` +
+        `الحالة: ${v['passed'] === true ? 'ناجح' : 'غير ناجح'}\n` +
+        `التاريخ: ${str(v, 'gradedAt')}\n` +
         `الإجابات الصحيحة: ${String(num(v, 'correctAnswers'))}\n` +
         `الإجابات الخاطئة: ${String(num(v, 'wrongAnswers'))}` +
         rankLine(v, 'الترتيب') +
         notesLine(v, 'ملاحظات المعلم') +
-        (v['passed'] === true ? '\nأداء ممتاز. واصل تشجيع ابنك.' : '\nنتمنى له التوفيق في المرة القادمة.'),
+        (v['passed'] === true
+          ? '\nأداء ممتاز. واصل تشجيع ابنك.'
+          : '\nنتمنى له التوفيق في المرة القادمة.'),
     },
     [PreferredLanguage.EN]: {
       whatsappTemplateName: 'exam_graded_en',
@@ -85,6 +89,8 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
       body: (v) =>
         `${str(v, 'studentName')} completed the "${str(v, 'examName')}" exam.\n` +
         `Score: ${String(num(v, 'score'))}/${String(num(v, 'totalMarks'))} (${String(num(v, 'percentage'))}%)\n` +
+        `Status: ${v['passed'] === true ? 'Passed' : 'Failed'}\n` +
+        `Date: ${str(v, 'gradedAt')}\n` +
         `Correct answers: ${String(num(v, 'correctAnswers'))}\n` +
         `Incorrect answers: ${String(num(v, 'wrongAnswers'))}` +
         rankLine(v, 'Rank') +
@@ -113,14 +119,22 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
   [ParentEventType.HOMEWORK_ASSIGNED]: {
     [PreferredLanguage.AR]: {
       whatsappTemplateName: 'homework_assigned_ar',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'homeworkTitle'), str(v, 'dueAt', 'غير محدد')],
+      parameters: (v) => [
+        str(v, 'studentName'),
+        str(v, 'homeworkTitle'),
+        str(v, 'dueAt', 'غير محدد'),
+      ],
       body: (v) =>
         `تم إسناد واجب جديد إلى ${str(v, 'studentName')}: "${str(v, 'homeworkTitle')}" ` +
         `في درس "${str(v, 'lessonName')}".\nموعد التسليم: ${str(v, 'dueAt', 'غير محدد')}`,
     },
     [PreferredLanguage.EN]: {
       whatsappTemplateName: 'homework_assigned_en',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'homeworkTitle'), str(v, 'dueAt', 'not set')],
+      parameters: (v) => [
+        str(v, 'studentName'),
+        str(v, 'homeworkTitle'),
+        str(v, 'dueAt', 'not set'),
+      ],
       body: (v) =>
         `${str(v, 'studentName')} has new homework: "${str(v, 'homeworkTitle')}" ` +
         `in "${str(v, 'lessonName')}".\nDue: ${str(v, 'dueAt', 'not set')}`,
@@ -169,12 +183,14 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
     [PreferredLanguage.AR]: {
       whatsappTemplateName: 'parent_report_ar',
       parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) => `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
+      body: (v) =>
+        `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
     },
     [PreferredLanguage.EN]: {
       whatsappTemplateName: 'parent_report_en',
       parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) => `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
+      body: (v) =>
+        `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
     },
   },
 
@@ -182,12 +198,14 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
     [PreferredLanguage.AR]: {
       whatsappTemplateName: 'parent_report_ar',
       parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) => `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
+      body: (v) =>
+        `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
     },
     [PreferredLanguage.EN]: {
       whatsappTemplateName: 'parent_report_en',
       parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) => `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
+      body: (v) =>
+        `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
     },
   },
 

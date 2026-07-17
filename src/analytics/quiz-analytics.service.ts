@@ -55,7 +55,10 @@ export class QuizAnalyticsService {
       .createQueryBuilder('a')
       .select('COUNT(*)', 'attempts')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
+      .addSelect(
+        'AVG(CASE WHEN a.score_total IS NULL THEN NULL WHEN a.passed THEN 1 ELSE 0 END) * 100',
+        'passRate',
+      )
       .addSelect(
         'COALESCE(SUM(EXTRACT(EPOCH FROM (a.submitted_at - a.started_at))), 0)',
         'timeSeconds',
@@ -208,17 +211,38 @@ export class QuizAnalyticsService {
   public async getTeacherAnalytics(teacherId: string): Promise<{
     totalAttempts: number;
     averageScore: number;
+    highestScore: number;
+    lowestScore: number;
     passRate: number;
+    failRate: number;
     completionRate: number;
+    gradeDistribution: { range: string; count: number }[];
     mostFailedQuestions: {
       questionId: string;
       topic: string | null;
       correctRate: number;
       attempts: number;
     }[];
-    attemptTimeline: { date: string; count: number }[];
+    attemptTimeline: { date: string; count: number; avgPercent: number }[];
+    periodComparison: {
+      current: { attempts: number; avgPercent: number };
+      previous: { attempts: number; avgPercent: number };
+    };
     leaderboard: { studentName: string; avgPercent: number; attempts: number }[];
     weakLessons: { lessonTitle: string; avgPercent: number }[];
+    examComparisons: {
+      examId: string;
+      title: string;
+      attempts: number;
+      avgPercent: number;
+      passRate: number;
+    }[];
+    coursePerformance: {
+      courseId: string;
+      title: string;
+      attempts: number;
+      avgPercent: number;
+    }[];
   }> {
     const teacherExams = { teacherId };
 
@@ -228,13 +252,20 @@ export class QuizAnalyticsService {
       .select('COUNT(*)', 'total')
       .addSelect('COUNT(a.score_total)', 'scored')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
+      .addSelect('MAX(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'highestPercent')
+      .addSelect('MIN(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'lowestPercent')
+      .addSelect(
+        'AVG(CASE WHEN a.score_total IS NULL THEN NULL WHEN a.passed THEN 1 ELSE 0 END) * 100',
+        'passRate',
+      )
       .where('e.teacher_id = :teacherId', teacherExams)
       .getRawOne<{
         total: string;
         scored: string;
         avgPercent: string | null;
         passRate: string | null;
+        highestPercent: string | null;
+        lowestPercent: string | null;
       }>();
 
     const total = Number.parseInt(summary?.total ?? '0', 10);
@@ -252,7 +283,6 @@ export class QuizAnalyticsService {
       .where('e.teacher_id = :teacherId', teacherExams)
       .andWhere('aa.is_correct IS NOT NULL')
       .groupBy('aa.question_id')
-      .having('COUNT(*) >= 3')
       .orderBy('"correctRate"', 'ASC')
       .limit(10)
       .getRawMany<{
@@ -267,11 +297,50 @@ export class QuizAnalyticsService {
       .innerJoin('exams', 'e', 'e.id = a.exam_id')
       .select("TO_CHAR(a.started_at, 'YYYY-MM-DD')", 'date')
       .addSelect('COUNT(*)', 'count')
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
       .andWhere("a.started_at >= NOW() - INTERVAL '30 days'")
       .groupBy('date')
       .orderBy('date', 'ASC')
-      .getRawMany<{ date: string; count: string }>();
+      .getRawMany<{ date: string; count: string; avgPercent: string | null }>();
+
+    const periodComparison = await this.attemptsRepository
+      .createQueryBuilder('a')
+      .innerJoin('exams', 'e', 'e.id = a.exam_id')
+      .select(
+        `COUNT(*) FILTER (
+          WHERE COALESCE(a.graded_at, a.submitted_at) >= NOW() - INTERVAL '30 days'
+        )`,
+        'currentAttempts',
+      )
+      .addSelect(
+        `AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) FILTER (
+          WHERE COALESCE(a.graded_at, a.submitted_at) >= NOW() - INTERVAL '30 days'
+        ) * 100`,
+        'currentAvg',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (
+          WHERE COALESCE(a.graded_at, a.submitted_at) >= NOW() - INTERVAL '60 days'
+            AND COALESCE(a.graded_at, a.submitted_at) < NOW() - INTERVAL '30 days'
+        )`,
+        'previousAttempts',
+      )
+      .addSelect(
+        `AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) FILTER (
+          WHERE COALESCE(a.graded_at, a.submitted_at) >= NOW() - INTERVAL '60 days'
+            AND COALESCE(a.graded_at, a.submitted_at) < NOW() - INTERVAL '30 days'
+        ) * 100`,
+        'previousAvg',
+      )
+      .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('a.score_total IS NOT NULL')
+      .getRawOne<{
+        currentAttempts: string;
+        currentAvg: string | null;
+        previousAttempts: string;
+        previousAvg: string | null;
+      }>();
 
     const leaderboard = await this.attemptsRepository
       .createQueryBuilder('a')
@@ -302,11 +371,86 @@ export class QuizAnalyticsService {
       .limit(5)
       .getRawMany<{ lessonTitle: string; avgPercent: string | null }>();
 
+    const [distribution] = await this.attemptsRepository.query<
+      {
+        failing: number | string;
+        passing: number | string;
+        good: number | string;
+        excellent: number | string;
+      }[]
+    >(
+      `SELECT
+        COUNT(*) FILTER (WHERE percent < 50)::int AS failing,
+        COUNT(*) FILTER (WHERE percent >= 50 AND percent < 65)::int AS passing,
+        COUNT(*) FILTER (WHERE percent >= 65 AND percent < 85)::int AS good,
+        COUNT(*) FILTER (WHERE percent >= 85)::int AS excellent
+       FROM (
+         SELECT attempt.score_total::numeric / NULLIF(attempt.max_score, 0) * 100 AS percent
+         FROM exam_attempts attempt
+         INNER JOIN exams exam ON exam.id = attempt.exam_id
+         WHERE exam.teacher_id = $1 AND attempt.score_total IS NOT NULL
+       ) scored`,
+      [teacherId],
+    );
+
+    const examComparisons = await this.attemptsRepository
+      .createQueryBuilder('a')
+      .innerJoin('exams', 'e', 'e.id = a.exam_id')
+      .select('e.id', 'examId')
+      .addSelect('e.title', 'title')
+      .addSelect('COUNT(*)', 'attempts')
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
+      .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
+      .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('a.score_total IS NOT NULL')
+      .groupBy('e.id')
+      .addGroupBy('e.title')
+      .orderBy('MAX(a.graded_at)', 'DESC')
+      .limit(20)
+      .getRawMany<{
+        examId: string;
+        title: string;
+        attempts: string;
+        avgPercent: string | null;
+        passRate: string | null;
+      }>();
+
+    const coursePerformance = await this.attemptsRepository
+      .createQueryBuilder('a')
+      .innerJoin('exams', 'e', 'e.id = a.exam_id')
+      .innerJoin('lesson_packages', 'course', 'course.id = e.package_id')
+      .select('course.id', 'courseId')
+      .addSelect('course.title', 'title')
+      .addSelect('COUNT(*)', 'attempts')
+      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
+      .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('a.score_total IS NOT NULL')
+      .groupBy('course.id')
+      .addGroupBy('course.title')
+      .orderBy('"avgPercent"', 'ASC')
+      .getRawMany<{
+        courseId: string;
+        title: string;
+        attempts: string;
+        avgPercent: string | null;
+      }>();
+
+    const passRate = Math.round(Number(summary?.passRate ?? 0));
+
     return {
       totalAttempts: total,
       averageScore: Math.round(Number(summary?.avgPercent ?? 0)),
-      passRate: Math.round(Number(summary?.passRate ?? 0)),
+      highestScore: Math.round(Number(summary?.highestPercent ?? 0)),
+      lowestScore: Math.round(Number(summary?.lowestPercent ?? 0)),
+      passRate,
+      failRate: scored > 0 ? 100 - passRate : 0,
       completionRate: total > 0 ? Math.round((scored / total) * 100) : 0,
+      gradeDistribution: [
+        { range: '<50%', count: Number(distribution?.failing ?? 0) },
+        { range: '50–64%', count: Number(distribution?.passing ?? 0) },
+        { range: '65–84%', count: Number(distribution?.good ?? 0) },
+        { range: '85–100%', count: Number(distribution?.excellent ?? 0) },
+      ],
       mostFailedQuestions: failed.map((f) => ({
         questionId: f.questionId,
         topic: f.topic,
@@ -316,7 +460,18 @@ export class QuizAnalyticsService {
       attemptTimeline: timeline.map((t) => ({
         date: t.date,
         count: Number.parseInt(t.count, 10),
+        avgPercent: Math.round(Number(t.avgPercent ?? 0)),
       })),
+      periodComparison: {
+        current: {
+          attempts: Number(periodComparison?.currentAttempts ?? 0),
+          avgPercent: Math.round(Number(periodComparison?.currentAvg ?? 0)),
+        },
+        previous: {
+          attempts: Number(periodComparison?.previousAttempts ?? 0),
+          avgPercent: Math.round(Number(periodComparison?.previousAvg ?? 0)),
+        },
+      },
       leaderboard: leaderboard.map((l) => ({
         studentName: l.studentName,
         avgPercent: Math.round(Number(l.avgPercent ?? 0)),
@@ -325,6 +480,19 @@ export class QuizAnalyticsService {
       weakLessons: weakLessons.map((w) => ({
         lessonTitle: w.lessonTitle,
         avgPercent: Math.round(Number(w.avgPercent ?? 0)),
+      })),
+      examComparisons: examComparisons.map((exam) => ({
+        examId: exam.examId,
+        title: exam.title,
+        attempts: Number(exam.attempts),
+        avgPercent: Math.round(Number(exam.avgPercent ?? 0)),
+        passRate: Math.round(Number(exam.passRate ?? 0)),
+      })),
+      coursePerformance: coursePerformance.map((course) => ({
+        courseId: course.courseId,
+        title: course.title,
+        attempts: Number(course.attempts),
+        avgPercent: Math.round(Number(course.avgPercent ?? 0)),
       })),
     };
   }
@@ -341,6 +509,8 @@ export class QuizAnalyticsService {
       questionId: string;
       topic: string | null;
       difficulty: number;
+      correctPercentage: number;
+      incorrectPercentage: number;
       discrimination: number;
       attempts: number;
     }[]
@@ -366,15 +536,20 @@ export class QuizAnalyticsService {
       questionId: string;
       topic: string | null;
       difficulty: number;
+      correctPercentage: number;
+      incorrectPercentage: number;
       discrimination: number;
       attempts: number;
     }[] = [];
 
     for (const row of rows) {
+      const correctPercentage = Number(row.difficulty);
       result.push({
         questionId: row.questionId,
         topic: row.topic,
-        difficulty: Number(row.difficulty),
+        difficulty: correctPercentage,
+        correctPercentage,
+        incorrectPercentage: Math.max(0, 100 - correctPercentage),
         discrimination: Number(row.discrimination),
         attempts: Number(row.attempts),
       });

@@ -38,6 +38,8 @@ export class ExamGradedEvent implements ParentDomainEvent {
       totalMarks: number;
       percentage: number;
       passed: boolean;
+      status: 'passed' | 'failed';
+      gradedAt: string;
       correctAnswers: number;
       wrongAnswers: number;
       rank: number | null;

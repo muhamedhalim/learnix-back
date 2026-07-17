@@ -5,7 +5,12 @@ import { AttemptService } from './attempt.service';
 
 function buildService(options?: { attempt?: ExamAttempt }): {
   service: AttemptService;
-  access: { findAccessiblePrivateExam: jest.Mock; assertCanAccessPrivateExam: jest.Mock };
+  access: {
+    findAccessiblePrivateExam: jest.Mock;
+    assertCanAccessPrivateExam: jest.Mock;
+    findAccessibleExam: jest.Mock;
+    assertCanAccessExam: jest.Mock;
+  };
   attempts: { findOne: jest.Mock; count: jest.Mock };
   dataSource: { transaction: jest.Mock };
 } {
@@ -13,6 +18,8 @@ function buildService(options?: { attempt?: ExamAttempt }): {
   const access = {
     findAccessiblePrivateExam: jest.fn().mockRejectedValue(denied),
     assertCanAccessPrivateExam: jest.fn().mockRejectedValue(denied),
+    findAccessibleExam: jest.fn().mockRejectedValue(denied),
+    assertCanAccessExam: jest.fn().mockRejectedValue(denied),
   };
   const attempts = {
     findOne: jest.fn().mockResolvedValue(options?.attempt ?? null),
@@ -40,7 +47,7 @@ describe('AttemptService audience enforcement', () => {
     await expect(service.startAttempt('other-student', 'private-exam')).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(access.findAccessiblePrivateExam).toHaveBeenCalledWith('other-student', 'private-exam');
+    expect(access.findAccessibleExam).toHaveBeenCalledWith('other-student', 'private-exam');
     expect(attempts.findOne).not.toHaveBeenCalled();
   });
 
@@ -60,8 +67,8 @@ describe('AttemptService audience enforcement', () => {
       NotFoundException,
     );
 
-    expect(access.assertCanAccessPrivateExam).toHaveBeenCalledTimes(2);
-    expect(access.assertCanAccessPrivateExam).toHaveBeenCalledWith('student-1', 'private-exam');
+    expect(access.assertCanAccessExam).toHaveBeenCalledTimes(2);
+    expect(access.assertCanAccessExam).toHaveBeenCalledWith('student-1', 'private-exam');
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 });

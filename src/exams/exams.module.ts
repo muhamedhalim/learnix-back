@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -59,6 +60,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       OmrSheet,
       Subject,
       Lesson,
+      LessonPackage,
       // `ExamGradedPublisher` resolves the student's display name.
       User,
     ]),

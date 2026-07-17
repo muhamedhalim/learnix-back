@@ -96,7 +96,7 @@ export class AttemptService {
   // ==================== START / RESUME ====================
 
   public async startAttempt(studentId: string, examId: string): Promise<RenderedAttempt> {
-    const exam = await this.access.findAccessiblePrivateExam(studentId, examId);
+    const exam = await this.access.findAccessibleExam(studentId, examId);
     this.assertOpen(exam);
 
     // Resume an existing in-progress attempt rather than creating a second one.
@@ -249,7 +249,7 @@ export class AttemptService {
   /** Resume/get an attempt (lazily finalises if the deadline already passed). */
   public async getAttempt(studentId: string, attemptId: string): Promise<RenderedAttempt> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
-    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
+    await this.access.assertCanAccessExam(studentId, attempt.exam_id);
     return this.renderAttempt(await this.finalizeIfExpired(attempt));
   }
 
@@ -261,7 +261,7 @@ export class AttemptService {
     dto: SaveAnswersDto,
   ): Promise<{ saved: number; state: AttemptState }> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
-    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
+    await this.access.assertCanAccessExam(studentId, attempt.exam_id);
     if (attempt.state !== AttemptState.IN_PROGRESS) {
       throw new ConflictException(
         biBody(
@@ -308,7 +308,7 @@ export class AttemptService {
     dto: SubmitAttemptDto,
   ): Promise<SubmissionSummary> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
-    await this.access.assertCanAccessPrivateExam(studentId, attempt.exam_id);
+    await this.access.assertCanAccessExam(studentId, attempt.exam_id);
     return this.finalize(attempt.id, { auto: false, submitDto: dto });
   }
 
@@ -459,7 +459,7 @@ export class AttemptService {
   // ==================== RESULT ====================
 
   public async getResult(studentId: string, examId: string): Promise<unknown> {
-    await this.access.assertCanAccessPrivateExam(studentId, examId);
+    await this.access.assertCanAccessExam(studentId, examId);
     const attempt = await this.attempts.findOne({
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },

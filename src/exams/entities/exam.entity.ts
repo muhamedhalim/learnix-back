@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import type { ExamAttempt } from './exam-attempt.entity';
@@ -56,6 +57,15 @@ export class Exam {
   @ManyToOne(() => Lesson, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'lesson_id' })
   lesson!: Relation<Lesson> | null;
+
+  /** Optional course audience. New private exams target a course or a lesson. */
+  @Column({ type: 'uuid', nullable: true, name: 'package_id' })
+  @Index('IDX_exams_package_id')
+  package_id!: string | null;
+
+  @ManyToOne(() => LessonPackage, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'package_id' })
+  package!: Relation<LessonPackage> | null;
 
   @Column({ type: 'varchar', length: 255 })
   @Index('IDX_exams_title')

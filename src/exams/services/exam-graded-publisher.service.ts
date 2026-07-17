@@ -80,6 +80,8 @@ export class ExamGradedPublisher {
           totalMarks,
           percentage,
           passed: attempt.passed ?? false,
+          status: attempt.passed === true ? 'passed' : 'failed',
+          gradedAt: (attempt.graded_at ?? new Date()).toISOString(),
           correctAnswers,
           wrongAnswers,
           rank,

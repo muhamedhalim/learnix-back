@@ -1,16 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-
 import { Repository } from 'typeorm';
 
+import { AttemptState, ExamAttempt } from '../../exams/entities';
+import { biBody } from '../../i18n/error-translator.util';
 import {
-  LeaderboardMetric,
   LeaderboardQueryDto,
   LeaderboardScope,
   LeaderboardWindow,
 } from '../dto/leaderboard-query.dto';
-import { StudentGameProfile, StudentSubjectRating, XpEvent } from '../entities';
-import { biBody } from '../../i18n/error-translator.util';
+import { StudentGameProfile } from '../entities';
 
 export interface LeaderboardRow {
   rank: number;
@@ -27,6 +26,7 @@ export interface LeaderboardRow {
   school: string | null;
   grade_level: string | null;
   rank_tier: { slug: string; name: string; icon_key: string; color: string } | null;
+  attempts: number;
 }
 
 export interface LeaderboardPage {
@@ -53,86 +53,63 @@ interface RawRow {
   tier_name: string | null;
   tier_icon: string | null;
   tier_color: string | null;
+  attempts: string;
 }
 
-/**
- * DB-backed leaderboards (source of truth). All-time rating/XP boards read the
- * cached `student_game_profiles`; subject boards read `student_subject_ratings`;
- * windowed (weekly/monthly) boards aggregate the `xp_events` ledger. Redis ZSET
- * acceleration for the hottest boards is layered on in the jobs slice.
- */
+/** Public leaderboard sourced exclusively from graded attempts on public exams. */
 @Injectable()
 export class LeaderboardService {
   constructor(
     @InjectRepository(StudentGameProfile)
     private readonly profiles: Repository<StudentGameProfile>,
-    @InjectRepository(StudentSubjectRating)
-    private readonly subjectRatings: Repository<StudentSubjectRating>,
-    @InjectRepository(XpEvent)
-    private readonly xpEvents: Repository<XpEvent>,
+    @InjectRepository(ExamAttempt)
+    private readonly examAttempts: Repository<ExamAttempt>,
   ) {}
 
   public async getLeaderboard(query: LeaderboardQueryDto): Promise<LeaderboardPage> {
+    if (query.scope === LeaderboardScope.SUBJECT && !query.subject_id) {
+      throw new BadRequestException(
+        biBody(
+          'subject_id is required for a subject leaderboard',
+          'معرّف المادة مطلوب لعرض لوحة صدارة خاصة بالمادة',
+        ),
+      );
+    }
+    if (query.scope === LeaderboardScope.GRADE && !query.grade_level) {
+      throw new BadRequestException(
+        biBody('grade_level is required for a grade leaderboard', 'المرحلة الدراسية مطلوبة'),
+      );
+    }
+    if (query.scope === LeaderboardScope.GOVERNORATE && !query.governorate) {
+      throw new BadRequestException(
+        biBody('governorate is required for a governorate leaderboard', 'المحافظة مطلوبة'),
+      );
+    }
+
     const page = query.page;
     const limit = query.limit;
     const offset = (page - 1) * limit;
-
-    if (query.scope === LeaderboardScope.SUBJECT) {
-      if (!query.subject_id)
-        throw new BadRequestException(
-          biBody(
-            'subject_id is required for a subject leaderboard',
-            'معرّف المادة مطلوب لعرض لوحة صدارة خاصة بمادة',
-          ),
-        );
-      return this.subjectBoard(query.subject_id, offset, limit, page);
-    }
-    if (query.window !== LeaderboardWindow.ALL_TIME) {
-      return this.windowedXpBoard(query, offset, limit, page);
-    }
-    return this.allTimeBoard(query, offset, limit, page);
-  }
-
-  /** All-time rating/XP board from the cached game profiles (+ optional geo/grade filter). */
-  private async allTimeBoard(
-    query: LeaderboardQueryDto,
-    offset: number,
-    limit: number,
-    page: number,
-  ): Promise<LeaderboardPage> {
-    const orderCol = query.metric === LeaderboardMetric.XP ? 'gp.xp' : 'gp.global_rating';
-    const qb = this.baseProfileQuery()
-      .addSelect(`${orderCol}`, 'score')
-      .orderBy(orderCol, 'DESC')
-      .addOrderBy('gp.updated_at', 'ASC');
-    this.applyScopeFilter(qb, query);
-
-    const total = await this.countProfiles(query);
-    const raw = await qb.offset(offset).limit(limit).getRawMany<RawRow>();
-    return { rows: raw.map((r, i) => this.mapRow(r, offset + i + 1)), total, page, limit };
-  }
-
-  /** All-time per-subject rating board. */
-  private async subjectBoard(
-    subjectId: string,
-    offset: number,
-    limit: number,
-    page: number,
-  ): Promise<LeaderboardPage> {
-    const qb = this.subjectRatings
-      .createQueryBuilder('ssr')
-      .innerJoin('users', 'u', 'u.id = ssr.user_id AND u.deleted_at IS NULL')
-      .leftJoin('student_game_profiles', 'gp', 'gp.user_id = ssr.user_id')
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = ssr.user_id')
+    const percent = 'AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100';
+    const qb = this.examAttempts
+      .createQueryBuilder('a')
+      .innerJoin(
+        'exams',
+        'exam',
+        'exam.id = a.exam_id AND exam.deleted_at IS NULL AND exam.is_public = true',
+      )
+      .innerJoin('users', 'u', 'u.id = a.student_id AND u.deleted_at IS NULL')
+      .leftJoin('student_profiles', 'sp', 'sp.user_id = a.student_id')
+      .leftJoin('student_game_profiles', 'gp', 'gp.user_id = a.student_id')
       .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
-      .where('ssr.subject_id = :sid', { sid: subjectId })
-      .select('ssr.user_id', 'user_id')
+      .where('a.state = :graded', { graded: AttemptState.GRADED })
+      .andWhere('a.score_total IS NOT NULL')
+      .select('a.student_id', 'user_id')
       .addSelect('u.username', 'username')
       .addSelect('u.name', 'name')
       .addSelect('u.profile_picture_url', 'avatar_url')
-      .addSelect('ssr.rating', 'score')
-      .addSelect('ssr.rating', 'rating')
-      .addSelect('COALESCE(gp.xp, 0)', 'xp')
+      .addSelect(percent, 'score')
+      .addSelect(percent, 'rating')
+      .addSelect('0', 'xp')
       .addSelect('COALESCE(gp.level, 1)', 'level')
       .addSelect('COALESCE(gp.current_streak, 0)', 'current_streak')
       .addSelect('sp.governorate', 'governorate')
@@ -142,50 +119,11 @@ export class LeaderboardService {
       .addSelect('rt.name', 'tier_name')
       .addSelect('rt.icon_key', 'tier_icon')
       .addSelect('rt.color', 'tier_color')
-      .orderBy('ssr.rating', 'DESC')
-      .addOrderBy('ssr.updated_at', 'ASC');
-
-    const total = await this.subjectRatings.count({ where: { subject_id: subjectId } });
-    const raw = await qb.offset(offset).limit(limit).getRawMany<RawRow>();
-    return { rows: raw.map((r, i) => this.mapRow(r, offset + i + 1)), total, page, limit };
-  }
-
-  /** Weekly/monthly XP board aggregated from the ledger (+ optional geo/grade filter). */
-  private async windowedXpBoard(
-    query: LeaderboardQueryDto,
-    offset: number,
-    limit: number,
-    page: number,
-  ): Promise<LeaderboardPage> {
-    const since = this.windowStart(query.window);
-    const qb = this.xpEvents
-      .createQueryBuilder('e')
-      .innerJoin('users', 'u', 'u.id = e.user_id AND u.deleted_at IS NULL')
-      .leftJoin('student_game_profiles', 'gp', 'gp.user_id = e.user_id')
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = e.user_id')
-      .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
-      .where('e.occurred_at >= :since', { since })
-      .select('e.user_id', 'user_id')
-      .addSelect('u.username', 'username')
-      .addSelect('u.name', 'name')
-      .addSelect('u.profile_picture_url', 'avatar_url')
-      .addSelect('SUM(e.amount)', 'score')
-      .addSelect('COALESCE(gp.global_rating, 1200)', 'rating')
-      .addSelect('SUM(e.amount)', 'xp')
-      .addSelect('COALESCE(gp.level, 1)', 'level')
-      .addSelect('COALESCE(gp.current_streak, 0)', 'current_streak')
-      .addSelect('sp.governorate', 'governorate')
-      .addSelect('sp.school', 'school')
-      .addSelect('sp.grade_level', 'grade_level')
-      .addSelect('rt.slug', 'tier_slug')
-      .addSelect('rt.name', 'tier_name')
-      .addSelect('rt.icon_key', 'tier_icon')
-      .addSelect('rt.color', 'tier_color')
-      .groupBy('e.user_id')
+      .addSelect('COUNT(*)', 'attempts')
+      .groupBy('a.student_id')
       .addGroupBy('u.username')
       .addGroupBy('u.name')
       .addGroupBy('u.profile_picture_url')
-      .addGroupBy('gp.global_rating')
       .addGroupBy('gp.level')
       .addGroupBy('gp.current_streak')
       .addGroupBy('sp.governorate')
@@ -195,85 +133,35 @@ export class LeaderboardService {
       .addGroupBy('rt.name')
       .addGroupBy('rt.icon_key')
       .addGroupBy('rt.color')
-      .orderBy('score', 'DESC');
-    if (query.scope === LeaderboardScope.GRADE && query.grade_level) {
-      qb.andWhere('sp.grade_level = :g', { g: query.grade_level });
+      .orderBy('score', 'DESC')
+      .addOrderBy('a.student_id', 'ASC');
+
+    if (query.scope === LeaderboardScope.SUBJECT) {
+      qb.andWhere('exam.subject_id = :subjectId', { subjectId: query.subject_id });
+    } else if (query.scope === LeaderboardScope.GRADE) {
+      qb.andWhere('sp.grade_level = :gradeLevel', { gradeLevel: query.grade_level });
+    } else if (query.scope === LeaderboardScope.GOVERNORATE) {
+      qb.andWhere('sp.governorate = :governorate', { governorate: query.governorate });
     }
-    if (query.scope === LeaderboardScope.GOVERNORATE && query.governorate) {
-      qb.andWhere('sp.governorate = :gov', { gov: query.governorate });
+    if (query.window !== LeaderboardWindow.ALL_TIME) {
+      qb.andWhere('a.graded_at >= :since', { since: this.windowStart(query.window) });
     }
 
-    const raw = await qb.offset(offset).limit(limit).getRawMany<RawRow>();
-    // Total = distinct earners in-window with the same filter.
-    const countRow = await qb
+    const countQuery = qb
       .clone()
-      .offset(0)
-      .limit(1)
-      .select('COUNT(DISTINCT e.user_id)', 'c')
+      .select('COUNT(DISTINCT a.student_id)', 'count')
       .orderBy()
-      .groupBy()
-      .getRawOne<{ c: string }>();
-    const total = countRow ? Number(countRow.c) : raw.length;
-    return { rows: raw.map((r, i) => this.mapRow(r, offset + i + 1)), total, page, limit };
-  }
-
-  private baseProfileQuery() {
-    return this.profiles
-      .createQueryBuilder('gp')
-      .innerJoin('users', 'u', 'u.id = gp.user_id AND u.deleted_at IS NULL')
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = gp.user_id')
-      .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
-      .select('gp.user_id', 'user_id')
-      .addSelect('u.username', 'username')
-      .addSelect('u.name', 'name')
-      .addSelect('u.profile_picture_url', 'avatar_url')
-      .addSelect('gp.global_rating', 'rating')
-      .addSelect('gp.xp', 'xp')
-      .addSelect('gp.level', 'level')
-      .addSelect('gp.current_streak', 'current_streak')
-      .addSelect('sp.governorate', 'governorate')
-      .addSelect('sp.school', 'school')
-      .addSelect('sp.grade_level', 'grade_level')
-      .addSelect('rt.slug', 'tier_slug')
-      .addSelect('rt.name', 'tier_name')
-      .addSelect('rt.icon_key', 'tier_icon')
-      .addSelect('rt.color', 'tier_color');
-  }
-
-  private applyScopeFilter(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    qb: any,
-    query: LeaderboardQueryDto,
-  ): void {
-    if (query.scope === LeaderboardScope.GRADE) {
-      if (!query.grade_level)
-        throw new BadRequestException(
-          biBody(
-            'grade_level is required for a grade leaderboard',
-            'المرحلة الدراسية مطلوبة لعرض لوحة صدارة خاصة بالمرحلة',
-          ),
-        );
-      qb.andWhere('sp.grade_level = :g', { g: query.grade_level });
-    }
-    if (query.scope === LeaderboardScope.GOVERNORATE) {
-      if (!query.governorate)
-        throw new BadRequestException(
-          biBody(
-            'governorate is required for a governorate leaderboard',
-            'المحافظة مطلوبة لعرض لوحة صدارة خاصة بالمحافظة',
-          ),
-        );
-      qb.andWhere('sp.governorate = :gov', { gov: query.governorate });
-    }
-  }
-
-  private async countProfiles(query: LeaderboardQueryDto): Promise<number> {
-    const qb = this.profiles
-      .createQueryBuilder('gp')
-      .innerJoin('users', 'u', 'u.id = gp.user_id AND u.deleted_at IS NULL')
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = gp.user_id');
-    this.applyScopeFilter(qb, query);
-    return qb.getCount();
+      .groupBy();
+    const [countRow, raw] = await Promise.all([
+      countQuery.getRawOne<{ count: string }>(),
+      qb.offset(offset).limit(limit).getRawMany<RawRow>(),
+    ]);
+    return {
+      rows: raw.map((row, index) => this.mapRow(row, offset + index + 1)),
+      total: Number(countRow?.count ?? 0),
+      page,
+      limit,
+    };
   }
 
   private windowStart(window: LeaderboardWindow): Date {
@@ -281,34 +169,40 @@ export class LeaderboardService {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   }
 
-  private mapRow(r: RawRow, rank: number): LeaderboardRow {
+  private mapRow(row: RawRow, rank: number): LeaderboardRow {
     return {
       rank,
-      user_id: r.user_id,
-      username: r.username,
-      name: r.name,
-      avatar_url: r.avatar_url,
-      score: Math.round(Number(r.score) * 100) / 100,
-      rating: Math.round(Number(r.rating) * 100) / 100,
-      xp: Number(r.xp),
-      level: Number(r.level),
-      current_streak: Number(r.current_streak),
-      governorate: r.governorate,
-      school: r.school,
-      grade_level: r.grade_level,
+      user_id: row.user_id,
+      username: row.username,
+      name: row.name,
+      avatar_url: row.avatar_url,
+      score: Math.round(Number(row.score) * 100) / 100,
+      rating: Math.round(Number(row.rating) * 100) / 100,
+      xp: Number(row.xp),
+      level: Number(row.level),
+      current_streak: Number(row.current_streak),
+      governorate: row.governorate,
+      school: row.school,
+      grade_level: row.grade_level,
       rank_tier:
-        r.tier_slug && r.tier_name && r.tier_icon && r.tier_color
-          ? { slug: r.tier_slug, name: r.tier_name, icon_key: r.tier_icon, color: r.tier_color }
+        row.tier_slug && row.tier_name && row.tier_icon && row.tier_color
+          ? {
+              slug: row.tier_slug,
+              name: row.tier_name,
+              icon_key: row.tier_icon,
+              color: row.tier_color,
+            }
           : null,
+      attempts: Number(row.attempts),
     };
   }
 
-  /** A single user's global rank (1-based) by rating — for the public profile. */
+  /** A single user's legacy global rating rank, retained for public profiles. */
   public async globalRatingRank(userId: string, rating: number): Promise<number> {
     const higher = await this.profiles
       .createQueryBuilder('gp')
-      .where('gp.global_rating > :r', { r: rating })
-      .andWhere('gp.user_id != :uid', { uid: userId })
+      .where('gp.global_rating > :rating', { rating })
+      .andWhere('gp.user_id != :userId', { userId })
       .getCount();
     return higher + 1;
   }

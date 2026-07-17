@@ -43,7 +43,29 @@ describe('ExamAccessService', () => {
 
     const sql = andWhere.mock.calls.map((call: unknown[]) => String(call[0])).join(' ');
     expect(sql).toContain('roster_lesson.teacher_id = exam.teacher_id');
+    expect(sql).toContain('roster_lp.access_expires_at > :accessNow');
     expect(sql).toContain('roster_package.teacher_id = exam.teacher_id');
+  });
+
+  it('scopes course-targeted exams to an actual purchase of that course', () => {
+    const { qb, andWhere } = queryBuilder();
+    const service = new ExamAccessService({} as Repository<Exam>);
+
+    service.applyStudentScope(qb, 'student-1');
+
+    const sql = andWhere.mock.calls.map((call: unknown[]) => String(call[0])).join(' ');
+    expect(sql).toContain('target_pp.package_id = exam.package_id');
+  });
+
+  it('allows public exams through the general attempt scope', () => {
+    const { qb, andWhere } = queryBuilder();
+    const service = new ExamAccessService({} as Repository<Exam>);
+
+    service.applyAccessibleScope(qb, 'student-1');
+
+    const sql = andWhere.mock.calls.map((call: unknown[]) => String(call[0])).join(' ');
+    expect(sql).toContain('exam.is_public = true');
+    expect(sql).toContain('exam.is_public = false');
   });
 
   it('always excludes public quizzes from private student exams', () => {

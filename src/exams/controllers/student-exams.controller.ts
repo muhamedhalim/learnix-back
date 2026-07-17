@@ -72,6 +72,7 @@ export class StudentExamsController {
       title: e.title,
       title_ar: e.title_ar,
       description: e.description,
+      description_ar: e.description_ar,
       subject: e.subject ? { id: e.subject.id, name: e.subject.name } : null,
       teacher: e.teacher ? { id: e.teacher.id, name: e.teacher.name } : null,
       total_marks: e.total_marks,
@@ -79,6 +80,7 @@ export class StudentExamsController {
       duration_seconds: e.config.duration_seconds,
       attempts_allowed: e.config.attempts_allowed,
       status: e.status,
+      is_public: e.is_public,
     }));
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
@@ -90,6 +92,46 @@ export class StudentExamsController {
       hasPrevPage: page > 1,
     };
     return { data, meta };
+  }
+
+  @Get('question-bank')
+  @ApiOperation({ summary: 'List public exams available to every student' })
+  public async questionBank(@Query() filter: ExamFilterDto): Promise<PaginatedResponse<unknown>> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const qb = this.exams
+      .createQueryBuilder('exam')
+      .leftJoinAndSelect('exam.subject', 'subject')
+      .leftJoinAndSelect('exam.teacher', 'teacher')
+      .where('exam.deleted_at IS NULL')
+      .andWhere('exam.is_public = true')
+      .andWhere('exam.status IN (:...statuses)', {
+        statuses: [ExamStatus.PUBLISHED, ExamStatus.SCHEDULED],
+      });
+    if (filter.subject_id) qb.andWhere('exam.subject_id = :s', { s: filter.subject_id });
+    if (filter.search) {
+      qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', {
+        q: `%${filter.search}%`,
+      });
+    }
+    qb.orderBy('exam.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [rows, total] = await qb.getManyAndCount();
+    const data = rows.map((exam) => this.toListItem(exam));
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   @Post(':id/start')
@@ -131,5 +173,23 @@ export class StudentExamsController {
   @ApiOperation({ summary: 'Get the result for the latest attempt at an exam' })
   public result(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) examId: string) {
     return this.attempts.getResult(user.userId, examId);
+  }
+
+  private toListItem(exam: Exam): Record<string, unknown> {
+    return {
+      id: exam.id,
+      title: exam.title,
+      title_ar: exam.title_ar,
+      description: exam.description,
+      description_ar: exam.description_ar,
+      subject: exam.subject ? { id: exam.subject.id, name: exam.subject.name } : null,
+      teacher: exam.teacher ? { id: exam.teacher.id, name: exam.teacher.name } : null,
+      total_marks: exam.total_marks,
+      passing_marks: exam.passing_marks,
+      duration_seconds: exam.config.duration_seconds,
+      attempts_allowed: exam.config.attempts_allowed,
+      status: exam.status,
+      is_public: exam.is_public,
+    };
   }
 }

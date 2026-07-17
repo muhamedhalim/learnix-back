@@ -11,6 +11,7 @@ import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import {
   AttachQuestionDto,
@@ -44,19 +45,23 @@ export class ExamAuthoringService {
     @InjectRepository(Question) private readonly questions: Repository<Question>,
     @InjectRepository(Subject) private readonly subjects: Repository<Subject>,
     @InjectRepository(Lesson) private readonly lessons: Repository<Lesson>,
+    @InjectRepository(LessonPackage) private readonly packages: Repository<LessonPackage>,
     private readonly dataSource: DataSource,
   ) {}
 
   public async createExam(teacherId: string, dto: CreateExamDto): Promise<Exam> {
     await this.assertSubject(dto.subject_id);
+    this.assertAudience(dto.is_public ?? false, dto.lesson_id ?? null, dto.package_id ?? null);
     if (dto.lesson_id !== undefined) {
       await this.assertLesson(dto.lesson_id, teacherId, dto.subject_id);
     }
+    if (dto.package_id !== undefined) await this.assertPackage(dto.package_id, teacherId);
 
     const exam = this.exams.create({
       teacher_id: teacherId,
       subject_id: dto.subject_id,
       lesson_id: dto.lesson_id ?? null,
+      package_id: dto.package_id ?? null,
       title: dto.title,
       title_ar: dto.title_ar,
       description: dto.description ?? null,
@@ -75,10 +80,14 @@ export class ExamAuthoringService {
     this.assertDraft(exam);
     if (dto.subject_id !== undefined) await this.assertSubject(dto.subject_id);
     const nextSubjectId = dto.subject_id ?? exam.subject_id;
-    const nextLessonId = dto.lesson_id ?? exam.lesson_id;
+    const nextLessonId = dto.lesson_id !== undefined ? dto.lesson_id : exam.lesson_id;
+    const nextPackageId = dto.package_id !== undefined ? dto.package_id : exam.package_id;
+    const nextIsPublic = dto.is_public ?? exam.is_public;
+    this.assertAudience(nextIsPublic, nextLessonId, nextPackageId);
     if (nextLessonId !== null) {
       await this.assertLesson(nextLessonId, teacherId, nextSubjectId);
     }
+    if (nextPackageId !== null) await this.assertPackage(nextPackageId, teacherId);
 
     Object.assign(exam, {
       title: dto.title ?? exam.title,
@@ -86,8 +95,9 @@ export class ExamAuthoringService {
       description: dto.description ?? exam.description,
       description_ar: dto.description_ar ?? exam.description_ar,
       subject_id: dto.subject_id ?? exam.subject_id,
-      lesson_id: dto.lesson_id ?? exam.lesson_id,
-      is_public: dto.is_public ?? exam.is_public,
+      lesson_id: nextLessonId,
+      package_id: nextPackageId,
+      is_public: nextIsPublic,
       passing_marks: dto.passing_marks ?? exam.passing_marks,
       config: dto.config ? this.mergeConfig(exam.config, dto.config) : exam.config,
     });
@@ -392,6 +402,46 @@ export class ExamAuthoringService {
           'The target lesson does not belong to the selected subject',
           'الدرس المستهدف لا ينتمي إلى المادة المحددة',
         ),
+      );
+    }
+  }
+
+  private async assertPackage(packageId: string, teacherId: string): Promise<void> {
+    const course = await this.packages.findOne({ where: { id: packageId, deleted_at: IsNull() } });
+    if (!course) {
+      throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
+    }
+    if (course.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only target one of your own courses', 'يمكنك استهداف دورة من دوراتك فقط'),
+      );
+    }
+  }
+
+  private assertAudience(
+    isPublic: boolean,
+    lessonId: string | null,
+    packageId: string | null,
+  ): void {
+    if (isPublic && (lessonId !== null || packageId !== null)) {
+      throw new BadRequestException(
+        biBody(
+          'A public exam cannot have a private audience',
+          'لا يمكن ربط الاختبار العام بجمهور خاص',
+        ),
+      );
+    }
+    if (!isPublic && lessonId === null && packageId === null) {
+      throw new BadRequestException(
+        biBody(
+          'A private exam must target a course or lesson',
+          'يجب ربط الاختبار الخاص بدورة أو درس',
+        ),
+      );
+    }
+    if (lessonId !== null && packageId !== null) {
+      throw new BadRequestException(
+        biBody('Choose either a course or a lesson audience', 'اختر دورة أو درسًا كجمهور للاختبار'),
       );
     }
   }

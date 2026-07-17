@@ -3,7 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ExamsModule } from '../exams/exams.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
-import { Question } from '../exams/entities';
+import { ExamAttempt, Question } from '../exams/entities';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
@@ -50,6 +50,7 @@ import { RankService } from './services/rank.service';
       PracticeSession,
       // Read access to shared tables (repos; entities also registered elsewhere)
       Question,
+      ExamAttempt,
       Subject,
       Lesson,
       User,
@@ -61,7 +62,10 @@ import { RankService } from './services/rank.service';
     NotificationsModule,
     // Gamification maintenance queue (streak-reset sweep). NoopQueue-backed
     // when Redis isn't configured in development.
-    registerQueues({ name: QUEUE_NAMES.GAMIFICATION, config: QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION] }),
+    registerQueues({
+      name: QUEUE_NAMES.GAMIFICATION,
+      config: QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION],
+    }),
   ],
   controllers: [StudentPracticeController, GamificationPublicController],
   providers: [

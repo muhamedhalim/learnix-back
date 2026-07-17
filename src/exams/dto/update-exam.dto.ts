@@ -46,7 +46,12 @@ export class UpdateExamDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID('4')
-  public lesson_id?: string;
+  public lesson_id?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID('4')
+  public package_id?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()

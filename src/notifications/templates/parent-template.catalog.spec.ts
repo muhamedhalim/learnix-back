@@ -9,6 +9,8 @@ const EXAM_VARS = {
   totalMarks: 50,
   percentage: 92,
   passed: true,
+  status: 'passed',
+  gradedAt: '2026-07-17T12:00:00.000Z',
   correctAnswers: 46,
   wrongAnswers: 4,
   rank: 5,
@@ -26,17 +28,15 @@ describe('parent template catalog', () => {
   });
 
   it('renders the exam result with score, rank, and answer counts', () => {
-    const message = renderFromCatalog(
-      ParentEventType.EXAM_GRADED,
-      PreferredLanguage.EN,
-      EXAM_VARS,
-    );
+    const message = renderFromCatalog(ParentEventType.EXAM_GRADED, PreferredLanguage.EN, EXAM_VARS);
 
     expect(message.templateKey).toBe('exam_graded.en');
     expect(message.body).toContain('Ahmed');
     expect(message.body).toContain('Mathematics');
     expect(message.body).toContain('46/50');
     expect(message.body).toContain('92%');
+    expect(message.body).toContain('Status: Passed');
+    expect(message.body).toContain('Date: 2026-07-17T12:00:00.000Z');
     expect(message.body).toContain('Rank: 5 / 120');
     expect(message.body).toContain('Correct answers: 46');
     expect(message.body).toContain('Incorrect answers: 4');
@@ -45,11 +45,7 @@ describe('parent template catalog', () => {
   });
 
   it('renders Arabic with the same facts', () => {
-    const message = renderFromCatalog(
-      ParentEventType.EXAM_GRADED,
-      PreferredLanguage.AR,
-      EXAM_VARS,
-    );
+    const message = renderFromCatalog(ParentEventType.EXAM_GRADED, PreferredLanguage.AR, EXAM_VARS);
 
     expect(message.templateKey).toBe('exam_graded.ar');
     expect(message.body).toContain('Ahmed');
@@ -88,11 +84,7 @@ describe('parent template catalog', () => {
   });
 
   it('supplies a WhatsApp template with positional parameters', () => {
-    const message = renderFromCatalog(
-      ParentEventType.EXAM_GRADED,
-      PreferredLanguage.AR,
-      EXAM_VARS,
-    );
+    const message = renderFromCatalog(ParentEventType.EXAM_GRADED, PreferredLanguage.AR, EXAM_VARS);
 
     expect(message.whatsappTemplate).toEqual({
       name: 'exam_graded_ar',
@@ -102,11 +94,10 @@ describe('parent template catalog', () => {
   });
 
   it('renders an OTP without leaking it into the template key', () => {
-    const message = renderFromCatalog(
-      ParentEventType.GUARDIAN_VERIFICATION,
-      PreferredLanguage.EN,
-      { code: '482913', ttlMinutes: 10 },
-    );
+    const message = renderFromCatalog(ParentEventType.GUARDIAN_VERIFICATION, PreferredLanguage.EN, {
+      code: '482913',
+      ttlMinutes: 10,
+    });
 
     expect(message.body).toContain('482913');
     expect(message.body).toContain('10 minutes');

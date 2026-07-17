@@ -45,6 +45,11 @@ export class CreateExamDto {
   @IsUUID('4')
   public lesson_id?: string;
 
+  @ApiPropertyOptional({ description: 'Course/package UUID (private audience)' })
+  @IsOptional()
+  @IsUUID('4')
+  public package_id?: string;
+
   @ApiPropertyOptional({ description: 'Explicit opt-in for a public quiz surface', default: false })
   @IsOptional()
   @IsBoolean()

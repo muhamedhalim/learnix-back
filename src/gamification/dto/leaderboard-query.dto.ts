@@ -22,9 +22,9 @@ export enum LeaderboardMetric {
 }
 
 /**
- * Public leaderboard query. Windowed boards (weekly/monthly) are XP-based (the
- * `xp_events` ledger is the only time-stamped signal); rating boards are
- * all-time. Subject boards are always all-time rating.
+ * Public-exam leaderboard query. Weekly/monthly windows use the attempt's
+ * grading timestamp. `metric` remains accepted for backward compatibility,
+ * but public-exam percentage is the sole ranking score.
  */
 export class LeaderboardQueryDto {
   @ApiPropertyOptional({ enum: LeaderboardScope, default: LeaderboardScope.GLOBAL })
