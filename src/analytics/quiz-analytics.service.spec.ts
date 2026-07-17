@@ -107,4 +107,25 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
     expect(topicSql).toContain('WITH topic_stats AS');
     expect(topicSql).toContain('LIMIT 5');
   });
+
+  it('computes teacher completion from eligible exam-student pairs, not attempts', async () => {
+    attempts.query.mockResolvedValue([{ eligibleStudents: 25, completedStudents: 10 }]);
+
+    const result = await (
+      service as unknown as {
+        getTeacherEligibilitySummary: (
+          teacherId: string,
+        ) => Promise<{ eligibleStudents: number; completedStudents: number }>;
+      }
+    ).getTeacherEligibilitySummary('teacher-1');
+
+    expect(result).toEqual({ eligibleStudents: 25, completedStudents: 10 });
+    const sql = attempts.query.mock.calls[0]?.[0] as string;
+    expect(sql).toContain('exam.is_public = true');
+    expect(sql).toContain('purchase.package_id = exam.package_id');
+    expect(sql).toContain('purchase.lesson_id = exam.lesson_id');
+    expect(sql).toContain('lesson_package_items');
+    expect(sql).toContain('SELECT DISTINCT attempt.exam_id, attempt.student_id');
+    expect(sql).toContain('COUNT(completed.student_id)');
+  });
 });

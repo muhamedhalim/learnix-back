@@ -1,7 +1,7 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
 /** Adds the bounded visual-builder configuration and template ownership. */
-export class AddCertificateBuilderTemplateFields1860000000000 implements MigrationInterface {
+export class AddCertificateBuilderTemplateFields1865000000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "certificate_templates"

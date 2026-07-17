@@ -216,6 +216,8 @@ export class QuizAnalyticsService {
     passRate: number;
     failRate: number;
     completionRate: number;
+    eligibleStudents: number;
+    completedStudents: number;
     gradeDistribution: { range: string; count: number }[];
     mostFailedQuestions: {
       questionId: string;
@@ -270,6 +272,8 @@ export class QuizAnalyticsService {
 
     const total = Number.parseInt(summary?.total ?? '0', 10);
     const scored = Number.parseInt(summary?.scored ?? '0', 10);
+
+    const eligibility = await this.getTeacherEligibilitySummary(teacherId);
 
     const failed = await this.answersRepository
       .createQueryBuilder('aa')
@@ -444,7 +448,12 @@ export class QuizAnalyticsService {
       lowestScore: Math.round(Number(summary?.lowestPercent ?? 0)),
       passRate,
       failRate: scored > 0 ? 100 - passRate : 0,
-      completionRate: total > 0 ? Math.round((scored / total) * 100) : 0,
+      completionRate:
+        eligibility.eligibleStudents > 0
+          ? Math.round((eligibility.completedStudents / eligibility.eligibleStudents) * 100)
+          : 0,
+      eligibleStudents: eligibility.eligibleStudents,
+      completedStudents: eligibility.completedStudents,
       gradeDistribution: [
         { range: '<50%', count: Number(distribution?.failing ?? 0) },
         { range: '50–64%', count: Number(distribution?.passing ?? 0) },
@@ -494,6 +503,163 @@ export class QuizAnalyticsService {
         attempts: Number(course.attempts),
         avgPercent: Math.round(Number(course.avgPercent ?? 0)),
       })),
+    };
+  }
+
+  /**
+   * Completion is based on unique eligible exam/student pairs, never raw
+   * attempt rows. A student with three attempts can complete an exam once.
+   * Eligibility mirrors ExamAccessService for public, course, lesson, and
+   * legacy instructor-roster audiences and only counts exams whose start
+   * window has opened.
+   */
+  private async getTeacherEligibilitySummary(
+    teacherId: string,
+  ): Promise<{ eligibleStudents: number; completedStudents: number }> {
+    const rows = await this.attemptsRepository.query<
+      { eligibleStudents: number | string; completedStudents: number | string }[]
+    >(
+      `
+        WITH eligible AS (
+          SELECT exam.id AS exam_id, student.id AS student_id
+          FROM exams exam
+          INNER JOIN users student
+            ON student.role = 'student'
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = true
+
+          UNION
+
+          SELECT exam.id, student.id
+          FROM exams exam
+          INNER JOIN package_purchases purchase ON purchase.package_id = exam.package_id
+          INNER JOIN users student
+            ON student.id = purchase.student_id
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = false
+            AND exam.package_id IS NOT NULL
+
+          UNION
+
+          SELECT exam.id, student.id
+          FROM exams exam
+          INNER JOIN lesson_purchases purchase
+            ON purchase.lesson_id = exam.lesson_id
+           AND purchase.access_expires_at > NOW()
+          INNER JOIN users student
+            ON student.id = purchase.student_id
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = false
+            AND exam.lesson_id IS NOT NULL
+
+          UNION
+
+          SELECT exam.id, student.id
+          FROM exams exam
+          INNER JOIN lesson_package_items item ON item.lesson_id = exam.lesson_id
+          INNER JOIN package_purchases purchase ON purchase.package_id = item.package_id
+          INNER JOIN users student
+            ON student.id = purchase.student_id
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = false
+            AND exam.lesson_id IS NOT NULL
+
+          UNION
+
+          SELECT exam.id, student.id
+          FROM exams exam
+          INNER JOIN lessons roster_lesson ON roster_lesson.teacher_id = exam.teacher_id
+          INNER JOIN lesson_purchases purchase
+            ON purchase.lesson_id = roster_lesson.id
+           AND purchase.access_expires_at > NOW()
+          INNER JOIN users student
+            ON student.id = purchase.student_id
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = false
+            AND exam.lesson_id IS NULL
+            AND exam.package_id IS NULL
+
+          UNION
+
+          SELECT exam.id, student.id
+          FROM exams exam
+          INNER JOIN lesson_packages roster_course ON roster_course.teacher_id = exam.teacher_id
+          INNER JOIN package_purchases purchase ON purchase.package_id = roster_course.id
+          INNER JOIN users student
+            ON student.id = purchase.student_id
+           AND student.is_active = true
+           AND student.deleted_at IS NULL
+          WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND exam.status IN ('published', 'scheduled', 'archived')
+            AND (
+              NULLIF(exam.config ->> 'start_window_at', '') IS NULL
+              OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
+            )
+            AND exam.is_public = false
+            AND exam.lesson_id IS NULL
+            AND exam.package_id IS NULL
+        ), completed AS (
+          SELECT DISTINCT attempt.exam_id, attempt.student_id
+          FROM exam_attempts attempt
+          INNER JOIN exams exam ON exam.id = attempt.exam_id
+          WHERE exam.teacher_id = $1
+            AND attempt.score_total IS NOT NULL
+        )
+        SELECT
+          COUNT(*)::int AS "eligibleStudents",
+          COUNT(completed.student_id)::int AS "completedStudents"
+        FROM eligible
+        LEFT JOIN completed
+          ON completed.exam_id = eligible.exam_id
+         AND completed.student_id = eligible.student_id
+      `,
+      [teacherId],
+    );
+
+    return {
+      eligibleStudents: Number(rows[0]?.eligibleStudents ?? 0),
+      completedStudents: Number(rows[0]?.completedStudents ?? 0),
     };
   }
 

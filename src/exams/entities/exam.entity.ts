@@ -54,7 +54,7 @@ export class Exam {
   @Index('IDX_exams_lesson_id')
   lesson_id!: string | null;
 
-  @ManyToOne(() => Lesson, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Lesson, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'lesson_id' })
   lesson!: Relation<Lesson> | null;
 
@@ -63,7 +63,7 @@ export class Exam {
   @Index('IDX_exams_package_id')
   package_id!: string | null;
 
-  @ManyToOne(() => LessonPackage, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => LessonPackage, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'package_id' })
   package!: Relation<LessonPackage> | null;
 
