@@ -1,9 +1,10 @@
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
 import { DataSource } from 'typeorm';
 
 import { AppModule } from '../../../src/app.module';
@@ -27,6 +28,17 @@ async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
   // `request.secure` must use X-Forwarded-Proto when issuing cookies.
   app.set('trust proxy', 1);
 
+  // Match `main.ts` Helmet hardening so header assertions test real behavior.
+  app.use(
+    helmet({
+      hsts: { maxAge: 31_536_000, includeSubDomains: true, preload: true },
+      frameguard: { action: 'deny' },
+      noSniff: true,
+      xssFilter: true,
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    }),
+  );
+
   const cookieSecret =
     process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'] ?? 'test-cookie-secret';
   app.use(cookieParser(cookieSecret));
@@ -45,7 +57,10 @@ async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
     app.useGlobalGuards(new CsrfGuard(new Reflector()));
   }
 
-  app.setGlobalPrefix('api/v1');
+  // Match `main.ts`: /metrics lives outside the API prefix (scrape target).
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: 'metrics', method: RequestMethod.GET }],
+  });
 
   await app.init();
 

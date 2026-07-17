@@ -418,6 +418,41 @@ export class DiscountCodesService {
   }
 
   /**
+   * Undo a discount redemption whose payment never completed (FAILED or
+   * EXPIRED). Usage is recorded at initiation so the counter is race-safe, but
+   * without this release an abandoned checkout would permanently burn the
+   * user's one allowed use (and one global use) on a payment that charged
+   * nothing. Runs inside the caller's payment-transition transaction; the code
+   * row is locked so the decrement serializes with concurrent applyDiscount
+   * calls. Deliberately NOT called for REFUNDED payments: a refunded order did
+   * complete once, and re-allowing the code after a refund is a product
+   * decision, not an error-path repair.
+   */
+  public async releaseUsageForPayment(paymentId: string, manager: EntityManager): Promise<void> {
+    const usages = await manager.find(DiscountCodeUsage, {
+      where: { payment_id: paymentId },
+    });
+
+    for (const usage of usages) {
+      const code = await manager.findOne(DiscountCode, {
+        where: { id: usage.discount_code_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      await manager.delete(DiscountCodeUsage, { id: usage.id });
+
+      if (code !== null && code.used_count > 0) {
+        code.used_count -= 1;
+        await manager.save(DiscountCode, code);
+      }
+
+      this.logger.log(
+        `Released discount usage for payment ${paymentId} (code ${usage.discount_code_id})`,
+      );
+    }
+  }
+
+  /**
    * Get usage statistics for a discount code
    */
   public async getUsageStats(id: string): Promise<{

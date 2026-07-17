@@ -14,7 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { GuardiansService } from '../guardians/guardians.service';
@@ -25,8 +25,10 @@ import { CallCenterUpdateStudentDto } from './dto/update-student.dto';
 
 @ApiTags('Call Center')
 @Controller('callcenter')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('call_center')
+@UseGuards(HybridAuthGuard, RolesGuard)
+// Admins share this surface: the frontend call-center screen lives in the
+// admin dashboard, and RolesGuard has no implicit admin override.
+@Roles('call_center', 'admin')
 @ApiBearerAuth('JWT-auth')
 export class CallCenterController {
   constructor(

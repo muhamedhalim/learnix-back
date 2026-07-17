@@ -7,6 +7,8 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
+  IsUUID,
   Min,
 } from 'class-validator';
 
@@ -74,4 +76,23 @@ export class NotificationFilterDto {
   @IsOptional()
   @IsDateString()
   public sent_before?: string;
+}
+
+/**
+ * Admin variant of the notification filter: same paging/type/status filters,
+ * plus free-text search and an optional per-user narrowing. Used only by the
+ * admin-wide listing (`GET /admin/notifications`).
+ */
+export class AdminNotificationFilterDto extends NotificationFilterDto {
+  @ApiPropertyOptional({
+    description: 'Free-text search across title, message, and recipient name/email',
+  })
+  @IsOptional()
+  @IsString()
+  public search?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by recipient user id' })
+  @IsOptional()
+  @IsUUID('4')
+  public user_id?: string;
 }

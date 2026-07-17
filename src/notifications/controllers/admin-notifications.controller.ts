@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -24,9 +25,14 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { User } from '../../users/entities/user.entity';
 import { UserRole } from '../../users/entities/user-role.enum';
-import { ManualNotificationDto, ManualNotificationResponseDto } from '../dto';
+import {
+  AdminNotificationFilterDto,
+  ManualNotificationDto,
+  ManualNotificationResponseDto,
+} from '../dto';
 import { Notification } from '../entities';
 import { NotificationTriggersService } from '../services/notification-triggers.service';
+import type { PaginatedNotifications } from '../services/notifications.service';
 import { NotificationsService } from '../services/notifications.service';
 import { SmsSenderService } from '../services/sms-sender.service';
 
@@ -101,6 +107,17 @@ export class AdminNotificationsController {
         sms_failed_count: smsFailedCount,
       },
     };
+  }
+
+  @Get()
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of all in-app notifications across users',
+  })
+  public async findAll(
+    @Query() filter: AdminNotificationFilterDto,
+  ): Promise<PaginatedNotifications> {
+    return await this.notificationsService.findAllAdmin(filter);
   }
 
   @Get('stats')

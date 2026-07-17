@@ -20,6 +20,7 @@ describe('PaymentsService — financial correctness', () => {
   let lessonsRepo: { findOne: jest.Mock };
   let lessonPurchasesRepo: { findOne: jest.Mock };
   let idempotency: { checkPaymentRequest: jest.Mock; storePaymentResult: jest.Mock };
+  let discountCodes: { releaseUsageForPayment: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let manager: {
     findOne: jest.Mock;
@@ -51,6 +52,9 @@ describe('PaymentsService — financial correctness', () => {
       checkPaymentRequest: jest.fn().mockResolvedValue({ isProcessed: false }),
       storePaymentResult: jest.fn().mockResolvedValue(undefined),
     };
+    discountCodes = {
+      releaseUsageForPayment: jest.fn().mockResolvedValue(undefined),
+    };
 
     const noopRepo = {};
     const module: TestingModule = await Test.createTestingModule({
@@ -66,7 +70,7 @@ describe('PaymentsService — financial correctness', () => {
         { provide: DataSource, useValue: dataSource },
         { provide: EasyKashService, useValue: {} },
         { provide: IdempotencyService, useValue: idempotency },
-        { provide: DiscountCodesService, useValue: {} },
+        { provide: DiscountCodesService, useValue: discountCodes },
       ],
     }).compile();
 
@@ -167,19 +171,27 @@ describe('PaymentsService — financial correctness', () => {
         transactionId: 'txn-1',
       });
 
-      const [where, patch] = paymentsRepo.update.mock.calls[0] as [
+      const [entity, where, patch] = manager.update.mock.calls[0] as [
+        unknown,
         Record<string, unknown>,
         Record<string, unknown>,
       ];
+      expect(entity).toBe(Payment);
       expect(where).toMatchObject({ id: 'pay-1' });
       // The where-clause restricts to the open states via an In(...) filter.
       expect(where['status']).toBeDefined();
       expect(patch).toMatchObject({ status: PaymentStatus.FAILED });
     });
 
-    it('does not error when nothing was updated (already terminal)', async () => {
-      paymentsRepo.update.mockResolvedValue({ affected: 0 });
+    it('releases any discount usage consumed at initiation', async () => {
+      await service.processFailedPayment('pay-1', 'declined');
+      expect(discountCodes.releaseUsageForPayment).toHaveBeenCalledWith('pay-1', manager);
+    });
+
+    it('does not error (and releases nothing) when nothing was updated', async () => {
+      manager.update.mockResolvedValue({ affected: 0 });
       await expect(service.processFailedPayment('pay-1', 'late failure')).resolves.toBeUndefined();
+      expect(discountCodes.releaseUsageForPayment).not.toHaveBeenCalled();
     });
   });
 
@@ -248,6 +260,8 @@ describe('PaymentsService — financial correctness', () => {
         expect.objectContaining({ id: 'stale-1' }),
         expect.objectContaining({ status: PaymentStatus.EXPIRED }),
       );
+      // The expired initiation never charged — its discount use is handed back.
+      expect(discountCodes.releaseUsageForPayment).toHaveBeenCalledWith('stale-1', manager);
     });
 
     it('translates the DB unique-index race violation into a 409', async () => {

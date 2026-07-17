@@ -7,7 +7,12 @@ import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
 import { GuardiansService } from '../../guardians/guardians.service';
 import { biBody } from '../../i18n/error-translator.util';
-import { NotificationFilterDto, SendNotificationDto, UpdateNotificationSettingsDto } from '../dto';
+import {
+  AdminNotificationFilterDto,
+  NotificationFilterDto,
+  SendNotificationDto,
+  UpdateNotificationSettingsDto,
+} from '../dto';
 import {
   Notification,
   NotificationSettings,
@@ -343,6 +348,76 @@ export class NotificationsService {
     // Get total count and paginated results
     const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
 
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  /**
+   * Admin-wide notification listing: every user's in-app notifications, with
+   * the same filters as the per-user view plus free-text search and optional
+   * recipient narrowing. The recipient is joined so the admin table can show
+   * who each notification went to (password-bearing columns are `select: false`
+   * on the entity and are never loaded).
+   */
+  public async findAllAdmin(filter: AdminNotificationFilterDto): Promise<PaginatedNotifications> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.notificationsRepository
+      .createQueryBuilder('notification')
+      .leftJoinAndSelect('notification.user', 'user');
+
+    if (filter.user_id !== undefined) {
+      queryBuilder.andWhere('notification.user_id = :userId', { userId: filter.user_id });
+    }
+
+    if (filter.type !== undefined) {
+      queryBuilder.andWhere('notification.type = :type', { type: filter.type });
+    }
+
+    if (filter.is_read !== undefined) {
+      queryBuilder.andWhere('notification.is_read = :isRead', { isRead: filter.is_read });
+    }
+
+    if (filter.sms_sent !== undefined) {
+      queryBuilder.andWhere('notification.sms_sent = :smsSent', { smsSent: filter.sms_sent });
+    }
+
+    if (filter.sent_after !== undefined) {
+      queryBuilder.andWhere('notification.sent_at >= :sentAfter', {
+        sentAfter: new Date(filter.sent_after),
+      });
+    }
+
+    if (filter.sent_before !== undefined) {
+      queryBuilder.andWhere('notification.sent_at <= :sentBefore', {
+        sentBefore: new Date(filter.sent_before),
+      });
+    }
+
+    if (filter.search !== undefined && filter.search.trim() !== '') {
+      queryBuilder.andWhere(
+        '(notification.title ILIKE :search OR notification.message ILIKE :search ' +
+          'OR user.name ILIKE :search OR user.email ILIKE :search)',
+        { search: `%${filter.search.trim()}%` },
+      );
+    }
+
+    queryBuilder.orderBy('notification.sent_at', 'DESC');
+
+    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
     const totalPages = Math.ceil(total / limit);
 
     return {

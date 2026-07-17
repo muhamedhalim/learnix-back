@@ -110,6 +110,7 @@ export class AdminLessonsController {
   /**
    * Get a single lesson by ID
    */
+  @Get(':id')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
@@ -123,6 +124,7 @@ export class AdminLessonsController {
   /**
    * Get lesson statistics
    */
+  @Get(':id/stats')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',

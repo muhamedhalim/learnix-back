@@ -774,7 +774,7 @@ export class PaymentsService {
     }
 
     // Stale/abandoned — expire it (guarded) so a fresh attempt can proceed.
-    await manager.update(
+    const expired = await manager.update(
       Payment,
       {
         id: open.id,
@@ -782,6 +782,12 @@ export class PaymentsService {
       },
       { status: PaymentStatus.EXPIRED },
     );
+
+    // An expired initiation never charged — release any discount use it
+    // consumed so the code stays spendable.
+    if ((expired.affected ?? 0) > 0) {
+      await this.discountCodesService.releaseUsageForPayment(open.id, manager);
+    }
   }
 
   /**
@@ -988,29 +994,36 @@ export class PaymentsService {
     verification?: PaymentVerificationContext,
   ): Promise<void> {
     const reason = failureReason ?? 'Payment declined';
-    const result = await this.paymentsRepository.update(
-      {
-        id: paymentId,
-        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
-      },
-      {
-        status: PaymentStatus.FAILED,
-        failure_reason: reason,
-        ...(verification?.transactionId !== undefined
-          ? { paymob_transaction_id: verification.transactionId }
-          : {}),
-      },
-    );
-
-    if ((result.affected ?? 0) === 0) {
-      this.logger.warn(
-        `Ignoring failure webhook for payment ${paymentId}: not in an open state ` +
-          `(already completed/refunded/failed)`,
+    await retryTransaction(this.dataSource, async (manager) => {
+      const result = await manager.update(
+        Payment,
+        {
+          id: paymentId,
+          status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
+        },
+        {
+          status: PaymentStatus.FAILED,
+          failure_reason: reason,
+          ...(verification?.transactionId !== undefined
+            ? { paymob_transaction_id: verification.transactionId }
+            : {}),
+        },
       );
-      return;
-    }
 
-    this.logger.log(`Payment ${paymentId} marked as failed: ${reason}`);
+      if ((result.affected ?? 0) === 0) {
+        this.logger.warn(
+          `Ignoring failure webhook for payment ${paymentId}: not in an open state ` +
+            `(already completed/refunded/failed)`,
+        );
+        return;
+      }
+
+      // The charge never happened — hand back any discount use consumed at
+      // initiation so the student can retry with the same code.
+      await this.discountCodesService.releaseUsageForPayment(paymentId, manager);
+
+      this.logger.log(`Payment ${paymentId} marked as failed: ${reason}`);
+    });
   }
 
   /**

@@ -290,6 +290,7 @@ export class StudentsService {
    */
   public async findAllStudents(
     filter: StudentFilterDto,
+    options: { publicSearch?: boolean } = {},
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
     const {
       search,
@@ -319,10 +320,16 @@ export class StudentsService {
       });
     }
 
-    // Search by name or email
+    // Search by name or email. The unauthenticated public directory must not
+    // match on email: emails are never returned publicly, so matching on them
+    // would let anyone confirm which student an email address belongs to.
     if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
-        `(user.first_name ILIKE :search
+        options.publicSearch === true
+          ? `(user.first_name ILIKE :search
+          OR user.last_name ILIKE :search
+          OR user.username ILIKE :search)`
+          : `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
           OR user.email ILIKE :search
           OR user.username ILIKE :search)`,
@@ -394,11 +401,15 @@ export class StudentsService {
    */
   public async findApprovedStudents(
     filter: Omit<StudentFilterDto, 'status'>,
+    options: { publicSearch?: boolean } = {},
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
-    return await this.findAllStudents({
-      ...filter,
-      status: UserStatus.APPROVED,
-    });
+    return await this.findAllStudents(
+      {
+        ...filter,
+        status: UserStatus.APPROVED,
+      },
+      options,
+    );
   }
 
   /**
@@ -408,7 +419,7 @@ export class StudentsService {
   public async findApprovedStudentsPublic(
     filter: Omit<StudentFilterDto, 'status'>,
   ): Promise<PaginatedResponse<PublicStudentProfile>> {
-    const result = await this.findApprovedStudents(filter);
+    const result = await this.findApprovedStudents(filter, { publicSearch: true });
     return {
       data: result.data.map((student) => ({
         id: student.id,

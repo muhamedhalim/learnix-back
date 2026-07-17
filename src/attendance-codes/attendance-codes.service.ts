@@ -1,8 +1,16 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 
+import { Book } from '../books/entities/book.entity';
+import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { computeAccessExpiresAt } from '../common/utils/lesson-access.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
@@ -43,6 +51,8 @@ export class AttendanceCodesService {
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
+    @InjectRepository(Book)
+    private readonly booksRepository: Repository<Book>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -67,6 +77,13 @@ export class AttendanceCodesService {
       });
       if (!pkg) {
         throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
+      }
+    } else {
+      const book = await this.booksRepository.findOne({
+        where: { id: dto.item_id, deleted_at: IsNull() },
+      });
+      if (!book) {
+        throw new NotFoundException(biBody('Book not found', 'الكتاب غير موجود'));
       }
     }
 
@@ -187,6 +204,12 @@ export class AttendanceCodesService {
         );
       }
 
+      // Refuse to burn the code if the student already owns the item — the
+      // gateway purchase path rejects duplicate purchases the same way
+      // (PaymentsService.purchaseLesson), and a consumed single-use code that
+      // granted nothing new is unrecoverable for the student.
+      await this.assertNotAlreadyOwned(manager, userId, code.type, code.item_id);
+
       // Mark as used (canonical lifecycle → REDEEMED) and record the audit.
       code.is_used = true;
       code.status = AttendanceCodeStatus.REDEEMED;
@@ -228,6 +251,8 @@ export class AttendanceCodesService {
         await this.grantLessonAccess(manager, savedPayment, code.item_id);
       } else if (code.type === AttendanceCodeType.PACKAGE) {
         await this.grantPackageAccess(manager, savedPayment, code.item_id);
+      } else {
+        await this.grantBookAccess(manager, savedPayment, code.item_id);
       }
 
       this.logger.log(
@@ -236,6 +261,68 @@ export class AttendanceCodesService {
 
       return savedPayment;
     });
+  }
+
+  /**
+   * Reject redemption when the student already has (still-active) access to
+   * the code's item, so the single-use code survives for a rightful use.
+   */
+  private async assertNotAlreadyOwned(
+    manager: ReturnType<DataSource['createEntityManager']>,
+    userId: string,
+    type: AttendanceCodeType,
+    itemId: string,
+  ): Promise<void> {
+    let alreadyOwned = false;
+
+    if (type === AttendanceCodeType.LESSON) {
+      alreadyOwned =
+        (await manager.findOne(LessonPurchase, {
+          where: {
+            student_id: userId,
+            lesson_id: itemId,
+            access_expires_at: MoreThan(new Date()),
+          },
+        })) !== null;
+    } else if (type === AttendanceCodeType.PACKAGE) {
+      alreadyOwned =
+        (await manager.findOne(PackagePurchase, {
+          where: { student_id: userId, package_id: itemId },
+        })) !== null;
+    } else {
+      alreadyOwned =
+        (await manager.findOne(BookPurchase, {
+          where: { student_id: userId, book_id: itemId },
+        })) !== null;
+    }
+
+    if (alreadyOwned) {
+      throw new ConflictException(
+        biBody(
+          'You already have access to this item — the code was not consumed',
+          'لديك بالفعل صلاحية الوصول إلى هذا العنصر — لم يتم استهلاك الرمز',
+        ),
+      );
+    }
+  }
+
+  /**
+   * Grant book access (permanent, mirrors PaymentsService.grantBookAccess).
+   */
+  private async grantBookAccess(
+    manager: ReturnType<DataSource['createEntityManager']>,
+    payment: Payment,
+    bookId: string,
+  ): Promise<void> {
+    const bookPurchase = manager.create(BookPurchase, {
+      student_id: payment.user_id,
+      book_id: bookId,
+      payment_id: payment.id,
+      price_paid: 0,
+    });
+
+    await manager.save(BookPurchase, bookPurchase);
+    await manager.increment(Book, { id: bookId }, 'purchase_count', 1);
   }
 
   /**

@@ -1,9 +1,13 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -29,6 +33,7 @@ import { DiscountCode } from '../entities';
 export class AdminDiscountCodesController {
   constructor(private readonly discountCodesService: DiscountCodesService) {}
 
+  @Post()
   @ApiResponse({
     status: HttpStatus.CONFLICT,
     description: 'Code already exists',
@@ -43,6 +48,7 @@ export class AdminDiscountCodesController {
     };
   }
 
+  @Get()
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'List of discount codes',
@@ -53,6 +59,7 @@ export class AdminDiscountCodesController {
     return await this.discountCodesService.findAll(filter);
   }
 
+  @Get(':id')
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -61,6 +68,7 @@ export class AdminDiscountCodesController {
     return { data: discountCode };
   }
 
+  @Get(':id/usage')
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Usage statistics',
@@ -77,6 +85,7 @@ export class AdminDiscountCodesController {
     return { data: stats };
   }
 
+  @Patch(':id')
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   public async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -89,6 +98,7 @@ export class AdminDiscountCodesController {
     };
   }
 
+  @Delete(':id')
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
   public async remove(
     @Param('id', ParseUUIDPipe) id: string,
