@@ -10,6 +10,7 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { AdminExamsController } from './controllers/admin-exams.controller';
 import { StudentExamsController } from './controllers/student-exams.controller';
+import { StudentQuestionsController } from './controllers/student-questions.controller';
 import { TeacherExamsController } from './controllers/teacher-exams.controller';
 import { TeacherGradingController } from './controllers/teacher-grading.controller';
 import { TeacherOmrController } from './controllers/teacher-omr.controller';
@@ -80,6 +81,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     TeacherGradingController,
     TeacherOmrController,
     StudentExamsController,
+    StudentQuestionsController,
     AdminExamsController,
   ],
   providers: [

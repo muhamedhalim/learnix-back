@@ -17,6 +17,26 @@ import { Question, QuestionType, QuestionVersion } from '../entities';
 import { QuestionTypeRegistry } from '../question-types/question-type-registry';
 
 /**
+ * Safe student-facing projection of a reusable public question.  In
+ * particular, it deliberately excludes `answer_key`, ownership internals, and
+ * versioning data that are only needed by authoring and grading.
+ */
+export interface PublicQuestionListItem {
+  id: string;
+  subject_id: string;
+  lesson_id: string | null;
+  chapter: string | null;
+  topic: string | null;
+  type: QuestionType;
+  difficulty: Question['difficulty'];
+  content: Question['content'];
+  default_marks: number;
+  tags: string[];
+  subject: { id: string; name: string; name_ar: string | null } | null;
+  created_at: Date;
+}
+
+/**
  * Question Bank service: CRUD + immutable versioning for reusable questions.
  * All type-specific payload validation is delegated to the question-type
  * registry, so the bank never branches on the concrete type.
@@ -175,6 +195,44 @@ export class QuestionBankService {
     return { data, meta: this.meta(total, page, limit) };
   }
 
+  /**
+   * Public practice-bank listing for students. This is intentionally separate
+   * from public exams: a reusable question is available on its own and never
+   * needs to be attached to an exam to be discovered here.
+   */
+  public async findPublic(
+    filter: QuestionFilterDto,
+  ): Promise<PaginatedResponse<PublicQuestionListItem>> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const qb = this.questions
+      .createQueryBuilder('q')
+      .leftJoinAndSelect('q.subject', 'subject')
+      .where('q.is_public = true')
+      .andWhere('q.is_active = true')
+      .andWhere('q.deleted_at IS NULL');
+
+    if (filter.subject_id) qb.andWhere('q.subject_id = :s', { s: filter.subject_id });
+    if (filter.lesson_id) qb.andWhere('q.lesson_id = :l', { l: filter.lesson_id });
+    if (filter.type) qb.andWhere('q.type = :t', { t: filter.type });
+    if (filter.difficulty) qb.andWhere('q.difficulty = :d', { d: filter.difficulty });
+    if (filter.tag) qb.andWhere(':tag = ANY(q.tags)', { tag: filter.tag });
+    if (filter.search !== undefined && filter.search !== '') {
+      qb.andWhere("(q.content->'prompt'->>'en' ILIKE :q OR q.content->'prompt'->>'ar' ILIKE :q)", {
+        q: `%${filter.search}%`,
+      });
+    }
+
+    qb.orderBy('q.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+    const [questions, total] = await qb.getManyAndCount();
+    return {
+      data: questions.map((question) => this.toPublicListItem(question)),
+      meta: this.meta(total, page, limit),
+    };
+  }
+
   // ---- helpers ----
 
   private async findOwned(id: string, teacherId: string): Promise<Question> {
@@ -243,6 +301,29 @@ export class QuestionBankService {
       totalPages,
       hasNextPage: page < totalPages,
       hasPrevPage: page > 1,
+    };
+  }
+
+  private toPublicListItem(question: Question): PublicQuestionListItem {
+    return {
+      id: question.id,
+      subject_id: question.subject_id,
+      lesson_id: question.lesson_id,
+      chapter: question.chapter,
+      topic: question.topic,
+      type: question.type,
+      difficulty: question.difficulty,
+      content: question.content,
+      default_marks: question.default_marks,
+      tags: question.tags,
+      subject: question.subject
+        ? {
+            id: question.subject.id,
+            name: question.subject.name,
+            name_ar: question.subject.name_ar,
+          }
+        : null,
+      created_at: question.created_at,
     };
   }
 }
