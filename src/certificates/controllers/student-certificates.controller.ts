@@ -1,9 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   Header,
   Param,
   ParseUUIDPipe,
+  Patch,
   Req,
   StreamableFile,
   UseGuards,
@@ -19,6 +21,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
+import { CertificateVisibilityDto } from '../dto';
 
 @ApiTags('Certificates')
 @Controller('student/certificates')
@@ -33,6 +36,16 @@ export class StudentCertificatesController {
   public async myCertificates(@GetUser() user: JwtPayload): Promise<{ data: unknown }> {
     const data = await this.certificatesService.getMyCertificates(user.userId);
     return { data };
+  }
+
+  @Patch(':id/visibility')
+  @ApiOperation({ summary: 'Publish/unpublish my certificate in the public gallery' })
+  public setVisibility(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CertificateVisibilityDto,
+  ): Promise<unknown> {
+    return this.certificatesService.setVisibility(id, user.userId, dto.is_public);
   }
 
   @Get(':id/pdf')

@@ -7,10 +7,16 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { CertificateTemplateStatus } from './certificate-template-status.enum';
+
 /**
  * A reusable certificate design/template. Admins manage these; the renderer
  * substitutes placeholders ({{student}}, {{course}}, {{date}}) in `body`.
  * Exactly one template should carry `is_default = true`.
+ *
+ * A template is NOT a certificate: publishing a template only makes the design
+ * available for issuance — issued certificates are separate `Certificate` rows
+ * carrying a frozen snapshot of this design.
  */
 @Entity('certificate_templates')
 @Index('IDX_certificate_templates_is_default', ['is_default'])
@@ -73,6 +79,15 @@ export class CertificateTemplate {
 
   @Column({ type: 'boolean', default: false, name: 'is_default' })
   is_default!: boolean;
+
+  @Column({
+    type: 'enum',
+    enum: CertificateTemplateStatus,
+    enumName: 'certificate_template_status_enum',
+    default: CertificateTemplateStatus.DRAFT,
+  })
+  @Index('IDX_certificate_templates_status')
+  status!: CertificateTemplateStatus;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;

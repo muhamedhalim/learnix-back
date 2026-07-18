@@ -8,11 +8,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import type { Request } from 'express';
 
@@ -20,10 +22,17 @@ import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { THROTTLE } from '../../common/constants';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
-import { CreateTemplateDto, UpdateTemplateDto } from '../dto';
+import {
+  CertificateListFilterDto,
+  CreateTemplateDto,
+  IssueCertificateDto,
+  RevokeCertificateDto,
+  UpdateTemplateDto,
+} from '../dto';
 
 @ApiTags('Teacher · Certificates')
 @Controller('teacher/certificates')
@@ -37,6 +46,51 @@ export class TeacherCertificatesController {
   @ApiOperation({ summary: "Certificate analytics for the teacher's courses" })
   public analytics(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.certificatesService.getAnalytics(user.userId);
+  }
+
+  /* ----- Issued certificates (own courses only) ----- */
+
+  @Get('issued')
+  @ApiOperation({ summary: "List certificates issued for the teacher's courses" })
+  public list(
+    @GetUser() user: JwtPayload,
+    @Query() filter: CertificateListFilterDto,
+  ): Promise<unknown> {
+    return this.certificatesService.listCertificates(filter, user.userId);
+  }
+
+  @Post('issue')
+  @ApiOperation({ summary: 'Issue certificates for my own course' })
+  public issue(@GetUser() user: JwtPayload, @Body() dto: IssueCertificateDto): Promise<unknown> {
+    return this.certificatesService.bulkIssue(
+      {
+        packageId: dto.packageId,
+        templateId: dto.templateId,
+        studentIds: [...(dto.studentIds ?? []), ...(dto.studentId ? [dto.studentId] : [])],
+        allCompleted: dto.allCompleted,
+        force: dto.force,
+      },
+      user.userId,
+    );
+  }
+
+  @Post('issued/:id/revoke')
+  @ApiOperation({ summary: 'Revoke a certificate issued for one of my courses' })
+  public revoke(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RevokeCertificateDto,
+  ): Promise<unknown> {
+    return this.certificatesService.revokeCertificate(id, dto.reason, user.userId);
+  }
+
+  @Post('issued/:id/reissue')
+  @ApiOperation({ summary: 'Reissue a revoked certificate for one of my courses' })
+  public reissue(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.reissueCertificate(id, user.userId);
   }
 
   @Get('templates')
@@ -61,6 +115,60 @@ export class TeacherCertificatesController {
     @Body() dto: CreateTemplateDto,
   ): Promise<unknown> {
     return this.certificatesService.createTemplate(dto, user.userId);
+  }
+
+  @Post('templates/preview/pdf')
+  @Throttle({ default: THROTTLE.DEFAULT })
+  @Header('Content-Type', 'application/pdf')
+  @ApiOperation({ summary: 'Render an unsaved template design as a sample PDF' })
+  public async previewTemplate(
+    @Body() dto: CreateTemplateDto,
+    @Req() request: Request,
+  ): Promise<StreamableFile> {
+    const buffer = await this.certificatesService.renderTemplateSample(
+      dto,
+      resolveRequestLocale(request),
+    );
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: 'inline; filename="template-preview.pdf"',
+    });
+  }
+
+  @Post('templates/:id/publish')
+  @ApiOperation({ summary: 'Publish one of my templates' })
+  public publishTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.publishTemplate(id, user.userId);
+  }
+
+  @Post('templates/:id/unpublish')
+  @ApiOperation({ summary: 'Return one of my templates to draft' })
+  public unpublishTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.unpublishTemplate(id, user.userId);
+  }
+
+  @Post('templates/:id/archive')
+  @ApiOperation({ summary: 'Archive one of my templates' })
+  public archiveTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.archiveTemplate(id, user.userId);
+  }
+
+  @Post('templates/:id/duplicate')
+  @ApiOperation({ summary: 'Duplicate one of my templates as a new draft' })
+  public duplicateTemplate(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.duplicateTemplate(id, user.userId, user.userId);
   }
 
   @Patch('templates/:id')

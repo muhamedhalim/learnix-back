@@ -7,8 +7,8 @@ import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
 
 import { shapeArabicForPdf } from './arabic-pdf-text.util';
+import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
-import { CertificateTemplate } from './entities/certificate-template.entity';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 
 /** Sensible defaults used when no template row exists. */
@@ -78,7 +78,9 @@ export class CertificatePdfService {
    */
   public async render(
     certificate: Certificate,
-    template: CertificateTemplate | null,
+    // A live template or an issue-time snapshot — both carry the same design
+    // fields; the renderer never needs ids/timestamps.
+    template: CertificateTemplateSnapshot | null,
     locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
     const isArabic = locale === PreferredLanguage.AR;

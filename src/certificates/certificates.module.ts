@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -16,9 +17,11 @@ import {
 } from './controllers';
 import { Certificate, CertificateTemplate } from './entities';
 import { CertificateIssuanceListener } from './listeners/certificate-issuance.listener';
+import { CertificateNotificationListener } from './listeners/certificate-notification.listener';
 
 @Module({
   imports: [
+    NotificationsModule,
     TypeOrmModule.forFeature([
       Certificate,
       CertificateTemplate,
@@ -39,6 +42,7 @@ import { CertificateIssuanceListener } from './listeners/certificate-issuance.li
     CertificatesService,
     CertificatePdfService,
     CertificateIssuanceListener,
+    CertificateNotificationListener,
   ],
   exports: [CertificatesService],
 })
