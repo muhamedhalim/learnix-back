@@ -15,6 +15,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
 import {
   StorageObjectNotFoundError,
   StorageProvider,
@@ -162,7 +163,8 @@ class R2StorageProvider implements StorageProvider {
         contentLength: res.ContentLength,
       };
     } catch (err) {
-      const code = (err as { name?: string; Code?: string }).name ?? (err as { Code?: string }).Code;
+      const code =
+        (err as { name?: string; Code?: string }).name ?? (err as { Code?: string }).Code;
       if (code === 'NoSuchKey' || code === 'NotFound') {
         throw new StorageObjectNotFoundError(path);
       }
@@ -376,6 +378,7 @@ export class StorageService implements StorageProvider {
     const publicBaseUrl = this.config.get<string>('R2_PUBLIC_BASE_URL');
 
     if (accountId && accessKeyId && secretAccessKey && bucket && publicBaseUrl) {
+      this.assertProductionPublicUrl(publicBaseUrl, 'R2_PUBLIC_BASE_URL');
       return new R2StorageProvider(
         accountId,
         accessKeyId,
@@ -393,6 +396,7 @@ export class StorageService implements StorageProvider {
     const password = this.config.get<string>('BUNNY_STORAGE_PASSWORD');
     const cdnUrl = this.config.get<string>('BUNNY_CDN_URL');
     if (zone && password && cdnUrl) {
+      this.assertProductionPublicUrl(cdnUrl, 'BUNNY_CDN_URL');
       return new BunnyStorageProvider(
         zone,
         password,
@@ -402,7 +406,10 @@ export class StorageService implements StorageProvider {
       );
     }
 
-    this.logger.warn('No object storage configured (R2/Bunny) — using local disk fallback.');
+    if (this.config.get<string>('NODE_ENV') === 'production') {
+      throw new Error('R2 or Bunny object storage must be configured in production');
+    }
+    this.logger.warn('No object storage configured (R2/Bunny) - using local disk fallback.');
     return new LocalStorageProvider(
       this.config.get<string>('UPLOAD_DIR') ?? './uploads',
       this.config.get<string>('PRIVATE_UPLOAD_DIR') ?? './private-uploads',
@@ -412,6 +419,22 @@ export class StorageService implements StorageProvider {
 
   public get name(): string {
     return this.provider.name;
+  }
+
+  private assertProductionPublicUrl(value: string, variableName: string): void {
+    if (this.config.get<string>('NODE_ENV') !== 'production') return;
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(`${variableName} must be an absolute HTTPS URL in production`);
+    }
+    if (
+      url.protocol !== 'https:' ||
+      ['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase())
+    ) {
+      throw new Error(`${variableName} must be a non-localhost HTTPS URL in production`);
+    }
   }
 
   public upload(params: UploadParams): Promise<StoredFile> {
@@ -472,7 +495,8 @@ export class StorageService implements StorageProvider {
     path = path
       .replace(/^\/+/, '')
       .replace(/^api\/v1\/uploads\//, '')
-      .replace(/^api\/v1\/media\/public\//, '');
+      .replace(/^api\/v1\/media\/public\//, '')
+      .replace(/^uploads\//, '');
     return path;
   }
 
@@ -488,8 +512,15 @@ export class StorageService implements StorageProvider {
     const publicPrefix = this.getPublicUrl('');
     if (publicPrefix !== '' && value.startsWith(publicPrefix)) return true;
     try {
-      const pathname = new URL(value).pathname.replace(/^\/+/, '');
-      return pathname.startsWith('api/v1/uploads/') || pathname.startsWith('api/v1/media/public/');
+      const parsed = new URL(value);
+      const pathname = parsed.pathname.replace(/^\/+/, '');
+      if (pathname.startsWith('api/v1/uploads/') || pathname.startsWith('api/v1/media/public/')) {
+        return true;
+      }
+      const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
+      if (!isLocalHost) return false;
+      const legacyPath = pathname.replace(/^uploads\//, '');
+      return PUBLIC_MEDIA_FOLDERS.some((folder) => legacyPath.startsWith(`${folder}/`));
     } catch {
       return false;
     }

@@ -87,6 +87,7 @@ function buildService(options: {
   save: jest.Mock;
   create: jest.Mock;
   subjectsFindOne: jest.Mock;
+  normalizeStoredPublicReference: jest.Mock;
 } {
   const savedPackage = options.savedPackage ?? makePackage();
   const create = jest.fn().mockImplementation((entity: unknown) => entity);
@@ -108,7 +109,11 @@ function buildService(options: {
     findOne: subjectsFindOne,
   } as unknown as Repository<Subject>;
 
-  const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
+  const normalizeStoredPublicReference = jest.fn((value: string) => value);
+  const media = {
+    resolveThumbnailUrl: jest.fn().mockReturnValue(null),
+    normalizeStoredPublicReference,
+  };
 
   const service = new PackagesService(
     packagesRepository,
@@ -121,7 +126,7 @@ function buildService(options: {
     media as never,
   );
 
-  return { service, save, create, subjectsFindOne };
+  return { service, save, create, subjectsFindOne, normalizeStoredPublicReference };
 }
 
 describe('PackagesService.create — subject_id', () => {
@@ -201,6 +206,23 @@ describe('PackagesService.create — subject_id', () => {
 
     expect(result.status).toBe(CourseStatus.PUBLISHED);
   });
+
+  it('persists an uploaded cover as an environment-neutral storage key', async () => {
+    const { service, create, normalizeStoredPublicReference } = buildService({});
+    normalizeStoredPublicReference.mockReturnValue('images/cover.jpg');
+
+    await service.create('teacher-1', {
+      title: 'Algebra Basics',
+      subject_id: 'subject-1',
+      price: 100,
+      thumbnail: 'http://localhost:3001/api/v1/media/public/images/cover.jpg',
+    } as never);
+
+    expect(normalizeStoredPublicReference).toHaveBeenCalledWith(
+      'http://localhost:3001/api/v1/media/public/images/cover.jpg',
+    );
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ thumbnail: 'images/cover.jpg' }));
+  });
 });
 
 describe('PackagesService.update — subject_id', () => {
@@ -222,7 +244,10 @@ describe('PackagesService.update — subject_id', () => {
       {} as never,
       subjectsRepository,
       {} as DataSource,
-      { resolveThumbnailUrl: jest.fn().mockReturnValue(null) } as never,
+      {
+        resolveThumbnailUrl: jest.fn().mockReturnValue(null),
+        normalizeStoredPublicReference: jest.fn((value: string) => value),
+      } as never,
     );
 
     // No subject_id in the DTO — must not touch subjectsRepository at all.

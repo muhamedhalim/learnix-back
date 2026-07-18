@@ -125,15 +125,17 @@ export class PackagesService {
       );
     }
 
-    const pkg = this.packagesRepository.create(
-      Object.assign({}, dto, {
-        teacher_id: teacherId,
-        // Course can be single-language: fall back to `title` for `title_ar`.
-        title_ar: dto.title_ar ?? dto.title,
-        is_active: true,
-        original_price: null,
-      }),
-    );
+    const packageInput = Object.assign({}, dto, {
+      teacher_id: teacherId,
+      // Course can be single-language: fall back to `title` for `title_ar`.
+      title_ar: dto.title_ar ?? dto.title,
+      is_active: true,
+      original_price: null,
+    });
+    if (dto.thumbnail !== undefined) {
+      packageInput.thumbnail = this.media.normalizeStoredPublicReference(dto.thumbnail);
+    }
+    const pkg = this.packagesRepository.create(packageInput);
 
     const savedPackage = await this.packagesRepository.save(pkg);
     return await this.findOne(savedPackage.id);
@@ -330,6 +332,9 @@ export class PackagesService {
     }
 
     Object.assign(pkg, dto);
+    if (dto.thumbnail !== undefined) {
+      pkg.thumbnail = this.media.normalizeStoredPublicReference(dto.thumbnail);
+    }
     await this.packagesRepository.save(pkg);
 
     return await this.findOne(packageId);

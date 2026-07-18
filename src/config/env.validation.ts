@@ -287,6 +287,11 @@ export class EnvironmentVariables {
   @IsOptional()
   public BACKEND_URL?: string;
 
+  /** Public origin used for browser-facing URLs from the media proxy. */
+  @IsString()
+  @IsOptional()
+  public PUBLIC_MEDIA_BASE_URL?: string;
+
   @IsString()
   @IsOptional()
   public CORS_ORIGIN?: string;
@@ -338,6 +343,29 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     throw new Error(
       `Environment validation failed:\n\n${errorMessages}\n\nPlease check your .env file and ensure all required variables are set correctly.`,
     );
+  }
+
+  if (validatedConfig.NODE_ENV === Environment.Production) {
+    const configuredMediaOrigin =
+      validatedConfig.PUBLIC_MEDIA_BASE_URL ?? validatedConfig.BACKEND_URL;
+    if (!configuredMediaOrigin) {
+      throw new Error(
+        'Environment validation failed: PUBLIC_MEDIA_BASE_URL (or BACKEND_URL) is required in production.',
+      );
+    }
+    try {
+      const url = new URL(configuredMediaOrigin);
+      if (
+        url.protocol !== 'https:' ||
+        ['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase())
+      ) {
+        throw new Error('invalid production media origin');
+      }
+    } catch {
+      throw new Error(
+        'Environment validation failed: PUBLIC_MEDIA_BASE_URL must be a non-localhost HTTPS URL in production.',
+      );
+    }
   }
 
   return validatedConfig;

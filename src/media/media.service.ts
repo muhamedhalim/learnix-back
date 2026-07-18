@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
@@ -18,11 +18,14 @@ const PUBLIC_MEDIA_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 @Injectable()
 export class MediaService {
   public readonly cacheControl = `public, max-age=${PUBLIC_MEDIA_MAX_AGE_SECONDS.toString()}, immutable`;
+  private readonly publicMediaBaseUrl: string;
 
   constructor(
     private readonly storage: StorageService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    this.publicMediaBaseUrl = this.resolvePublicMediaBaseUrl();
+  }
 
   /**
    * Build the backend-relative object key for a folder/filename pair, only
@@ -61,8 +64,7 @@ export class MediaService {
    * (lessons, packages) to turn a stored key/legacy URL into `thumbnail_url`.
    */
   public buildPublicUrl(key: string): string {
-    const backendUrl = this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3001';
-    return `${backendUrl.replace(/\/+$/, '')}/api/v1/media/public/${key}`;
+    return `${this.publicMediaBaseUrl}/api/v1/media/public/${key.replace(/^\/+/, '')}`;
   }
 
   /**
@@ -77,7 +79,57 @@ export class MediaService {
    */
   public resolveThumbnailUrl(value: string | null | undefined): string | null {
     if (value === null || value === undefined || value === '') return null;
-    if (!this.storage.isOwnUrl(value)) return value;
+    if (!this.storage.isOwnUrl(value)) {
+      return this.isLocalhostUrl(value) ? null : value;
+    }
     return this.buildPublicUrl(this.storage.toKey(value));
+  }
+
+  /** Store provider-owned media as a key; reject any new localhost URL. */
+  public normalizeStoredPublicReference(value: string): string {
+    if (this.isLocalhostUrl(value) && !this.storage.isOwnUrl(value)) {
+      throw new BadRequestException(
+        biBody(
+          'Localhost URLs cannot be used for public media',
+          'لا يمكن استخدام روابط localhost للوسائط العامة',
+        ),
+      );
+    }
+    return this.storage.isOwnUrl(value) ? this.storage.toKey(value) : value;
+  }
+
+  private resolvePublicMediaBaseUrl(): string {
+    const configured =
+      this.config.get<string>('PUBLIC_MEDIA_BASE_URL') ?? this.config.get<string>('BACKEND_URL');
+    const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+    if (!configured) {
+      if (isProduction) {
+        throw new Error('PUBLIC_MEDIA_BASE_URL (or BACKEND_URL) is required in production');
+      }
+      return 'http://localhost:3001';
+    }
+
+    let url: URL;
+    try {
+      url = new URL(configured);
+    } catch {
+      throw new Error('PUBLIC_MEDIA_BASE_URL must be an absolute URL');
+    }
+    if (isProduction && (url.protocol !== 'https:' || this.isLocalhostUrl(url.toString()))) {
+      throw new Error('PUBLIC_MEDIA_BASE_URL must be a non-localhost HTTPS URL in production');
+    }
+    return url
+      .toString()
+      .replace(/\/+$/, '')
+      .replace(/\/api\/v1$/i, '');
+  }
+
+  private isLocalhostUrl(value: string): boolean {
+    try {
+      const hostname = new URL(value).hostname.toLowerCase();
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    } catch {
+      return false;
+    }
   }
 }
