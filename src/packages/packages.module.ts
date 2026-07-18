@@ -5,6 +5,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaModule } from '../media/media.module';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
+import { Subject } from '../subjects/entities/subject.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
 import {
@@ -28,6 +29,7 @@ import { PackagesService } from './packages.service';
       User,
       TeacherProfile,
       PackagePurchase,
+      Subject,
     ]),
     MediaModule,
     ReviewsModule,

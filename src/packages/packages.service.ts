@@ -15,6 +15,7 @@ import { PaginatedResponse, PaginationMeta } from '../common/interfaces/paginati
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
+import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import {
   AddLessonsDto,
@@ -46,6 +47,7 @@ export interface PackageWithDetails {
     email: string;
     profile_picture_url: string | null;
   } | null;
+  subject: { id: string; name: string; name_ar: string | null; grade_level: string } | null;
   price: number;
   original_price: number | null;
   savings: number | null;
@@ -95,6 +97,8 @@ export class PackagesService {
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(Subject)
+    private readonly subjectsRepository: Repository<Subject>,
     private readonly dataSource: DataSource,
     private readonly media: MediaService,
   ) {}
@@ -109,6 +113,16 @@ export class PackagesService {
 
     if (!teacher) {
       throw new NotFoundException(biBody('Teacher not found', 'المعلم غير موجود'));
+    }
+
+    const subject = await this.subjectsRepository.findOne({ where: { id: dto.subject_id } });
+    if (!subject) {
+      throw new BadRequestException(
+        biBody(
+          `Subject with ID ${dto.subject_id} not found`,
+          `المادة بالمعرّف ${dto.subject_id} غير موجودة`,
+        ),
+      );
     }
 
     const pkg = this.packagesRepository.create(
@@ -145,6 +159,7 @@ export class PackagesService {
     const queryBuilder = this.packagesRepository
       .createQueryBuilder('package')
       .leftJoinAndSelect('package.teacher', 'teacher')
+      .leftJoinAndSelect('package.subject', 'subject')
       .leftJoinAndSelect('package.items', 'items')
       .leftJoinAndSelect('items.lesson', 'lesson')
       .where('package.deleted_at IS NULL');
@@ -255,6 +270,7 @@ export class PackagesService {
     const queryBuilder = this.packagesRepository
       .createQueryBuilder('package')
       .leftJoinAndSelect('package.teacher', 'teacher')
+      .leftJoinAndSelect('package.subject', 'subject')
       .leftJoinAndSelect('package.items', 'items')
       .leftJoinAndSelect('items.lesson', 'lesson')
       .where('package.id = :id', { id })
@@ -299,6 +315,18 @@ export class PackagesService {
       throw new ForbiddenException(
         biBody('You can only update your own packages', 'يمكنك تحديث باقاتك الخاصة فقط'),
       );
+    }
+
+    if (dto.subject_id !== undefined) {
+      const subject = await this.subjectsRepository.findOne({ where: { id: dto.subject_id } });
+      if (!subject) {
+        throw new BadRequestException(
+          biBody(
+            `Subject with ID ${dto.subject_id} not found`,
+            `المادة بالمعرّف ${dto.subject_id} غير موجودة`,
+          ),
+        );
+      }
     }
 
     Object.assign(pkg, dto);
@@ -631,6 +659,14 @@ export class PackagesService {
             name: pkg.teacher.name,
             email: pkg.teacher.email,
             profile_picture_url: pkg.teacher.profile_picture_url,
+          }
+        : null,
+      subject: pkg.subject
+        ? {
+            id: pkg.subject.id,
+            name: pkg.subject.name,
+            name_ar: pkg.subject.name_ar,
+            grade_level: pkg.subject.grade_level,
           }
         : null,
       price,

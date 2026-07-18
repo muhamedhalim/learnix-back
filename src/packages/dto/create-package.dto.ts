@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -18,6 +19,10 @@ import { CourseStatus } from '../entities/course-status.enum';
 export class CreatePackageDto {
   @MaxLength(255)
   public title!: string;
+
+  @ApiProperty({ description: 'Subject this package belongs to' })
+  @IsUUID()
+  public subject_id!: string;
 
   @ApiPropertyOptional({
     description:

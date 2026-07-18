@@ -57,6 +57,7 @@ function buildService(packages: LessonPackage[]): PackagesService {
     {} as Repository<never>,
     {} as Repository<never>,
     {} as Repository<never>,
+    {} as Repository<never>,
     {} as DataSource,
     media as never,
   );

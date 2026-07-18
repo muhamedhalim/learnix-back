@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   MaxLength,
   Min,
   ValidateNested,
@@ -20,6 +21,11 @@ import { CourseStatus } from '../entities/course-status.enum';
 import { FaqItemDto } from './faq-item.dto';
 
 export class UpdatePackageDto {
+  @ApiPropertyOptional({ description: 'Subject this package belongs to' })
+  @IsOptional()
+  @IsUUID()
+  public subject_id?: string;
+
   @ApiPropertyOptional({ enum: CourseStatus, description: 'Publishing state' })
   @IsOptional()
   @IsEnum(CourseStatus)

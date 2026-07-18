@@ -68,6 +68,7 @@ function buildService(options: {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
     {} as DataSource,
     { resolveThumbnailUrl: jest.fn().mockReturnValue(null) } as never,
   );

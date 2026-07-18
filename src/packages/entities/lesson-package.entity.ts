@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 
 import type { PackagePurchase } from '../../payments/entities/package-purchase.entity';
+import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import { CourseStatus } from './course-status.enum';
 import type { LessonPackageItem } from './lesson-package-item.entity';
@@ -23,6 +24,7 @@ import type { LessonPackageItem } from './lesson-package-item.entity';
 @Index('IDX_lesson_packages_price', ['price'])
 @Index('IDX_lesson_packages_created_at', ['created_at'])
 @Index('IDX_lesson_packages_status', ['status'])
+@Index('IDX_lesson_packages_subject_id', ['subject_id'])
 export class LessonPackage {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -45,6 +47,17 @@ export class LessonPackage {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'teacher_id' })
   teacher!: User;
+
+  // Nullable: pre-existing packages predate this column (see migration
+  // 1910000000000-AddSubjectToLessonPackages) and have no subject on record.
+  // Every new/updated package requires one — enforced by CreatePackageDto/
+  // UpdatePackageDto, not by the DB — so this is legacy-data-only nullability.
+  @Column('uuid', { nullable: true })
+  subject_id!: string | null;
+
+  @ManyToOne(() => Subject, { nullable: true })
+  @JoinColumn({ name: 'subject_id' })
+  subject!: Relation<Subject> | null;
 
   @Column('decimal', { precision: 10, scale: 2 })
   price!: number;
