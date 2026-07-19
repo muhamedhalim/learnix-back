@@ -42,6 +42,16 @@ export interface LatestExamSummary {
   gradedAt: string;
 }
 
+export interface HomeworkSummary {
+  assigned: number;
+  submitted: number;
+  graded: number;
+  late: number;
+  completionRate: number | null;
+  averageScore: number | null;
+  lastSubmittedAt: string | null;
+}
+
 export interface RiskAssessment {
   level: RiskLevel;
   factors: string[];
@@ -58,6 +68,7 @@ export interface TeacherStudentSummary {
   attendance: AttendanceSummary;
   latestExam: LatestExamSummary | null;
   averageExamScore: number | null;
+  homework: HomeworkSummary;
   risk: RiskAssessment;
 }
 
@@ -66,6 +77,8 @@ export type TimelineEntryType =
   | 'exam_submitted'
   | 'exam_graded'
   | 'attendance_recorded'
+  | 'homework_submitted'
+  | 'homework_graded'
   | 'notification_queued'
   | 'notification_sent'
   | 'notification_delivered'

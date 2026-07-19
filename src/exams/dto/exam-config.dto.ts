@@ -1,13 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import {
-  IsBoolean,
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  Min,
-} from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 
 import { ReviewPolicy } from '../entities';
 
@@ -68,4 +61,23 @@ export class ExamConfigDto {
   @IsInt()
   @Min(0)
   public grace_seconds?: number;
+}
+
+/** Schedule-only update allowed after an exam has been published. */
+export class RescheduleExamDto {
+  @ApiPropertyOptional({
+    description: 'ISO datetime the exam opens; null clears it',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  public start_window_at?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'ISO datetime the exam closes; null clears it',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsDateString()
+  public end_window_at?: string | null;
 }

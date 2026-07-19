@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -21,6 +22,7 @@ import {
   AttachQuestionDto,
   CreateExamDto,
   ExamFilterDto,
+  RescheduleExamDto,
   UpdateExamDto,
   UpsertSectionDto,
 } from '../dto';
@@ -110,6 +112,16 @@ export class TeacherExamsController {
   @ApiOperation({ summary: 'Publish (or schedule) the exam' })
   public publish(@GetUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string) {
     return this.authoring.publish(id, user.userId);
+  }
+
+  @Patch(':id/schedule')
+  @ApiOperation({ summary: 'Update the availability window of a published exam' })
+  public reschedule(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RescheduleExamDto,
+  ) {
+    return this.authoring.reschedule(id, user.userId, dto);
   }
 
   @Post(':id/archive')

@@ -5,12 +5,11 @@ import { TeacherFollowUpService } from './teacher-follow-up.service';
 import type { TimelineEntry } from './teacher-follow-up.types';
 
 /**
- * One merged, chronological feed per student: exam lifecycle, attendance, and
- * the guardian-notification lifecycle for those two event types only.
+ * One merged, chronological feed per student: exams, attendance, homework,
+ * and guardian-notification delivery.
  *
- * Homework has no submission-tracking entity in this schema (assignments are
- * lesson-wide, not per-student), so "Homework Submitted" cannot be shown here
- * — flagged in the final audit rather than faked.
+ * Homework entries are backed by the per-student submission entity and are
+ * included only after the teacher/student ownership checks above.
  */
 @Injectable()
 export class TeacherTimelineService {
@@ -19,9 +18,10 @@ export class TeacherTimelineService {
   public async getTimeline(teacherId: string, studentId: string): Promise<TimelineEntry[]> {
     await this.followUp.assertOwnsStudent(teacherId, studentId);
 
-    const [attempts, attendance, messages] = await Promise.all([
+    const [attempts, attendance, homework, messages] = await Promise.all([
       this.followUp.fetchAttemptRowsFor(teacherId, studentId),
       this.followUp.fetchAttendanceRowsFor(teacherId, studentId),
+      this.followUp.fetchHomeworkRowsFor(teacherId, studentId),
       this.followUp.fetchScopedMessagesFor(teacherId, studentId),
     ]);
 
@@ -60,6 +60,21 @@ export class TeacherTimelineService {
       });
     }
 
+    for (const submission of homework) {
+      entries.push({
+        type: 'homework_submitted',
+        label: `Submitted "${submission.homework_title}"${submission.is_late ? ' (late)' : ''}`,
+        at: submission.submitted_at.toISOString(),
+      });
+      if (submission.graded_at) {
+        entries.push({
+          type: 'homework_graded',
+          label: `Graded "${submission.homework_title}" - ${String(submission.score ?? 0)}/${String(submission.max_score)}`,
+          at: submission.graded_at.toISOString(),
+        });
+      }
+    }
+
     for (const message of messages) {
       entries.push(...this.messageEntries(message));
     }
@@ -78,7 +93,12 @@ export class TeacherTimelineService {
       },
     ];
     if (message.sent_at) {
-      entries.push({ type: 'notification_sent', label: 'WhatsApp/SMS sent', at: message.sent_at.toISOString(), meta });
+      entries.push({
+        type: 'notification_sent',
+        label: 'WhatsApp/SMS sent',
+        at: message.sent_at.toISOString(),
+        meta,
+      });
     }
     if (message.delivered_at) {
       entries.push({
@@ -89,7 +109,12 @@ export class TeacherTimelineService {
       });
     }
     if (message.read_at) {
-      entries.push({ type: 'notification_read', label: 'Read by guardian', at: message.read_at.toISOString(), meta });
+      entries.push({
+        type: 'notification_read',
+        label: 'Read by guardian',
+        at: message.read_at.toISOString(),
+        meta,
+      });
     }
     return entries;
   }

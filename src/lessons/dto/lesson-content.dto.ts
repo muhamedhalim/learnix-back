@@ -1,14 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+import { HomeworkQuestionDto } from './homework.dto';
 
 export class CreateAttachmentDto {
   @ApiProperty({ description: 'Display name', maxLength: 255 })
@@ -81,6 +88,23 @@ export class CreateHomeworkDto {
   @IsOptional()
   @IsDateString()
   public due_at?: string;
+
+  @ApiPropertyOptional({
+    type: [HomeworkQuestionDto],
+    description: 'Structured assignment questions',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => HomeworkQuestionDto)
+  public questions?: HomeworkQuestionDto[];
+
+  @ApiPropertyOptional({ default: 100, minimum: 0.01 })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  public max_score?: number;
 }
 
 export class UpdateHomeworkDto {
@@ -122,4 +146,18 @@ export class UpdateHomeworkDto {
   @IsOptional()
   @IsDateString()
   public due_at?: string;
+
+  @ApiPropertyOptional({ type: [HomeworkQuestionDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => HomeworkQuestionDto)
+  public questions?: HomeworkQuestionDto[];
+
+  @ApiPropertyOptional({ minimum: 0.01 })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  public max_score?: number;
 }

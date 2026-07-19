@@ -7,6 +7,8 @@ import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { StudentGuardian } from '../guardians/entities';
 import { GuardiansModule } from '../guardians/guardians.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { HomeworkSubmission } from '../lessons/entities/homework-submission.entity';
+import { LessonHomework } from '../lessons/entities/lesson-homework.entity';
 import { ParentMessage } from '../notifications/entities';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
@@ -36,6 +38,8 @@ import { TeacherTimelineService } from './teacher-timeline.service';
     TypeOrmModule.forFeature([
       User,
       Lesson,
+      LessonHomework,
+      HomeworkSubmission,
       LessonPurchase,
       PackagePurchase,
       ExamAttempt,

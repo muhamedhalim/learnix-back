@@ -2,21 +2,29 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { NotificationType } from '../../notifications/entities';
+import { NotificationsService } from '../../notifications/services/notifications.service';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
+import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
+import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
+import { User } from '../../users/entities/user.entity';
 import {
   AttachQuestionDto,
   CreateExamDto,
   ExamFilterDto,
+  RescheduleExamDto,
   UpdateExamDto,
   UpsertSectionDto,
 } from '../dto';
@@ -38,6 +46,8 @@ import {
  */
 @Injectable()
 export class ExamAuthoringService {
+  private readonly logger = new Logger(ExamAuthoringService.name);
+
   constructor(
     @InjectRepository(Exam) private readonly exams: Repository<Exam>,
     @InjectRepository(ExamSection) private readonly sections: Repository<ExamSection>,
@@ -46,6 +56,12 @@ export class ExamAuthoringService {
     @InjectRepository(Subject) private readonly subjects: Repository<Subject>,
     @InjectRepository(Lesson) private readonly lessons: Repository<Lesson>,
     @InjectRepository(LessonPackage) private readonly packages: Repository<LessonPackage>,
+    @InjectRepository(LessonPurchase)
+    private readonly lessonPurchases: Repository<LessonPurchase>,
+    @InjectRepository(PackagePurchase)
+    private readonly packagePurchases: Repository<PackagePurchase>,
+    @InjectRepository(User) private readonly users: Repository<User>,
+    private readonly notifications: NotificationsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -277,7 +293,48 @@ export class ExamAuthoringService {
     const scheduled =
       start !== null && start !== undefined && new Date(start).getTime() > Date.now();
     exam.status = scheduled ? ExamStatus.SCHEDULED : ExamStatus.PUBLISHED;
-    return this.exams.save(exam);
+    const saved = await this.exams.save(exam);
+    await this.notifyExamAudience(saved, 'assigned');
+    return saved;
+  }
+
+  /** Change only the availability window of an already-published exam. */
+  public async reschedule(
+    examId: string,
+    teacherId: string,
+    dto: RescheduleExamDto,
+  ): Promise<Exam> {
+    const exam = await this.findOwned(examId, teacherId);
+    if (exam.status !== ExamStatus.PUBLISHED && exam.status !== ExamStatus.SCHEDULED) {
+      throw new BadRequestException(
+        biBody(
+          'Only a published or scheduled exam can be rescheduled',
+          'يمكن تعديل موعد امتحان منشور أو مجدول فقط',
+        ),
+      );
+    }
+    const start =
+      dto.start_window_at !== undefined
+        ? dto.start_window_at
+        : (exam.config.start_window_at ?? null);
+    const end =
+      dto.end_window_at !== undefined ? dto.end_window_at : (exam.config.end_window_at ?? null);
+    if (start !== null && end !== null && new Date(start) >= new Date(end)) {
+      throw new BadRequestException(
+        biBody(
+          'Exam closing time must be after its opening time',
+          'يجب أن يكون موعد إغلاق الامتحان بعد موعد فتحه',
+        ),
+      );
+    }
+    exam.config = { ...exam.config, start_window_at: start, end_window_at: end };
+    exam.status =
+      start !== null && new Date(start).getTime() > Date.now()
+        ? ExamStatus.SCHEDULED
+        : ExamStatus.PUBLISHED;
+    const saved = await this.exams.save(exam);
+    await this.notifyExamAudience(saved, 'updated');
+    return saved;
   }
 
   public async archive(examId: string, teacherId: string): Promise<Exam> {
@@ -368,7 +425,20 @@ export class ExamAuthoringService {
   }
 
   private mergeConfig(base: ExamConfig, patch?: Partial<ExamConfig>): ExamConfig {
-    return { ...base, ...(patch ?? {}) };
+    const merged = { ...base, ...(patch ?? {}) };
+    if (
+      merged.start_window_at &&
+      merged.end_window_at &&
+      new Date(merged.start_window_at).getTime() >= new Date(merged.end_window_at).getTime()
+    ) {
+      throw new BadRequestException(
+        biBody(
+          'The exam closing time must be after its opening time',
+          'يجب أن يكون موعد إغلاق الاختبار بعد موعد فتحه',
+        ),
+      );
+    }
+    return merged;
   }
 
   private async assertSubject(subjectId: string): Promise<void> {
@@ -442,6 +512,92 @@ export class ExamAuthoringService {
     if (lessonId !== null && packageId !== null) {
       throw new BadRequestException(
         biBody('Choose either a course or a lesson audience', 'اختر دورة أو درسًا كجمهور للاختبار'),
+      );
+    }
+  }
+
+  private async getExamAudienceIds(exam: Exam): Promise<string[]> {
+    if (exam.is_public) return [];
+    if (exam.package_id !== null) {
+      const rows = await this.packagePurchases
+        .createQueryBuilder('purchase')
+        .where('purchase.package_id = :packageId', { packageId: exam.package_id })
+        .select('purchase.student_id', 'student_id')
+        .distinct(true)
+        .getRawMany<{ student_id: string }>();
+      return rows.map((row) => row.student_id);
+    }
+    if (exam.lesson_id === null) return [];
+    const [direct, packaged] = await Promise.all([
+      this.lessonPurchases
+        .createQueryBuilder('purchase')
+        .where('purchase.lesson_id = :lessonId', { lessonId: exam.lesson_id })
+        .andWhere('purchase.access_expires_at > :now', { now: new Date() })
+        .select('purchase.student_id', 'student_id')
+        .distinct(true)
+        .getRawMany<{ student_id: string }>(),
+      this.packagePurchases
+        .createQueryBuilder('purchase')
+        .innerJoin('purchase.package', 'package')
+        .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', {
+          lessonId: exam.lesson_id,
+        })
+        .select('purchase.student_id', 'student_id')
+        .distinct(true)
+        .getRawMany<{ student_id: string }>(),
+    ]);
+    return [...new Set([...direct, ...packaged].map((row) => row.student_id))];
+  }
+
+  private async notifyExamAudience(exam: Exam, action: 'assigned' | 'updated'): Promise<void> {
+    const studentIds = await this.getExamAudienceIds(exam);
+    if (studentIds.length === 0) return;
+    const students = await this.users.find({ where: { id: In(studentIds) } });
+    const start = exam.config.start_window_at ?? null;
+    const end = exam.config.end_window_at ?? null;
+    const outcomes = await Promise.allSettled(
+      students.map(async (student) => {
+        const arabic = student.preferred_language === PreferredLanguage.AR;
+        const title = arabic
+          ? action === 'assigned'
+            ? 'امتحان جديد'
+            : 'تم تحديث موعد الامتحان'
+          : action === 'assigned'
+            ? 'New exam'
+            : 'Exam schedule updated';
+        const localizedName = arabic ? exam.title_ar : exam.title;
+        const schedule = start
+          ? arabic
+            ? ` — يبدأ ${new Date(start).toLocaleString('ar-EG')}`
+            : ` — opens ${new Date(start).toLocaleString('en-US')}`
+          : '';
+        const closes = end
+          ? arabic
+            ? ` — ينتهي ${new Date(end).toLocaleString('ar-EG')}`
+            : ` — closes ${new Date(end).toLocaleString('en-US')}`
+          : '';
+        await this.notifications.create(
+          {
+            user_id: student.id,
+            type: NotificationType.EXAM_ASSIGNED,
+            title,
+            message: `${localizedName}${schedule}${closes}`,
+            data: {
+              exam_id: exam.id,
+              start_window_at: start,
+              end_window_at: end,
+              href: `/student/exams/${exam.id}`,
+            },
+            send_sms: false,
+          },
+          false,
+        );
+      }),
+    );
+    const failed = outcomes.filter((outcome) => outcome.status === 'rejected').length;
+    if (failed > 0) {
+      this.logger.warn(
+        `Exam ${exam.id}: failed to create ${String(failed)}/${String(outcomes.length)} notification(s)`,
       );
     }
   }

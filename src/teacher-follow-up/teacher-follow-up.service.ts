@@ -6,10 +6,14 @@ import { In, Repository } from 'typeorm';
 import { ParentEventType } from '../common/events/parent-event-type.enum';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
+import { HomeworkSubmission } from '../lessons/entities/homework-submission.entity';
+import { LessonHomework } from '../lessons/entities/lesson-homework.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { GuardianVerificationStatus, StudentGuardian } from '../guardians/entities';
 import { ParentMessage } from '../notifications/entities';
+import { NotificationType } from '../notifications/entities/notification-type.enum';
+import { NotificationsService } from '../notifications/services/notifications.service';
 import { ParentMessageAdminService } from '../notifications/services/parent-message-admin.service';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -18,6 +22,7 @@ import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import type {
   AttendanceSummary,
+  HomeworkSummary,
   LatestExamSummary,
   RiskAssessment,
   RiskLevel,
@@ -52,6 +57,18 @@ export interface AttendanceRow {
   lesson_name: string;
 }
 
+export interface HomeworkRow {
+  id: string;
+  student_id: string;
+  status: string;
+  score: string | null;
+  max_score: string;
+  submitted_at: Date;
+  graded_at: Date | null;
+  is_late: boolean;
+  homework_title: string;
+}
+
 /**
  * Everything needed to render the teacher's "Parents & Follow-up" surface.
  *
@@ -73,9 +90,14 @@ export class TeacherFollowUpService {
     private readonly attendanceRecords: Repository<AttendanceRecord>,
     @InjectRepository(LessonSession) private readonly lessonSessions: Repository<LessonSession>,
     @InjectRepository(ParentMessage) private readonly parentMessages: Repository<ParentMessage>,
+    @InjectRepository(LessonHomework)
+    private readonly homework: Repository<LessonHomework>,
+    @InjectRepository(HomeworkSubmission)
+    private readonly homeworkSubmissions: Repository<HomeworkSubmission>,
     @InjectRepository(StudentGuardian)
     private readonly studentGuardians: Repository<StudentGuardian>,
     private readonly parentMessageAdmin: ParentMessageAdminService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Every student who has purchased at least one of this teacher's lessons or packages. */
@@ -129,6 +151,27 @@ export class TeacherFollowUpService {
         biBody('You can only access your own students', 'يمكنك الوصول إلى طلابك الخاصين فقط'),
       );
     }
+  }
+
+  public async sendStudentMessage(
+    teacherId: string,
+    studentId: string,
+    message: string,
+    title?: string,
+  ) {
+    await this.assertOwnsStudent(teacherId, studentId);
+    const teacher = await this.users.findOneOrFail({ where: { id: teacherId } });
+    return this.notifications.create(
+      {
+        user_id: studentId,
+        type: NotificationType.CUSTOM,
+        title: title?.trim() || `Message from ${teacher.name}`,
+        message: message.trim(),
+        data: { teacher_id: teacherId, href: '/student/notifications' },
+        send_sms: false,
+      },
+      false,
+    );
   }
 
   /**
@@ -257,6 +300,7 @@ export class TeacherFollowUpService {
       attendance: { total: 0, rate: null, lastStatus: null, lastMarkedAt: null },
       latestExam: null,
       averageExamScore: null,
+      homework: this.emptyHomeworkSummary(),
       risk: { level: 'low', factors: [] },
     };
   }
@@ -268,12 +312,14 @@ export class TeacherFollowUpService {
   ): Promise<Map<string, TeacherStudentSummary>> {
     const students = await this.users.find({ where: { id: In(studentIds) } });
 
-    const [attemptRows, attendanceRows, lastActiveRows, guardianRows] = await Promise.all([
-      this.fetchAttemptRows(teacherId, studentIds),
-      this.fetchAttendanceRows(teacherId, studentIds),
-      this.fetchLastActiveRows(teacherId, studentIds),
-      this.fetchGuardianRows(studentIds),
-    ]);
+    const [attemptRows, attendanceRows, homeworkSummaries, lastActiveRows, guardianRows] =
+      await Promise.all([
+        this.fetchAttemptRows(teacherId, studentIds),
+        this.fetchAttendanceRows(teacherId, studentIds),
+        this.fetchHomeworkSummaries(teacherId, studentIds),
+        this.fetchLastActiveRows(teacherId, studentIds),
+        this.fetchGuardianRows(studentIds),
+      ]);
 
     const attemptsByStudent = groupBy(attemptRows, (r) => r.student_id);
     const attendanceByStudent = groupBy(attendanceRows, (r) => r.student_id);
@@ -330,6 +376,7 @@ export class TeacherFollowUpService {
         attendance: attendanceSummary,
         latestExam,
         averageExamScore,
+        homework: homeworkSummaries.get(student.id) ?? this.emptyHomeworkSummary(),
         risk,
       });
     }
@@ -377,6 +424,102 @@ export class TeacherFollowUpService {
         'lesson.title AS lesson_name',
       ])
       .getRawMany<AttendanceRow>();
+  }
+
+  private async fetchHomeworkRows(teacherId: string, studentIds: string[]): Promise<HomeworkRow[]> {
+    if (studentIds.length === 0) return [];
+    return this.homeworkSubmissions
+      .createQueryBuilder('submission')
+      .innerJoin('submission.homework', 'homework')
+      .innerJoin('homework.lesson', 'lesson')
+      .where('lesson.teacher_id = :teacherId', { teacherId })
+      .andWhere('submission.student_id IN (:...studentIds)', { studentIds })
+      .select([
+        'submission.id AS id',
+        'submission.student_id AS student_id',
+        'submission.status AS status',
+        'submission.score AS score',
+        'homework.max_score AS max_score',
+        'submission.submitted_at AS submitted_at',
+        'submission.graded_at AS graded_at',
+        'submission.is_late AS is_late',
+        'homework.title AS homework_title',
+      ])
+      .getRawMany<HomeworkRow>();
+  }
+
+  private async fetchHomeworkSummaries(
+    teacherId: string,
+    studentIds: string[],
+  ): Promise<Map<string, HomeworkSummary>> {
+    if (studentIds.length === 0) return new Map();
+    const rows = await this.homework.query<
+      Array<{
+        student_id: string;
+        assigned: string;
+        submitted: string;
+        graded: string;
+        late: string;
+        average_score: string | null;
+        last_submitted_at: Date | string | null;
+      }>
+    >(
+      `
+        SELECT
+          student.id AS student_id,
+          COUNT(DISTINCT homework.id) AS assigned,
+          COUNT(DISTINCT submission.id) AS submitted,
+          COUNT(DISTINCT submission.id) FILTER (WHERE submission.status = 'graded') AS graded,
+          COUNT(DISTINCT submission.id) FILTER (WHERE submission.is_late = true) AS late,
+          ROUND(AVG(
+            CASE WHEN submission.status = 'graded' AND homework.max_score > 0
+              THEN submission.score / homework.max_score * 100 ELSE NULL END
+          ), 2) AS average_score,
+          MAX(submission.submitted_at) AS last_submitted_at
+        FROM users student
+        INNER JOIN lesson_homework homework
+          ON homework.published_at IS NOT NULL AND homework.deleted_at IS NULL
+        INNER JOIN lessons lesson
+          ON lesson.id = homework.lesson_id AND lesson.teacher_id = $1 AND lesson.deleted_at IS NULL
+        LEFT JOIN homework_submissions submission
+          ON submission.homework_id = homework.id AND submission.student_id = student.id
+        WHERE student.id = ANY($2::uuid[])
+          AND (
+            EXISTS (
+              SELECT 1 FROM lesson_purchases lp
+              WHERE lp.student_id = student.id
+                AND lp.lesson_id = homework.lesson_id
+                AND lp.access_expires_at > NOW()
+            ) OR EXISTS (
+              SELECT 1 FROM package_purchases pp
+              INNER JOIN lesson_package_items item ON item.package_id = pp.package_id
+              WHERE pp.student_id = student.id AND item.lesson_id = homework.lesson_id
+            )
+          )
+        GROUP BY student.id
+      `,
+      [teacherId, studentIds],
+    );
+
+    return new Map(
+      rows.map((row) => {
+        const assigned = Number.parseInt(row.assigned, 10);
+        const submitted = Number.parseInt(row.submitted, 10);
+        return [
+          row.student_id,
+          {
+            assigned,
+            submitted,
+            graded: Number.parseInt(row.graded, 10),
+            late: Number.parseInt(row.late, 10),
+            completionRate: assigned > 0 ? Math.round((submitted / assigned) * 100) : null,
+            averageScore: row.average_score === null ? null : Number(row.average_score),
+            lastSubmittedAt:
+              row.last_submitted_at === null ? null : new Date(row.last_submitted_at).toISOString(),
+          },
+        ];
+      }),
+    );
   }
 
   private async fetchLastActiveRows(
@@ -474,6 +617,10 @@ export class TeacherFollowUpService {
     return this.fetchAttendanceRows(teacherId, [studentId]);
   }
 
+  public async fetchHomeworkRowsFor(teacherId: string, studentId: string): Promise<HomeworkRow[]> {
+    return this.fetchHomeworkRows(teacherId, [studentId]);
+  }
+
   public async fetchScopedMessagesFor(
     teacherId: string,
     studentId: string,
@@ -485,6 +632,18 @@ export class TeacherFollowUpService {
     const subjectIds = [...attempts.map((r) => r.id), ...attendance.map((r) => r.id)];
     const byStudent = await this.fetchScopedMessages([studentId], subjectIds);
     return byStudent.get(studentId) ?? [];
+  }
+
+  private emptyHomeworkSummary(): HomeworkSummary {
+    return {
+      assigned: 0,
+      submitted: 0,
+      graded: 0,
+      late: 0,
+      completionRate: null,
+      averageScore: null,
+      lastSubmittedAt: null,
+    };
   }
 }
 

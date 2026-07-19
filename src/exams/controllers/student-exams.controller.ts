@@ -79,6 +79,8 @@ export class StudentExamsController {
       passing_marks: e.passing_marks,
       duration_seconds: e.config.duration_seconds,
       attempts_allowed: e.config.attempts_allowed,
+      start_window_at: e.config.start_window_at ?? null,
+      end_window_at: e.config.end_window_at ?? null,
       status: e.status,
       is_public: e.is_public,
     }));
@@ -188,6 +190,8 @@ export class StudentExamsController {
       passing_marks: exam.passing_marks,
       duration_seconds: exam.config.duration_seconds,
       attempts_allowed: exam.config.attempts_allowed,
+      start_window_at: exam.config.start_window_at ?? null,
+      end_window_at: exam.config.end_window_at ?? null,
       status: exam.status,
       is_public: exam.is_public,
     };

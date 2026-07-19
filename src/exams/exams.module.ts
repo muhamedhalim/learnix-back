@@ -3,7 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
+import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -64,6 +67,8 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       LessonPackage,
       // `ExamGradedPublisher` resolves the student's display name.
       User,
+      LessonPurchase,
+      PackagePurchase,
     ]),
     // Exam background queues (producers + workers share these registrations).
     // Becomes NoopQueue-backed when Redis isn't configured in development.
@@ -74,6 +79,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       { name: QUEUE_NAMES.EXAM_OMR, config: QUEUE_CONFIGS[QUEUE_NAMES.EXAM_OMR] },
     ),
     AnalyticsModule, // exam analytics recomputation
+    NotificationsModule,
   ],
   controllers: [
     TeacherQuestionsController,

@@ -6,11 +6,13 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
 import { Lesson } from './lesson.entity';
+import type { HomeworkSubmission } from './homework-submission.entity';
 
 /**
  * Homework / assignment attached to a lesson.
@@ -52,6 +54,20 @@ export class LessonHomework {
 
   @Column('timestamptz', { nullable: true })
   due_at!: Date | null;
+
+  /** Structured prompts rendered to students; empty for a simple text/file task. */
+  @Column('jsonb', { default: () => "'[]'::jsonb" })
+  questions!: Array<{ id: string; prompt: string; prompt_ar?: string | null }>;
+
+  @Column({ type: 'numeric', precision: 9, scale: 2, default: 100 })
+  max_score!: number;
+
+  /** Null while the assignment is a draft. Publishing fans out notifications. */
+  @Column('timestamptz', { nullable: true })
+  published_at!: Date | null;
+
+  @OneToMany('HomeworkSubmission', 'homework')
+  submissions!: HomeworkSubmission[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

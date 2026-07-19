@@ -19,6 +19,7 @@ import type { JwtPayload } from '../../common/interfaces/user-request.interface'
 import {
   CreateAttachmentDto,
   CreateHomeworkDto,
+  GradeHomeworkDto,
   UpdateHomeworkDto,
 } from '../dto';
 import { LessonContentService } from '../lesson-content.service';
@@ -34,7 +35,7 @@ export class TeacherLessonContentController {
   /* ===================== Attachments ===================== */
 
   @Get(':lessonId/attachments')
-  @ApiOperation({ summary: 'List a lesson\'s attachments' })
+  @ApiOperation({ summary: "List a lesson's attachments" })
   public async listAttachments(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
@@ -68,7 +69,7 @@ export class TeacherLessonContentController {
   /* ===================== Homework ===================== */
 
   @Get(':lessonId/homework')
-  @ApiOperation({ summary: 'List a lesson\'s homework' })
+  @ApiOperation({ summary: "List a lesson's homework" })
   public async listHomework(
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
@@ -88,6 +89,51 @@ export class TeacherLessonContentController {
     return { message: 'Homework added', data };
   }
 
+  @Post(':lessonId/homework/:homeworkId/publish')
+  @ApiOperation({ summary: 'Publish homework and notify enrolled students' })
+  public async publishHomework(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+  ): Promise<{ message: string; data: unknown }> {
+    const data = await this.contentService.publishHomework(lessonId, homeworkId, user.userId);
+    return { message: 'Homework published', data };
+  }
+
+  @Get(':lessonId/homework/:homeworkId/submissions')
+  @ApiOperation({ summary: 'List submitted and not-submitted students for homework' })
+  public async listHomeworkSubmissions(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+  ): Promise<{ data: unknown[] }> {
+    const data = await this.contentService.listHomeworkSubmissions(
+      lessonId,
+      homeworkId,
+      user.userId,
+    );
+    return { data };
+  }
+
+  @Post(':lessonId/homework/:homeworkId/submissions/:submissionId/grade')
+  @ApiOperation({ summary: 'Grade a homework submission' })
+  public async gradeHomework(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Body() dto: GradeHomeworkDto,
+  ): Promise<{ message: string; data: unknown }> {
+    const data = await this.contentService.gradeHomework(
+      lessonId,
+      homeworkId,
+      submissionId,
+      user.userId,
+      dto,
+    );
+    return { message: 'Homework graded', data };
+  }
+
   @Patch(':lessonId/homework/:homeworkId')
   @ApiOperation({ summary: 'Update lesson homework' })
   public async updateHomework(
@@ -96,12 +142,7 @@ export class TeacherLessonContentController {
     @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
     @Body() dto: UpdateHomeworkDto,
   ): Promise<{ message: string; data: unknown }> {
-    const data = await this.contentService.updateHomework(
-      lessonId,
-      homeworkId,
-      user.userId,
-      dto,
-    );
+    const data = await this.contentService.updateHomework(lessonId, homeworkId, user.userId, dto);
     return { message: 'Homework updated', data };
   }
 
