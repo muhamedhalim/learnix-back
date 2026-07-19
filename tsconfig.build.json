@@ -17,6 +17,9 @@
     "**/*.spec.ts",
     "**/*.test.ts",
     "**/*.e2e-spec.ts",
+    "test/**",
+    "**/test/**",
+    "**/tests/**",
     "**/__tests__/**",
     "**/__mocks__/**",
     "src/metadata.ts"

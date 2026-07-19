@@ -1,4 +1,4 @@
-import { NormalizePackageThumbnailKeys1920000000000 } from './1920000000000-NormalizePackageThumbnailKeys';
+import { NormalizePackageThumbnailKeys1920000000000 } from '../../migrations/1920000000000-NormalizePackageThumbnailKeys';
 
 describe('NormalizePackageThumbnailKeys1920000000000', () => {
   it('backfills only recognized localhost public-media paths to object keys', async () => {
