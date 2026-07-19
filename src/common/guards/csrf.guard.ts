@@ -44,6 +44,20 @@ export class CsrfGuard implements CanActivate {
   }
 
   /**
+   * Constant-time string equality for the double-submit tokens. Length is
+   * compared first (unequal lengths can't be timing-safe-compared and never
+   * match anyway); equal lengths go through `crypto.timingSafeEqual`.
+   */
+  private tokensMatch(a: string, b: string): boolean {
+    const bufferA = Buffer.from(a);
+    const bufferB = Buffer.from(b);
+    if (bufferA.length !== bufferB.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(bufferA, bufferB);
+  }
+
+  /**
    * Validates CSRF token for state-changing requests
    */
   public canActivate(context: ExecutionContext): boolean {
@@ -83,11 +97,14 @@ export class CsrfGuard implements CanActivate {
       `CSRF validation for ${method} ${request.url}: cookie=${String(cookieToken !== undefined)}, header=${String(headerToken !== undefined)}`,
     );
 
-    // Both tokens must be present
+    // Both tokens must be present AND be strings. cookie-parser sets a signed
+    // cookie whose signature fails to verify to the boolean `false` (not
+    // undefined) — that must be treated as "missing", never fed to the
+    // string comparison below.
     if (
-      cookieToken === undefined ||
+      typeof cookieToken !== 'string' ||
       cookieToken === '' ||
-      headerToken === undefined ||
+      typeof headerToken !== 'string' ||
       headerToken === ''
     ) {
       this.logger.warn(
@@ -100,8 +117,10 @@ export class CsrfGuard implements CanActivate {
       });
     }
 
-    // Tokens must match (Double Submit Cookie pattern)
-    if (cookieToken !== headerToken) {
+    // Tokens must match (Double Submit Cookie pattern). Compared in constant
+    // time so the pass/fail decision never leaks how many leading characters
+    // matched via response timing.
+    if (!this.tokensMatch(cookieToken, headerToken)) {
       this.logger.warn(
         `CSRF token mismatch for ${method} ${request.url} from ${String(request.ip)}`,
       );

@@ -18,25 +18,24 @@ export class HealthController {
 
   @Get()
   @ApiOperation({
-    summary: 'Basic application health check',
+    summary: 'Public liveness probe',
     description:
-      'Returns the application status, uptime, version, and environment.',
+      'Anonymous liveness check. Returns only status + timestamp; version, ' +
+      'environment, and uptime are restricted to the admin-only detailed ' +
+      'health endpoints to avoid deployment fingerprinting.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Application is healthy',
+    description: 'Application is live',
     schema: {
       example: {
         status: 'healthy',
         timestamp: '2025-01-19T12:00:00.000Z',
-        uptime: 3600,
-        version: '1.0.0',
-        environment: 'production',
       },
     },
   })
   public getHealth(): unknown {
-    return this.healthService.getBasicHealth();
+    return this.healthService.getPublicLiveness();
   }
 
   @Get('db')

@@ -139,10 +139,20 @@ export class UploadsController {
     description: 'File not found',
   })
   public async getFileUsage(
+    @GetUser() user: JwtPayload,
     @Param('fileId', ParseUUIDPipe) fileId: string,
   ): Promise<{ data: FileDetailsDto }> {
     const file = await this.fileManagementService.getFileById(fileId);
     if (file === null) {
+      throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
+    }
+
+    // Object-level authorization (IDOR protection): only the uploader or an
+    // admin may inspect a file's metadata and cross-entity usage. Everyone
+    // else is told the file does not exist so a valid (but not owned) file
+    // UUID leaked in a response/log/link cannot be used to enumerate another
+    // user's original filenames or the lessons/books/profiles they belong to.
+    if (file.uploader_id !== user.userId && (user.role as UserRole) !== UserRole.ADMIN) {
       throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }
 

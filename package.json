@@ -169,7 +169,8 @@
     "@angular-devkit/core": {
       "ajv": "8.18.0"
     },
-    "@tootallnate/once": "3.0.1"
+    "@tootallnate/once": "3.0.1",
+    "websocket-driver": "0.7.5"
   },
   "engines": {
     "node": ">=20.0.0",

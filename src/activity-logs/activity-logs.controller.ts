@@ -1,4 +1,4 @@
-import { Controller, Get, HttpStatus, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -190,7 +190,13 @@ export class ActivityLogsController {
     description: 'User activity statistics',
   })
   public async getUserActivityStats(
-    @Query('userId') userId: string,
+    // Bind the resource identity from the route path (`:userId`), not a query
+    // string. Previously the handler read `@Query('userId')`, so the URL a
+    // caller/audit sees (`/admin/users/<A>/activity-stats`) could silently
+    // resolve a different user (`?userId=<B>`) — or `undefined`, since the
+    // frontend only ever sends it in the path. `ParseUUIDPipe` also rejects
+    // malformed IDs with a 400 instead of reaching the query layer.
+    @Param('userId', ParseUUIDPipe) userId: string,
     @Query('days') days?: string,
   ): Promise<{ data: unknown }> {
     const stats = await this.activityLogsService.getUserActivityStats(

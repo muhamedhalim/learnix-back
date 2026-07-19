@@ -114,4 +114,30 @@ describe('CsrfGuard', () => {
 
     expect(guard.canActivate(buildContext(request))).toBe(true);
   });
+
+  it('rejects a POST when cookie and header are both present but differ (same length)', () => {
+    // Same-length, different value — exercises the constant-time comparison
+    // path rather than the length short-circuit.
+    const request = {
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      signedCookies: { 'XSRF-TOKEN': 'aaaaaaaaaaaaaaaa' },
+      headers: { 'x-csrf-token': 'bbbbbbbbbbbbbbbb' },
+      ip: '127.0.0.1',
+    };
+
+    expect(() => guard.canActivate(buildContext(request))).toThrow(ForbiddenException);
+  });
+
+  it('rejects a POST when cookie and header differ in length', () => {
+    const request = {
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      signedCookies: { 'XSRF-TOKEN': 'short' },
+      headers: { 'x-csrf-token': 'a-much-longer-token-value' },
+      ip: '127.0.0.1',
+    };
+
+    expect(() => guard.canActivate(buildContext(request))).toThrow(ForbiddenException);
+  });
 });

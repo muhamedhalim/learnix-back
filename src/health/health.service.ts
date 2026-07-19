@@ -50,7 +50,23 @@ export class HealthService {
   }
 
   /**
-   * Basic health check - just confirms app is running
+   * Public liveness probe. Deliberately minimal: it proves the process is up
+   * without disclosing deployment version, environment, or uptime to anonymous
+   * callers — those let an attacker fingerprint the build for known-CVE timing
+   * and watch restart/deploy windows. The richer metadata still lives on the
+   * admin-only detailed health endpoints (getBasicHealth / comprehensive).
+   */
+  public getPublicLiveness(): { status: 'healthy'; timestamp: string } {
+    return {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Basic health check - confirms the app is running and reports build/runtime
+   * metadata. Only exposed through admin-authenticated routes (comprehensive
+   * health); never returned to anonymous callers — see getPublicLiveness.
    */
   public getBasicHealth(): HealthCheckResult {
     return {

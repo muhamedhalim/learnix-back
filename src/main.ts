@@ -277,9 +277,19 @@ async function bootstrap(): Promise<void> {
   // ever read, so this doesn't relax the DoS protection those defaults exist
   // for — it only stops legitimate long uploads from being killed mid-transfer.
   const httpServer = app.getHttpServer();
+  // Total request duration stays uncapped so a legitimate multi-GB lesson
+  // upload is never killed mid-transfer regardless of how long it takes.
   httpServer.requestTimeout = 0; // Node 18+/20 default: 300_000ms (5 min)
-  httpServer.headersTimeout = 0; // default: 60_000ms
-  httpServer.setTimeout(0); // disable the idle/inactivity socket timeout too
+  // BUT keep finite header and keep-alive deadlines. These bound the phases no
+  // upload needs to hold open — waiting for the *request line + headers* to
+  // fully arrive, and idle time *between* requests on a reused connection — and
+  // are the exact window a Slowloris/idle-socket exhaustion attack lives in.
+  // An unauthenticated client can no longer pin a socket open indefinitely by
+  // dribbling headers or going idle; the body phase (where large uploads live)
+  // remains unbounded. headersTimeout must exceed keepAliveTimeout.
+  httpServer.headersTimeout = 65_000; // headers must fully arrive within 65s
+  httpServer.keepAliveTimeout = 61_000; // idle keep-alive socket ceiling
+  httpServer.setTimeout(0); // no per-socket inactivity kill during a slow large upload body
 
   logger.log(`🚀 Server running on http://0.0.0.0:${port}`);
   logger.log(`📘 Swagger: http://0.0.0.0:${port}/api`);

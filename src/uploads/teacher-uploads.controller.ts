@@ -62,15 +62,21 @@ function logicalType(mime: string): string {
 export class TeacherUploadsController {
   constructor(private readonly storage: StorageService) {}
 
+  // `limits.fileSize` makes Multer stop reading (and reject with a
+  // LIMIT_FILE_SIZE error, mapped to HTTP 413 by HttpExceptionFilter) as soon
+  // as the byte ceiling is crossed, so an oversized body is never fully
+  // buffered into this process's memory. The in-handler `file.size` check
+  // stays as defence-in-depth for the exact same ceiling. `files: 1` blocks
+  // multipart payloads that smuggle extra file parts.
   @Post('image')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE, files: 1 } }))
   @ApiOperation({ summary: 'Upload an image (thumbnail). Returns a public URL.' })
   public async uploadImage(@UploadedFile() file?: MulterFile) {
     return this.handle(file, IMAGE_TYPES, MAX_IMAGE, 'images');
   }
 
   @Post('file')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE, files: 1 } }))
   @ApiOperation({ summary: 'Upload an attachment/resource. Returns a public URL.' })
   public async uploadFile(@UploadedFile() file?: MulterFile) {
     return this.handle(file, FILE_TYPES, MAX_FILE, 'attachments');
@@ -84,7 +90,7 @@ export class TeacherUploadsController {
    * returned `key` in the book's `book_file`.
    */
   @Post('book-file')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_BOOK, files: 1 } }))
   @ApiOperation({
     summary: 'Upload a paid-book PDF privately. Returns a storage key (no URL).',
   })

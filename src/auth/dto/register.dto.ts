@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import {
+  IsEmail,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -9,6 +10,7 @@ import {
   Matches,
   MaxLength,
   Min,
+  MinLength,
   ValidateIf,
 } from 'class-validator';
 
@@ -19,10 +21,19 @@ import { UserRole } from '../../users/entities/user-role.enum';
 const REQUESTABLE_ROLES = [UserRole.STUDENT, UserRole.TEACHER] as const;
 
 export class RegisterDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(100)
   public name!: string;
 
-  @ApiProperty({ example: '123456', description: 'Password (min 6 chars)' })
+  // A minimum length is a real credential-strength control, not just UX: the
+  // service hashes whatever arrives, so without it an automated signup could
+  // create accounts with trivially guessable one-character passwords. 8 matches
+  // the frontend register/reset schema (dodline/app/[locale]/auth/schemas.ts).
+  @ApiProperty({ example: 'S3curePass', description: 'Password (min 8 chars)' })
+  @IsString()
+  @MinLength(8)
   @MaxLength(128)
   public password!: string;
 
@@ -42,6 +53,10 @@ export class RegisterDto {
   })
   public phone!: string;
 
+  // `@IsEmail` rejects malformed addresses before the service lowercases and
+  // stores them, preventing junk identities and downstream reset/notification
+  // failures. The service still trims + lowercases for canonical storage.
+  @IsEmail()
   @IsNotEmpty()
   public email!: string;
 

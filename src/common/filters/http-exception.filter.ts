@@ -127,6 +127,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       // Map HTTP status to descriptive title
       type = this.getTypeFromStatus(status);
+    } else if (this.isMulterError(exception)) {
+      // Multer aborts an over-limit or malformed multipart upload with its own
+      // Error subclass (not an HttpException). Without this branch it would fall
+      // through to a generic 500; surface the real, safe status instead so the
+      // client gets an actionable 413/400 rather than an "unexpected error".
+      const multerCode = (exception as { code?: string }).code;
+      if (multerCode === 'LIMIT_FILE_SIZE') {
+        status = HttpStatus.PAYLOAD_TOO_LARGE;
+        title = 'Payload Too Large';
+        detail = translateMessage(
+          'Uploaded file exceeds the maximum allowed size.',
+          locale,
+        );
+      } else {
+        status = HttpStatus.BAD_REQUEST;
+        title = 'Bad Request';
+        detail = translateMessage('The uploaded file could not be processed.', locale);
+      }
+      code = multerCode;
+      type = this.getTypeFromStatus(status);
     } else if (exception instanceof Error) {
       // Handle non-HTTP errors - hide sensitive details in production
       const isProduction = process.env['NODE_ENV'] === 'production';
@@ -161,6 +181,19 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   /**
+   * Detect a Multer upload error (e.g. LIMIT_FILE_SIZE) without importing
+   * multer here. Multer errors are plain `Error`s named 'MulterError' carrying
+   * a stable string `code`.
+   */
+  private isMulterError(exception: unknown): boolean {
+    return (
+      exception instanceof Error &&
+      exception.name === 'MulterError' &&
+      typeof (exception as { code?: unknown }).code === 'string'
+    );
+  }
+
+  /**
    * Map HTTP status code to RFC 7807 type URI
    */
   private getTypeFromStatus(status: number): string {
@@ -170,6 +203,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       [403, 'https://httpstatuses.com/403'],
       [404, 'https://httpstatuses.com/404'],
       [409, 'https://httpstatuses.com/409'],
+      [413, 'https://httpstatuses.com/413'],
       [422, 'https://httpstatuses.com/422'],
       [429, 'https://httpstatuses.com/429'],
       [500, 'https://httpstatuses.com/500'],
