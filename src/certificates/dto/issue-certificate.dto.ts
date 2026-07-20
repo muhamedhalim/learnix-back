@@ -1,4 +1,3 @@
-import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -8,10 +7,12 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { CertificateStatus } from '../entities/certificate-status.enum';
 
 /**
@@ -64,15 +65,16 @@ export class CertificateVisibilityDto {
 
 export class CertificateListFilterDto {
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
   @IsInt()
   @Min(1)
+  @Max(100)
   public limit?: number;
 
   @IsOptional()
@@ -87,15 +89,16 @@ export class CertificateListFilterDto {
 
 export class PublicCertificatesFilterDto {
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
   @IsInt()
   @Min(1)
+  @Max(100)
   public limit?: number;
 
   @IsOptional()

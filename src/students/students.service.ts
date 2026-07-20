@@ -344,7 +344,8 @@ export class StudentsService {
         : sortBy === 'grade'
           ? 'student.grade_level'
           : 'student.created_at';
-    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('student.id', sortOrder);
 
     // Get total count
     const total = await queryBuilder.getCount();

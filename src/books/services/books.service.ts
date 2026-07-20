@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -32,6 +33,8 @@ export class BooksService {
    * Create a new book (teacher only)
    */
   public async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
+    this.assertOwnedBookFileReference(dto.book_file, teacherId);
+
     // Validate subject exists
     const subject = await this.subjectsRepository.findOne({
       where: { id: dto.subject_id, deleted_at: IsNull() },
@@ -108,7 +111,8 @@ export class BooksService {
     }
 
     // Apply sorting
-    query.orderBy(`book.${sortBy}`, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    query.orderBy(`book.${sortBy}`, sortOrder).addOrderBy('book.id', sortOrder);
 
     // Get total count
     const total = await query.getCount();
@@ -191,6 +195,10 @@ export class BooksService {
       );
     }
 
+    if (dto.book_file != null && dto.book_file !== book.book_file) {
+      this.assertOwnedBookFileReference(dto.book_file, teacherId);
+    }
+
     // If updating subject, validate it exists
     if (dto.subject_id != null && dto.subject_id !== '' && dto.subject_id !== book.subject_id) {
       const subject = await this.subjectsRepository.findOne({
@@ -247,6 +255,24 @@ export class BooksService {
     this.logger.log(`Book updated: ${id} by teacher ${teacherId}`);
 
     return await this.findOne(id);
+  }
+
+  private assertOwnedBookFileReference(reference: string, teacherId: string): void {
+    const expectedPrefix = `books/${teacherId}/`;
+    if (
+      !reference.startsWith(expectedPrefix) ||
+      reference.length <= expectedPrefix.length ||
+      reference.includes('..') ||
+      reference.includes('\\') ||
+      reference.includes('?') ||
+      reference.includes('#') ||
+      /^https?:\/\//iu.test(reference) ||
+      !reference.toLowerCase().endsWith('.pdf')
+    ) {
+      throw new BadRequestException(
+        biBody('Invalid private book upload reference', 'Invalid private book upload reference'),
+      );
+    }
   }
 
   /**
@@ -354,7 +380,8 @@ export class BooksService {
     }
 
     // Apply sorting
-    query.orderBy(`book.${sortBy}`, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    query.orderBy(`book.${sortBy}`, sortOrder).addOrderBy('book.id', sortOrder);
 
     // Get total count
     const total = await query.getCount();

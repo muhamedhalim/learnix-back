@@ -24,7 +24,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
+import { CreateBookDto, TeacherBookFilterDto, UpdateBookDto } from '../dto';
 import { BookPurchasesService } from '../services/book-purchases.service';
 import { BooksService } from '../services/books.service';
 
@@ -89,7 +89,7 @@ export class TeacherBooksController {
   })
   public async findMyBooks(
     @GetUser() user: JwtPayload,
-    @Query() filter: Omit<BookFilterDto, 'teacher_id'>,
+    @Query() filter: TeacherBookFilterDto,
   ): Promise<unknown> {
     return await this.booksService.findMyBooks(user.userId, filter);
   }

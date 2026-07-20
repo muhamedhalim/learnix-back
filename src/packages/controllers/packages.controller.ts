@@ -14,7 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { PackageFilterDto } from '../dto';
+import { PackageFilterDto, TeacherPackageFilterDto } from '../dto';
 import { CourseStatus } from '../entities/course-status.enum';
 import { CoursePreviewService } from '../course-preview.service';
 import { PackagesService } from '../packages.service';
@@ -104,7 +104,7 @@ export class PackagesController {
       is_active: true,
       status: CourseStatus.PUBLISHED,
     });
-    return await this.packagesService.findAll(publicFilter);
+    return await this.packagesService.findAllPublic(publicFilter);
   }
 
   /**
@@ -166,7 +166,7 @@ export class PackagesController {
   })
   public async findByTeacher(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
-    @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
+    @Query() filter: TeacherPackageFilterDto,
   ): Promise<{
     data: unknown[];
     meta: {
@@ -179,7 +179,7 @@ export class PackagesController {
     };
   }> {
     // Public teacher storefront: only their PUBLISHED, active courses.
-    return await this.packagesService.findByTeacher(teacherId, {
+    return await this.packagesService.findByTeacherPublic(teacherId, {
       ...filter,
       is_active: true,
       status: CourseStatus.PUBLISHED,

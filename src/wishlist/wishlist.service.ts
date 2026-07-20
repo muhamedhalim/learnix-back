@@ -111,9 +111,13 @@ export class WishlistService {
       ? { user_id: userId, item_type: query.itemType }
       : { user_id: userId };
 
-    const entries = await this.wishlistRepository.find({
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [entries, total] = await this.wishlistRepository.findAndCount({
       where,
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
     const resolved = await this.resolveItems(entries);
@@ -121,7 +125,19 @@ export class WishlistService {
 
     this.sortItems(items, query.sort ?? WishlistSort.RECENT);
 
-    return { items, count: items.length };
+    const totalPages = Math.ceil(total / limit);
+    return {
+      items,
+      count: total,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   /**
@@ -141,6 +157,8 @@ export class WishlistService {
     const entries = await this.wishlistRepository.find({
       where: { user_id: userId },
       select: { item_type: true, item_id: true },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: 100,
     });
     return entries.map((e) => ({ itemType: e.item_type, itemId: e.item_id }));
   }

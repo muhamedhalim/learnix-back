@@ -16,6 +16,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
+import { parsePublicOrigin } from '../config/public-url.util';
 import {
   StorageObjectNotFoundError,
   StorageProvider,
@@ -36,7 +37,14 @@ const LOCAL_MIME_TYPES: Record<string, string> = {
 };
 
 const DEFAULT_SIGNED_EXPIRES = 900; // 15 minutes
-const PRIVATE_LOCAL_PREFIXES = ['books/', 'omr-sheets/'] as const;
+const PRIVATE_LOCAL_PREFIXES = [
+  'books/',
+  'omr-sheets/',
+  'lesson-resources/',
+  'homework-submissions/',
+  'resources/',
+  'attachments/',
+] as const;
 
 /**
  * Build a diagnostic, non-sensitive description of an AWS-SDK / R2 error. The
@@ -75,9 +83,10 @@ function describeS3Error(err: unknown): string {
 
 /**
  * Cloudflare R2 (S3-compatible) provider. Primary backend for every non-video
- * asset. Public objects are served via R2_PUBLIC_BASE_URL; private objects
- * (paid PDFs, verification docs, certificates) are only retrievable through a
- * short-lived pre-signed URL, so they cannot be downloaded by guessing the key.
+ * asset. Browser-facing public assets are served through MediaController and
+ * private objects (paid PDFs, submissions, OMR scans) are streamed only after
+ * backend authorization. R2_PUBLIC_BASE_URL is retained solely to recognize
+ * and migrate legacy persisted URLs; callers must never return provider URLs.
  */
 class R2StorageProvider implements StorageProvider {
   public readonly name = 'r2';
@@ -175,6 +184,7 @@ class R2StorageProvider implements StorageProvider {
   }
 
   public getPublicUrl(path: string): string {
+    if (this.publicBaseUrl === '') return '';
     return `${this.publicBaseUrl.replace(/\/+$/, '')}/${path}`;
   }
 
@@ -377,15 +387,15 @@ export class StorageService implements StorageProvider {
     const bucket = this.config.get<string>('R2_BUCKET');
     const publicBaseUrl = this.config.get<string>('R2_PUBLIC_BASE_URL');
 
-    if (accountId && accessKeyId && secretAccessKey && bucket && publicBaseUrl) {
-      this.assertProductionPublicUrl(publicBaseUrl, 'R2_PUBLIC_BASE_URL');
+    if (accountId && accessKeyId && secretAccessKey && bucket) {
+      if (publicBaseUrl) this.assertProductionPublicUrl(publicBaseUrl, 'R2_PUBLIC_BASE_URL');
       return new R2StorageProvider(
         accountId,
         accessKeyId,
         secretAccessKey,
         bucket,
         this.config.get<string>('R2_REGION') ?? 'auto',
-        publicBaseUrl,
+        publicBaseUrl ?? '',
         Number.parseInt(this.config.get<string>('SIGNED_URL_EXPIRES_SECONDS') ?? '', 10) ||
           DEFAULT_SIGNED_EXPIRES,
         this.logger,
@@ -397,6 +407,11 @@ export class StorageService implements StorageProvider {
     const cdnUrl = this.config.get<string>('BUNNY_CDN_URL');
     if (zone && password && cdnUrl) {
       this.assertProductionPublicUrl(cdnUrl, 'BUNNY_CDN_URL');
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new Error(
+          'Bunny public storage cannot protect paid/private objects; configure a private R2 bucket.',
+        );
+      }
       return new BunnyStorageProvider(
         zone,
         password,
@@ -423,18 +438,11 @@ export class StorageService implements StorageProvider {
 
   private assertProductionPublicUrl(value: string, variableName: string): void {
     if (this.config.get<string>('NODE_ENV') !== 'production') return;
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      throw new Error(`${variableName} must be an absolute HTTPS URL in production`);
-    }
-    if (
-      url.protocol !== 'https:' ||
-      ['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase())
-    ) {
-      throw new Error(`${variableName} must be a non-localhost HTTPS URL in production`);
-    }
+    parsePublicOrigin(
+      value,
+      variableName as 'R2_PUBLIC_BASE_URL' | 'BUNNY_CDN_URL',
+      true,
+    );
   }
 
   public upload(params: UploadParams): Promise<StoredFile> {

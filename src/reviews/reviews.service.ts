@@ -28,6 +28,16 @@ import {
   ReviewWithStudent,
 } from './interfaces/review-aggregates.interface';
 
+interface RatingAggregateRow {
+  total: string;
+  average: string;
+  rating_1: string;
+  rating_2: string;
+  rating_3: string;
+  rating_4: string;
+  rating_5: string;
+}
+
 @Injectable()
 export class ReviewsService {
   constructor(
@@ -317,6 +327,7 @@ export class ReviewsService {
       .innerJoinAndSelect('r.student', 'student')
       .where('lesson.teacher_id = :teacherId', { teacherId })
       .orderBy('r.created_at', 'DESC')
+      .addOrderBy('r.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -444,6 +455,7 @@ export class ReviewsService {
       .innerJoinAndSelect('r.lesson', 'lesson')
       .innerJoinAndSelect('r.student', 'student')
       .orderBy('r.created_at', 'DESC')
+      .addOrderBy('r.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
     if (status) {
@@ -471,6 +483,7 @@ export class ReviewsService {
       .innerJoinAndSelect('r.teacher', 'teacher')
       .innerJoinAndSelect('r.student', 'student')
       .orderBy('r.created_at', 'DESC')
+      .addOrderBy('r.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
     if (status) {
@@ -504,7 +517,7 @@ export class ReviewsService {
     const [reviews, total] = await this.teacherReviewsRepository.findAndCount({
       where: { teacher_id: teacherId, status: ReviewStatus.APPROVED },
       relations: ['student'],
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -530,7 +543,7 @@ export class ReviewsService {
     const [reviews, total] = await this.lessonReviewsRepository.findAndCount({
       where: { lesson_id: lessonId, status: ReviewStatus.APPROVED },
       relations: ['student'],
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -554,15 +567,21 @@ export class ReviewsService {
       throw new NotFoundException(biBody('Package not found', 'الحزمة غير موجودة'));
     }
 
-    const reviews = await this.lessonReviewsRepository
+    const row = await this.lessonReviewsRepository
       .createQueryBuilder('r')
       .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = r.lesson_id')
       .where('lpi.package_id = :packageId', { packageId })
       .andWhere('r.status = :status', { status: ReviewStatus.APPROVED })
-      .select('r.rating', 'rating')
-      .getRawMany<{ rating: number }>();
+      .select('COUNT(*)', 'total')
+      .addSelect('COALESCE(AVG(r.rating), 0)', 'average')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 1)', 'rating_1')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 2)', 'rating_2')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 3)', 'rating_3')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 4)', 'rating_4')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 5)', 'rating_5')
+      .getRawOne<RatingAggregateRow>();
 
-    return this.aggregateRatings(reviews.map((r) => r.rating));
+    return this.toRatingAggregates(row);
   }
 
   /* ===================== Helpers ===================== */
@@ -603,39 +622,48 @@ export class ReviewsService {
   }
 
   private async lessonAggregates(lessonId: string): Promise<ReviewAggregates> {
-    const reviews = await this.lessonReviewsRepository.find({
-      where: { lesson_id: lessonId, status: ReviewStatus.APPROVED },
-      select: ['rating'],
-    });
-    return this.aggregateRatings(reviews.map((r) => r.rating));
+    const row = await this.lessonReviewsRepository
+      .createQueryBuilder('r')
+      .where('r.lesson_id = :lessonId', { lessonId })
+      .andWhere('r.status = :status', { status: ReviewStatus.APPROVED })
+      .select('COUNT(*)', 'total')
+      .addSelect('COALESCE(AVG(r.rating), 0)', 'average')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 1)', 'rating_1')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 2)', 'rating_2')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 3)', 'rating_3')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 4)', 'rating_4')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 5)', 'rating_5')
+      .getRawOne<RatingAggregateRow>();
+    return this.toRatingAggregates(row);
   }
 
   private async teacherAggregates(teacherId: string): Promise<ReviewAggregates> {
-    const reviews = await this.teacherReviewsRepository.find({
-      where: { teacher_id: teacherId, status: ReviewStatus.APPROVED },
-      select: ['rating'],
-    });
-    return this.aggregateRatings(reviews.map((r) => r.rating));
+    const row = await this.teacherReviewsRepository
+      .createQueryBuilder('r')
+      .where('r.teacher_id = :teacherId', { teacherId })
+      .andWhere('r.status = :status', { status: ReviewStatus.APPROVED })
+      .select('COUNT(*)', 'total')
+      .addSelect('COALESCE(AVG(r.rating), 0)', 'average')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 1)', 'rating_1')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 2)', 'rating_2')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 3)', 'rating_3')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 4)', 'rating_4')
+      .addSelect('COUNT(*) FILTER (WHERE r.rating = 5)', 'rating_5')
+      .getRawOne<RatingAggregateRow>();
+    return this.toRatingAggregates(row);
   }
 
-  private aggregateRatings(ratings: number[]): ReviewAggregates {
-    if (ratings.length === 0) {
-      return {
-        average_rating: 0,
-        total_reviews: 0,
-        rating_distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-      };
-    }
-    const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    let sum = 0;
-    for (const rating of ratings) {
-      sum += rating;
-      distribution[rating as 1 | 2 | 3 | 4 | 5]++;
-    }
+  private toRatingAggregates(row: RatingAggregateRow | null | undefined): ReviewAggregates {
     return {
-      average_rating: Number.parseFloat((sum / ratings.length).toFixed(2)),
-      total_reviews: ratings.length,
-      rating_distribution: distribution,
+      average_rating: Number.parseFloat(Number(row?.average ?? 0).toFixed(2)),
+      total_reviews: Number.parseInt(row?.total ?? '0', 10),
+      rating_distribution: {
+        1: Number.parseInt(row?.rating_1 ?? '0', 10),
+        2: Number.parseInt(row?.rating_2 ?? '0', 10),
+        3: Number.parseInt(row?.rating_3 ?? '0', 10),
+        4: Number.parseInt(row?.rating_4 ?? '0', 10),
+        5: Number.parseInt(row?.rating_5 ?? '0', 10),
+      },
     };
   }
 

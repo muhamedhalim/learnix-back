@@ -37,6 +37,24 @@ import {
   BulkUserActionResultDto,
 } from './dto';
 
+const MAX_CSV_BYTES = 5 * 1024 * 1024;
+const CSV_MIME_TYPES = new Set(['text/csv', 'text/plain', 'application/vnd.ms-excel']);
+
+function assertValidCsvUpload(file: Express.Multer.File): void {
+  const name = file.originalname.toLowerCase();
+  if (
+    file.size > MAX_CSV_BYTES ||
+    !name.endsWith('.csv') ||
+    name.includes('..') ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    !CSV_MIME_TYPES.has(file.mimetype.toLowerCase()) ||
+    file.buffer.subarray(0, Math.min(file.buffer.length, 4096)).includes(0)
+  ) {
+    throw new BadRequestException(biBody('Invalid CSV upload', 'Invalid CSV upload'));
+  }
+}
+
 @ApiTags('Bulk Operations')
 @Controller('admin')
 @UseGuards(HybridAuthGuard, RolesGuard)
@@ -50,7 +68,9 @@ export class BulkOperationsController {
   @Post('students/bulk-import/preview')
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_CSV_BYTES, files: 1 } }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Preview bulk student import',
@@ -80,6 +100,7 @@ export class BulkOperationsController {
     if (!file) {
       throw new BadRequestException(biBody('No file uploaded', 'لم يتم رفع أي ملف'));
     }
+    assertValidCsvUpload(file);
 
     const csvContent = file.buffer.toString('utf-8');
     const preview = await this.bulkOperationsService.previewStudentImport(csvContent);
@@ -93,7 +114,9 @@ export class BulkOperationsController {
   @Post('students/bulk-import')
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_CSV_BYTES, files: 1 } }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Bulk import students from CSV',
@@ -125,6 +148,7 @@ export class BulkOperationsController {
     if (!file) {
       throw new BadRequestException(biBody('No file uploaded', 'لم يتم رفع أي ملف'));
     }
+    assertValidCsvUpload(file);
 
     const csvContent = file.buffer.toString('utf-8');
     const result = await this.bulkOperationsService.importStudents(csvContent, user.userId);

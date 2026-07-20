@@ -89,7 +89,7 @@ export class CoursePreviewService {
       description: pkg.description,
       description_ar: pkg.description_ar,
       thumbnail_url: this.mediaUrl(pkg.thumbnail),
-      intro_video_url: pkg.intro_video_url,
+      intro_video_url: this.mediaUrl(pkg.intro_video_url),
       price: Number(pkg.price),
       original_price: pkg.original_price != null ? Number(pkg.original_price) : null,
       category: pkg.category,
@@ -127,11 +127,13 @@ export class CoursePreviewService {
     const [chapters, items] = await Promise.all([
       this.chaptersRepository.find({
         where: { package_id: packageId },
-        order: { order_index: 'ASC' },
+        order: { order_index: 'ASC', id: 'ASC' },
+        take: 500,
       }),
       this.itemsRepository.find({
         where: { package_id: packageId },
-        order: { order_index: 'ASC' },
+        order: { order_index: 'ASC', id: 'ASC' },
+        take: 500,
       }),
     ]);
 

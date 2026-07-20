@@ -40,7 +40,7 @@ export class ComplaintsService {
     const [complaints, total] = await this.complaintsRepository.findAndCount({
       where: { student_id: studentId },
       relations: ['admin'],
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
@@ -76,6 +76,7 @@ export class ComplaintsService {
 
     const [complaints, total] = await queryBuilder
       .orderBy('complaint.created_at', 'DESC')
+      .addOrderBy('complaint.id', 'DESC')
       .skip((filter.page - 1) * filter.limit)
       .take(filter.limit)
       .getManyAndCount();

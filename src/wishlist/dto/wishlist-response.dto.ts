@@ -42,6 +42,16 @@ export class WishlistResponseDto {
 
   @ApiProperty({ description: 'Total number of entries (after filtering)' })
   public count!: number;
+
+  @ApiProperty()
+  public meta!: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
 }
 
 /**

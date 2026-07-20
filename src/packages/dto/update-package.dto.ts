@@ -10,13 +10,13 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 
+import { IsSecureUrl } from '../../common/validators/secure-url.validator';
 import { CourseStatus } from '../entities/course-status.enum';
 import { FaqItemDto } from './faq-item.dto';
 
@@ -149,7 +149,7 @@ export class UpdatePackageDto {
 
   @ApiPropertyOptional({ description: 'Intro/teaser video URL' })
   @IsOptional()
-  @IsUrl()
+  @IsSecureUrl()
   @MaxLength(500)
   public intro_video_url?: string;
 }

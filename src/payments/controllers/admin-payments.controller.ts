@@ -3,7 +3,6 @@ import {
   Get,
   HttpStatus,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Query,
@@ -14,6 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import { PaymentFilterDto } from '../dto/payment-filter.dto';
 import { PaymentsService } from '../services/payments.service';
 
@@ -84,10 +84,12 @@ export class AdminPaymentsController {
     description: 'Lesson purchases retrieved successfully',
   })
   public async getAllLessonPurchases(
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
-    return await this.paymentsService.getAllLessonPurchases(page ?? 1, limit ?? 20);
+    return await this.paymentsService.getAllLessonPurchases(
+      pagination.page,
+      pagination.limit,
+    );
   }
 
   @Get(':id')

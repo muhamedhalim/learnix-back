@@ -1,0 +1,40 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`public teacher serialization allowlists professional fields and excludes every private account field 1`] = `
+{
+  "bio": "Bio",
+  "bio_ar": null,
+  "certificates": [],
+  "created_at": 2026-01-01T00:00:00.000Z,
+  "education": [],
+  "id": "profile-id",
+  "languages": [
+    "en",
+  ],
+  "professional_title": "Instructor",
+  "professional_title_ar": null,
+  "qualifications": "MSc",
+  "rating": 4.8,
+  "skills": [
+    "Teaching",
+  ],
+  "specializations": [
+    "Algebra",
+  ],
+  "subjects": [
+    {
+      "grade_level": "10",
+      "id": "subject-id",
+      "name": "Math",
+      "name_ar": null,
+    },
+  ],
+  "total_ratings": 12,
+  "user": {
+    "id": "user-id",
+    "name": "Teacher Name",
+    "profile_picture_url": "https://api.example.com/api/v1/media/public/profiles/avatar.jpg",
+  },
+  "years_of_experience": 5,
+}
+`;

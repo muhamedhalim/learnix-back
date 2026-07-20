@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export enum SearchType {
   ALL = 'all',
@@ -19,13 +20,13 @@ export class SearchQueryDto {
   public type?: SearchType;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: Number.MAX_SAFE_INTEGER })
   @IsInt()
   @Min(1)
   public page = 1;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 50 })
   @IsInt()
   @Min(1)
   @Max(50)
@@ -36,6 +37,12 @@ export class SuggestQueryDto {
   @IsString()
   @MaxLength(200)
   public q!: string;
+}
+
+export class PopularSearchQueryDto {
+  @IsOptional()
+  @StrictIntegerQuery({ max: 50 })
+  public limit = 8;
 }
 
 export class InCourseSearchDto {

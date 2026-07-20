@@ -63,6 +63,7 @@ export class StudentExamsController {
     if (filter.search)
       qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
     qb.orderBy('exam.created_at', 'DESC')
+      .addOrderBy('exam.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -117,6 +118,7 @@ export class StudentExamsController {
       });
     }
     qb.orderBy('exam.created_at', 'DESC')
+      .addOrderBy('exam.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 

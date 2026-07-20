@@ -7,9 +7,12 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import type { Response } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -78,6 +81,22 @@ export class TeacherLessonContentController {
     return { data };
   }
 
+  @Get(':lessonId/homework/:homeworkId/resource')
+  @ApiOperation({ summary: 'Download an owned private homework resource' })
+  public async homeworkResource(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const object = await this.contentService.getHomeworkResourceForTeacher(
+      user.userId,
+      lessonId,
+      homeworkId,
+    );
+    this.streamPrivate(res, object);
+  }
+
   @Post(':lessonId/homework')
   @ApiOperation({ summary: 'Add homework to a lesson' })
   public async addHomework(
@@ -113,6 +132,24 @@ export class TeacherLessonContentController {
       user.userId,
     );
     return { data };
+  }
+
+  @Get(':lessonId/homework/:homeworkId/submissions/:submissionId/file')
+  @ApiOperation({ summary: 'Download a submission file for an owned lesson' })
+  public async submissionFile(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+    @Param('submissionId', ParseUUIDPipe) submissionId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const object = await this.contentService.getSubmissionFileForTeacher(
+      user.userId,
+      lessonId,
+      homeworkId,
+      submissionId,
+    );
+    this.streamPrivate(res, object);
   }
 
   @Post(':lessonId/homework/:homeworkId/submissions/:submissionId/grade')
@@ -155,5 +192,20 @@ export class TeacherLessonContentController {
   ): Promise<{ message: string }> {
     await this.contentService.deleteHomework(lessonId, homeworkId, user.userId);
     return { message: 'Homework deleted' };
+  }
+
+  private streamPrivate(
+    res: Response,
+    object: Awaited<ReturnType<LessonContentService['getHomeworkResourceForTeacher']>>,
+  ): void {
+    res.setHeader('Content-Type', object.contentType);
+    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (object.contentLength !== undefined) {
+      res.setHeader('Content-Length', object.contentLength.toString());
+    }
+    object.stream.on('error', () => res.destroy());
+    object.stream.pipe(res);
   }
 }

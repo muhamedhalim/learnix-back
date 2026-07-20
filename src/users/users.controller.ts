@@ -95,7 +95,11 @@ export class UsersController {
 
   @Post('me/profile-picture')
   @Throttle({ default: THROTTLE.FILE_UPLOAD })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: FILE_LIMITS.PROFILE_PICTURE_MAX_SIZE, files: 1 },
+    }),
+  )
   @ApiOperation({
     summary: 'Upload profile picture',
     description:

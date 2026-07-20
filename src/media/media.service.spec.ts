@@ -58,6 +58,22 @@ describe('MediaService public URL policy', () => {
           {} as never,
           config({ NODE_ENV: 'production', PUBLIC_MEDIA_BASE_URL: 'http://localhost:3001' }),
         ),
-    ).toThrow('PUBLIC_MEDIA_BASE_URL must be a non-localhost HTTPS URL in production');
+    ).toThrow('PUBLIC_MEDIA_BASE_URL must be a public HTTPS origin in production');
+  });
+
+  it('does not expose an unrecognized direct R2 object URL', () => {
+    const service = new MediaService(
+      { isOwnUrl: jest.fn().mockReturnValue(false) } as never,
+      config({
+        NODE_ENV: 'production',
+        BACKEND_URL: 'https://api.learnix.example',
+      }),
+    );
+
+    expect(
+      service.resolveThumbnailUrl(
+        'https://account.r2.cloudflarestorage.com/private-bucket/images/cover.jpg',
+      ),
+    ).toBeNull();
   });
 });

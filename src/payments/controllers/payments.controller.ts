@@ -15,6 +15,7 @@ import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto } from '../dto/payment-filter.dto';
@@ -120,12 +121,13 @@ export class PaymentsController {
   })
   public async getMyLessons(
     @GetUser() user: JwtPayload,
-  ): Promise<{ data: unknown; total: number }> {
-    const lessons = await this.paymentsService.getMyLessons(user.userId);
-    return {
-      data: lessons,
-      total: lessons.length,
-    };
+    @Query() pagination: Pagination20Dto,
+  ): Promise<unknown> {
+    return this.paymentsService.getMyLessons(
+      user.userId,
+      pagination.page,
+      pagination.limit,
+    );
   }
 
   @Get('my-packages')
@@ -135,12 +137,13 @@ export class PaymentsController {
   })
   public async getMyPackages(
     @GetUser() user: JwtPayload,
-  ): Promise<{ data: unknown; total: number }> {
-    const packages = await this.paymentsService.getMyPackages(user.userId);
-    return {
-      data: packages,
-      total: packages.length,
-    };
+    @Query() pagination: Pagination20Dto,
+  ): Promise<unknown> {
+    return this.paymentsService.getMyPackages(
+      user.userId,
+      pagination.page,
+      pagination.limit,
+    );
   }
 
   @Get('access/:id')

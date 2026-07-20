@@ -1,6 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Transform } from 'class-transformer';
 import {
   IsDateString,
   IsInt,
@@ -9,6 +8,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class ActivityLogFilterDto {
   @ApiPropertyOptional({
@@ -48,7 +49,7 @@ export class ActivityLogFilterDto {
     default: 1,
   })
   @IsOptional()
-  @Transform(({ value }): number => Number.parseInt(String(value), 10))
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
@@ -58,7 +59,7 @@ export class ActivityLogFilterDto {
     default: 50,
   })
   @IsOptional()
-  @Transform(({ value }): number => Number.parseInt(String(value), 10))
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)
@@ -103,7 +104,7 @@ export class AuditLogFilterDto {
     default: 1,
   })
   @IsOptional()
-  @Transform(({ value }): number => Number.parseInt(String(value), 10))
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
@@ -113,7 +114,7 @@ export class AuditLogFilterDto {
     default: 50,
   })
   @IsOptional()
-  @Transform(({ value }): number => Number.parseInt(String(value), 10))
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

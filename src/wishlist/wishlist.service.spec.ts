@@ -15,6 +15,7 @@ describe('WishlistService', () => {
   const wishlistRepo = {
     findOne: jest.fn(),
     find: jest.fn(),
+    findAndCount: jest.fn(),
     count: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
@@ -88,9 +89,9 @@ describe('WishlistService', () => {
 
   describe('getWishlist', () => {
     it('resolves item details in bulk and sorts by price ascending', async () => {
-      wishlistRepo.find.mockResolvedValue([
-        entry({ id: 'w1', item_id: 'L1' }),
-        entry({ id: 'w2', item_id: 'L2' }),
+      wishlistRepo.findAndCount.mockResolvedValue([
+        [entry({ id: 'w1', item_id: 'L1' }), entry({ id: 'w2', item_id: 'L2' })],
+        2,
       ]);
       lessonsRepo.find.mockResolvedValue([
         { id: 'L1', title: 'Pricey', price: '99.00', thumbnail: null },
@@ -105,7 +106,7 @@ describe('WishlistService', () => {
     });
 
     it('marks unavailable items as not available', async () => {
-      wishlistRepo.find.mockResolvedValue([entry({ item_id: 'gone' })]);
+      wishlistRepo.findAndCount.mockResolvedValue([[entry({ item_id: 'gone' })], 1]);
       lessonsRepo.find.mockResolvedValue([]);
 
       const result = await service.getWishlist('u1', {});

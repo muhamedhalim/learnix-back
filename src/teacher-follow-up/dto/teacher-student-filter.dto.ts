@@ -1,7 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class TeacherStudentFilterDto {
   @ApiPropertyOptional({ description: 'Search by student name, email, or phone' })
@@ -11,14 +12,14 @@ export class TeacherStudentFilterDto {
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
 
   @ApiPropertyOptional({ default: 20, maximum: 100 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

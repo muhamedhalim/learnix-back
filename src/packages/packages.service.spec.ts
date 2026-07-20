@@ -121,9 +121,9 @@ describe('PackagesService.findAll', () => {
     expect(result.data[0]!.teacher).toEqual({
       id: 'teacher-1',
       name: 'Ms. Sara',
-      email: 'sara@example.com',
       profile_picture_url: null,
     });
+    expect(JSON.stringify(result.data[0])).not.toContain('sara@example.com');
     expect(result.data[0]!.lessons).toHaveLength(1);
     expect(result.data[0]!.lessons_count).toBe(1);
   });

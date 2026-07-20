@@ -2,6 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 
 import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
+import {
+  buildAbsoluteUrl,
+  isNonPublicHostname,
+  parsePublicOrigin,
+} from '../config/public-url.util';
 import { StorageObjectNotFoundError, StoredObject } from '../storage/storage.interface';
 import { StorageService } from '../storage/storage.service';
 import { biBody } from '../i18n/error-translator.util';
@@ -64,7 +69,10 @@ export class MediaService {
    * (lessons, packages) to turn a stored key/legacy URL into `thumbnail_url`.
    */
   public buildPublicUrl(key: string): string {
-    return `${this.publicMediaBaseUrl}/api/v1/media/public/${key.replace(/^\/+/, '')}`;
+    return buildAbsoluteUrl(
+      this.publicMediaBaseUrl,
+      `/api/v1/media/public/${key.replace(/^\/+/, '')}`,
+    );
   }
 
   /**
@@ -80,17 +88,17 @@ export class MediaService {
   public resolveThumbnailUrl(value: string | null | undefined): string | null {
     if (value === null || value === undefined || value === '') return null;
     if (!this.storage.isOwnUrl(value)) {
-      return this.isLocalhostUrl(value) ? null : value;
+      return this.isSafeExternalPublicUrl(value) ? value : null;
     }
     return this.buildPublicUrl(this.storage.toKey(value));
   }
 
   /** Store provider-owned media as a key; reject any new localhost URL. */
   public normalizeStoredPublicReference(value: string): string {
-    if (this.isLocalhostUrl(value) && !this.storage.isOwnUrl(value)) {
+    if (!this.storage.isOwnUrl(value) && !this.isSafeExternalPublicUrl(value)) {
       throw new BadRequestException(
         biBody(
-          'Localhost URLs cannot be used for public media',
+          'Only public HTTP(S) URLs can be used for public media',
           'لا يمكن استخدام روابط localhost للوسائط العامة',
         ),
       );
@@ -115,19 +123,36 @@ export class MediaService {
     } catch {
       throw new Error('PUBLIC_MEDIA_BASE_URL must be an absolute URL');
     }
-    if (isProduction && (url.protocol !== 'https:' || this.isLocalhostUrl(url.toString()))) {
-      throw new Error('PUBLIC_MEDIA_BASE_URL must be a non-localhost HTTPS URL in production');
-    }
-    return url
-      .toString()
-      .replace(/\/+$/, '')
-      .replace(/\/api\/v1$/i, '');
+    return parsePublicOrigin(
+      url.toString(),
+      configured === this.config.get<string>('PUBLIC_MEDIA_BASE_URL')
+        ? 'PUBLIC_MEDIA_BASE_URL'
+        : 'BACKEND_URL',
+      isProduction,
+    );
   }
 
-  private isLocalhostUrl(value: string): boolean {
+  private isSafeExternalPublicUrl(value: string): boolean {
     try {
-      const hostname = new URL(value).hostname.toLowerCase();
-      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol)) return false;
+      const hostname = url.hostname.toLowerCase();
+
+      // Raw provider endpoints are implementation details, not public-media
+      // origins. A configured legacy provider URL is handled by isOwnUrl()
+      // above and converted to our media proxy; an unknown provider URL must
+      // never pass through a response unchanged.
+      if (
+        hostname === 'r2.cloudflarestorage.com' ||
+        hostname.endsWith('.r2.cloudflarestorage.com') ||
+        hostname === 'storage.bunnycdn.com' ||
+        hostname.endsWith('.storage.bunnycdn.com')
+      ) {
+        return false;
+      }
+
+      const isProduction = this.config.get<string>('NODE_ENV') === 'production';
+      return !isProduction || (url.protocol === 'https:' && !isNonPublicHostname(hostname));
     } catch {
       return false;
     }

@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
@@ -442,6 +443,7 @@ export class CertificatesService {
 
     const [rows, total] = await qb
       .orderBy('c.issued_at', 'DESC')
+      .addOrderBy('c.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -496,6 +498,7 @@ export class CertificatesService {
 
     const [data, total] = await qb
       .orderBy('c.issued_at', 'DESC')
+      .addOrderBy('c.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
@@ -516,11 +519,29 @@ export class CertificatesService {
 
   /* ===================== Reads ===================== */
 
-  public async getMyCertificates(studentId: string): Promise<Certificate[]> {
-    return this.certificatesRepository.find({
+  public async getMyCertificates(
+    studentId: string,
+    page: number,
+    limit: number,
+  ): Promise<{ data: Certificate[]; meta: PaginationMeta }> {
+    const [data, total] = await this.certificatesRepository.findAndCount({
       where: { student_id: studentId },
-      order: { issued_at: 'DESC' },
+      order: { issued_at: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   public async getOwnedCertificate(id: string, studentId: string): Promise<Certificate> {
@@ -712,7 +733,8 @@ export class CertificatesService {
   ): Promise<(CertificateTemplate & { issued_count: number })[]> {
     const templates = await this.templatesRepository.find({
       ...(ownerId ? { where: { owner_id: ownerId } } : {}),
-      order: { created_at: 'DESC' },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: 100,
     });
     if (templates.length === 0) return [];
 

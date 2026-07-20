@@ -1,8 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import { IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ExamStatus } from '../entities';
 
 /** Filter/paginate exams (teacher- or student-scoped depending on the caller). */
@@ -34,14 +34,14 @@ export class ExamFilterDto {
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
 
   @ApiPropertyOptional({ default: 20 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

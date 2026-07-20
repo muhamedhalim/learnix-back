@@ -10,6 +10,8 @@ import {
   validateSync,
 } from 'class-validator';
 
+import { validateProductionPublicOrigins } from './public-url.util';
+
 enum Environment {
   Development = 'development',
   Production = 'production',
@@ -345,28 +347,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     );
   }
 
-  if (validatedConfig.NODE_ENV === Environment.Production) {
-    const configuredMediaOrigin =
-      validatedConfig.PUBLIC_MEDIA_BASE_URL ?? validatedConfig.BACKEND_URL;
-    if (!configuredMediaOrigin) {
-      throw new Error(
-        'Environment validation failed: PUBLIC_MEDIA_BASE_URL (or BACKEND_URL) is required in production.',
-      );
-    }
-    try {
-      const url = new URL(configuredMediaOrigin);
-      if (
-        url.protocol !== 'https:' ||
-        ['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase())
-      ) {
-        throw new Error('invalid production media origin');
-      }
-    } catch {
-      throw new Error(
-        'Environment validation failed: PUBLIC_MEDIA_BASE_URL must be a non-localhost HTTPS URL in production.',
-      );
-    }
-  }
+  validateProductionPublicOrigins(config);
 
   return validatedConfig;
 }

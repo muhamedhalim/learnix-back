@@ -16,7 +16,14 @@ import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-import { CreateLessonDto, LessonFilterDto, UpdateLessonDto, UpdateVimeoInfoDto } from './dto';
+import {
+  CreateLessonDto,
+  LessonFilterDto,
+  PublicLessonResponseDto,
+  toPublicLessonResponse,
+  UpdateLessonDto,
+  UpdateVimeoInfoDto,
+} from './dto';
 import { PaymentsService } from '../payments/services/payments.service';
 import { BunnyStreamService, BunnyVideoMetadata } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
@@ -34,7 +41,6 @@ export interface LessonWithDetails {
   teacher: {
     id: string;
     name: string;
-    email: string;
     profile_picture_url: string | null;
   };
   subject: {
@@ -85,7 +91,6 @@ interface LessonListRawRow {
   description_ar: string | null;
   teacher_id: string;
   teacher_name: string;
-  teacher_email: string;
   teacher_profile_picture_url: string | null;
   subject_id: string;
   subject_name: string;
@@ -208,11 +213,36 @@ export class LessonsService {
    * Find all lessons with filtering, sorting, and pagination
    */
   public async findAll(filter: LessonFilterDto): Promise<PaginatedResponse<LessonWithDetails>> {
+    return await this.findAllWithVisibility(filter, false);
+  }
+
+  /** Public catalogue: published lessons only and an explicit safe response. */
+  public async findAllPublic(
+    filter: LessonFilterDto,
+  ): Promise<PaginatedResponse<PublicLessonResponseDto>> {
+    const result = await this.findAllWithVisibility(filter, true);
+    const data: PublicLessonResponseDto[] = [];
+    for (const lesson of result.data) {
+      data.push(toPublicLessonResponse(lesson, (value) => this.media.resolveThumbnailUrl(value)));
+    }
+    return { data, meta: result.meta };
+  }
+
+  private async findAllWithVisibility(
+    filter: LessonFilterDto,
+    publishedOnly: boolean,
+  ): Promise<PaginatedResponse<LessonWithDetails>> {
     const { page = 1, limit = 20 } = filter;
 
     const baseQuery = this.lessonsRepository
       .createQueryBuilder('lesson')
       .where('lesson.deleted_at IS NULL');
+
+    if (publishedOnly) {
+      baseQuery.andWhere('lesson.status = :publicStatus', {
+        publicStatus: LessonStatus.PUBLISHED,
+      });
+    }
 
     this.applyAllFilters(baseQuery, filter);
 
@@ -235,7 +265,6 @@ export class LessonsService {
       .addSelect('lesson.description_ar', 'description_ar')
       .addSelect('teacher.id', 'teacher_id')
       .addSelect('teacher.name', 'teacher_name')
-      .addSelect('teacher.email', 'teacher_email')
       .addSelect('teacher.profile_picture_url', 'teacher_profile_picture_url')
       .addSelect('subject.id', 'subject_id')
       .addSelect('subject.name', 'subject_name')
@@ -344,7 +373,8 @@ export class LessonsService {
             ? 'lesson.students_count'
             : 'lesson.created_at';
 
-    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('lesson.id', sortOrder);
     queryBuilder.addOrderBy('lesson.id', order.toUpperCase() as 'ASC' | 'DESC');
   }
 
@@ -358,7 +388,6 @@ export class LessonsService {
       teacher: {
         id: row.teacher_id,
         name: row.teacher_name,
-        email: row.teacher_email,
         profile_picture_url: row.teacher_profile_picture_url,
       },
       subject: {
@@ -416,6 +445,20 @@ export class LessonsService {
     });
   }
 
+  public async findByTeacherPublic(
+    teacherId: string,
+    filter: Omit<LessonFilterDto, 'teacher_id'>,
+  ): Promise<PaginatedResponse<PublicLessonResponseDto>> {
+    return await this.findAllPublic({ ...filter, teacher_id: teacherId });
+  }
+
+  public async findBySubjectPublic(
+    subjectId: string,
+    filter: Omit<LessonFilterDto, 'subject_id'>,
+  ): Promise<PaginatedResponse<PublicLessonResponseDto>> {
+    return await this.findAllPublic({ ...filter, subject_id: subjectId });
+  }
+
   /**
    * Find a single lesson by ID
    */
@@ -432,6 +475,21 @@ export class LessonsService {
     }
 
     return this.mapToLessonWithDetails(lesson);
+  }
+
+  public async findOnePublic(id: string): Promise<PublicLessonResponseDto> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id, status: LessonStatus.PUBLISHED },
+      relations: ['teacher', 'subject'],
+    });
+
+    if (!lesson) {
+      throw new NotFoundException(biBody('Lesson not found', 'Lesson not found'));
+    }
+
+    return toPublicLessonResponse(this.mapToLessonWithDetails(lesson), (value) =>
+      this.media.resolveThumbnailUrl(value),
+    );
   }
 
   /**
@@ -1050,7 +1108,6 @@ export class LessonsService {
       teacher: {
         id: lesson.teacher.id,
         name: lesson.teacher.name,
-        email: lesson.teacher.email,
         profile_picture_url: lesson.teacher.profile_picture_url,
       },
       subject: {

@@ -25,7 +25,7 @@ export class RankService {
   public async ladder(): Promise<RankTier[]> {
     const now = Date.now();
     if (this.cache && now - this.cachedAt < RankService.TTL_MS) return this.cache;
-    this.cache = await this.ranks.find({ order: { sort_order: 'ASC' } });
+    this.cache = await this.ranks.find({ order: { sort_order: 'ASC', id: 'ASC' }, take: 100 });
     this.cachedAt = now;
     return this.cache;
   }

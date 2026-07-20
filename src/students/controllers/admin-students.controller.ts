@@ -21,6 +21,7 @@ import {
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import {
   ApproveStudentDto,
   RejectStudentDto,
@@ -129,12 +130,11 @@ export class AdminStudentsController {
     description: 'List of pending students',
   })
   public async findPending(
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
     return await this.studentsService.findPendingStudents(
-      page ?? 1,
-      limit ?? 20,
+      pagination.page,
+      pagination.limit,
     );
   }
 

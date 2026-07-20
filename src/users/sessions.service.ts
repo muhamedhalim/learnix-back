@@ -71,7 +71,10 @@ export class SessionsService {
   ): Promise<UserSessionDto[]> {
     const sessions = await this.sessionRepository.find({
       where: { user_id: userId },
-      order: { last_active: 'DESC' },
+      order: { last_active: 'DESC', id: 'DESC' },
+      // A user can normally have only a handful of sessions. Keep the
+      // security-management response bounded even if stale rows accumulate.
+      take: 100,
     });
 
     return sessions.map((session) => ({

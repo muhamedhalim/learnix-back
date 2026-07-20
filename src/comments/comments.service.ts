@@ -170,6 +170,7 @@ export class CommentsService {
       relations: ['student', 'replies', 'replies.teacher'],
       order: {
         created_at: 'DESC',
+        id: 'DESC',
       },
       skip: (page - 1) * limit,
       take: limit,

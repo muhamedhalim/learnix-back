@@ -6,6 +6,10 @@ import { join } from 'path';
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
 
+import {
+  buildAbsoluteUrl,
+  getConfiguredPublicOrigin,
+} from '../config/public-url.util';
 import { shapeArabicForPdf } from './arabic-pdf-text.util';
 import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
@@ -287,8 +291,12 @@ export class CertificatePdfService {
   }
 
   private verificationUrl(code: string): string {
-    const base = this.configService.get<string>('FRONTEND_URL') ?? 'https://learnix.school';
-    return `${base.replace(/\/$/, '')}/verify/${code}`;
+    const base = getConfiguredPublicOrigin(
+      (key) => this.configService.get<string>(key),
+      'FRONTEND_URL',
+      'http://localhost:3000',
+    );
+    return buildAbsoluteUrl(base, `/verify/${code}`);
   }
 
   /** Guard against a malformed stored colour crashing the renderer. */

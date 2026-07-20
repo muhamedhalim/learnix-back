@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -14,6 +15,8 @@ import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AddToCartDto, CartItemResponseDto, CartResponseDto, CheckoutCartDto } from './dto';
 import { Cart } from './entities/cart.entity';
 import { CartItem, CartItemType } from './entities/cart-item.entity';
+
+const MAX_CART_ITEMS = 100;
 
 @Injectable()
 export class CartService {
@@ -52,6 +55,15 @@ export class CartService {
 
     if (existingItem) {
       throw new ConflictException(biBody('Item already in cart', 'العنصر موجود بالفعل في السلة'));
+    }
+
+    if (cart.items.length >= MAX_CART_ITEMS) {
+      throw new BadRequestException(
+        biBody(
+          `Cart cannot contain more than ${String(MAX_CART_ITEMS)} items`,
+          `لا يمكن أن تحتوي السلة على أكثر من ${String(MAX_CART_ITEMS)} عنصر`,
+        ),
+      );
     }
 
     // Fetch item price

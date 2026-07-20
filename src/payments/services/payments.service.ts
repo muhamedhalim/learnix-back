@@ -1085,26 +1085,62 @@ export class PaymentsService {
   /**
    * Get student's purchased lessons (active access)
    */
-  public async getMyLessons(userId: string): Promise<LessonPurchase[]> {
-    return await this.lessonPurchasesRepository.find({
+  public async getMyLessons(
+    userId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: LessonPurchase[]; meta: PaginationMeta }> {
+    const [data, total] = await this.lessonPurchasesRepository.findAndCount({
       where: {
         student_id: userId,
         access_expires_at: MoreThan(new Date()),
       },
       relations: ['lesson', 'lesson.subject', 'lesson.teacher'],
       order: { access_expires_at: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   /**
    * Get student's purchased packages
    */
-  public async getMyPackages(userId: string): Promise<PackagePurchase[]> {
-    return await this.packagePurchasesRepository.find({
+  public async getMyPackages(
+    userId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: PackagePurchase[]; meta: PaginationMeta }> {
+    const [data, total] = await this.packagePurchasesRepository.findAndCount({
       where: { student_id: userId },
       relations: ['package', 'package.teacher', 'package.items', 'package.items.lesson'],
       order: { purchased_at: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   /**

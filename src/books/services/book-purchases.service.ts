@@ -11,6 +11,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import {
+  buildAbsoluteUrl,
+  getConfiguredPublicOrigin,
+} from '../../config/public-url.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { StorageObjectNotFoundError, StoredObject } from '../../storage/storage.interface';
 import { StorageService } from '../../storage/storage.service';
@@ -133,7 +137,7 @@ export class BookPurchasesService {
     }
 
     // Order by purchase date (newest first)
-    query.orderBy('purchase.purchased_at', 'DESC');
+    query.orderBy('purchase.purchased_at', 'DESC').addOrderBy('purchase.id', 'DESC');
 
     // Get total count
     const total = await query.getCount();
@@ -165,8 +169,15 @@ export class BookPurchasesService {
     bookId: string,
   ): Promise<{ download_url: string; book: Book }> {
     const book = await this.assertPurchasedBook(studentId, bookId);
-    const backendUrl = this.configService.get<string>('BACKEND_URL') ?? 'http://localhost:3001';
-    const download_url = `${backendUrl.replace(/\/+$/, '')}/api/v1/student/books/${bookId}/download/file`;
+    const backendUrl = getConfiguredPublicOrigin(
+      (key) => this.configService.get<string>(key),
+      'BACKEND_URL',
+      'http://localhost:3001',
+    );
+    const download_url = buildAbsoluteUrl(
+      backendUrl,
+      `/api/v1/student/books/${bookId}/download/file`,
+    );
 
     this.logger.log(`Protected book download URL issued: book ${bookId}, student ${studentId}`);
 
@@ -270,7 +281,7 @@ export class BookPurchasesService {
     }
 
     // Order by purchase date (newest first)
-    query.orderBy('purchase.purchased_at', 'DESC');
+    query.orderBy('purchase.purchased_at', 'DESC').addOrderBy('purchase.id', 'DESC');
 
     // Get total count
     const total = await query.getCount();

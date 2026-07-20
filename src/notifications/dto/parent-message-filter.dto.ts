@@ -1,22 +1,22 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { MessageChannel, ParentMessageStatus } from '../entities';
 
 export class ParentMessageFilterDto {
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number;
 
   @ApiPropertyOptional({ default: 20, maximum: 100 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

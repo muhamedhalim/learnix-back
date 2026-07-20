@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
@@ -9,10 +9,12 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
 } from 'class-validator';
 
 import { NotificationType } from '../entities/notification-type.enum';
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class NotificationFilterDto {
   @ApiPropertyOptional({
@@ -21,7 +23,7 @@ export class NotificationFilterDto {
     minimum: 1,
   })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page?: number = 1;
@@ -32,9 +34,10 @@ export class NotificationFilterDto {
     minimum: 1,
   })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
   @IsInt()
   @Min(1)
+  @Max(100)
   public limit?: number = 20;
 
   @ApiPropertyOptional({

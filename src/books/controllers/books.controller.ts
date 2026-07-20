@@ -8,24 +8,20 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { BookFilterDto } from '../dto';
-import { Book } from '../entities/book.entity';
+import { MediaService } from '../../media/media.service';
+import { BookFilterDto, toPublicBookResponse } from '../dto';
 import { BooksService } from '../services/books.service';
 
 /** Public-facing book shape — omits `book_file`, the private R2 storage key,
  * which has no use outside purchase-gated download and must never leak to an
  * unauthenticated/public response. */
-type PublicBook = Omit<Book, 'book_file'>;
-
-function toPublicBook(book: Book): PublicBook {
-  const { book_file: _book_file, ...rest } = book;
-  return rest;
-}
-
 @ApiTags('Books')
 @Controller('books')
 export class BooksController {
-  constructor(private readonly booksService: BooksService) {}
+  constructor(
+    private readonly booksService: BooksService,
+    private readonly media: MediaService,
+  ) {}
 
   /**
    * Get all books (public)
@@ -83,7 +79,12 @@ export class BooksController {
   })
   public async findAll(@Query() filter: BookFilterDto): Promise<unknown> {
     const result = await this.booksService.findAll(filter);
-    return { ...result, data: result.data.map(toPublicBook) };
+    return {
+      ...result,
+      data: result.data.map((book) =>
+        toPublicBookResponse(book, (value) => this.media.resolveThumbnailUrl(value)),
+      ),
+    };
   }
 
   /**
@@ -98,6 +99,6 @@ export class BooksController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
     const book = await this.booksService.findOne(id);
-    return toPublicBook(book);
+    return toPublicBookResponse(book, (value) => this.media.resolveThumbnailUrl(value));
   }
 }

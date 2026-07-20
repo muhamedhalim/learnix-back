@@ -78,7 +78,7 @@ describe('SessionsService', () => {
   });
 
   describe('getUserSessions', () => {
-    it('should return all sessions for a user', async () => {
+    it('should return a bounded, deterministic session list for a user', async () => {
       const mockSessions = [mockSession, { ...mockSession, id: 'session-2' }];
       mockSessionRepository.find.mockResolvedValue(mockSessions);
 
@@ -86,7 +86,8 @@ describe('SessionsService', () => {
 
       expect(mockSessionRepository.find).toHaveBeenCalledWith({
         where: { user_id: mockUserId },
-        order: { last_active: 'DESC' },
+        order: { last_active: 'DESC', id: 'DESC' },
+        take: 100,
       });
       expect(result).toHaveLength(2);
       expect(result[0]).toHaveProperty('id');

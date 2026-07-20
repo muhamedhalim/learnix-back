@@ -5,15 +5,16 @@ describe('credentialed CORS allowlist', () => {
   const originalOrigins = process.env['CORS_ORIGINS'];
 
   afterEach(() => {
-    process.env['NODE_ENV'] = originalNodeEnv;
+    if (originalNodeEnv === undefined) delete process.env['NODE_ENV'];
+    else process.env['NODE_ENV'] = originalNodeEnv;
     if (originalOrigins === undefined) delete process.env['CORS_ORIGINS'];
     else process.env['CORS_ORIGINS'] = originalOrigins;
   });
 
-  it('uses only the production site by default in production', () => {
+  it('fails closed when the production allowlist is missing', () => {
     process.env['NODE_ENV'] = 'production';
     delete process.env['CORS_ORIGINS'];
-    expect(getAllowedOrigins()).toEqual(['https://learnix.school']);
+    expect(() => getAllowedOrigins()).toThrow('CORS_ORIGINS is required in production');
   });
 
   it('matches configured origins exactly and rejects suffix lookalikes', () => {

@@ -29,7 +29,7 @@ import {
   AddLessonsDto,
   CreateChapterDto,
   CreatePackageDto,
-  PackageFilterDto,
+  TeacherPackageFilterDto,
   RemoveLessonsDto,
   ReorderCurriculumDto,
   UpdateChapterDto,
@@ -97,7 +97,7 @@ export class TeacherPackagesController {
   })
   public async findMyPackages(
     @GetUser() user: JwtPayload,
-    @Query() filter: Omit<PackageFilterDto, 'teacher_id'>,
+    @Query() filter: TeacherPackageFilterDto,
   ): Promise<{
     data: unknown[];
     meta: {

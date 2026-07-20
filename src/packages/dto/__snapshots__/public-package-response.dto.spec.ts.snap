@@ -1,0 +1,31 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`toPublicPackageResponse never exposes raw media keys or nested teacher account fields 1`] = `
+{
+  "category": null,
+  "created_at": 2026-01-01T00:00:00.000Z,
+  "description": null,
+  "description_ar": null,
+  "estimated_duration": null,
+  "featured": false,
+  "id": "package-1",
+  "lessons": [],
+  "lessons_count": 0,
+  "original_price": 120,
+  "price": 100,
+  "published_at": 2026-01-01T00:00:00.000Z,
+  "savings": 20,
+  "subject": null,
+  "tags": null,
+  "teacher": {
+    "id": "teacher-1",
+    "name": "Teacher",
+    "profile_picture_url": "https://api.example.test/media/profiles/private-key.jpg",
+  },
+  "thumbnail": "https://api.example.test/api/v1/media/public/images/raw-object-key.jpg",
+  "thumbnail_url": "https://api.example.test/api/v1/media/public/images/raw-object-key.jpg",
+  "title": "Course",
+  "title_ar": "Course AR",
+  "updated_at": 2026-01-02T00:00:00.000Z,
+}
+`;

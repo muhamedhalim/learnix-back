@@ -1,0 +1,29 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`toPublicLessonResponse uses an allowlist that cannot expose paid video or storage fields 1`] = `
+{
+  "available_for_days": 30,
+  "created_at": 2026-01-01T00:00:00.000Z,
+  "description": "Description",
+  "description_ar": null,
+  "duration": 60,
+  "id": "lesson-1",
+  "is_group": false,
+  "price": 100,
+  "students_count": 5,
+  "subject": {
+    "grade_level": "10",
+    "id": "subject-1",
+    "name": "Math",
+  },
+  "teacher": {
+    "id": "teacher-1",
+    "name": "Teacher",
+    "profile_picture_url": "https://api.example.test/media/profiles/avatar.jpg",
+  },
+  "thumbnail_url": "https://api.example.test/api/v1/media/public/images/lesson.jpg",
+  "title": "Algebra",
+  "title_ar": "Algebra AR",
+  "updated_at": 2026-01-02T00:00:00.000Z,
+}
+`;

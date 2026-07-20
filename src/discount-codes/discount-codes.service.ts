@@ -243,7 +243,6 @@ export class DiscountCodesService {
   public async findOne(id: string): Promise<DiscountCode> {
     const discountCode = await this.discountCodesRepository.findOne({
       where: { id, deleted_at: IsNull() },
-      relations: ['usages', 'usages.user'],
     });
 
     if (!discountCode) {
@@ -471,17 +470,16 @@ export class DiscountCodesService {
 
     const usages = await this.usageRepository.find({
       where: { discount_code_id: id },
-      relations: ['user'],
-      order: { used_at: 'DESC' },
+      order: { used_at: 'DESC', id: 'DESC' },
+      take: 100,
     });
 
-    const totalDiscountGiven = usages.reduce((sum, u) => {
-      const amount =
-        typeof u.discount_amount === 'string'
-          ? Number.parseFloat(u.discount_amount)
-          : u.discount_amount;
-      return sum + amount;
-    }, 0);
+    const aggregate = await this.usageRepository
+      .createQueryBuilder('usage')
+      .select('COALESCE(SUM(usage.discount_amount), 0)', 'total')
+      .where('usage.discount_code_id = :id', { id })
+      .getRawOne<{ total: string }>();
+    const totalDiscountGiven = Number.parseFloat(aggregate?.total ?? '0');
 
     return {
       total_uses: code.used_count,

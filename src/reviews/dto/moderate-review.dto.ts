@@ -1,6 +1,6 @@
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ReviewStatus } from '../entities/review-status.enum';
 import { ReviewTargetType } from '../entities/review-helpful-vote.entity';
 
@@ -13,15 +13,16 @@ export class ModerateReviewDto {
 /** Admin moderation listing filter. */
 export class ModerationFilterDto {
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page = 1;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
   @IsInt()
   @Min(1)
+  @Max(100)
   public limit = 20;
 
   /** Restrict to one review table; omit for both. */

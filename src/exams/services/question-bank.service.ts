@@ -156,7 +156,11 @@ export class QuestionBankService {
   /** Version history for an owned question (newest first). */
   public async getVersions(id: string, teacherId: string): Promise<QuestionVersion[]> {
     await this.findOwned(id, teacherId);
-    return this.versions.find({ where: { question_id: id }, order: { version: 'DESC' } });
+    return this.versions.find({
+      where: { question_id: id },
+      order: { version: 'DESC' },
+      take: 100,
+    });
   }
 
   /** Soft-delete an owned question (exam snapshots keep working). */

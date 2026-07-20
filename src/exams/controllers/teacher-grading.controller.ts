@@ -3,7 +3,6 @@ import {
   Controller,
   Get,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Query,
@@ -15,6 +14,7 @@ import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { GradeAnswerDto } from '../dto';
 import { TeacherGradingService } from '../services/teacher-grading.service';
@@ -33,10 +33,14 @@ export class TeacherGradingController {
   public submissions(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) examId: string,
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query() pagination: Pagination20Dto,
   ) {
-    return this.grading.getSubmissions(examId, user.userId, page ?? 1, limit ?? 20);
+    return this.grading.getSubmissions(
+      examId,
+      user.userId,
+      pagination.page,
+      pagination.limit,
+    );
   }
 
   @Get(':id/attempts/:attemptId')

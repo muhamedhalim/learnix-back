@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { StudentFilterDto } from '../dto';
+import { PublicStudentFilterDto } from '../dto';
 import { StudentsService } from '../students.service';
 
 @ApiTags('Students')
@@ -65,7 +65,7 @@ export class StudentsController {
     description: 'List of approved students with pagination meta',
   })
   public async findAll(
-    @Query() filter: Omit<StudentFilterDto, 'status'>,
+    @Query() filter: PublicStudentFilterDto,
   ): Promise<unknown> {
     // Public endpoint: only approved students, sanitized projection (no PII).
     return await this.studentsService.findApprovedStudentsPublic(filter);

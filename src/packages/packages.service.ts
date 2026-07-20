@@ -23,10 +23,12 @@ import {
   CreatePackageDto,
   PackageFilterDto,
   PackageSortBy,
+  PublicPackageResponseDto,
   RemoveLessonsDto,
   ReorderCurriculumDto,
   UpdateChapterDto,
   UpdatePackageDto,
+  toPublicPackageResponse,
 } from './dto';
 import { CourseChapter } from './entities/course-chapter.entity';
 import { CourseStatus } from './entities/course-status.enum';
@@ -44,7 +46,6 @@ export interface PackageWithDetails {
   teacher: {
     id: string;
     name: string;
-    email: string;
     profile_picture_url: string | null;
   } | null;
   subject: { id: string; name: string; name_ar: string | null; grade_level: string } | null;
@@ -197,7 +198,8 @@ export class PackagesService {
         ? '(SELECT COUNT(*) FROM lesson_package_items WHERE package_id = package.id)'
         : `package.${sortBy}`;
 
-    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('package.id', sortOrder);
 
     const total = await queryBuilder.getCount();
     const skip = (page - 1) * limit;
@@ -229,6 +231,25 @@ export class PackagesService {
     return await this.findAll({ ...filter, teacher_id: teacherId });
   }
 
+  public async findAllPublic(
+    filter: PackageFilterDto,
+  ): Promise<PaginatedResponse<PublicPackageResponseDto>> {
+    const result = await this.findAll(filter);
+    return {
+      data: result.data.map((pkg) =>
+        toPublicPackageResponse(pkg, (value) => this.media.resolveThumbnailUrl(value)),
+      ),
+      meta: result.meta,
+    };
+  }
+
+  public async findByTeacherPublic(
+    teacherId: string,
+    filter: Omit<PackageFilterDto, 'teacher_id'>,
+  ): Promise<PaginatedResponse<PublicPackageResponseDto>> {
+    return await this.findAllPublic({ ...filter, teacher_id: teacherId });
+  }
+
   /**
    * Find a single package by ID for internal/admin use. This intentionally
    * includes draft and inactive packages; callers must apply their own role
@@ -239,11 +260,12 @@ export class PackagesService {
   }
 
   /** Public package detail: only an active, published, non-deleted course. */
-  public async findPublicOne(id: string): Promise<PackageWithDetails> {
-    return this.findDetailedPackage(id, {
+  public async findPublicOne(id: string): Promise<PublicPackageResponseDto> {
+    const pkg = await this.findDetailedPackage(id, {
       is_active: true,
       status: CourseStatus.PUBLISHED,
     });
+    return toPublicPackageResponse(pkg, (value) => this.media.resolveThumbnailUrl(value));
   }
 
   /** Teacher detail: distinguish an absent package (404) from another owner's package (403). */
@@ -662,7 +684,6 @@ export class PackagesService {
         ? {
             id: pkg.teacher.id,
             name: pkg.teacher.name,
-            email: pkg.teacher.email,
             profile_picture_url: pkg.teacher.profile_picture_url,
           }
         : null,
@@ -726,7 +747,8 @@ export class PackagesService {
     await this.assertOwnership(packageId, teacherId);
     return this.chaptersRepository.find({
       where: { package_id: packageId },
-      order: { order_index: 'ASC' },
+      order: { order_index: 'ASC', id: 'ASC' },
+      take: 500,
     });
   }
 

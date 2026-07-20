@@ -1,20 +1,21 @@
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ComplaintStatus } from '../enums/complaint-status.enum';
 import { ComplaintType } from '../enums/complaint-type.enum';
 
 export class ComplaintFilterDto {
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page = 1;
 
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
   @IsInt()
   @Min(1)
+  @Max(100)
   public limit = 20;
 
   @IsOptional()

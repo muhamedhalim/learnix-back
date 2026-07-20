@@ -67,4 +67,25 @@ describe('HttpExceptionFilter — Multer upload errors (SEC-06)', () => {
     filter.catch(new Error('boom'), host);
     expect(captured.statusCode).toBe(HttpStatus.INTERNAL_SERVER_ERROR);
   });
+
+  it('hides database details and query strings in production error responses', () => {
+    const previous = process.env['NODE_ENV'];
+    process.env['NODE_ENV'] = 'production';
+    const { host, captured } = buildHost();
+    filter.catch(
+      new Error('QueryFailedError: OFFSET must not be negative; SELECT * FROM users'),
+      host,
+    );
+    expect(captured.body).toMatchObject({
+      status: 500,
+      title: 'Internal Server Error',
+      detail: 'An unexpected error occurred. Please try again later.',
+    });
+    expect(JSON.stringify(captured.body)).not.toMatch(/PostgreSQL|TypeORM|QueryFailed|SELECT|OFFSET/i);
+    if (previous === undefined) {
+      delete process.env['NODE_ENV'];
+    } else {
+      process.env['NODE_ENV'] = previous;
+    }
+  });
 });

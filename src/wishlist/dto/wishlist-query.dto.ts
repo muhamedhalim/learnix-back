@@ -1,5 +1,6 @@
 import { IsEnum, IsOptional } from 'class-validator';
 
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import { WishlistItemType } from '../entities/wishlist-item.entity';
 
 /**
@@ -16,7 +17,7 @@ export enum WishlistSort {
 /**
  * Query params for filtering / sorting the wishlist.
  */
-export class WishlistQueryDto {
+export class WishlistQueryDto extends Pagination20Dto {
   /** Filter to a single item type (lesson | package). */
   @IsOptional()
   @IsEnum(WishlistItemType)

@@ -22,6 +22,7 @@ import {
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import {
   ApproveTeacherDto,
   AssignSubjectsDto,
@@ -132,12 +133,11 @@ export class AdminTeachersController {
     description: 'List of pending teachers',
   })
   public async findPending(
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
     return await this.teachersService.findPendingTeachers(
-      page ?? 1,
-      limit ?? 20,
+      pagination.page,
+      pagination.limit,
     );
   }
 

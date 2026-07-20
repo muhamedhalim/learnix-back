@@ -15,6 +15,10 @@ import * as bcrypt from 'bcryptjs';
 import { DataSource, Repository } from 'typeorm';
 
 import { parseDuration } from '../common/utils/duration.util';
+import {
+  buildAbsoluteUrl,
+  getConfiguredPublicOrigin,
+} from '../config/public-url.util';
 import { biBody } from '../i18n/error-translator.util';
 import { GuardianRelationship } from '../guardians/entities';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
@@ -472,8 +476,12 @@ export class AuthService {
       password_reset_expires_at: expiresAt,
     });
 
-    const frontendUrl = (this.configService.get<string>('FRONTEND_URL') ?? '').replace(/\/+$/, '');
-    const resetUrl = `${frontendUrl}/auth/reset-password?token=${rawToken}`;
+    const frontendUrl = getConfiguredPublicOrigin(
+      (key) => this.configService.get<string>(key),
+      'FRONTEND_URL',
+      'http://localhost:3000',
+    );
+    const resetUrl = `${buildAbsoluteUrl(frontendUrl, '/auth/reset-password')}?token=${rawToken}`;
 
     await this.mailService.sendPasswordResetEmail(
       user.email,

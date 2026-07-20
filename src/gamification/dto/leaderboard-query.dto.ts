@@ -1,7 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export enum LeaderboardScope {
   GLOBAL = 'global',
@@ -59,14 +60,14 @@ export class LeaderboardQueryDto {
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   public page = 1;
 
   @ApiPropertyOptional({ default: 25, maximum: 100 })
   @IsOptional()
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

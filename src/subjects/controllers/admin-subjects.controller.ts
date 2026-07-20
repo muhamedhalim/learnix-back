@@ -24,6 +24,7 @@ import {
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { FILE_LIMITS } from '../../common/constants';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UploadService } from '../../uploads/upload.service';
 import { CreateSubjectDto, UpdateSubjectDto } from '../dto';
@@ -45,7 +46,11 @@ export class AdminSubjectsController {
    * Admin only
    */
   @Post()
-  @UseInterceptors(FileInterceptor('thumbnail'))
+  @UseInterceptors(
+    FileInterceptor('thumbnail', {
+      limits: { fileSize: FILE_LIMITS.THUMBNAIL_MAX_SIZE, files: 1 },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Create a new subject',

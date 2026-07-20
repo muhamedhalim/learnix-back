@@ -1,6 +1,5 @@
 import {
   Controller,
-  DefaultValuePipe,
   Get,
   Param,
   ParseUUIDPipe,
@@ -13,7 +12,13 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OptionalHybridAuthGuard } from '../auth/guards/optional-hybrid-auth.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-import { InCourseSearchDto, SearchQueryDto, SearchType, SuggestQueryDto } from './dto/search.dto';
+import {
+  InCourseSearchDto,
+  PopularSearchQueryDto,
+  SearchQueryDto,
+  SearchType,
+  SuggestQueryDto,
+} from './dto/search.dto';
 import { SearchService } from './search.service';
 import { biBody } from '../i18n/error-translator.util';
 
@@ -56,9 +61,9 @@ export class SearchController {
   @Get('popular')
   @ApiOperation({ summary: 'Most popular recent searches (global)' })
   public async popular(
-    @Query('limit', new DefaultValuePipe(8)) limit: number,
+    @Query() query: PopularSearchQueryDto,
   ): Promise<{ data: unknown }> {
-    const data = await this.searchService.getPopular(Number(limit) || 8);
+    const data = await this.searchService.getPopular(query.limit);
     return { data };
   }
 

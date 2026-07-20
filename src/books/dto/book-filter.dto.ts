@@ -1,7 +1,8 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class BookFilterDto {
   @ApiPropertyOptional({
@@ -53,7 +54,8 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsInt()
-  @Type(() => Number)
+  @StrictIntegerQuery()
+  @Min(1)
   public page?: number;
 
   @ApiPropertyOptional({
@@ -63,6 +65,13 @@ export class BookFilterDto {
   })
   @IsOptional()
   @IsInt()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
+  @Min(1)
+  @Max(100)
   public limit?: number;
 }
+
+/** Teacher-scoped endpoints derive teacher_id from the authenticated session. */
+export class TeacherBookFilterDto extends OmitType(BookFilterDto, [
+  'teacher_id',
+] as const) {}

@@ -2,6 +2,7 @@ export * from './add-lessons.dto';
 export * from './chapter.dto';
 export * from './create-package.dto';
 export * from './package-filter.dto';
+export * from './public-package-response.dto';
 export * from './remove-lessons.dto';
 export * from './reorder-curriculum.dto';
 export * from './update-course-status.dto';

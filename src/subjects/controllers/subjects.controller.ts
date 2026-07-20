@@ -3,12 +3,12 @@ import {
   Get,
   HttpStatus,
   Param,
-  ParseIntPipe,
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
 import { ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import { SubjectFilterDto } from '../dto';
 import { SubjectsService } from '../subjects.service';
 
@@ -56,9 +56,12 @@ export class SubjectsController {
   })
   public async findTeachersBySubject(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('page', new ParseIntPipe({ optional: true })) page = 1,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
-    return await this.subjectsService.findTeachersBySubject(id, page, limit);
+    return await this.subjectsService.findTeachersBySubject(
+      id,
+      pagination.page,
+      pagination.limit,
+    );
   }
 }

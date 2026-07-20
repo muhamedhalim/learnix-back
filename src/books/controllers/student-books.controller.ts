@@ -25,7 +25,8 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { BookFilterDto, PurchaseBookDto } from '../dto';
+import { MediaService } from '../../media/media.service';
+import { BookFilterDto, PurchaseBookDto, toPublicBookResponse } from '../dto';
 import { BookPurchasesService } from '../services/book-purchases.service';
 import { BooksService } from '../services/books.service';
 
@@ -38,6 +39,7 @@ export class StudentBooksController {
   constructor(
     private readonly bookPurchasesService: BookPurchasesService,
     private readonly booksService: BooksService,
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -80,7 +82,21 @@ export class StudentBooksController {
     @GetUser() user: JwtPayload,
     @Query() filter: BookFilterDto,
   ): Promise<unknown> {
-    return await this.bookPurchasesService.getMyBooks(user.userId, filter);
+    const result = await this.bookPurchasesService.getMyBooks(user.userId, filter);
+    return {
+      data: result.data.map((purchase) => ({
+        id: purchase.id,
+        student_id: purchase.student_id,
+        book_id: purchase.book_id,
+        payment_id: purchase.payment_id,
+        price_paid: Number(purchase.price_paid),
+        purchased_at: purchase.purchased_at,
+        book: toPublicBookResponse(purchase.book, (value) =>
+          this.media.resolveThumbnailUrl(value),
+        ),
+      })),
+      meta: result.meta,
+    };
   }
 
   /**
@@ -160,7 +176,10 @@ export class StudentBooksController {
 
     return {
       message: 'Download URL retrieved successfully',
-      ...result,
+      download_url: result.download_url,
+      book: toPublicBookResponse(result.book, (value) =>
+        this.media.resolveThumbnailUrl(value),
+      ),
     };
   }
 

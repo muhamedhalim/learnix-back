@@ -1,6 +1,8 @@
 import type { ValidationArguments, ValidationOptions } from 'class-validator';
 import { registerDecorator } from 'class-validator';
 
+import { isNonPublicHostname } from '../../config/public-url.util';
+
 export function IsSecureUrl(
   validationOptions?: ValidationOptions,
 ): PropertyDecorator {
@@ -24,43 +26,11 @@ export function IsSecureUrl(
               return false;
             }
 
-            // Block localhost, private IPs, and local file access (SSRF protection)
-            const hostname = url.hostname.toLowerCase();
-
-            // Block localhost variations
-            if (
-              hostname === 'localhost' ||
-              hostname === '127.0.0.1' ||
-              hostname === '::1' ||
-              hostname === '0.0.0.0'
-            ) {
-              return false;
-            }
-
-            // Block private IP ranges (RFC 1918)
-            if (
-              hostname.startsWith('10.') ||
-              hostname.startsWith('192.168.') ||
-              /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
-            ) {
-              return false;
-            }
-
-            // Block link-local addresses
-            if (hostname.startsWith('169.254.')) {
-              return false;
-            }
-
-            // Block IPv6 private addresses
-            if (
-              hostname.startsWith('fc00:') ||
-              hostname.startsWith('fd00:') ||
-              hostname.startsWith('fe80:')
-            ) {
-              return false;
-            }
-
-            return true;
+            return (
+              url.username === '' &&
+              url.password === '' &&
+              !isNonPublicHostname(url.hostname)
+            );
           } catch {
             return false;
           }

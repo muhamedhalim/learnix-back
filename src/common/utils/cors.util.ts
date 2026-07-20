@@ -16,9 +16,10 @@ export function getAllowedOrigins(): string[] {
     ];
   }
 
-  return process.env['NODE_ENV'] === 'production'
-    ? ['https://learnix.school']
-    : ['https://learnix.school', 'http://localhost:3000'];
+  if (process.env['NODE_ENV'] === 'production') {
+    throw new Error('CORS_ORIGINS is required in production');
+  }
+  return ['https://learnix.school', 'http://localhost:3000'];
 }
 
 export function isOriginAllowed(origin: string, allowedOrigins: readonly string[]): boolean {

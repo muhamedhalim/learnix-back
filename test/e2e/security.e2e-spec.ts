@@ -2,6 +2,8 @@ import type { Server } from 'node:http';
 
 import request from 'supertest';
 
+import { TeacherProfile } from '../../src/teachers/entities/teacher-profile.entity';
+
 import {
   API_PREFIX,
   createAuthenticatedUser,
@@ -75,6 +77,75 @@ describe('Security (e2e)', () => {
       const serialized = JSON.stringify(res.body);
       expect(serialized).not.toMatch(/password_hash/);
       expect(serialized).not.toMatch(/refreshToken/);
+    });
+  });
+
+  describe('strict pagination validation', () => {
+    it.each([
+      ['page', '0'],
+      ['page', '-1'],
+      ['page', '1.5'],
+      ['page', 'abc'],
+      ['page', "1' OR '1'='1"],
+      ['limit', '0'],
+      ['limit', '-1'],
+      ['limit', '1.5'],
+      ['limit', 'abc'],
+      ['limit', '101'],
+      ['limit', '999999'],
+    ])('returns 400 for explicitly invalid %s=%s', async (key, value) => {
+      await request(server)
+        .get(`${API_PREFIX}/teachers`)
+        .query({ [key]: value })
+        .expect(400);
+    });
+
+    it('uses documented defaults and accepts the valid maximum', async () => {
+      const defaults = await request(server).get(`${API_PREFIX}/teachers`).expect(200);
+      expect(defaults.body.meta).toMatchObject({ page: 1, limit: 20 });
+
+      const maximum = await request(server)
+        .get(`${API_PREFIX}/teachers`)
+        .query({ page: '1', limit: '100' })
+        .expect(200);
+      expect(maximum.body.meta).toMatchObject({ page: 1, limit: 100 });
+    });
+
+    it('rejects repeated pagination parameters instead of accepting an array', async () => {
+      await request(server)
+        .get(`${API_PREFIX}/teachers?page=1&page=2&limit=20`)
+        .expect(400);
+    });
+  });
+
+  describe('public teacher serialization', () => {
+    it('removes account PII from list/detail while preserving authorized views', async () => {
+      const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
+        role: 'teacher',
+        overrides: { requestedRole: 'teacher' },
+      });
+      const profile = await ctx.dataSource.getRepository(TeacherProfile).findOneByOrFail({
+        user_id: teacher.userId,
+      });
+
+      const list = await request(server).get(`${API_PREFIX}/teachers`).expect(200);
+      const detail = await request(server)
+        .get(`${API_PREFIX}/teachers/${profile.id}`)
+        .expect(200);
+      for (const body of [list.body, detail.body]) {
+        expect(JSON.stringify(body)).not.toMatch(
+          /email|phone|password|refresh|rejection_reason|firebase_uid/i,
+        );
+      }
+
+      const self = await teacher.agent.get(`${API_PREFIX}/teacher/profile`).expect(200);
+      expect(JSON.stringify(self.body)).toContain(teacher.credentials.email);
+
+      const admin = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'admin' });
+      const administrative = await admin.agent
+        .get(`${API_PREFIX}/admin/teachers/${profile.id}`)
+        .expect(200);
+      expect(JSON.stringify(administrative.body)).toContain(teacher.credentials.email);
     });
   });
 

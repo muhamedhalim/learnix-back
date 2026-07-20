@@ -109,7 +109,7 @@ export class StudentLessonsController {
     description: 'List of available lessons',
   })
   public async browseLessons(@Query() filter: LessonFilterDto): Promise<unknown> {
-    return await this.lessonsService.findAll(filter);
+    return await this.lessonsService.findAllPublic(filter);
   }
 
   /**

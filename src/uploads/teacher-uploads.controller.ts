@@ -15,7 +15,14 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { GetUser } from '../common/decorators/get-user.decorator';
+import type { JwtPayload } from '../common/interfaces/user-request.interface';
+import {
+  extensionMatchesMime,
+  hasExpectedMagicBytes,
+} from '../common/utils/file-signature.util';
 import { biBody } from '../i18n/error-translator.util';
+import { MediaService } from '../media/media.service';
 import { StorageService } from '../storage/storage.service';
 
 interface MulterFile {
@@ -60,7 +67,10 @@ function logicalType(mime: string): string {
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherUploadsController {
-  constructor(private readonly storage: StorageService) {}
+  constructor(
+    private readonly storage: StorageService,
+    private readonly media: MediaService,
+  ) {}
 
   // `limits.fileSize` makes Multer stop reading (and reject with a
   // LIMIT_FILE_SIZE error, mapped to HTTP 413 by HttpExceptionFilter) as soon
@@ -77,9 +87,24 @@ export class TeacherUploadsController {
 
   @Post('file')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE, files: 1 } }))
-  @ApiOperation({ summary: 'Upload an attachment/resource. Returns a public URL.' })
-  public async uploadFile(@UploadedFile() file?: MulterFile) {
-    return this.handle(file, FILE_TYPES, MAX_FILE, 'attachments');
+  @ApiOperation({ summary: 'Upload a private lesson resource. Returns an opaque reference.' })
+  public async uploadFile(
+    @GetUser() user: JwtPayload,
+    @UploadedFile() file?: MulterFile,
+  ): Promise<{ upload_ref: string; name: string; type: string; size: number }> {
+    const uploaded = await this.handle(
+      file,
+      FILE_TYPES,
+      MAX_FILE,
+      `lesson-resources/${user.userId}`,
+      true,
+    );
+    return {
+      upload_ref: uploaded.key,
+      name: uploaded.name,
+      type: uploaded.type,
+      size: uploaded.size,
+    };
   }
 
   /**
@@ -95,6 +120,7 @@ export class TeacherUploadsController {
     summary: 'Upload a paid-book PDF privately. Returns a storage key (no URL).',
   })
   public async uploadBookFile(
+    @GetUser() user: JwtPayload,
     @UploadedFile() file?: MulterFile,
   ): Promise<{ key: string; name: string; size: number }> {
     if (!file) {
@@ -105,6 +131,11 @@ export class TeacherUploadsController {
         biBody('Book files must be PDF', 'يجب أن تكون ملفات الكتب بصيغة PDF'),
       );
     }
+    if (!extensionMatchesMime(file.originalname, file.mimetype) || !hasExpectedMagicBytes(file.mimetype, file.buffer)) {
+      throw new BadRequestException(
+        biBody('File content does not match a valid PDF', 'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù…Ù„Ù PDF ØµØ§Ù„Ø­'),
+      );
+    }
     if (file.size > MAX_BOOK) {
       throw new BadRequestException(
         biBody(
@@ -113,7 +144,7 @@ export class TeacherUploadsController {
         ),
       );
     }
-    const key = `books/${randomUUID()}.pdf`;
+    const key = `books/${user.userId}/${randomUUID()}.pdf`;
     const stored = await this.storage.upload({
       buffer: file.buffer,
       path: key,
@@ -128,6 +159,7 @@ export class TeacherUploadsController {
     allowed: string[],
     maxBytes: number,
     folder: string,
+    privateObject = false,
   ): Promise<{ url: string; key: string; name: string; type: string; size: number }> {
     if (!file) {
       throw new BadRequestException(biBody('No file provided', 'لم يتم توفير أي ملف'));
@@ -135,6 +167,17 @@ export class TeacherUploadsController {
     if (!allowed.includes(file.mimetype)) {
       throw new BadRequestException(
         biBody(`Unsupported file type: ${file.mimetype}`, `نوع ملف غير مدعوم: ${file.mimetype}`),
+      );
+    }
+    if (
+      file.originalname.includes('..') ||
+      file.originalname.includes('/') ||
+      file.originalname.includes('\\') ||
+      !extensionMatchesMime(file.originalname, file.mimetype) ||
+      !hasExpectedMagicBytes(file.mimetype, file.buffer)
+    ) {
+      throw new BadRequestException(
+        biBody('File extension, type, or content is invalid', 'Ø§Ù…ØªØ¯Ø§Ø¯ Ø§Ù„Ù…Ù„Ù Ø£Ùˆ Ù†ÙˆØ¹Ù‡ Ø£Ùˆ Ù…Ø­ØªÙˆØ§Ù‡ ØºÙŠØ± ØµØ§Ù„Ø­'),
       );
     }
     if (file.size > maxBytes) {
@@ -151,9 +194,10 @@ export class TeacherUploadsController {
       buffer: file.buffer,
       path,
       contentType: file.mimetype,
+      visibility: privateObject ? 'private' : 'public',
     });
     return {
-      url: stored.url,
+      url: privateObject ? '' : this.media.buildPublicUrl(stored.path),
       key: stored.path,
       name: file.originalname,
       type: logicalType(file.mimetype),

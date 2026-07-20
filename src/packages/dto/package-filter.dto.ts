@@ -1,9 +1,10 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -13,6 +14,7 @@ import {
 } from 'class-validator';
 
 import { CourseStatus } from '../entities/course-status.enum';
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export enum PackageSortBy {
   PRICE = 'price',
@@ -107,9 +109,9 @@ export class PackageFilterDto {
     default: 1,
   })
   @IsOptional()
-  @IsNumber()
+  @StrictIntegerQuery()
+  @IsInt()
   @Min(1)
-  @Type(() => Number)
   public page?: number = 1;
 
   @ApiPropertyOptional({
@@ -118,9 +120,14 @@ export class PackageFilterDto {
     default: 20,
   })
   @IsOptional()
-  @IsNumber()
+  @StrictIntegerQuery()
+  @IsInt()
   @Min(1)
   @Max(100)
-  @Type(() => Number)
   public limit?: number = 20;
 }
+
+/** Teacher-scoped endpoints derive teacher_id from auth or a validated path. */
+export class TeacherPackageFilterDto extends OmitType(PackageFilterDto, [
+  'teacher_id',
+] as const) {}

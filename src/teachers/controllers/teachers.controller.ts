@@ -14,7 +14,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { TeacherFilterDto } from '../dto';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
+import { PublicTeacherFilterDto } from '../dto';
 import { TeachersService } from '../teachers.service';
 
 @ApiTags('Teachers')
@@ -30,12 +31,12 @@ export class TeachersController {
   @ApiOperation({
     summary: 'Get all approved teachers',
     description:
-      'Returns a paginated list of approved teachers. Supports search by name/email, filtering by subject, sorting by rating/name/date.',
+      'Returns a paginated list of approved teachers. Supports search by public display name, filtering by subject, sorting by rating/name/date.',
   })
   @ApiQuery({
     name: 'search',
     required: false,
-    description: 'Search by name or email',
+    description: 'Search by public display name',
   })
   @ApiQuery({
     name: 'subjectId',
@@ -72,7 +73,7 @@ export class TeachersController {
     description: 'List of approved teachers with pagination meta',
   })
   public async findAll(
-    @Query() filter: Omit<TeacherFilterDto, 'status'>,
+    @Query() filter: PublicTeacherFilterDto,
   ): Promise<unknown> {
     // Public endpoint: only approved teachers, sanitized projection (no PII).
     return await this.teachersService.findApprovedTeachersPublic(filter);
@@ -120,14 +121,13 @@ export class TeachersController {
   })
   public async findBySubject(
     @Param('subjectId', ParseUUIDPipe) subjectId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
     // Public endpoint: sanitized projection (no PII).
     return await this.teachersService.findApprovedTeachersPublic({
       subjectId,
-      page: page ?? 1,
-      limit: limit ?? 20,
+      page: pagination.page,
+      limit: pagination.limit,
     });
   }
 }

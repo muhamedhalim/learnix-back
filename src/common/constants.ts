@@ -68,8 +68,6 @@ export const PUBLIC_MEDIA_FOLDERS = [
   'images',
   'thumbnails',
   'profiles',
-  'resources',
-  'attachments',
 ] as const;
 export type PublicMediaFolder = (typeof PUBLIC_MEDIA_FOLDERS)[number];
 

@@ -1,6 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
@@ -12,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ItemType } from '../entities/item-type.enum';
 import { PaymentStatus } from '../entities/payment-status.enum';
 
@@ -97,7 +97,7 @@ export class PaymentFilterDto {
     default: 1,
     minimum: 1,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -110,7 +110,7 @@ export class PaymentFilterDto {
     minimum: 1,
     maximum: 100,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

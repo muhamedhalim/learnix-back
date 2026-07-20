@@ -11,7 +11,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import {
+  extensionMatchesMime,
+  hasExpectedMagicBytes,
+} from '../../common/utils/file-signature.util';
 import { biBody } from '../../i18n/error-translator.util';
+import { StoredObject, StorageObjectNotFoundError } from '../../storage/storage.interface';
 import { StorageService } from '../../storage/storage.service';
 import { CreateOmrSheetDto } from '../dto';
 import { Exam, OmrSheet, OmrSheetStatus } from '../entities';
@@ -19,7 +25,7 @@ import { ExamJobsService } from './exam-jobs.service';
 import { ExamAccessService } from './exam-access.service';
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const OMR_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 interface MulterFile {
   originalname: string;
@@ -27,6 +33,11 @@ interface MulterFile {
   size: number;
   buffer: Buffer;
 }
+
+export type OmrSheetResponse = Omit<
+  OmrSheet,
+  'image_key' | 'exam' | 'student' | 'teacher' | 'attempt'
+>;
 
 /**
  * CRUD for OMR answer sheets — uploads the scan, records the (already
@@ -49,7 +60,7 @@ export class OmrSheetsService {
     teacherId: string,
     dto: CreateOmrSheetDto,
     file: MulterFile | undefined,
-  ): Promise<OmrSheet> {
+  ): Promise<OmrSheetResponse> {
     await this.assertOwned(examId, teacherId);
     await this.access.assertCanAccessPrivateExam(dto.student_id, examId);
 
@@ -66,11 +77,22 @@ export class OmrSheetsService {
         ),
       );
     }
-    if (file.size > MAX_IMAGE_BYTES) {
+    if (
+      file.originalname.includes('..') ||
+      file.originalname.includes('/') ||
+      file.originalname.includes('\\') ||
+      !extensionMatchesMime(file.originalname, file.mimetype) ||
+      !hasExpectedMagicBytes(file.mimetype, file.buffer)
+    ) {
+      throw new BadRequestException(
+        biBody('Invalid answer sheet image', 'Invalid answer sheet image'),
+      );
+    }
+    if (file.size > OMR_IMAGE_MAX_BYTES) {
       throw new BadRequestException(
         biBody(
-          `Image too large (max ${String(MAX_IMAGE_BYTES / (1024 * 1024))} MB)`,
-          `حجم الصورة كبير جدًا (الحد الأقصى ${String(MAX_IMAGE_BYTES / (1024 * 1024))} ميجابايت)`,
+          `Image too large (max ${String(OMR_IMAGE_MAX_BYTES / (1024 * 1024))} MB)`,
+          `حجم الصورة كبير جدًا (الحد الأقصى ${String(OMR_IMAGE_MAX_BYTES / (1024 * 1024))} ميجابايت)`,
         ),
       );
     }
@@ -101,20 +123,82 @@ export class OmrSheetsService {
     });
     const saved = await this.sheets.save(sheet);
     await this.jobs.enqueueOmrProcessing(saved.id);
-    return saved;
+    return this.toResponse(saved);
   }
 
-  public async findMany(examId: string, teacherId: string): Promise<OmrSheet[]> {
+  public async findMany(
+    examId: string,
+    teacherId: string,
+    page: number,
+    limit: number,
+  ): Promise<{ data: OmrSheetResponse[]; meta: PaginationMeta }> {
     await this.assertOwned(examId, teacherId);
-    return this.sheets.find({ where: { exam_id: examId }, order: { created_at: 'DESC' } });
+    const [rows, total] = await this.sheets.findAndCount({
+      where: { exam_id: examId },
+      order: { created_at: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data: rows.map((sheet) => this.toResponse(sheet)),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
-  public async findOne(examId: string, teacherId: string, sheetId: string): Promise<OmrSheet> {
+  public async findOne(
+    examId: string,
+    teacherId: string,
+    sheetId: string,
+  ): Promise<OmrSheetResponse> {
+    return this.toResponse(await this.findEntity(examId, teacherId, sheetId));
+  }
+
+  public async getImageObject(
+    examId: string,
+    teacherId: string,
+    sheetId: string,
+  ): Promise<StoredObject> {
+    const sheet = await this.findEntity(examId, teacherId, sheetId);
+    try {
+      return await this.storage.getObject(this.storage.toKey(sheet.image_key));
+    } catch (error) {
+      if (error instanceof StorageObjectNotFoundError) {
+        throw new NotFoundException(biBody('OMR image not found', 'OMR image not found'));
+      }
+      throw error;
+    }
+  }
+
+  private async findEntity(examId: string, teacherId: string, sheetId: string): Promise<OmrSheet> {
     await this.assertOwned(examId, teacherId);
     const sheet = await this.sheets.findOne({ where: { id: sheetId, exam_id: examId } });
     if (!sheet)
       throw new NotFoundException(biBody('OMR sheet not found', 'ورقة الإجابة غير موجودة'));
     return sheet;
+  }
+
+  private toResponse(sheet: OmrSheet): OmrSheetResponse {
+    return {
+      id: sheet.id,
+      exam_id: sheet.exam_id,
+      student_id: sheet.student_id,
+      teacher_id: sheet.teacher_id,
+      detected_answers: sheet.detected_answers,
+      status: sheet.status,
+      error_message: sheet.error_message,
+      attempt_id: sheet.attempt_id,
+      processed_at: sheet.processed_at,
+      created_at: sheet.created_at,
+      updated_at: sheet.updated_at,
+    };
   }
 
   private async assertOwned(examId: string, teacherId: string): Promise<void> {

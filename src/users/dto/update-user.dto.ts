@@ -4,12 +4,12 @@ import {
   IsEmail,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 
+import { IsSecureUrl } from '../../common/validators/secure-url.validator';
 import { bi } from '../../i18n/error-translator.util';
 
 export class UpdateUserDto {
@@ -42,7 +42,7 @@ export class UpdateUserDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @IsSecureUrl()
   @MaxLength(500)
   public profile_picture_url?: string;
 

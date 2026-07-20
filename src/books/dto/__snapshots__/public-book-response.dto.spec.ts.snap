@@ -1,0 +1,28 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`public book serialization never exposes the paid object key or nested teacher account data 1`] = `
+{
+  "cover_image": "https://api.example.com/api/v1/media/public/images/cover.jpg",
+  "created_at": 2026-01-01T00:00:00.000Z,
+  "description": null,
+  "description_ar": null,
+  "id": "book-id",
+  "price": 20,
+  "purchase_count": 3,
+  "subject": {
+    "grade_level": "10",
+    "id": "subject-id",
+    "name": "Math",
+    "name_ar": null,
+  },
+  "subject_id": "subject-id",
+  "teacher": {
+    "id": "teacher-id",
+    "name": "Teacher",
+    "profile_picture_url": "https://api.example.com/api/v1/media/public/profiles/avatar.jpg",
+  },
+  "teacher_id": "teacher-id",
+  "title": "Book",
+  "title_ar": "Book AR",
+}
+`;

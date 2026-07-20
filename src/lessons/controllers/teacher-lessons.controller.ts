@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpStatus,
   Param,
@@ -34,7 +35,7 @@ import type { JwtPayload } from '../../common/interfaces/user-request.interface'
 import { biBody } from '../../i18n/error-translator.util';
 import {
   CreateLessonDto,
-  LessonFilterDto,
+  TeacherLessonFilterDto,
   UpdateLessonDto,
   UpdateLessonVideoDto,
   UpdateVimeoInfoDto,
@@ -108,7 +109,7 @@ export class TeacherLessonsController {
   })
   public async findMyLessons(
     @GetUser() user: JwtPayload,
-    @Query() filter: Omit<LessonFilterDto, 'teacher_id'>,
+    @Query() filter: TeacherLessonFilterDto,
   ): Promise<unknown> {
     return await this.lessonsService.findMyLessons(user.userId, filter);
   }
@@ -155,7 +156,7 @@ export class TeacherLessonsController {
     // First get the lesson to verify ownership
     const lesson = await this.lessonsService.findOne(id);
     if (lesson.teacher.id !== user.userId) {
-      // Allow viewing but could add ownership check here
+      throw new ForbiddenException('You can only view your own lessons');
     }
     return lesson;
   }

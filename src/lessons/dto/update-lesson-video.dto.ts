@@ -1,9 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsInt, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+
+import { IsSecureUrl } from '../../common/validators/secure-url.validator';
 
 export class UpdateLessonVideoDto {
-  @IsUrl()
+  @IsSecureUrl()
   public video_url!: string;
 
   @ApiPropertyOptional({
@@ -23,7 +25,7 @@ export class UpdateVimeoUrlDto {
     example: 'https://vimeo.com/123456789',
     deprecated: true,
   })
-  @IsUrl()
+  @IsSecureUrl()
   public video_url!: string;
 
   @ApiPropertyOptional({
@@ -32,7 +34,7 @@ export class UpdateVimeoUrlDto {
     deprecated: true,
   })
   @IsString()
-  @IsUrl()
+  @IsSecureUrl()
   @IsOptional()
   public vimeo_url?: string;
 

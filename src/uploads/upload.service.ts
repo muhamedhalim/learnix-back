@@ -11,7 +11,12 @@ import { ConfigService } from '@nestjs/config';
 import sharp from 'sharp';
 
 import { FILE_LIMITS, UploadFolder } from '../common/constants';
+import {
+  extensionMatchesMime,
+  hasExpectedMagicBytes,
+} from '../common/utils/file-signature.util';
 import { biBody } from '../i18n/error-translator.util';
+import { MediaService } from '../media/media.service';
 import { StorageService } from '../storage/storage.service';
 
 /**
@@ -38,6 +43,7 @@ export class UploadService {
   constructor(
     private readonly storageService: StorageService,
     private readonly configService: ConfigService,
+    private readonly media: MediaService,
   ) {
     const envMax = Number.parseInt(this.configService.get<string>('UPLOAD_MAX_BYTES') ?? '', 10);
     this.resourceMaxBytes =
@@ -65,6 +71,54 @@ export class UploadService {
     }
 
     return await this.handleImageUpload(file, folder, uploadStartTime);
+  }
+
+  /** Store a student's homework response outside every public media prefix. */
+  public async uploadPrivateHomeworkSubmission(
+    file: Express.Multer.File,
+    studentId: string,
+  ): Promise<{ url: string; filename: string }> {
+    this.validateFileSize(file, 'resources');
+    this.validateContentType(file);
+    this.validatePathTraversal(file.originalname);
+    const extension = file.originalname.split('.').pop()?.toLowerCase();
+    const allowed: Record<string, readonly string[]> = {
+      pdf: ['application/pdf'],
+      doc: ['application/msword'],
+      docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      txt: ['text/plain'],
+      jpg: ['image/jpeg'],
+      jpeg: ['image/jpeg'],
+      png: ['image/png'],
+      webp: ['image/webp'],
+    };
+    if (
+      extension === undefined ||
+      allowed[extension] === undefined ||
+      !allowed[extension].includes(file.mimetype)
+    ) {
+      throw new BadRequestException(
+        biBody('Unsupported homework file type', 'Ù†ÙˆØ¹ Ù…Ù„Ù Ø§Ù„ÙˆØ§Ø¬Ø¨ ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ…'),
+      );
+    }
+    if (
+      !extensionMatchesMime(file.originalname, file.mimetype) ||
+      !hasExpectedMagicBytes(file.mimetype, file.buffer)
+    ) {
+      throw new BadRequestException(
+        biBody('File content does not match its declared type', 'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù†ÙˆØ¹Ù‡ Ø§Ù„Ù…Ø¹Ù„Ù†'),
+      );
+    }
+    const filename = `${randomUUID()}.${extension}`;
+    const stored = await this.storageService.upload({
+      buffer: file.buffer,
+      path: `homework-submissions/${studentId}/${filename}`,
+      contentType: file.mimetype,
+      visibility: 'private',
+    });
+    // `url` is retained as the frontend contract name, but the value is an
+    // opaque private reference, never a provider URL.
+    return { url: stored.path, filename };
   }
 
   private validateFileSize(file: Express.Multer.File, folder: UploadFolder): void {
@@ -169,7 +223,7 @@ export class UploadService {
     });
 
     this.logger.log(`Upload successful (non-image) - key: ${stored.path}`);
-    return { url: stored.url, filename };
+    return { url: this.media.buildPublicUrl(stored.path), filename };
   }
 
   private async handleImageUpload(
@@ -250,7 +304,7 @@ export class UploadService {
       `Upload successful - key: ${stored.path}, Duration: ${String(Date.now() - uploadStartTime)}ms`,
     );
 
-    return { url: stored.url, filename };
+    return { url: this.media.buildPublicUrl(stored.path), filename };
   }
 
   private validateImageDimensions(width: number, height: number): void {
@@ -352,8 +406,8 @@ export class UploadService {
       );
 
       return {
-        url: main.url,
-        thumbnailUrl: thumb.url,
+        url: this.media.buildPublicUrl(main.path),
+        thumbnailUrl: this.media.buildPublicUrl(thumb.path),
         filename,
         thumbnailFilename,
       };

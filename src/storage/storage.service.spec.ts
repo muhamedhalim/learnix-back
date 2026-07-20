@@ -41,6 +41,6 @@ describe('StorageService legacy media URL normalization', () => {
             R2_PUBLIC_BASE_URL: 'http://localhost:3001',
           }),
         ),
-    ).toThrow('R2_PUBLIC_BASE_URL must be a non-localhost HTTPS URL in production');
+    ).toThrow('R2_PUBLIC_BASE_URL must be a public HTTPS origin in production');
   });
 });

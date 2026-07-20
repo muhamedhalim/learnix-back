@@ -272,7 +272,11 @@ export class GuardiansService {
     return this.links.find({
       where: { student_id: studentId },
       relations: ['guardian'],
-      order: { is_primary: 'DESC', created_at: 'ASC' },
+      order: { is_primary: 'DESC', created_at: 'ASC', id: 'ASC' },
+      // A guardian relationship is a small domain collection, but is still
+      // explicitly bounded to prevent corrupted/imported data from creating
+      // an unbounded response.
+      take: 100,
     });
   }
 

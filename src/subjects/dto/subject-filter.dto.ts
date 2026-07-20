@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class SubjectFilterDto {
   @ApiProperty({
@@ -19,7 +20,7 @@ export class SubjectFilterDto {
     default: 1,
     minimum: 1,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -32,7 +33,7 @@ export class SubjectFilterDto {
     minimum: 1,
     maximum: 100,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)

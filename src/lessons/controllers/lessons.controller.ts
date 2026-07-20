@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Put,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,8 +19,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import type { Response } from 'express';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { LessonFilterDto, UpsertNoteDto } from '../dto';
 import { LessonContentService } from '../lesson-content.service';
@@ -51,6 +55,33 @@ export class LessonsController {
   ): Promise<unknown> {
     await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
     return await this.lessonContentService.getAttachmentsForLesson(id);
+  }
+
+  @Get(':id/attachments/:attachmentId/download')
+  @UseGuards(HybridAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Download an authorized private lesson attachment' })
+  public async downloadAttachment(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
+    const { attachment, object } = await this.lessonContentService.getAttachmentObject(
+      id,
+      attachmentId,
+    );
+    const safeName = attachment.name.replace(/[\r\n"\\/]+/g, '_') || 'attachment';
+    res.setHeader('Content-Type', object.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (object.contentLength !== undefined) {
+      res.setHeader('Content-Length', object.contentLength.toString());
+    }
+    object.stream.on('error', () => res.destroy());
+    object.stream.pipe(res);
   }
 
   /**
@@ -191,7 +222,7 @@ export class LessonsController {
     description: 'List of lessons with pagination meta',
   })
   public async findAll(@Query() filter: LessonFilterDto): Promise<unknown> {
-    return await this.lessonsService.findAll(filter);
+    return await this.lessonsService.findAllPublic(filter);
   }
 
   /**
@@ -205,7 +236,7 @@ export class LessonsController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.lessonsService.findOne(id);
+    return await this.lessonsService.findOnePublic(id);
   }
 
   /**
@@ -235,12 +266,11 @@ export class LessonsController {
   })
   public async findByTeacher(
     @Param('teacherId', ParseUUIDPipe) teacherId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
-    return await this.lessonsService.findByTeacher(teacherId, {
-      page: page ?? 1,
-      limit: limit ?? 20,
+    return await this.lessonsService.findByTeacherPublic(teacherId, {
+      page: pagination.page,
+      limit: pagination.limit,
     });
   }
 
@@ -271,12 +301,11 @@ export class LessonsController {
   })
   public async findBySubject(
     @Param('subjectId', ParseUUIDPipe) subjectId: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query() pagination: Pagination20Dto,
   ): Promise<unknown> {
-    return await this.lessonsService.findBySubject(subjectId, {
-      page: page ?? 1,
-      limit: limit ?? 20,
+    return await this.lessonsService.findBySubjectPublic(subjectId, {
+      page: pagination.page,
+      limit: pagination.limit,
     });
   }
 }

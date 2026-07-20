@@ -236,7 +236,8 @@ export class SubjectsService {
    */
   public async getSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
     const subjects = await this.subjectsRepository.find({
-      order: { name: 'ASC' },
+      order: { name: 'ASC', id: 'ASC' },
+      take: 100,
     });
 
     // TODO: Add actual counts when relations are established

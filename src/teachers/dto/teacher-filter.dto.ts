@@ -1,6 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, OmitType } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -11,6 +10,7 @@ import {
   Min,
 } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { UserStatus } from '../../users/entities/user-status.enum';
 
 export class TeacherFilterDto {
@@ -68,7 +68,7 @@ export class TeacherFilterDto {
     default: 1,
     minimum: 1,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -81,10 +81,15 @@ export class TeacherFilterDto {
     minimum: 1,
     maximum: 100,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)
   @IsOptional()
   public limit?: number = 20;
 }
+
+/** Public directory filters cannot override the enforced APPROVED status. */
+export class PublicTeacherFilterDto extends OmitType(TeacherFilterDto, [
+  'status',
+] as const) {}

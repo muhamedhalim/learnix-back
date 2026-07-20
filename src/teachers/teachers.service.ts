@@ -11,7 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import type { Cache } from 'cache-manager';
 
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
@@ -23,10 +23,12 @@ import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
   AssignSubjectsDto,
+  PublicTeacherResponseDto,
   PromoteTeacherDto,
   RejectTeacherDto,
   TeacherFilterDto,
   UpdateTeacherProfileDto,
+  toPublicTeacherResponse,
 } from './dto';
 import { CertificateEntry, EducationEntry, TeacherProfile } from './entities/teacher-profile.entity';
 
@@ -69,30 +71,6 @@ export interface TeacherProfileWithDetails {
  * Excludes all PII (email, phone, parent_phone, account status, rejection
  * reason). Used by the unauthenticated teacher directory / shop endpoints.
  */
-export interface PublicTeacherProfile {
-  id: string;
-  user: {
-    id: string;
-    name: string;
-    profile_picture_url: string | null;
-  };
-  qualifications: string;
-  years_of_experience: number;
-  bio: string | null;
-  bio_ar: string | null;
-  professional_title: string | null;
-  professional_title_ar: string | null;
-  specializations: string[];
-  languages: string[];
-  skills: string[];
-  education: EducationEntry[];
-  certificates: CertificateEntry[];
-  rating: number;
-  total_ratings: number;
-  subjects: Subject[];
-  created_at: Date;
-}
-
 /**
  * Summary stats for a teacher
  */
@@ -282,7 +260,8 @@ export class TeachersService {
         : sortBy === 'rating'
           ? 'teacher.rating'
           : 'teacher.created_at';
-    queryBuilder.orderBy(sortColumn, order.toUpperCase() as 'ASC' | 'DESC');
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
 
     // Get total count
     const total = await queryBuilder.getCount();
@@ -342,33 +321,56 @@ export class TeachersService {
    */
   public async findApprovedTeachersPublic(
     filter: Omit<TeacherFilterDto, 'status'>,
-  ): Promise<PaginatedResponse<PublicTeacherProfile>> {
-    const result = await this.findApprovedTeachers(filter);
+  ): Promise<PaginatedResponse<PublicTeacherResponseDto>> {
+    const {
+      search,
+      subjectId,
+      sortBy = 'created_at',
+      order = 'desc',
+      page = 1,
+      limit = 20,
+    } = filter;
+
+    const query = this.publicTeacherQuery();
+    if (search !== undefined && search !== '') {
+      query.andWhere(
+        '(user.name ILIKE :search OR user.first_name ILIKE :search OR user.last_name ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    if (subjectId !== undefined && subjectId !== '') {
+      query.andWhere(
+        'EXISTS (SELECT 1 FROM teacher_subjects ts WHERE ts.teacher_profile_id = teacher.id AND ts.subject_id = :subjectId)',
+        { subjectId },
+      );
+    }
+
+    const sortColumn =
+      sortBy === 'name'
+        ? 'user.name'
+        : sortBy === 'rating'
+          ? 'teacher.rating'
+          : 'teacher.created_at';
+    const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
+    query.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
+
+    const total = await query.getCount();
+    const profiles = await query
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
+    const totalPages = Math.ceil(total / limit);
+
     return {
-      data: result.data.map((teacher) => ({
-        id: teacher.id,
-        user: {
-          id: teacher.user.id,
-          name: teacher.user.name,
-          profile_picture_url: this.media.resolveThumbnailUrl(teacher.user.profile_picture_url),
-        },
-        qualifications: teacher.qualifications,
-        years_of_experience: teacher.years_of_experience,
-        bio: teacher.bio,
-        bio_ar: teacher.bio_ar,
-        professional_title: teacher.professional_title,
-        professional_title_ar: teacher.professional_title_ar,
-        specializations: teacher.specializations,
-        languages: teacher.languages,
-        skills: teacher.skills,
-        education: teacher.education,
-        certificates: teacher.certificates,
-        rating: teacher.rating,
-        total_ratings: teacher.total_ratings,
-        subjects: teacher.subjects,
-        created_at: teacher.created_at,
-      })),
-      meta: result.meta,
+      data: profiles.map((profile) => this.mapToPublicProfile(profile)),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
   }
 
@@ -376,11 +378,10 @@ export class TeachersService {
    * Public, unauthenticated single-teacher lookup.
    * Only returns APPROVED teachers, and only the sanitized projection.
    */
-  public async findApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherProfile> {
-    const profile = await this.teacherProfilesRepository.findOne({
-      where: { id, user: { status: UserStatus.APPROVED } },
-      relations: ['user', 'subjects'],
-    });
+  public async findApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherResponseDto> {
+    const profile = await this.publicTeacherQuery()
+      .andWhere('teacher.id = :id', { id })
+      .getOne();
 
     if (!profile) {
       throw new NotFoundException(
@@ -389,6 +390,41 @@ export class TeachersService {
     }
 
     return this.mapToPublicProfile(profile);
+  }
+
+  /** Query boundary for public teacher data: private User columns are never selected. */
+  private publicTeacherQuery(): SelectQueryBuilder<TeacherProfile> {
+    return this.teacherProfilesRepository
+      .createQueryBuilder('teacher')
+      .leftJoin('teacher.user', 'user')
+      .leftJoin('teacher.subjects', 'subjects')
+      .select([
+        'teacher.id',
+        'teacher.qualifications',
+        'teacher.years_of_experience',
+        'teacher.bio',
+        'teacher.bio_ar',
+        'teacher.professional_title',
+        'teacher.professional_title_ar',
+        'teacher.specializations',
+        'teacher.languages',
+        'teacher.skills',
+        'teacher.education',
+        'teacher.certificates',
+        'teacher.rating',
+        'teacher.total_ratings',
+        'teacher.created_at',
+        'user.id',
+        'user.name',
+        'user.profile_picture_url',
+        'subjects.id',
+        'subjects.name',
+        'subjects.name_ar',
+        'subjects.grade_level',
+      ])
+      .where('teacher.deleted_at IS NULL')
+      .andWhere('user.deleted_at IS NULL')
+      .andWhere('user.status = :publicStatus', { publicStatus: UserStatus.APPROVED });
   }
 
   /**
@@ -745,30 +781,8 @@ export class TeachersService {
    * Map a teacher profile to the sanitized, PII-free public projection.
    * Never include email/phone/parent_phone/status here.
    */
-  private mapToPublicProfile(profile: TeacherProfile): PublicTeacherProfile {
-    return {
-      id: profile.id,
-      user: {
-        id: profile.user.id,
-        name: profile.user.name,
-        profile_picture_url: this.media.resolveThumbnailUrl(profile.user.profile_picture_url),
-      },
-      qualifications: profile.qualifications,
-      years_of_experience: profile.years_of_experience,
-      bio: profile.bio,
-      bio_ar: profile.bio_ar,
-      professional_title: profile.professional_title,
-      professional_title_ar: profile.professional_title_ar,
-      specializations: profile.specializations,
-      languages: profile.languages,
-      skills: profile.skills,
-      education: profile.education,
-      certificates: profile.certificates,
-      rating: profile.rating,
-      total_ratings: profile.total_ratings,
-      subjects: profile.subjects,
-      created_at: profile.created_at,
-    };
+  private mapToPublicProfile(profile: TeacherProfile): PublicTeacherResponseDto {
+    return toPublicTeacherResponse(profile, (value) => this.media.resolveThumbnailUrl(value));
   }
 
   private mapToProfileWithDetails(profile: TeacherProfile): TeacherProfileWithDetails {

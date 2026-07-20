@@ -378,7 +378,7 @@ export class AttendanceService {
       });
     }
 
-    query.orderBy('attendance.marked_at', 'DESC');
+    query.orderBy('attendance.marked_at', 'DESC').addOrderBy('attendance.id', 'DESC');
 
     const total = await query.getCount();
 
@@ -433,7 +433,7 @@ export class AttendanceService {
       });
     }
 
-    query.orderBy('attendance.marked_at', 'DESC');
+    query.orderBy('attendance.marked_at', 'DESC').addOrderBy('attendance.id', 'DESC');
 
     const total = await query.getCount();
 
@@ -500,7 +500,7 @@ export class AttendanceService {
       });
     }
 
-    query.orderBy('attendance.marked_at', 'DESC');
+    query.orderBy('attendance.marked_at', 'DESC').addOrderBy('attendance.id', 'DESC');
 
     const total = await query.getCount();
 

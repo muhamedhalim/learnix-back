@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, OmitType } from '@nestjs/swagger';
 
 import { Transform, Type } from 'class-transformer';
 import {
@@ -10,6 +10,8 @@ import {
   Max,
   Min,
 } from 'class-validator';
+
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 
 export class LessonFilterDto {
   @ApiProperty({
@@ -97,7 +99,7 @@ export class LessonFilterDto {
     default: 1,
     minimum: 1,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -110,10 +112,15 @@ export class LessonFilterDto {
     minimum: 1,
     maximum: 100,
   })
-  @Type(() => Number)
+  @StrictIntegerQuery()
   @IsInt()
   @Min(1)
   @Max(100)
   @IsOptional()
   public limit?: number = 20;
 }
+
+/** Teacher-scoped endpoints derive teacher_id from the authenticated session. */
+export class TeacherLessonFilterDto extends OmitType(LessonFilterDto, [
+  'teacher_id',
+] as const) {}

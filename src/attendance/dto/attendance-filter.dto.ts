@@ -1,14 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
   IsUUID,
+  Max,
+  Min,
 } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import type { AttendanceStatus } from '../entities/attendance-record.entity';
 
 export class AttendanceFilterDto {
@@ -59,7 +61,8 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsInt()
-  @Type(() => Number)
+  @StrictIntegerQuery()
+  @Min(1)
   public page?: number;
 
   @ApiPropertyOptional({
@@ -69,6 +72,8 @@ export class AttendanceFilterDto {
   })
   @IsOptional()
   @IsInt()
-  @Type(() => Number)
+  @StrictIntegerQuery({ max: 100 })
+  @Min(1)
+  @Max(100)
   public limit?: number;
 }

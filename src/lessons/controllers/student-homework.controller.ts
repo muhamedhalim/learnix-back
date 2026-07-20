@@ -6,6 +6,8 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -13,10 +15,14 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import type { Response } from 'express';
+
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { FILE_LIMITS } from '../../common/constants';
+import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { UploadService } from '../../uploads/upload.service';
 import { SubmitHomeworkDto } from '../dto';
@@ -35,8 +41,37 @@ export class StudentHomeworkController {
 
   @Get()
   @ApiOperation({ summary: "List published homework for the student's enrolled lessons" })
-  public async list(@GetUser() user: JwtPayload): Promise<{ data: unknown[] }> {
-    return { data: await this.content.listStudentHomework(user.userId) };
+  public async list(
+    @GetUser() user: JwtPayload,
+    @Query() pagination: Pagination20Dto,
+  ): Promise<unknown> {
+    return await this.content.listStudentHomework(
+      user.userId,
+      pagination.page,
+      pagination.limit,
+    );
+  }
+
+  @Get(':homeworkId/resource')
+  @ApiOperation({ summary: 'Download an enrolled homework resource' })
+  public async resource(
+    @GetUser() user: JwtPayload,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const object = await this.content.getHomeworkResourceForStudent(user.userId, homeworkId);
+    this.streamPrivate(res, object);
+  }
+
+  @Get(':homeworkId/submission/file')
+  @ApiOperation({ summary: 'Download my homework submission file' })
+  public async submissionFile(
+    @GetUser() user: JwtPayload,
+    @Param('homeworkId', ParseUUIDPipe) homeworkId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const object = await this.content.getSubmissionFileForStudent(user.userId, homeworkId);
+    this.streamPrivate(res, object);
   }
 
   @Post(':homeworkId/submit')
@@ -51,7 +86,9 @@ export class StudentHomeworkController {
   }
 
   @Post(':homeworkId/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: FILE_LIMITS.RESOURCE_MAX_SIZE, files: 1 } }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a homework response file' })
   public async upload(
@@ -65,6 +102,21 @@ export class StudentHomeworkController {
       // deterministic client error before any storage call.
       throw new BadRequestException('No file provided');
     }
-    return this.uploads.uploadFile(file, 'resources');
+    return this.uploads.uploadPrivateHomeworkSubmission(file, user.userId);
+  }
+
+  private streamPrivate(
+    res: Response,
+    object: Awaited<ReturnType<LessonContentService['getHomeworkResourceForStudent']>>,
+  ): void {
+    res.setHeader('Content-Type', object.contentType);
+    res.setHeader('Content-Disposition', 'attachment');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (object.contentLength !== undefined) {
+      res.setHeader('Content-Length', object.contentLength.toString());
+    }
+    object.stream.on('error', () => res.destroy());
+    object.stream.pipe(res);
   }
 }

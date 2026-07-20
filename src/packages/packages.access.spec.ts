@@ -81,8 +81,6 @@ describe('PackagesService access policy', () => {
 
     await expect(service.findPublicOne('package-1')).resolves.toMatchObject({
       id: 'package-1',
-      status: CourseStatus.PUBLISHED,
-      is_active: true,
     });
   });
 

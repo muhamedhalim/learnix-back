@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   ArgumentsHost,
   Catch,
@@ -31,6 +33,7 @@ interface ProblemDetails {
   detail: string;
   instance: string;
   timestamp: string;
+  requestId: string;
   path?: string;
   method?: string;
   /** Stable machine-readable error code when the exception supplies one. */
@@ -55,18 +58,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+    const requestId = this.resolveRequestId(request.headers['x-request-id']);
+    response.setHeader?.('X-Request-ID', requestId);
 
     // Create RFC 7807 Problem Details response
     const locale = resolveRequestLocale(request);
-    const problemDetails = this.createProblemDetails(exception, request, locale);
+    const problemDetails = this.createProblemDetails(exception, request, locale, requestId);
     const { status } = problemDetails;
 
     // Log the error with appropriate level
     const logLevel = this.getLogLevel(status);
-    const logMessage = `${request.method} ${request.url} - ${String(status)} ${problemDetails.title}: ${problemDetails.detail}`;
+    const requestPath = request.path || new URL(request.url, 'http://internal').pathname;
+    const logMessage = `[${requestId}] ${request.method} ${requestPath} - ${String(status)} ${problemDetails.title}: ${problemDetails.detail}`;
 
     if (logLevel === 'error') {
-      this.logger.error(logMessage, exception instanceof Error ? exception.stack : undefined);
+      const includeStack = process.env['NODE_ENV'] !== 'production';
+      this.logger.error(
+        logMessage,
+        includeStack && exception instanceof Error ? exception.stack : undefined,
+      );
     } else if (logLevel === 'warn') {
       this.logger.warn(logMessage);
     } else {
@@ -84,6 +94,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     exception: unknown,
     request: Request,
     locale: ReturnType<typeof resolveRequestLocale>,
+    requestId: string,
   ): ProblemDetails {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let title = 'Internal Server Error';
@@ -162,8 +173,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       title,
       status,
       detail,
-      instance: request.url,
+      instance: request.path,
       timestamp: new Date().toISOString(),
+      requestId,
       path: request.path,
       method: request.method,
     };
@@ -178,6 +190,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return problemDetails;
+  }
+
+  private resolveRequestId(value: string | string[] | undefined): string {
+    const candidate = Array.isArray(value) ? value[0] : value;
+    return candidate !== undefined && /^[A-Za-z0-9._:-]{1,128}$/u.test(candidate)
+      ? candidate
+      : randomUUID();
   }
 
   /**
