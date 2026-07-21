@@ -1,4 +1,4 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
@@ -33,9 +33,27 @@ jest.mock('bcryptjs', () => ({
   genSalt: jest.fn(),
 }));
 
-interface RegisterResponse {
-  message: string;
-  userId: string;
+/**
+ * The one and only body `register` may ever return — see the
+ * "register (user enumeration)" suite. `message_ar` is stripped from the
+ * outgoing JSON by ResponseLocalizationInterceptor, which picks one of the
+ * two strings; the *pair* is what the service produces.
+ */
+const PENDING_ACKNOWLEDGEMENT = {
+  message: 'Registration request received. Pending approval',
+  message_ar: 'تم استلام طلب التسجيل. بانتظار الموافقة',
+};
+
+/**
+ * A Postgres `unique_violation` shaped the way TypeORM surfaces one: the
+ * driver error nested under `driverError`, with `code`/`detail` also copied
+ * onto the wrapping QueryFailedError.
+ */
+function uniqueViolation(detail: string, options: { nestedOnly?: boolean } = {}): Error {
+  const message = 'duplicate key value violates unique constraint';
+  const driverError = Object.assign(new Error(message), { code: '23505', detail });
+  const wrapper = Object.assign(new Error(message), { driverError });
+  return options.nestedOnly === true ? wrapper : Object.assign(wrapper, { code: '23505', detail });
 }
 
 interface LoginResponse {
@@ -243,11 +261,8 @@ describe('AuthService', () => {
 
       const result = await service.register(studentRegisterDto);
 
-      expect(result).toHaveProperty('message');
-      expect(result).toHaveProperty('userId', 'stu_789012');
-      expect((result as RegisterResponse).message).toBe(
-        'Registration request received. Pending approval',
-      );
+      expect(result).toEqual(PENDING_ACKNOWLEDGEMENT);
+      expect(mockManager.save).toHaveBeenCalledWith(User, expect.anything());
     });
 
     it('creates the user with status PENDING and the requested role, not an automatically granted one', async () => {
@@ -270,7 +285,10 @@ describe('AuthService', () => {
         expect.objectContaining(mockManager),
         'stu_789012',
         {
-          phone: studentRegisterDto.parentPhone,
+          // Canonicalised to E.164 by `register` before the transaction opens,
+          // so an unparseable number fails with a 400 rather than rolling back
+          // a half-written account from inside `linkGuardianWith`.
+          phone: '+201011111111',
           relationship: GuardianRelationship.OTHER,
           is_primary: true,
         },
@@ -304,14 +322,165 @@ describe('AuthService', () => {
       );
       expect(mockManager.create).not.toHaveBeenCalledWith(TeacherProfile, expect.anything());
     });
+  });
 
-    it('should throw ConflictException if user already exists (generic message for security)', async () => {
-      // Service uses generic error to prevent email/username enumeration
-      userRepository.findOne.mockResolvedValue(mockUser as User);
+  /**
+   * Regression suite for the user-enumeration vulnerability: `register` used to
+   * answer a known email/phone with `409 Conflict` and a new one with
+   * `201 { userId }`, which let an unauthenticated caller test any identifier
+   * against the whole user table. Every outcome must now be indistinguishable
+   * — same status (asserted at the HTTP layer in auth.controller.spec.ts), same
+   * body, same body shape, and never a `userId`.
+   */
+  describe('register (user enumeration)', () => {
+    const studentRegisterDto: RegisterDto = {
+      name: 'Ahmed Ali',
+      password: 'S3curePass',
+      phone: '01000000000',
+      email: 'test@test.com',
+      requestedRole: UserRole.STUDENT,
+      parentPhone: '01011111111',
+    };
 
-      await expect(service.register(studentRegisterDto)).rejects.toThrow(
-        new ConflictException('Registration failed. Please try different credentials.'),
+    beforeEach(() => {
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+    });
+
+    /** Run `register` against a repository that reports the identifier as taken. */
+    const registerAgainstExisting = async (): Promise<unknown> => {
+      userRepository.findOne.mockResolvedValueOnce(mockUser as User);
+      return await service.register(studentRegisterDto);
+    };
+
+    /** Run `register` against a repository that reports the identifier as free. */
+    const registerAsNew = async (): Promise<unknown> => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      return await service.register(studentRegisterDto);
+    };
+
+    it('returns an identical body and structure whether or not the identifier exists', async () => {
+      const forNew = await registerAsNew();
+      jest.clearAllMocks();
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      const forExisting = await registerAgainstExisting();
+
+      expect(forExisting).toEqual(forNew);
+      expect(forExisting).toEqual(PENDING_ACKNOWLEDGEMENT);
+      expect(Object.keys(forExisting as object).sort()).toEqual(
+        Object.keys(forNew as object).sort(),
       );
+    });
+
+    it.each([
+      ['a brand-new identifier', registerAsNew],
+      ['an already-registered identifier', registerAgainstExisting],
+    ])('never returns a userId or a conflict hint for %s', async (_case, run) => {
+      const result = (await run()) as Record<string, unknown>;
+
+      for (const leak of [
+        'userId',
+        'id',
+        'emailExists',
+        'phoneExists',
+        'exists',
+        'conflict',
+        'reason',
+        'status',
+        'created',
+      ]) {
+        expect(result).not.toHaveProperty(leak);
+      }
+      expect(Object.keys(result).sort()).toEqual(['message', 'message_ar']);
+    });
+
+    it('creates nothing when the email or phone is already registered', async () => {
+      await registerAgainstExisting();
+
+      expect(mockManager.save).not.toHaveBeenCalled();
+      expect(mockManager.create).not.toHaveBeenCalled();
+      expect(guardiansService.linkGuardianWith).not.toHaveBeenCalled();
+    });
+
+    it('queries uniqueness with the normalized email and phone', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+
+      await service.register({
+        ...studentRegisterDto,
+        email: '  MiXeD@Test.COM  ',
+        phone: '01000000000',
+      });
+
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: [{ email: 'mixed@test.com' }, { phone: '01000000000' }],
+      });
+      expect(mockManager.create).toHaveBeenCalledWith(
+        User,
+        expect.objectContaining({ email: 'mixed@test.com' }),
+      );
+    });
+
+    it('hashes the password before the existence lookup so latency cannot leak', async () => {
+      // bcrypt at 12 rounds dominates the response time. Hashing only on the
+      // "new account" path would make a stopwatch as good an oracle as the 409
+      // this fix removed.
+      await registerAgainstExisting();
+
+      expect(bcrypt.hash).toHaveBeenCalledTimes(1);
+      const hashOrder = (bcrypt.hash as jest.Mock).mock.invocationCallOrder[0] ?? 0;
+      const lookupOrder = userRepository.findOne.mock.invocationCallOrder[0] ?? 0;
+      expect(hashOrder).toBeLessThan(lookupOrder);
+    });
+
+    it.each([
+      ['email', 'Key (email)=(test@test.com) already exists.'],
+      ['phone', 'Key (phone)=(01000000000) already exists.'],
+      ['guardian phone', 'Key (phone_e164)=(+201011111111) already exists.'],
+    ])(
+      'acknowledges a simultaneous request that lost the %s unique constraint',
+      async (_column, detail) => {
+        userRepository.findOne.mockResolvedValueOnce(null);
+        mockManager.save.mockRejectedValueOnce(uniqueViolation(detail));
+
+        await expect(service.register(studentRegisterDto)).resolves.toEqual(
+          PENDING_ACKNOWLEDGEMENT,
+        );
+      },
+    );
+
+    it('acknowledges a race reported only on the nested TypeORM driverError', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(
+        uniqueViolation('Key (email)=(test@test.com) already exists.', { nestedOnly: true }),
+      );
+
+      await expect(service.register(studentRegisterDto)).resolves.toEqual(PENDING_ACKNOWLEDGEMENT);
+    });
+
+    it('retries the generated username instead of dropping a legitimate registration', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(
+        uniqueViolation('Key (username)=(test_a1b2c3) already exists.'),
+      );
+
+      await expect(service.register(studentRegisterDto)).resolves.toEqual(PENDING_ACKNOWLEDGEMENT);
+      // Second attempt went through: the user row was actually written.
+      expect(mockManager.save).toHaveBeenCalledWith(User, expect.anything());
+    });
+
+    it('surfaces a non-uniqueness failure rather than faking an acknowledgement', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(new Error('connection terminated'));
+
+      await expect(service.register(studentRegisterDto)).rejects.toThrow('connection terminated');
+    });
+
+    it('still rejects malformed input with a 400 — only conflicts are hidden', async () => {
+      // Rejected before the uniqueness lookup, so no `findOne` stub is needed:
+      // a bad phone format reveals nothing about who is registered.
+      await expect(
+        service.register({ ...studentRegisterDto, parentPhone: 'not-a-phone' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockManager.save).not.toHaveBeenCalled();
     });
   });
 

@@ -7,6 +7,7 @@ import {
   buildRegisterPayload,
   createAuthenticatedUser,
   createE2EApp,
+  getUserIdByEmail,
   resetDatabase,
   setUserStatus,
   type E2EContext,
@@ -35,7 +36,7 @@ describe('HttpOnly cookie authentication (e2e)', () => {
     const registration = await request(server)
       .post(`${API_PREFIX}/auth/register`)
       .send(payload)
-      .expect(201);
+      .expect(202);
     expect(registration.body).not.toHaveProperty('accessToken');
     expect(registration.body).not.toHaveProperty('refreshToken');
 
@@ -49,18 +50,16 @@ describe('HttpOnly cookie authentication (e2e)', () => {
 
   it('sets both credentials as HttpOnly cookies and returns no token in JSON', async () => {
     const payload = buildRegisterPayload();
-    const registration = await request(server)
-      .post(`${API_PREFIX}/auth/register`)
-      .send(payload)
-      .expect(201);
-    await setUserStatus(ctx.dataSource, registration.body.userId as string, 'approved');
+    await request(server).post(`${API_PREFIX}/auth/register`).send(payload).expect(202);
+    const userId = await getUserIdByEmail(ctx.dataSource, payload.email);
+    await setUserStatus(ctx.dataSource, userId, 'approved');
 
     const login = await request(server)
       .post(`${API_PREFIX}/auth/login`)
       .send({ email: payload.email, password: payload.password })
       .expect(200);
 
-    expect(login.body).toMatchObject({ status: 'approved', userId: registration.body.userId });
+    expect(login.body).toMatchObject({ status: 'approved', userId });
     expect(login.body).not.toHaveProperty('token');
     expect(login.body).not.toHaveProperty('accessToken');
     expect(login.body).not.toHaveProperty('refreshToken');
@@ -131,14 +130,108 @@ describe('HttpOnly cookie authentication (e2e)', () => {
 
   it('rejects invalid credentials', async () => {
     const payload = buildRegisterPayload();
-    const registration = await request(server)
-      .post(`${API_PREFIX}/auth/register`)
-      .send(payload)
-      .expect(201);
-    await setUserStatus(ctx.dataSource, registration.body.userId as string, 'approved');
+    await request(server).post(`${API_PREFIX}/auth/register`).send(payload).expect(202);
+    await setUserStatus(
+      ctx.dataSource,
+      await getUserIdByEmail(ctx.dataSource, payload.email),
+      'approved',
+    );
     await request(server)
       .post(`${API_PREFIX}/auth/login`)
       .send({ email: payload.email, password: 'WrongPassword123!' })
       .expect(401);
+  });
+
+  /**
+   * End-to-end proof of the anti-enumeration contract, against a real database
+   * and the full middleware stack. `register` used to answer a known email with
+   * `409` and a new one with `201 { userId }`; an unauthenticated caller could
+   * therefore test any address or phone number against the entire user table.
+   */
+  describe('registration does not leak whether an account exists', () => {
+    it('answers an existing email, an existing phone, and a new identity identically', async () => {
+      const sharedGuardian = '01011111111';
+      const existing = buildRegisterPayload({ parentPhone: sharedGuardian });
+      await request(server).post(`${API_PREFIX}/auth/register`).send(existing).expect(202);
+
+      const fresh = await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload());
+      const duplicateEmail = await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload({ email: existing.email }));
+      const duplicatePhone = await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload({ phone: existing.phone }));
+      const sharedParentPhone = await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        // An already-known guardian number is reused, never a conflict — this
+        // asserts it stays indistinguishable from a first-time one.
+        .send(buildRegisterPayload({ parentPhone: sharedGuardian }));
+      const repeatedPending = await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(existing);
+
+      for (const response of [duplicateEmail, duplicatePhone, sharedParentPhone, repeatedPending]) {
+        expect(response.status).toBe(202);
+        expect(response.status).toBe(fresh.status);
+        expect(response.body).toEqual(fresh.body);
+        expect(Object.keys(response.body).sort()).toEqual(Object.keys(fresh.body).sort());
+        expect(response.body).not.toHaveProperty('userId');
+        expect(response.text).not.toContain('userId');
+      }
+      expect(fresh.body).toEqual({ message: 'Registration request received. Pending approval' });
+    });
+
+    it('does not create a duplicate account for an identifier that already exists', async () => {
+      const existing = buildRegisterPayload();
+      await request(server).post(`${API_PREFIX}/auth/register`).send(existing).expect(202);
+
+      await request(server).post(`${API_PREFIX}/auth/register`).send(existing).expect(202);
+      await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload({ email: existing.email }))
+        .expect(202);
+
+      const rows = (await ctx.dataSource.query('SELECT COUNT(*)::int AS count FROM users')) as {
+        count: number;
+      }[];
+      expect(rows[0]?.count).toBe(1);
+    });
+
+    it('keeps a malformed payload a 400 — only existence conflicts are hidden', async () => {
+      await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload({ email: 'not-an-email' }))
+        .expect(400);
+      await request(server)
+        .post(`${API_PREFIX}/auth/register`)
+        .send(buildRegisterPayload({ parentPhone: '01,12345678' }))
+        .expect(400);
+    });
+
+    it('answers simultaneous requests for the same identity with the same 202', async () => {
+      const payload = buildRegisterPayload();
+
+      // Fired together so both pass the pre-insert existence check and one is
+      // forced onto the database unique constraint.
+      const responses = await Promise.all(
+        Array.from({ length: 3 }, async () =>
+          request(server).post(`${API_PREFIX}/auth/register`).send(payload),
+        ),
+      );
+
+      for (const response of responses) {
+        expect(response.status).toBe(202);
+        expect(response.body).toEqual({
+          message: 'Registration request received. Pending approval',
+        });
+      }
+
+      const rows = (await ctx.dataSource.query('SELECT COUNT(*)::int AS count FROM users')) as {
+        count: number;
+      }[];
+      expect(rows[0]?.count).toBe(1);
+    });
   });
 });

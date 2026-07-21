@@ -6,6 +6,7 @@ import {
   API_PREFIX,
   buildRegisterPayload,
   createE2EAppWithCsrf,
+  getUserIdByEmail,
   resetDatabase,
   setUserStatus,
   type E2EContext,
@@ -35,12 +36,16 @@ describe('cookie session CSRF protection (e2e)', () => {
     expect(xsrf).toMatch(/SameSite=Lax/i);
 
     const payload = buildRegisterPayload();
-    const registration = await agent
+    await agent
       .post(`${API_PREFIX}/auth/register`)
       .set('X-CSRF-Token', csrfToken)
       .send(payload)
-      .expect(201);
-    await setUserStatus(ctx.dataSource, registration.body.userId as string, 'approved');
+      .expect(202);
+    await setUserStatus(
+      ctx.dataSource,
+      await getUserIdByEmail(ctx.dataSource, payload.email),
+      'approved',
+    );
 
     const login = await agent
       .post(`${API_PREFIX}/auth/login`)

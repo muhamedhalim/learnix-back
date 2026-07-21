@@ -8,6 +8,6 @@ export {
   createE2EAppWithCsrf,
   type E2EContext,
 } from '../helpers/app-factory';
-export { resetDatabase, setUserRole, setUserStatus } from '../helpers/database';
+export { getUserIdByEmail, resetDatabase, setUserRole, setUserStatus } from '../helpers/database';
 export { createAuthenticatedUser, type AuthenticatedUser } from '../helpers/auth';
 export { buildRegisterPayload, type RegisterPayload } from '../factories/user.factory';

@@ -6,7 +6,7 @@ import type { DataSource } from 'typeorm';
 import request from 'supertest';
 
 import { API_PREFIX } from './app-factory';
-import { setUserRole, setUserStatus } from './database';
+import { getUserIdByEmail, setUserRole, setUserStatus } from './database';
 import { buildRegisterPayload, type RegisterPayload } from '../factories/user.factory';
 
 export interface AuthenticatedUser {
@@ -30,12 +30,11 @@ export async function createAuthenticatedUser(
   const server = app.getHttpServer() as Server;
   const credentials = buildRegisterPayload(options.overrides);
 
-  const registerRes = await request(server)
-    .post(`${API_PREFIX}/auth/register`)
-    .send(credentials)
-    .expect(201);
+  await request(server).post(`${API_PREFIX}/auth/register`).send(credentials).expect(202);
 
-  const userId = registerRes.body.userId as string;
+  // The endpoint returns only a generic acknowledgement (anti-enumeration), so
+  // the id comes from the database rather than the response body.
+  const userId = await getUserIdByEmail(dataSource, credentials.email);
 
   await setUserStatus(dataSource, userId, 'approved');
   if (options.role !== undefined) {
