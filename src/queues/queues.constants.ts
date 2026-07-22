@@ -139,6 +139,19 @@ export const JOB_TYPES = {
  * instead of a real Redis-backed queue — see that file for why.
  */
 export function areQueuesEnabled(): boolean {
+  // The HTTP E2E suite repeatedly truncates and reseeds PostgreSQL. Running
+  // BullMQ workers against that same database makes the suite race background
+  // jobs and prevents deterministic teardown. Keep Redis-backed cache,
+  // throttling, and idempotency enabled while suppressing only workers when
+  // the test runner explicitly opts out. This switch is deliberately ignored
+  // outside NODE_ENV=test so it cannot disable production processing.
+  if (
+    process.env['NODE_ENV'] === 'test' &&
+    process.env['E2E_DISABLE_BACKGROUND_WORKERS'] === 'true'
+  ) {
+    return false;
+  }
+
   return resolveRedisUrl(processEnvReader()) !== undefined;
 }
 

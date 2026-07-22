@@ -491,6 +491,8 @@ export class StorageService implements StorageProvider {
     if (publicPrefix !== '' && value.startsWith(publicPrefix)) {
       return value.slice(publicPrefix.length).replace(/^\/+/, '');
     }
+    const legacyR2Key = this.getConfiguredLegacyR2Key(value);
+    if (legacyR2Key !== null) return legacyR2Key;
     let path = value;
     if (/^https?:\/\//i.test(value)) {
       try {
@@ -519,6 +521,7 @@ export class StorageService implements StorageProvider {
     if (!/^https?:\/\//i.test(value)) return true;
     const publicPrefix = this.getPublicUrl('');
     if (publicPrefix !== '' && value.startsWith(publicPrefix)) return true;
+    if (this.getConfiguredLegacyR2Key(value) !== null) return true;
     try {
       const parsed = new URL(value);
       const pathname = parsed.pathname.replace(/^\/+/, '');
@@ -531,6 +534,31 @@ export class StorageService implements StorageProvider {
       return PUBLIC_MEDIA_FOLDERS.some((folder) => legacyPath.startsWith(`${folder}/`));
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Translate only this deployment's historical R2 S3 endpoint. Matching both
+   * the configured account hostname and bucket path prevents an arbitrary R2
+   * URL from being treated as one of our objects.
+   */
+  private getConfiguredLegacyR2Key(value: string): string | null {
+    const accountId = this.config.get<string>('R2_ACCOUNT_ID');
+    const bucket = this.config.get<string>('R2_BUCKET');
+    if (!accountId || !bucket || !/^https:\/\//iu.test(value)) return null;
+
+    try {
+      const parsed = new URL(value);
+      const expectedHost = `${accountId.toLowerCase()}.r2.cloudflarestorage.com`;
+      if (parsed.hostname.toLowerCase() !== expectedHost) return null;
+      const prefix = `${bucket}/`;
+      const pathname = parsed.pathname.replace(/^\/+/, '');
+      if (!pathname.startsWith(prefix)) return null;
+      const key = pathname.slice(prefix.length);
+      if (key === '' || key.includes('\\') || key.split('/').includes('..')) return null;
+      return key;
+    } catch {
+      return null;
     }
   }
 

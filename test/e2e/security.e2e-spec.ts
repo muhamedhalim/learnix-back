@@ -2,6 +2,12 @@ import type { Server } from 'node:http';
 
 import request from 'supertest';
 
+import { Book } from '../../src/books/entities/book.entity';
+import { Lesson } from '../../src/lessons/entities/lesson.entity';
+import { LessonStatus } from '../../src/lessons/entities/lesson-status.enum';
+import { CourseStatus } from '../../src/packages/entities/course-status.enum';
+import { LessonPackage } from '../../src/packages/entities/lesson-package.entity';
+import { Subject } from '../../src/subjects/entities/subject.entity';
 import { TeacherProfile } from '../../src/teachers/entities/teacher-profile.entity';
 
 import {
@@ -146,6 +152,84 @@ describe('Security (e2e)', () => {
         .get(`${API_PREFIX}/admin/teachers/${profile.id}`)
         .expect(200);
       expect(JSON.stringify(administrative.body)).toContain(teacher.credentials.email);
+    });
+
+    it('sanitizes nested teachers and private media fields in public catalogues', async () => {
+      const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
+        role: 'teacher',
+        overrides: { requestedRole: 'teacher' },
+      });
+      const subjectRepository = ctx.dataSource.getRepository(Subject);
+      const subject = await subjectRepository.save(
+        subjectRepository.create({
+          name: 'Security Test Subject',
+          name_ar: null,
+          description: null,
+          description_ar: null,
+          grade_level: 'grade_12',
+          thumbnail: null,
+        }),
+      );
+
+      const lessonRepository = ctx.dataSource.getRepository(Lesson);
+      await lessonRepository.save(
+        lessonRepository.create({
+          title: 'Public Lesson',
+          title_ar: 'Public Lesson',
+          description: null,
+          description_ar: null,
+          teacher_id: teacher.userId,
+          subject_id: subject.id,
+          thumbnail: 'images/lesson.jpg',
+          video_url: 'https://private-provider.example/video',
+          bunny_video_id: 'private-video-id',
+          bunny_library_id: 'private-library-id',
+          price: 10,
+          duration: 60,
+          status: LessonStatus.PUBLISHED,
+        }),
+      );
+
+      const packageRepository = ctx.dataSource.getRepository(LessonPackage);
+      await packageRepository.save(
+        packageRepository.create({
+          title: 'Public Package',
+          title_ar: 'Public Package',
+          description: null,
+          description_ar: null,
+          teacher_id: teacher.userId,
+          subject_id: subject.id,
+          price: 20,
+          original_price: null,
+          is_active: true,
+          thumbnail: 'images/package.jpg',
+          status: CourseStatus.PUBLISHED,
+          published_at: new Date(),
+        }),
+      );
+
+      const bookRepository = ctx.dataSource.getRepository(Book);
+      await bookRepository.save(
+        bookRepository.create({
+          title: 'Public Book',
+          title_ar: 'Public Book',
+          description: null,
+          description_ar: null,
+          teacher_id: teacher.userId,
+          subject_id: subject.id,
+          cover_image: 'images/book.jpg',
+          book_file: `books/${teacher.userId}/private.pdf`,
+          price: 30,
+        }),
+      );
+
+      for (const endpoint of ['lessons', 'packages', 'books']) {
+        const response = await request(server).get(`${API_PREFIX}/${endpoint}`).expect(200);
+        const serialized = JSON.stringify(response.body);
+        expect(serialized).not.toMatch(
+          /email|phone|password|refresh|rejection_reason|firebase_uid|book_file|video_url|bunny_library_id|r2\.cloudflarestorage\.com/i,
+        );
+      }
     });
   });
 

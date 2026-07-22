@@ -62,7 +62,6 @@
     "bidi-js": "^1.0.3",
     "bullmq": "^5.64.1",
     "cache-manager": "^7.2.5",
-    "cache-manager-redis-yet": "^5.1.5",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "compression": "^1.8.1",
@@ -86,10 +85,10 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "sanitize-html": "^2.17.0",
-    "sharp": "^0.34.4",
+    "sharp": "^0.35.3",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.11.1",
-    "typeorm": "^0.3.26"
+    "typeorm": "^0.3.31"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^7.1.18",
@@ -165,7 +164,11 @@
   },
   "overrides": {
     "lodash": "^4.17.23",
-    "fast-xml-parser": "^5.3.3",
+    "fast-xml-parser": "^5.10.1",
+    "body-parser": "^2.3.0",
+    "readdir-glob": {
+      "brace-expansion": "2.1.2"
+    },
     "@angular-devkit/core": {
       "ajv": "8.18.0"
     },

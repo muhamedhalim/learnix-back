@@ -2,17 +2,17 @@
 import './polyfills';
 
 import { CacheModule } from '@nestjs/cache-manager';
-import { Logger, Module } from '@nestjs/common';
+import { Inject, Injectable, Logger, Module, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
-import { redisStore } from 'cache-manager-redis-yet';
 import Redis from 'ioredis';
+import { createClient as createRedisClient, type RedisClientType } from 'redis';
 
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { AdminInitModule } from './admin-init/admin-init.module';
@@ -30,6 +30,7 @@ import { CallCenterModule } from './callcenter/callcenter.module';
 import { CartModule } from './cart/cart.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { CommentsModule } from './comments/comments.module';
+import { RedisKeyvStore } from './common/cache/redis-keyv.store';
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
 import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
@@ -80,6 +81,27 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
   return resolveRedisUrl((key) => configService.get<string>(key));
 }
 
+interface DestroyableThrottlerStorage {
+  onModuleDestroy?: () => void | Promise<void>;
+}
+
+/**
+ * ThrottlerModule exposes a custom storage returned by a factory, but does not
+ * invoke lifecycle hooks on that returned object. Register a Nest-owned
+ * delegate so Redis-backed storage always releases its socket on shutdown.
+ */
+@Injectable()
+class ThrottlerStorageLifecycle implements OnModuleDestroy {
+  public constructor(
+    @Inject(ThrottlerStorage)
+    private readonly storage: DestroyableThrottlerStorage,
+  ) {}
+
+  public async onModuleDestroy(): Promise<void> {
+    await this.storage.onModuleDestroy?.();
+  }
+}
+
 @Module({
   imports: [
     AdminInitModule,
@@ -109,27 +131,29 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
           };
         }
 
-        try {
-          const store = await redisStore({
-            url: redisUrl,
-            socket: {
-              connectTimeout: 10_000,
-              // Development: node-redis's default reconnectStrategy retries
-              // forever, which would otherwise keep hammering an unreachable
-              // host (e.g. REDIS_URL still pointing at a production-only
-              // network) with background reconnect noise even after this
-              // catch block already fell back to the in-memory cache.
-              // Production keeps the default strategy unchanged.
-              ...(isProduction ? {} : { reconnectStrategy: false as const }),
-            },
-          });
+        const client: RedisClientType = createRedisClient({
+          url: redisUrl,
+          socket: {
+            connectTimeout: 10_000,
+            ...(isProduction ? {} : { reconnectStrategy: false as const }),
+          },
+        });
+        client.on('error', (error: Error) => {
+          logger.error(`Redis cache client error: ${error.message}`);
+        });
 
+        try {
+          await client.connect();
           return {
-            store,
+            stores: [new RedisKeyvStore(client)],
             ttl: 5 * 60 * 1000, // 5 minutes default TTL
           };
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+          if (client.isOpen) {
+            await client.disconnect();
+          }
 
           // In production a failed Redis connection is fatal — do not silently
           // fall back to an in-memory cache.
@@ -200,7 +224,20 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
 
         try {
           await client.connect();
-          return { throttlers, storage: new ThrottlerStorageRedisService(client) };
+          // This client is only a reachability probe. Passing it to the
+          // throttler adapter would make the adapter treat it as externally
+          // owned and therefore leave it open during Nest shutdown. Close the
+          // probe and let the adapter own its runtime client so its
+          // onModuleDestroy hook can disconnect cleanly.
+          client.disconnect();
+          return {
+            throttlers,
+            storage: new ThrottlerStorageRedisService(redisUrl, {
+              connectTimeout: 5000,
+              retryStrategy: () => null,
+              maxRetriesPerRequest: 1,
+            }),
+          };
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           logger.warn(
@@ -316,6 +353,7 @@ function buildRedisUrl(configService: ConfigService): string | undefined {
   controllers: [AppController],
   providers: [
     AppService,
+    ThrottlerStorageLifecycle,
     // Enforce the ThrottlerModule limits globally — without this guard the
     // rate-limit configuration above is inert.
     ...(process.env['NODE_ENV'] === 'test'

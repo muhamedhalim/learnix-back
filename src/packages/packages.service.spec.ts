@@ -24,6 +24,7 @@ function buildQueryBuilder(
     where: jest.fn(),
     andWhere: jest.fn(),
     orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
     skip: jest.fn(),
     take: jest.fn(),
     getCount: jest.fn().mockResolvedValue(packages.length),
@@ -35,6 +36,7 @@ function buildQueryBuilder(
     'where',
     'andWhere',
     'orderBy',
+    'addOrderBy',
     'skip',
     'take',
   ] as const) {

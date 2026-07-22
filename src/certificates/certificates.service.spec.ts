@@ -18,7 +18,19 @@ import { CertificateTemplateStatus } from './entities/certificate-template-statu
 
 function qb(result: number | unknown[]) {
   const b: Record<string, jest.Mock> = {};
-  for (const m of ['innerJoin', 'where', 'andWhere', 'select', 'addSelect', 'groupBy', 'orderBy', 'limit', 'update', 'set']) {
+  for (const m of [
+    'innerJoin',
+    'where',
+    'andWhere',
+    'select',
+    'addSelect',
+    'groupBy',
+    'orderBy',
+    'addOrderBy',
+    'limit',
+    'update',
+    'set',
+  ]) {
     b[m] = jest.fn(() => b);
   }
   b.getCount = jest.fn().mockResolvedValue(typeof result === 'number' ? result : 0);
