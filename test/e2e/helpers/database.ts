@@ -19,6 +19,26 @@ export async function resetDatabase(dataSource: DataSource): Promise<void> {
   );
 }
 
+/**
+ * Look up a registered user's id by email.
+ *
+ * `POST /auth/register` deliberately never returns a `userId` — that was the
+ * user-enumeration leak this helper exists to work around. Tests that need the
+ * id of an account they just created read it straight from the database, which
+ * an attacker cannot do.
+ */
+export async function getUserIdByEmail(dataSource: DataSource, email: string): Promise<string> {
+  const rows = (await dataSource.query('SELECT id FROM users WHERE email = $1', [
+    email.trim().toLowerCase(),
+  ])) as { id: string }[];
+
+  const id = rows[0]?.id;
+  if (id === undefined) {
+    throw new Error(`No user registered with email ${email}`);
+  }
+  return id;
+}
+
 /** Directly set a user's account status (bypasses the admin approval flow). */
 export async function setUserStatus(
   dataSource: DataSource,

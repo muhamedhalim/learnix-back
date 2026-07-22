@@ -10,6 +10,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
+import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
 
 export interface E2EContext {
   app: INestApplication;
@@ -52,6 +53,10 @@ async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
+  // Also from `main.ts`: success bodies authored with `biBody(en, ar)` are
+  // resolved to one locale and stripped of `message_ar` here. Without it, specs
+  // would assert on a body shape no client ever receives.
+  app.useGlobalInterceptors(new ResponseLocalizationInterceptor());
 
   if (withCsrfGuard) {
     app.useGlobalGuards(new CsrfGuard(new Reflector()));

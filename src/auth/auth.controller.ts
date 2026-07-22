@@ -116,12 +116,35 @@ export class AuthController {
   }
 
   @Post('register')
+  // 202, not 201: the endpoint deliberately does not say whether a resource was
+  // created. See AuthService.register for the full anti-enumeration contract.
+  @HttpCode(HttpStatus.ACCEPTED)
   @Throttle({ default: THROTTLE.AUTH })
+  @ApiOperation({
+    summary: 'Request a student or teacher account',
+    description:
+      'Always answers with the same 202 acknowledgement — for a brand-new request, ' +
+      'for an email/phone/parent phone that is already registered, for a still-pending ' +
+      'request, and for one that loses a race to a simultaneous signup. The status, ' +
+      'body, and body shape are identical in every case, so the endpoint cannot be used ' +
+      'to discover whether an account exists. Malformed payloads still fail with 400.',
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Registration request acknowledged (reveals nothing about existing accounts)',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Registration request received. Pending approval' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Malformed registration payload' })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async register(
     @Body() registerDto: RegisterDto,
     @Req() request: Request,
-  ): Promise<unknown> {
+  ): Promise<{ message: string; message_ar: string }> {
     return await this.authService.register(registerDto, resolveRequestLocale(request));
   }
 

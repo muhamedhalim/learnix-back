@@ -1,24 +1,16 @@
 import * as crypto from 'node:crypto';
 
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import * as bcrypt from 'bcryptjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { parseDuration } from '../common/utils/duration.util';
-import {
-  buildAbsoluteUrl,
-  getConfiguredPublicOrigin,
-} from '../config/public-url.util';
+import { InvalidPhoneNumberError, toE164 } from '../common/utils/phone.util';
+import { buildAbsoluteUrl, getConfiguredPublicOrigin } from '../config/public-url.util';
 import { biBody } from '../i18n/error-translator.util';
 import { GuardianRelationship } from '../guardians/entities';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
@@ -33,6 +25,61 @@ import { UserStatus } from '../users/entities/user-status.enum';
 import { SessionsService } from '../users/sessions.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+/** Postgres SQLSTATE for `unique_violation`. */
+const PG_UNIQUE_VIOLATION = '23505';
+
+/**
+ * The auto-generated username is the only unique column on `users` that the
+ * caller does not supply, so a collision there is ours to retry rather than a
+ * conflict to report. Three attempts against a 3-byte random suffix leaves a
+ * residual failure probability far below any other cause of a failed insert.
+ */
+const MAX_USERNAME_ATTEMPTS = 3;
+
+interface PostgresDriverError {
+  code?: unknown;
+  detail?: unknown;
+  constraint?: unknown;
+}
+
+/** Everything `register` needs to write one PENDING account, already normalized. */
+interface PendingAccountInput {
+  email: string;
+  phone: string;
+  name: string;
+  passwordHash: string;
+  requestedRole: UserRole;
+  preferredLanguage: PreferredLanguage;
+  /** Canonical E.164, for a student request; `null` for a teacher request. */
+  parentPhoneE164: string | null;
+  qualifications: string | null;
+  yearsOfExperience: number | null;
+  bio: string | null;
+}
+
+/**
+ * Column names carried by a Postgres `unique_violation`, parsed out of its
+ * `Key (email)=(a@b.test) already exists.` detail string. Returns `null` for
+ * anything that is not a 23505 so callers rethrow what they did not expect,
+ * and an empty array when the driver withheld the detail — an unattributable
+ * conflict is treated as a caller-identifier conflict, which is the answer
+ * that leaks nothing.
+ */
+function uniqueViolationColumns(error: unknown): string[] | null {
+  for (const candidate of [error, (error as { driverError?: unknown } | null)?.driverError]) {
+    if (typeof candidate !== 'object' || candidate === null) continue;
+    const { code, detail, constraint } = candidate as PostgresDriverError;
+    if (code !== PG_UNIQUE_VIOLATION) continue;
+
+    const key = typeof detail === 'string' ? /^Key \(([^)]+)\)=/.exec(detail)?.[1] : undefined;
+    if (key !== undefined) {
+      return key.split(',').map((column) => column.trim().replaceAll('"', ''));
+    }
+    return typeof constraint === 'string' ? [constraint] : [];
+  }
+  return null;
+}
 
 @Injectable()
 export class AuthService {
@@ -68,108 +115,179 @@ export class AuthService {
    * StudentProfile (+ guardian via `linkGuardianWith`) in one transaction for
    * the same reason: a mid-way failure must never leave an orphaned user with
    * no profile or a student with no guardian.
+   *
+   * Anti-enumeration contract — the reason this method returns a bare
+   * acknowledgement and nothing else. An unauthenticated caller must not be
+   * able to learn whether an email or phone is registered, so *every* outcome
+   * below produces the byte-identical `202 Accepted` body:
+   *
+   *  - a brand-new request that created a PENDING account;
+   *  - an email, phone, or parent phone that already belongs to someone;
+   *  - a still-pending request for the same identifiers;
+   *  - a request that lost a unique-constraint race to a simultaneous one.
+   *
+   * No `userId`, no `emailExists`/`phoneExists`, no conflict reason, no
+   * account status — nothing that distinguishes "created" from "already
+   * there". The previous `409 Conflict` + `201 { userId }` pair was a
+   * two-value oracle over the whole user table.
+   *
+   * Latency is part of the contract too: the bcrypt hash (~250ms at 12 rounds)
+   * is computed *before* the existence lookup so both paths pay the same
+   * dominant cost, and a stopwatch cannot substitute for the response body.
+   *
+   * Malformed input is deliberately still a 400 — a rejected phone format or
+   * a missing field says nothing about who is registered. Only
+   * existence-related conflicts are hidden.
    */
   public async register(
     registerDto: RegisterDto,
     preferredLanguage: PreferredLanguage = PreferredLanguage.EN,
-  ): Promise<unknown> {
-    const {
-      password,
-      phone,
-      name,
-      requestedRole,
-      parentPhone,
-      qualifications,
-      yearsOfExperience,
-      bio,
-    } = registerDto;
-    // Normalized identically to login()/forgotPassword()/AdminInitializationService
-    // so every entry point that writes or queries `email` agrees on its casing.
-    const email = registerDto.email.trim().toLowerCase();
+  ): Promise<{ message: string; message_ar: string }> {
+    const { password, name, requestedRole, qualifications, yearsOfExperience, bio } = registerDto;
 
-    // Use generic error to prevent email/phone enumeration
+    const acknowledgement = biBody(
+      'Registration request received. Pending approval',
+      'تم استلام طلب التسجيل. بانتظار الموافقة',
+    );
+
+    // Normalized identically to login()/forgotPassword()/AdminInitializationService
+    // so every entry point that writes or queries `email` agrees on its casing —
+    // and so `Ali@X.com` cannot slip past the uniqueness check that `ali@x.com`
+    // would fail. `phone` is already digit-only per RegisterDto's @Matches.
+    const email = registerDto.email.trim().toLowerCase();
+    const phone = registerDto.phone.trim();
+
+    // Canonicalise the guardian number here rather than letting
+    // `linkGuardianWith` raise the same 400 from inside the transaction, after
+    // a user row has been written and must be rolled back.
+    const parentPhoneE164 =
+      requestedRole === UserRole.STUDENT ? toE164(registerDto.parentPhone ?? '') : null;
+    if (requestedRole === UserRole.STUDENT && parentPhoneE164 === null) {
+      throw new BadRequestException(new InvalidPhoneNumberError().message);
+    }
+
+    // Hashed before the lookup, not after — see the docstring's latency note.
+    const passwordHash = await bcrypt.hash(password, this.bcryptRounds);
+
     const existingUser = await this.userRepository.findOne({
       where: [{ email }, { phone }],
     });
 
     if (existingUser) {
-      throw new ConflictException(
-        biBody(
-          'Registration failed. Please try different credentials.',
-          'فشل التسجيل. يرجى تجربة بيانات مختلفة.',
-        ),
-      );
+      // Logged without the identifier: the log must not become the oracle the
+      // response no longer is.
+      this.logger.log('Registration request for an already-registered identifier — not created');
+      return acknowledgement;
     }
 
-    const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
-
-    // Auto-generate username from email prefix + random suffix for uniqueness
-    const emailPrefix = (email.split('@')[0] ?? '').replace(/[^a-zA-Z0-9_]/g, '_');
-    const randomSuffix = crypto.randomBytes(3).toString('hex');
-    const username = `${emailPrefix}_${randomSuffix}`;
-
-    const savedUser = await this.dataSource.transaction(async (manager) => {
-      const user = manager.create(User, {
-        username,
-        name: name.trim(),
-        email,
-        phone,
-        password_hash: hashedPassword,
-        role: requestedRole,
-        is_active: true,
-        status: UserStatus.PENDING, // Pending admin approval — see docstring above.
-        preferred_language: preferredLanguage,
-      });
-      const createdUser = await manager.save(User, user);
-
-      if (requestedRole === UserRole.STUDENT) {
-        const profile = manager.create(StudentProfile, {
-          user_id: createdUser.id,
-          grade_level: null, // Unknown at registration; set by admin after approval.
-          notification_settings: {
-            sms_enabled: true,
-            email_enabled: true,
-            lesson_reminders: true,
-            exam_results: true,
-            payment_notifications: true,
-          },
-        });
-        await manager.save(StudentProfile, profile);
-
-        // RegisterDto guarantees `parentPhone` is present for a student
-        // request (`@ValidateIf` + `@IsNotEmpty`). Becomes an UNVERIFIED
-        // Guardian: captured, but unable to receive any educational
-        // notification until an OTP proves the parent owns it.
-        await this.guardiansService.linkGuardianWith(manager, createdUser.id, {
-          phone: parentPhone as string,
-          relationship: GuardianRelationship.OTHER,
-          is_primary: true,
-        });
-      } else {
-        const profile = manager.create(TeacherProfile, {
-          user_id: createdUser.id,
-          // RegisterDto guarantees these are present for a teacher request.
-          qualifications: qualifications as string,
-          years_of_experience: yearsOfExperience as number,
-          bio: bio ?? null,
-          rating: 0,
-          total_ratings: 0,
-        });
-        await manager.save(TeacherProfile, profile);
-      }
-
-      return createdUser;
+    const created = await this.createPendingAccount({
+      email,
+      phone,
+      name: name.trim(),
+      passwordHash,
+      requestedRole,
+      preferredLanguage,
+      parentPhoneE164,
+      qualifications: qualifications ?? null,
+      yearsOfExperience: yearsOfExperience ?? null,
+      bio: bio ?? null,
     });
 
-    // Return pending approval message instead of tokens
-    // Use the UUID directly as the user identifier
-    return {
-      ...biBody(
-        'Registration request received. Pending approval',
-        'تم استلام طلب التسجيل. بانتظار الموافقة',
-      ),
-      userId: savedUser.id,
-    };
+    if (!created) {
+      this.logger.log('Registration lost a unique-constraint race — acknowledged generically');
+    }
+
+    return acknowledgement;
+  }
+
+  /**
+   * Write one PENDING account atomically. Returns `false` when a
+   * caller-supplied identifier lost a race against a simultaneous request
+   * (the DB unique constraints are the authority, not the `findOne` above,
+   * which two concurrent registrations can both pass). Retries only when the
+   * *generated* username collides, which is not the caller's conflict.
+   */
+  private async createPendingAccount(input: PendingAccountInput): Promise<boolean> {
+    let lastUsernameCollision: unknown;
+
+    for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
+      try {
+        await this.dataSource.transaction(async (manager) => {
+          await this.persistPendingAccount(manager, input);
+        });
+        return true;
+      } catch (error) {
+        const columns = uniqueViolationColumns(error);
+        if (columns === null) throw error;
+        if (!columns.includes('username')) return false;
+        lastUsernameCollision = error;
+      }
+    }
+
+    throw lastUsernameCollision;
+  }
+
+  /** The user row + its role-specific profile (+ guardian link, for students). */
+  private async persistPendingAccount(
+    manager: EntityManager,
+    input: PendingAccountInput,
+  ): Promise<void> {
+    const user = manager.create(User, {
+      username: this.generateUsername(input.email),
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      password_hash: input.passwordHash,
+      role: input.requestedRole,
+      is_active: true,
+      status: UserStatus.PENDING, // Pending admin approval — see docstring above.
+      preferred_language: input.preferredLanguage,
+    });
+    const createdUser = await manager.save(User, user);
+
+    if (input.requestedRole === UserRole.STUDENT) {
+      const profile = manager.create(StudentProfile, {
+        user_id: createdUser.id,
+        grade_level: null, // Unknown at registration; set by admin after approval.
+        notification_settings: {
+          sms_enabled: true,
+          email_enabled: true,
+          lesson_reminders: true,
+          exam_results: true,
+          payment_notifications: true,
+        },
+      });
+      await manager.save(StudentProfile, profile);
+
+      // `parentPhoneE164` is non-null for a student request — `register`
+      // rejects an uncanonicalisable one with a 400 before reaching here.
+      // Becomes an UNVERIFIED Guardian: captured, but unable to receive any
+      // educational notification until an OTP proves the parent owns it. An
+      // already-known guardian phone is *reused*, never a conflict — which is
+      // why a shared parent number reveals nothing either.
+      await this.guardiansService.linkGuardianWith(manager, createdUser.id, {
+        phone: input.parentPhoneE164 as string,
+        relationship: GuardianRelationship.OTHER,
+        is_primary: true,
+      });
+    } else {
+      const profile = manager.create(TeacherProfile, {
+        user_id: createdUser.id,
+        // RegisterDto guarantees these are present for a teacher request.
+        qualifications: input.qualifications as string,
+        years_of_experience: input.yearsOfExperience as number,
+        bio: input.bio,
+        rating: 0,
+        total_ratings: 0,
+      });
+      await manager.save(TeacherProfile, profile);
+    }
+  }
+
+  /** Email prefix + random suffix, unique enough to satisfy `users.username`. */
+  private generateUsername(email: string): string {
+    const emailPrefix = (email.split('@')[0] ?? '').replace(/[^a-zA-Z0-9_]/g, '_');
+    return `${emailPrefix}_${crypto.randomBytes(3).toString('hex')}`;
   }
 
   public async login(
