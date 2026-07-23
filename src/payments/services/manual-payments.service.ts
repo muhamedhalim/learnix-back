@@ -73,36 +73,42 @@ export class ManualPaymentsService {
   ): Promise<ManualPaymentMethod> {
     this.assertMethodLimits(dto.minimum_amount_minor, dto.maximum_amount_minor);
     const configuration = this.validateConfiguration(dto.type, dto.configuration);
-    const method = this.methods.create({
-      name: dto.name.trim(),
-      type: dto.type,
-      recipient_name: dto.recipient_name.trim(),
-      configuration,
-      instructions: dto.instructions.trim(),
-      internal_notes: dto.internal_notes?.trim() || null,
-      enabled: dto.enabled ?? true,
-      display_order: dto.display_order ?? 0,
-      minimum_amount_minor: dto.minimum_amount_minor ?? null,
-      maximum_amount_minor: dto.maximum_amount_minor ?? null,
-      order_expiration_minutes: dto.order_expiration_minutes ?? 1440,
-      proof_required: dto.proof_required ?? true,
-      transaction_reference_required: dto.transaction_reference_required ?? true,
-      countries: dto.countries ?? null,
-      collection_party: dto.collection_party ?? CollectionParty.PLATFORM,
-      name_ar: null,
-      instructions_ar: null,
-      destination_details: {},
-      legacy_content_metadata: null,
-      qr_file_key: null,
-      created_by: adminId,
-      updated_by: adminId,
+    return retryTransaction(this.dataSource, async (manager) => {
+      const method = manager.create(ManualPaymentMethod, {
+        name: dto.name.trim(),
+        type: dto.type,
+        recipient_name: dto.recipient_name.trim(),
+        configuration,
+        instructions: dto.instructions.trim(),
+        internal_notes: dto.internal_notes?.trim() || null,
+        enabled: dto.enabled ?? true,
+        display_order: dto.display_order ?? 0,
+        minimum_amount_minor: dto.minimum_amount_minor ?? null,
+        maximum_amount_minor: dto.maximum_amount_minor ?? null,
+        order_expiration_minutes: dto.order_expiration_minutes ?? 1440,
+        proof_required: dto.proof_required ?? true,
+        transaction_reference_required: dto.transaction_reference_required ?? true,
+        countries: dto.countries ?? null,
+        collection_party: dto.collection_party ?? CollectionParty.PLATFORM,
+        name_ar: null,
+        instructions_ar: null,
+        destination_details: {},
+        legacy_content_metadata: null,
+        qr_file_key: null,
+        created_by: adminId,
+        updated_by: adminId,
+      });
+      const saved = await manager.save(ManualPaymentMethod, method);
+      await this.audit(
+        manager,
+        adminId,
+        'manual_payment_method_created',
+        'manual_payment_method',
+        saved.id,
+        { name: saved.name, type: saved.type },
+      );
+      return saved;
     });
-    const saved = await this.methods.save(method);
-    await this.audit(adminId, 'manual_payment_method_created', 'manual_payment_method', saved.id, {
-      name: saved.name,
-      type: saved.type,
-    });
-    return saved;
   }
 
   public async updateMethod(
@@ -110,37 +116,47 @@ export class ManualPaymentsService {
     dto: UpdateManualPaymentMethodDto,
     adminId: string,
   ): Promise<ManualPaymentMethod> {
-    const method = await this.methods.findOne({ where: { id } });
-    if (!method) {
-      throw new NotFoundException(
-        biBody('Manual payment method not found', 'طريقة الدفع اليدوي غير موجودة'),
+    return retryTransaction(this.dataSource, async (manager) => {
+      const method = await manager.findOne(ManualPaymentMethod, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!method) {
+        throw new NotFoundException(
+          biBody('Manual payment method not found', 'طريقة الدفع اليدوي غير موجودة'),
+        );
+      }
+      const minimum = dto.minimum_amount_minor ?? method.minimum_amount_minor;
+      const maximum = dto.maximum_amount_minor ?? method.maximum_amount_minor;
+      this.assertMethodLimits(minimum, maximum);
+      const type = dto.type ?? method.type;
+      const configuration = this.validateConfiguration(
+        type,
+        dto.configuration ?? method.configuration,
       );
-    }
-    const minimum = dto.minimum_amount_minor ?? method.minimum_amount_minor;
-    const maximum = dto.maximum_amount_minor ?? method.maximum_amount_minor;
-    this.assertMethodLimits(minimum, maximum);
-    const type = dto.type ?? method.type;
-    const configuration = this.validateConfiguration(
-      type,
-      dto.configuration ?? method.configuration,
-    );
-    Object.assign(method, dto, {
-      ...dto,
-      name: dto.name?.trim() ?? method.name,
-      recipient_name: dto.recipient_name?.trim() ?? method.recipient_name,
-      instructions: dto.instructions?.trim() ?? method.instructions,
-      internal_notes:
-        dto.internal_notes === undefined
-          ? method.internal_notes
-          : dto.internal_notes?.trim() || null,
-      configuration,
-      updated_by: adminId,
+      Object.assign(method, dto, {
+        ...dto,
+        name: dto.name?.trim() ?? method.name,
+        recipient_name: dto.recipient_name?.trim() ?? method.recipient_name,
+        instructions: dto.instructions?.trim() ?? method.instructions,
+        internal_notes:
+          dto.internal_notes === undefined
+            ? method.internal_notes
+            : dto.internal_notes?.trim() || null,
+        configuration,
+        updated_by: adminId,
+      });
+      const saved = await manager.save(ManualPaymentMethod, method);
+      await this.audit(
+        manager,
+        adminId,
+        'manual_payment_method_updated',
+        'manual_payment_method',
+        saved.id,
+        { fields: Object.keys(dto) },
+      );
+      return saved;
     });
-    const saved = await this.methods.save(method);
-    await this.audit(adminId, 'manual_payment_method_updated', 'manual_payment_method', saved.id, {
-      fields: Object.keys(dto),
-    });
-    return saved;
   }
 
   public async listMethods(includeDisabled: boolean): Promise<ManualPaymentMethod[]> {
@@ -795,13 +811,14 @@ export class ManualPaymentsService {
   }
 
   private async audit(
+    manager: EntityManager,
     actorId: string,
     action: string,
     resourceType: string,
     resourceId: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await this.dataSource.getRepository(PaymentAuditLog).insert({
+    await manager.insert(PaymentAuditLog, {
       actor_id: actorId,
       action,
       resource_type: resourceType,

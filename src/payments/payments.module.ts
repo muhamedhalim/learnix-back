@@ -28,6 +28,7 @@ import {
   Order,
   PackagePurchase,
   Payment,
+  PaymentAuditLog,
   PaymentDomainEvent,
   Refund,
   Settlement,
@@ -53,6 +54,10 @@ import { SettlementsService } from './services/settlements.service';
     ConfigModule,
     TypeOrmModule.forFeature([
       Payment,
+      // Manual method administration writes mandatory payment audit records.
+      // Register the exact barrel-exported class that services use with
+      // DataSource/EntityManager so autoLoadEntities includes its metadata.
+      PaymentAuditLog,
       Order,
       Entitlement,
       FinancialLedgerEntry,
