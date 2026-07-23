@@ -18,9 +18,16 @@ import { NotificationType } from './notification-type.enum';
 @Index('IDX_notifications_type', ['type'])
 @Index('IDX_notifications_sent_at', ['sent_at'])
 @Index('IDX_notifications_user_read', ['user_id', 'is_read'])
+@Index('UQ_notifications_dedupe_key', ['dedupe_key'], {
+  unique: true,
+  where: '"dedupe_key" IS NOT NULL',
+})
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({ type: 'varchar', length: 180, nullable: true, name: 'dedupe_key' })
+  dedupe_key!: string | null;
 
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;

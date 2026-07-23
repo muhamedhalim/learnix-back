@@ -1,5 +1,6 @@
-import { Body, Controller, Get, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -12,15 +13,18 @@ import { VerifyAttendanceCodeDto } from '../dto';
 @ApiTags('Attendance Codes')
 @Controller('attendance-codes')
 @ApiBearerAuth('JWT-auth')
+@UseGuards(HybridAuthGuard, RolesGuard)
+@Roles('student')
 export class AttendanceCodesController {
   constructor(private readonly attendanceCodesService: AttendanceCodesService) {}
 
-  @Get('verify/:code')
+  @Post('verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Verify an attendance code (public)',
     description:
       'Check if an attendance code is valid and retrieve its details WITHOUT redeeming it. ' +
-      'This endpoint is public and does not require authentication.',
+      'Authentication is required. The code is sent in the request body so it is not written to URL/access logs.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -40,7 +44,7 @@ export class AttendanceCodesController {
       },
     },
   })
-  public async verifyCode(@Param('code') code: string): Promise<{
+  public async verifyCode(@Body() dto: VerifyAttendanceCodeDto): Promise<{
     data: {
       valid: boolean;
       itemType?: 'lesson' | 'package' | 'book' | undefined;
@@ -52,15 +56,14 @@ export class AttendanceCodesController {
       isUsed?: boolean | undefined;
     };
   }> {
-    const verification = await this.attendanceCodesService.verifyCodePublic(code);
+    const verification = await this.attendanceCodesService.verifyCodePublic(dto.code);
     return {
       data: verification,
     };
   }
 
   @Post('redeem')
-  @UseGuards(HybridAuthGuard, RolesGuard)
-  @Roles('student')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Redeem an attendance code (student)',
     description: 'Redeems an attendance code and grants access to the associated item.',
@@ -76,6 +79,7 @@ export class AttendanceCodesController {
     message: string;
     data: {
       payment_id: string;
+      order_id: string | null;
       item_type: string;
       item_id: string;
     };
@@ -85,6 +89,7 @@ export class AttendanceCodesController {
       message: 'Attendance code redeemed successfully. Access has been granted.',
       data: {
         payment_id: payment.id,
+        order_id: payment.order_id,
         item_type: payment.item_type,
         item_id: payment.item_id,
       },

@@ -12,33 +12,28 @@ import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
-import { computeAccessExpiresAt } from '../common/utils/lesson-access.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-import {
-  ItemType,
-  LessonPurchase,
-  PackagePurchase,
-  Payment,
-  PaymentMethod,
-  PaymentStatus,
-} from '../payments/entities';
+import { User } from '../users/entities/user.entity';
+import { CollectionParty, LessonPurchase, PackagePurchase, Payment } from '../payments/entities';
+import { toMinorUnits } from '../payments/money.util';
+import { CommissionService } from '../payments/services/commission.service';
+import { OrdersService } from '../payments/services/orders.service';
+import { PaymentFinalizationService } from '../payments/services/payment-finalization.service';
 import {
   AttendanceCodeFilterDto,
   GenerateAttendanceCodesDto,
   UpdateAttendanceCodeDto,
   VerifyAttendanceCodeDto,
 } from './dto';
-import { generateAttendanceCode } from './code-generator.util';
 import {
-  AttendanceCode,
-  AttendanceCodeAudit,
-  AttendanceCodeAuditAction,
-  AttendanceCodeStatus,
-  AttendanceCodeType,
-} from './entities';
+  generateAttendanceCode,
+  hashAttendanceCode,
+  normalizeAttendanceCode,
+} from './code-generator.util';
+import { AttendanceCode, AttendanceCodeStatus, AttendanceCodeType } from './entities';
 
 @Injectable()
 export class AttendanceCodesService {
@@ -54,6 +49,9 @@ export class AttendanceCodesService {
     @InjectRepository(Book)
     private readonly booksRepository: Repository<Book>,
     private readonly dataSource: DataSource,
+    private readonly ordersService: OrdersService,
+    private readonly finalizer: PaymentFinalizationService,
+    private readonly commissions: CommissionService,
   ) {}
 
   /**
@@ -63,7 +61,10 @@ export class AttendanceCodesService {
     dto: GenerateAttendanceCodesDto,
     adminId: string,
   ): Promise<AttendanceCode[]> {
-    // Validate item exists
+    let teacherId: string;
+    let faceValueMinor: number;
+
+    // Validate item exists and capture immutable financial ownership.
     if (dto.type === AttendanceCodeType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
@@ -71,6 +72,8 @@ export class AttendanceCodesService {
       if (!lesson) {
         throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
       }
+      teacherId = lesson.teacher_id;
+      faceValueMinor = toMinorUnits(lesson.price);
     } else if (dto.type === AttendanceCodeType.PACKAGE) {
       const pkg = await this.packagesRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
@@ -78,6 +81,8 @@ export class AttendanceCodesService {
       if (!pkg) {
         throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
       }
+      teacherId = pkg.teacher_id;
+      faceValueMinor = toMinorUnits(pkg.price);
     } else {
       const book = await this.booksRepository.findOne({
         where: { id: dto.item_id, deleted_at: IsNull() },
@@ -85,6 +90,8 @@ export class AttendanceCodesService {
       if (!book) {
         throw new NotFoundException(biBody('Book not found', 'الكتاب غير موجود'));
       }
+      teacherId = book.teacher_id;
+      faceValueMinor = toMinorUnits(book.price);
     }
 
     const codes: AttendanceCode[] = [];
@@ -95,8 +102,21 @@ export class AttendanceCodesService {
 
       const attendanceCode = this.attendanceCodesRepository.create({
         code,
+        lookup_hash: hashAttendanceCode(code),
         type: dto.type,
         item_id: dto.item_id,
+        teacher_id: teacherId,
+        face_value_minor: faceValueMinor,
+        platform_commission_bps: this.commissions.resolveRate(),
+        currency: 'EGP',
+        valid_from: new Date(),
+        maximum_redemptions: 1,
+        redemption_count: 0,
+        collection_party: CollectionParty.PLATFORM,
+        assigned_party: null,
+        assigned_student_id: null,
+        redeemed_order_id: null,
+        metadata: { generated_via: 'legacy_admin_endpoint' },
         expires_at: expiresAt,
         created_by: adminId,
       });
@@ -126,17 +146,21 @@ export class AttendanceCodesService {
     itemType?: 'lesson' | 'package' | 'book' | undefined;
     itemId?: string | undefined;
     itemTitle?: string | undefined;
+    teacherName?: string | undefined;
+    codeType?: 'lesson' | 'package' | 'book' | undefined;
+    accessDurationDays?: number | null | undefined;
     price?: number | undefined;
     expiresAt?: Date | undefined;
     isExpired?: boolean | undefined;
     isUsed?: boolean | undefined;
   }> {
     // Find code (no lock needed for read-only operation)
-    const attendanceCode = await this.attendanceCodesRepository.findOne({
-      where: {
-        code: code.toUpperCase(),
-      },
-    });
+    const normalized = normalizeAttendanceCode(code);
+    const attendanceCode = await this.attendanceCodesRepository
+      .createQueryBuilder('code')
+      .where('code.lookup_hash = :hash', { hash: hashAttendanceCode(normalized) })
+      .orWhere('(code.lookup_hash IS NULL AND code.code = :normalized)', { normalized })
+      .getOne();
 
     if (!attendanceCode) {
       return { valid: false };
@@ -149,29 +173,64 @@ export class AttendanceCodesService {
     // Fetch item details
     let itemTitle: string | undefined;
     let price: number | undefined;
+    let accessDurationDays: number | null = null;
 
     if (attendanceCode.type === AttendanceCodeType.LESSON) {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: attendanceCode.item_id, deleted_at: IsNull() },
       });
       itemTitle = lesson?.title;
-      price = lesson?.price;
+      accessDurationDays = lesson?.available_for_days ?? null;
+      price =
+        attendanceCode.face_value_minor === null
+          ? lesson?.price
+          : attendanceCode.face_value_minor / 100;
     } else if (attendanceCode.type === AttendanceCodeType.PACKAGE) {
       const pkg = await this.packagesRepository.findOne({
         where: { id: attendanceCode.item_id, deleted_at: IsNull() },
       });
       itemTitle = pkg?.title;
-      price = pkg?.price;
+      price =
+        attendanceCode.face_value_minor === null
+          ? pkg?.price
+          : attendanceCode.face_value_minor / 100;
+    } else {
+      const book = await this.booksRepository.findOne({
+        where: { id: attendanceCode.item_id, deleted_at: IsNull() },
+      });
+      itemTitle = book?.title;
+      price =
+        attendanceCode.face_value_minor === null
+          ? book?.price
+          : attendanceCode.face_value_minor / 100;
     }
 
+    const teacher = attendanceCode.teacher_id
+      ? await this.dataSource.getRepository(User).findOne({
+          where: { id: attendanceCode.teacher_id, is_active: true },
+        })
+      : null;
+
     // Code is valid if: exists, not used, not expired, and item still exists
-    const valid = !isUsed && !isExpired && itemTitle !== undefined && itemTitle !== '';
+    const valid =
+      !isUsed &&
+      !isExpired &&
+      attendanceCode.is_active &&
+      attendanceCode.status !== AttendanceCodeStatus.REVOKED &&
+      attendanceCode.status !== AttendanceCodeStatus.REDEEMED &&
+      (attendanceCode.valid_from === null || attendanceCode.valid_from <= now) &&
+      attendanceCode.redemption_count < attendanceCode.maximum_redemptions &&
+      itemTitle !== undefined &&
+      itemTitle !== '';
 
     return {
       valid,
       itemType: attendanceCode.type,
       itemId: attendanceCode.item_id,
       itemTitle,
+      teacherName: teacher?.name,
+      codeType: attendanceCode.type,
+      accessDurationDays,
       price,
       expiresAt: attendanceCode.expires_at,
       isExpired,
@@ -183,83 +242,57 @@ export class AttendanceCodesService {
    * Verify and redeem a purchase code (with race condition protection)
    */
   public async verifyAndRedeem(dto: VerifyAttendanceCodeDto, userId: string): Promise<Payment> {
-    return await retryTransaction(this.dataSource, async (manager) => {
-      // Find unused, unexpired, active code with pessimistic lock
-      const code = await manager.findOne(AttendanceCode, {
-        where: {
-          code: dto.code.toUpperCase(),
-          is_used: false,
-          is_active: true,
-          expires_at: MoreThan(new Date()),
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!code) {
+    return retryTransaction(this.dataSource, async (manager) => {
+      const normalized = normalizeAttendanceCode(dto.code);
+      const code = await manager
+        .getRepository(AttendanceCode)
+        .createQueryBuilder('code')
+        .setLock('pessimistic_write')
+        .where('code.lookup_hash = :hash', {
+          hash: hashAttendanceCode(normalized),
+        })
+        .orWhere('(code.lookup_hash IS NULL AND code.code = :normalized)', {
+          normalized,
+        })
+        .getOne();
+      const now = new Date();
+      if (
+        !code ||
+        code.is_used ||
+        !code.is_active ||
+        code.status === AttendanceCodeStatus.REDEEMED ||
+        code.status === AttendanceCodeStatus.REVOKED ||
+        code.expires_at <= now ||
+        (code.valid_from !== null && code.valid_from > now) ||
+        code.redemption_count >= code.maximum_redemptions ||
+        (code.assigned_student_id !== null && code.assigned_student_id !== userId)
+      ) {
         throw new NotFoundException(
           biBody(
-            'Invalid, expired, or deactivated purchase code',
-            'رمز الشراء غير صالح أو منتهي الصلاحية أو معطل',
+            'Invalid, expired, or deactivated activation code',
+            'رمز التفعيل غير صالح أو منتهي أو معطل',
           ),
         );
       }
-
-      // Refuse to burn the code if the student already owns the item — the
-      // gateway purchase path rejects duplicate purchases the same way
-      // (PaymentsService.purchaseLesson), and a consumed single-use code that
-      // granted nothing new is unrecoverable for the student.
       await this.assertNotAlreadyOwned(manager, userId, code.type, code.item_id);
-
-      // Mark as used (canonical lifecycle → REDEEMED) and record the audit.
-      code.is_used = true;
-      code.status = AttendanceCodeStatus.REDEEMED;
-      code.used_by = userId;
-      code.used_at = new Date();
-      await manager.save(AttendanceCode, code);
-      await manager.insert(AttendanceCodeAudit, {
-        code_id: code.id,
-        batch_id: code.batch_id,
-        action: AttendanceCodeAuditAction.REDEEMED,
-        actor_id: userId,
-        metadata: { code: code.code, type: code.type, item_id: code.item_id },
-      });
-
-      // Create free payment
-      const itemType =
-        code.type === AttendanceCodeType.LESSON
-          ? ItemType.LESSON
-          : code.type === AttendanceCodeType.PACKAGE
-            ? ItemType.PACKAGE
-            : ItemType.BOOK;
-
-      const payment = manager.create(Payment, {
-        user_id: userId,
-        item_type: itemType,
-        item_id: code.item_id,
-        amount: 0,
-        discount_amount: 0,
-        final_amount: 0,
-        payment_method: PaymentMethod.PURCHASE_CODE,
-        status: PaymentStatus.COMPLETED,
-        idempotency_key: `purchase-code-${code.id}-${userId}`,
-      });
-
-      const savedPayment = await manager.save(Payment, payment);
-
-      // Grant access immediately
-      if (code.type === AttendanceCodeType.LESSON) {
-        await this.grantLessonAccess(manager, savedPayment, code.item_id);
-      } else if (code.type === AttendanceCodeType.PACKAGE) {
-        await this.grantPackageAccess(manager, savedPayment, code.item_id);
-      } else {
-        await this.grantBookAccess(manager, savedPayment, code.item_id);
-      }
-
-      this.logger.log(
-        `Purchase code ${code.code} redeemed by user ${userId} for ${code.type} ${code.item_id}`,
+      const { order, payment } = await this.ordersService.createActivationCodeOrder(
+        manager,
+        code,
+        userId,
       );
-
-      return savedPayment;
+      await this.finalizer.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: `activation-code-${code.id}`,
+          actorId: userId,
+          activationCodeId: code.id,
+          verifiedAmountMinor: order.final_amount_minor,
+          verifiedCurrency: order.currency,
+        },
+        manager,
+      );
+      return payment;
     });
   }
 
@@ -303,106 +336,6 @@ export class AttendanceCodesService {
           'لديك بالفعل صلاحية الوصول إلى هذا العنصر — لم يتم استهلاك الرمز',
         ),
       );
-    }
-  }
-
-  /**
-   * Grant book access (permanent, mirrors PaymentsService.grantBookAccess).
-   */
-  private async grantBookAccess(
-    manager: ReturnType<DataSource['createEntityManager']>,
-    payment: Payment,
-    bookId: string,
-  ): Promise<void> {
-    const bookPurchase = manager.create(BookPurchase, {
-      student_id: payment.user_id,
-      book_id: bookId,
-      payment_id: payment.id,
-      price_paid: 0,
-    });
-
-    await manager.save(BookPurchase, bookPurchase);
-    await manager.increment(Book, { id: bookId }, 'purchase_count', 1);
-  }
-
-  /**
-   * Grant lesson access (7-day rule)
-   */
-  private async grantLessonAccess(
-    manager: ReturnType<DataSource['createEntityManager']>,
-    payment: Payment,
-    lessonId: string,
-  ): Promise<void> {
-    const lesson = await manager.findOne(Lesson, {
-      where: { id: lessonId },
-    });
-
-    const accessDays = lesson?.available_for_days ?? 7;
-    const accessGrantedAt = new Date();
-    const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
-
-    const lessonPurchase = manager.create(LessonPurchase, {
-      student_id: payment.user_id,
-      lesson_id: lessonId,
-      payment_id: payment.id,
-      price_paid: 0,
-      access_granted_at: accessGrantedAt,
-      access_expires_at: accessExpiresAt,
-      days_extended: 0,
-    });
-
-    await manager.save(LessonPurchase, lessonPurchase);
-    await manager.increment(Lesson, { id: lessonId }, 'students_count', 1);
-  }
-
-  /**
-   * Grant package access (all lessons)
-   */
-  private async grantPackageAccess(
-    manager: ReturnType<DataSource['createEntityManager']>,
-    payment: Payment,
-    packageId: string,
-  ): Promise<void> {
-    const pkg = await manager.findOne(LessonPackage, {
-      where: { id: packageId },
-      relations: ['items', 'items.lesson'],
-    });
-
-    if (!pkg) {
-      throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
-    }
-
-    // Create package purchase
-    const packagePurchase = manager.create(PackagePurchase, {
-      student_id: payment.user_id,
-      package_id: packageId,
-      payment_id: payment.id,
-      price_paid: 0,
-      purchased_at: new Date(),
-    });
-
-    await manager.save(PackagePurchase, packagePurchase);
-
-    // Grant access to each lesson
-    for (const item of pkg.items) {
-      const { lesson } = item;
-
-      const accessDays = lesson.available_for_days === 0 ? 7 : lesson.available_for_days;
-      const accessGrantedAt = new Date();
-      const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
-
-      const lessonPurchase = manager.create(LessonPurchase, {
-        student_id: payment.user_id,
-        lesson_id: lesson.id,
-        payment_id: payment.id,
-        price_paid: 0,
-        access_granted_at: accessGrantedAt,
-        access_expires_at: accessExpiresAt,
-        days_extended: 0,
-      });
-
-      await manager.save(LessonPurchase, lessonPurchase);
-      await manager.increment(Lesson, { id: lesson.id }, 'students_count', 1);
     }
   }
 

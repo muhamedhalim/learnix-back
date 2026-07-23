@@ -67,6 +67,7 @@ export class CommentsService {
       where: {
         student_id: studentId,
         lesson_id: lessonId,
+        revoked_at: IsNull(),
       },
     });
 
@@ -85,6 +86,7 @@ export class CommentsService {
         { lessonId },
       )
       .where('pp.student_id = :studentId', { studentId })
+      .andWhere('pp.revoked_at IS NULL')
       .getOne();
 
     return !!packagePurchase;

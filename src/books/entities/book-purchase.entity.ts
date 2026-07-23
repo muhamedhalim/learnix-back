@@ -16,6 +16,7 @@ import type { Book } from './book.entity';
 @Entity('book_purchases')
 @Index('IDX_book_purchases_student_book', ['student_id', 'book_id'], {
   unique: true,
+  where: '"revoked_at" IS NULL',
 })
 export class BookPurchase {
   @PrimaryGeneratedColumn('uuid')
@@ -47,6 +48,12 @@ export class BookPurchase {
 
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'price_paid' })
   price_paid!: number;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'revoked_at' })
+  revoked_at!: Date | null;
+
+  @Column({ type: 'text', nullable: true, name: 'revocation_reason' })
+  revocation_reason!: string | null;
 
   @CreateDateColumn({ name: 'purchased_at' })
   purchased_at!: Date;

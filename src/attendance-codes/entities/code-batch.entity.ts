@@ -10,6 +10,8 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { CollectionParty } from '../../payments/entities/collection-party.enum';
+import { minorUnitsTransformer } from '../../payments/money.util';
 import { AttendanceCodeType } from './attendance-code-type.enum';
 import { CodeBatchStatus } from './code-batch-status.enum';
 
@@ -34,6 +36,35 @@ export class CodeBatch {
 
   @Column({ type: 'uuid', name: 'item_id' })
   item_id!: string;
+
+  @Column({ type: 'uuid', nullable: true, name: 'teacher_id' })
+  teacher_id!: string | null;
+
+  @Column({
+    type: 'bigint',
+    nullable: true,
+    name: 'face_value_minor',
+    transformer: minorUnitsTransformer,
+  })
+  face_value_minor!: number | null;
+
+  @Column({ type: 'int', nullable: true, name: 'platform_commission_bps' })
+  platform_commission_bps!: number | null;
+
+  @Column({ type: 'char', length: 3, default: 'EGP' })
+  currency!: string;
+
+  @Column({ type: 'varchar', length: 30, default: CollectionParty.UNKNOWN })
+  collection_party!: CollectionParty;
+
+  @Column({ type: 'text', nullable: true, name: 'distribution_notes' })
+  distribution_notes!: string | null;
+
+  @Column({ type: 'boolean', default: false, name: 'export_allowed' })
+  export_allowed!: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  metadata!: Record<string, unknown> | null;
 
   /** Requested number of codes (1–100,000). */
   @Column({ type: 'int', name: 'requested_count' })

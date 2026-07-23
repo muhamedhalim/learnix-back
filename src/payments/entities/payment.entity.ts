@@ -10,7 +10,9 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { minorUnitsTransformer } from '../money.util';
 import { ItemType } from './item-type.enum';
+import { PaymentChannel } from './payment-channel.enum';
 import { PaymentMethod } from './payment-method.enum';
 import { PaymentStatus } from './payment-status.enum';
 
@@ -20,6 +22,7 @@ import { PaymentStatus } from './payment-status.enum';
 @Index('IDX_payments_item_type', ['item_type'])
 @Index('IDX_payments_created_at', ['created_at'])
 @Index('IDX_payments_user_status', ['user_id', 'status'])
+@Index('UQ_payments_order_id', ['order_id'], { unique: true, where: '"order_id" IS NOT NULL' })
 // Guarantees at most one in-flight (pending/processing) payment per user+item,
 // so concurrent "Pay" clicks / refresh-during-payment cannot open two gateway
 // orders for the same purchase (double-charge protection). Partial unique index.
@@ -30,6 +33,9 @@ import { PaymentStatus } from './payment-status.enum';
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @Column({ type: 'uuid', nullable: true, name: 'order_id' })
+  order_id!: string | null;
 
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;
@@ -58,6 +64,26 @@ export class Payment {
 
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'final_amount' })
   final_amount!: number;
+
+  @Column({
+    type: 'bigint',
+    nullable: true,
+    name: 'amount_minor',
+    transformer: minorUnitsTransformer,
+  })
+  amount_minor!: number | null;
+
+  @Column({ type: 'char', length: 3, default: 'EGP' })
+  currency!: string;
+
+  @Column({ type: 'varchar', length: 30, default: PaymentChannel.LEGACY })
+  channel!: PaymentChannel;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  provider!: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'provider_reference' })
+  provider_reference!: string | null;
 
   @Column({
     type: 'enum',
@@ -101,6 +127,9 @@ export class Payment {
 
   @Column({ type: 'text', nullable: true, name: 'failure_reason' })
   failure_reason!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'completed_at' })
+  completed_at!: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;

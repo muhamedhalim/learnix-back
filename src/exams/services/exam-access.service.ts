@@ -48,29 +48,34 @@ export class ExamAccessService {
       SELECT 1 FROM lesson_purchases lp
       WHERE lp.student_id = :studentId
         AND lp.lesson_id = ${alias}.lesson_id
+        AND lp.revoked_at IS NULL
         AND lp.access_expires_at > :accessNow
     )`;
     const courseLessonAccess = `EXISTS (
       SELECT 1 FROM package_purchases pp
       INNER JOIN lesson_package_items lpi ON lpi.package_id = pp.package_id
       WHERE pp.student_id = :studentId
+        AND pp.revoked_at IS NULL
         AND lpi.lesson_id = ${alias}.lesson_id
     )`;
     const targetCourseAccess = `EXISTS (
       SELECT 1 FROM package_purchases target_pp
       WHERE target_pp.student_id = :studentId
+        AND target_pp.revoked_at IS NULL
         AND target_pp.package_id = ${alias}.package_id
     )`;
     const instructorRosterAccess = `EXISTS (
       SELECT 1 FROM lesson_purchases roster_lp
       INNER JOIN lessons roster_lesson ON roster_lesson.id = roster_lp.lesson_id
       WHERE roster_lp.student_id = :studentId
+        AND roster_lp.revoked_at IS NULL
         AND roster_lesson.teacher_id = ${alias}.teacher_id
         AND roster_lp.access_expires_at > :accessNow
     ) OR EXISTS (
       SELECT 1 FROM package_purchases roster_pp
       INNER JOIN lesson_packages roster_package ON roster_package.id = roster_pp.package_id
       WHERE roster_pp.student_id = :studentId
+        AND roster_pp.revoked_at IS NULL
         AND roster_package.teacher_id = ${alias}.teacher_id
     )`;
 

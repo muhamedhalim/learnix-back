@@ -10,6 +10,10 @@
  * with existing verify/redeem logic; `status` is the canonical lifecycle field.
  */
 export enum AttendanceCodeStatus {
+  GENERATED = 'generated',
+  ASSIGNED = 'assigned',
+  ACTIVE = 'active',
+  RESERVED = 'reserved',
   UNUSED = 'unused',
   REDEEMED = 'redeemed',
   EXPIRED = 'expired',

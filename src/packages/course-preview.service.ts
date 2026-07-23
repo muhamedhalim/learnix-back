@@ -75,7 +75,7 @@ export class CoursePreviewService {
       this.buildCurriculum(packageId),
       this.reviewsService.getPackageAggregates(packageId),
       this.packagePurchasesRepository.count({
-        where: { package_id: packageId },
+        where: { package_id: packageId, revoked_at: IsNull() },
       }),
       this.buildRelated(pkg),
     ]);

@@ -6,6 +6,15 @@ import { ConfigService } from '@nestjs/config';
 import { biBody } from '../../i18n/error-translator.util';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
+import { fromMinorUnits } from '../money.util';
+import type {
+  PaymentProvider,
+  ProviderCheckoutInput,
+  ProviderCheckoutResult,
+  ProviderPaymentStatus,
+  ProviderRefundInput,
+  ProviderRefundResult,
+} from '../providers/payment-provider.interface';
 
 /*
  * EasyKash payment provider. Implemented strictly from the official docs:
@@ -25,7 +34,7 @@ const CREATE_PAYMENT_PATH = '/api/directpayv1/pay';
 const CURRENCY = 'EGP';
 
 @Injectable()
-export class EasyKashService {
+export class EasyKashService implements PaymentProvider {
   private readonly logger = new Logger(EasyKashService.name);
   private readonly apiKey: string;
   private readonly hmacSecret: string;
@@ -38,6 +47,52 @@ export class EasyKashService {
     this.apiUrl = (this.configService.get<string>('EASYKASH_API_URL') ?? '').replace(/\/+$/, '');
     // Browser return destination after checkout (EasyKash appends ?status=...).
     this.frontendUrl = (this.configService.get<string>('FRONTEND_URL') ?? '').replace(/\/+$/, '');
+  }
+
+  public readonly name = 'easykash';
+
+  public async createCheckout(input: ProviderCheckoutInput): Promise<ProviderCheckoutResult> {
+    if (input.currency !== CURRENCY) {
+      throw new InternalServerErrorException(
+        biBody('Payment currency is not supported', 'عملة الدفع غير مدعومة'),
+      );
+    }
+    const result = await this.initiatePayment(
+      fromMinorUnits(input.amountMinor),
+      input.paymentId,
+      input.billingData,
+    );
+    return {
+      redirectUrl: result.redirectUrl,
+      providerReference: result.providerReference === '' ? null : result.providerReference,
+    };
+  }
+
+  public async getPaymentStatus(_providerReference: string): Promise<ProviderPaymentStatus | null> {
+    // EasyKash inquiry is not enabled for this integration. Reconciliation
+    // reports the attempt as unresolved instead of fabricating provider state.
+    return null;
+  }
+
+  public async refund(_input: ProviderRefundInput): Promise<ProviderRefundResult> {
+    throw new InternalServerErrorException(
+      biBody(
+        'Automatic refunds are not supported by the configured provider',
+        'الاسترداد الآلي غير مدعوم من مزود الدفع الحالي',
+      ),
+    );
+  }
+
+  public supportsRefunds(): boolean {
+    return false;
+  }
+
+  public supportsPayouts(): boolean {
+    return false;
+  }
+
+  public supportsSplitSettlement(): boolean {
+    return false;
   }
 
   /**

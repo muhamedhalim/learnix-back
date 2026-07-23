@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -72,6 +72,7 @@ export class ReviewsService {
       .createQueryBuilder('lp')
       .innerJoin('lessons', 'l', 'l.id = lp.lesson_id')
       .where('lp.student_id = :studentId', { studentId })
+      .andWhere('lp.revoked_at IS NULL')
       .andWhere('l.teacher_id = :teacherId', { teacherId })
       .getOne();
 
@@ -85,6 +86,7 @@ export class ReviewsService {
       .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = pkg.id')
       .innerJoin('lessons', 'l', 'l.id = lpi.lesson_id')
       .where('pp.student_id = :studentId', { studentId })
+      .andWhere('pp.revoked_at IS NULL')
       .andWhere('l.teacher_id = :teacherId', { teacherId })
       .getOne();
 
@@ -97,7 +99,7 @@ export class ReviewsService {
     lessonId: string,
   ): Promise<boolean> {
     const directPurchase = await this.lessonPurchasesRepository.findOne({
-      where: { student_id: studentId, lesson_id: lessonId },
+      where: { student_id: studentId, lesson_id: lessonId, revoked_at: IsNull() },
     });
 
     if (directPurchase) {
@@ -114,6 +116,7 @@ export class ReviewsService {
         { lessonId },
       )
       .where('pp.student_id = :studentId', { studentId })
+      .andWhere('pp.revoked_at IS NULL')
       .getOne();
 
     return !!packagePurchase;

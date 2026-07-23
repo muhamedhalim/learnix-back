@@ -161,12 +161,15 @@ export class TeacherBroadcastService {
     await this.assertOwnsLesson(teacherId, lessonId);
 
     const [direct, viaPackage] = await Promise.all([
-      this.lessonPurchases.find({ where: { lesson_id: lessonId } }),
+      this.lessonPurchases.find({
+        where: { lesson_id: lessonId, revoked_at: IsNull() },
+      }),
       this.packagePurchases
         .createQueryBuilder('pp')
         .innerJoin('pp.package', 'package')
         .innerJoin('package.items', 'items')
         .where('items.lesson_id = :lessonId', { lessonId })
+        .andWhere('pp.revoked_at IS NULL')
         .distinct(true)
         .select('pp.student_id', 'student_id')
         .getRawMany<{ student_id: string }>(),

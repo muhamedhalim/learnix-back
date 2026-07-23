@@ -1,10 +1,13 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
+import { ConfigService } from '@nestjs/config';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { Book } from '../books/entities/book.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { CommissionService } from '../payments/services/commission.service';
 import { QUEUE_NAMES, JOB_TYPES } from '../queues/queues.constants';
 import { CodeBatchesService } from './code-batches.service';
 import { BulkCodeAction } from './dto';
@@ -41,6 +44,7 @@ describe('CodeBatchesService', () => {
   };
   const lessonsRepo = { findOne: jest.fn() };
   const packagesRepo = { findOne: jest.fn() };
+  const booksRepo = { findOne: jest.fn() };
   const queue = { add: jest.fn() };
 
   beforeEach(async () => {
@@ -53,7 +57,13 @@ describe('CodeBatchesService', () => {
         { provide: getRepositoryToken(AttendanceCodeAudit), useValue: auditRepo },
         { provide: getRepositoryToken(Lesson), useValue: lessonsRepo },
         { provide: getRepositoryToken(LessonPackage), useValue: packagesRepo },
+        { provide: getRepositoryToken(Book), useValue: booksRepo },
         { provide: getQueueToken(QUEUE_NAMES.CODE_GENERATION), useValue: queue },
+        {
+          provide: CommissionService,
+          useValue: { resolveRate: jest.fn().mockReturnValue(3_000) },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
       ],
     }).compile();
     service = module.get(CodeBatchesService);
@@ -61,7 +71,11 @@ describe('CodeBatchesService', () => {
 
   describe('createBatch', () => {
     it('validates the item, persists the batch, audits and enqueues generation', async () => {
-      lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1' });
+      lessonsRepo.findOne.mockResolvedValue({
+        id: 'lesson-1',
+        teacher_id: 'teacher-1',
+        price: 100,
+      });
       batchRepo.save.mockResolvedValue({
         id: 'batch-1',
         name: 'Spring',

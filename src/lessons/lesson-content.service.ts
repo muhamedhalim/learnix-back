@@ -14,10 +14,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
-import {
-  buildAbsoluteUrl,
-  getConfiguredPublicOrigin,
-} from '../config/public-url.util';
+import { buildAbsoluteUrl, getConfiguredPublicOrigin } from '../config/public-url.util';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationType } from '../notifications/entities';
@@ -377,10 +374,7 @@ export class LessonContentService {
     const data = rows.map((homework) => ({
       ...homework,
       resource_url: homework.resource_url
-        ? buildAbsoluteUrl(
-            this.apiOrigin,
-            `/api/v1/student/homework/${homework.id}/resource`,
-          )
+        ? buildAbsoluteUrl(this.apiOrigin, `/api/v1/student/homework/${homework.id}/resource`)
         : null,
       lesson: {
         id: homework.lesson.id,
@@ -626,7 +620,10 @@ export class LessonContentService {
     return this.fetchPrivateObject(submission?.resource_url ?? null, 'Submission file not found');
   }
 
-  private async fetchPrivateObject(reference: string | null, message: string): Promise<StoredObject> {
+  private async fetchPrivateObject(
+    reference: string | null,
+    message: string,
+  ): Promise<StoredObject> {
     if (!reference) throw new NotFoundException(message);
     try {
       return await this.storage.getObject(this.storage.toKey(reference));
@@ -699,11 +696,13 @@ export class LessonContentService {
         SELECT 1 FROM lesson_purchases lp
         WHERE lp.student_id = :studentId
           AND lp.lesson_id = homework.lesson_id
+          AND lp.revoked_at IS NULL
           AND lp.access_expires_at > :accessNow
       ) OR EXISTS (
         SELECT 1 FROM package_purchases pp
         INNER JOIN lesson_package_items lpi ON lpi.package_id = pp.package_id
         WHERE pp.student_id = :studentId
+          AND pp.revoked_at IS NULL
           AND lpi.lesson_id = homework.lesson_id
       ))`,
       { studentId, accessNow: new Date() },
@@ -745,6 +744,7 @@ export class LessonContentService {
       this.lessonPurchases
         .createQueryBuilder('purchase')
         .where('purchase.lesson_id = :lessonId', { lessonId })
+        .andWhere('purchase.revoked_at IS NULL')
         .andWhere('purchase.access_expires_at > :now', { now: new Date() })
         .select('purchase.student_id', 'student_id')
         .distinct(true)
@@ -753,6 +753,7 @@ export class LessonContentService {
         .createQueryBuilder('purchase')
         .innerJoin('purchase.package', 'package')
         .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', { lessonId })
+        .where('purchase.revoked_at IS NULL')
         .select('purchase.student_id', 'student_id')
         .distinct(true)
         .getRawMany<{ student_id: string }>(),

@@ -417,19 +417,20 @@ export class AnalyticsService {
 
     // Count purchased lessons
     const purchasedLessons = await this.lessonPurchasesRepository.count({
-      where: { student_id: studentId },
+      where: { student_id: studentId, revoked_at: IsNull() },
     });
 
     // Count attended lessons (where access_granted_at is not null)
     const attendedLessons = await this.lessonPurchasesRepository
       .createQueryBuilder('lp')
       .where('lp.student_id = :studentId', { studentId })
+      .andWhere('lp.revoked_at IS NULL')
       .andWhere('lp.access_granted_at IS NOT NULL')
       .getCount();
 
     // Count books owned
     const booksOwned = await this.bookPurchasesRepository.count({
-      where: { student_id: studentId },
+      where: { student_id: studentId, revoked_at: IsNull() },
     });
 
     // Count exams completed (fully graded)

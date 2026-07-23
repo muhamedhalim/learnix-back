@@ -20,6 +20,9 @@ import { Payment } from './payment.entity';
 @Index('IDX_lesson_purchases_payment_id', ['payment_id'])
 @Index('IDX_lesson_purchases_expires_at', ['access_expires_at'])
 @Index('IDX_lesson_purchases_student_lesson', ['student_id', 'lesson_id'])
+@Index('UQ_lesson_purchases_payment_lesson_student', ['payment_id', 'lesson_id', 'student_id'], {
+  unique: true,
+})
 export class LessonPurchase {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -56,6 +59,12 @@ export class LessonPurchase {
 
   @Column({ type: 'int', default: 0, name: 'days_extended' })
   days_extended!: number;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'revoked_at' })
+  revoked_at!: Date | null;
+
+  @Column({ type: 'text', nullable: true, name: 'revocation_reason' })
+  revocation_reason!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;

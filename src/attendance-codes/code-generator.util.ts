@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 // Excludes visually ambiguous characters (0/O, 1/I) for reliable manual entry.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -16,4 +16,20 @@ export function generateAttendanceCode(): string {
     code += CODE_ALPHABET.charAt(byte % CODE_ALPHABET.length);
   }
   return code;
+}
+
+export function normalizeAttendanceCode(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/gu, '');
+}
+
+/**
+ * Deterministic lookup digest. The raw code remains encrypted/private-export
+ * inventory for backward compatibility, while public/student lookup uses this
+ * indexed digest and never writes the raw code to logs.
+ */
+export function hashAttendanceCode(value: string): string {
+  return createHash('sha256').update(normalizeAttendanceCode(value), 'utf8').digest('hex');
 }

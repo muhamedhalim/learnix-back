@@ -540,7 +540,9 @@ export class QuizAnalyticsService {
 
           SELECT exam.id, student.id
           FROM exams exam
-          INNER JOIN package_purchases purchase ON purchase.package_id = exam.package_id
+          INNER JOIN package_purchases purchase
+            ON purchase.package_id = exam.package_id
+           AND purchase.revoked_at IS NULL
           INNER JOIN users student
             ON student.id = purchase.student_id
            AND student.is_active = true
@@ -561,6 +563,7 @@ export class QuizAnalyticsService {
           FROM exams exam
           INNER JOIN lesson_purchases purchase
             ON purchase.lesson_id = exam.lesson_id
+           AND purchase.revoked_at IS NULL
            AND purchase.access_expires_at > NOW()
           INNER JOIN users student
             ON student.id = purchase.student_id
@@ -581,7 +584,9 @@ export class QuizAnalyticsService {
           SELECT exam.id, student.id
           FROM exams exam
           INNER JOIN lesson_package_items item ON item.lesson_id = exam.lesson_id
-          INNER JOIN package_purchases purchase ON purchase.package_id = item.package_id
+          INNER JOIN package_purchases purchase
+            ON purchase.package_id = item.package_id
+           AND purchase.revoked_at IS NULL
           INNER JOIN users student
             ON student.id = purchase.student_id
            AND student.is_active = true
@@ -603,6 +608,7 @@ export class QuizAnalyticsService {
           INNER JOIN lessons roster_lesson ON roster_lesson.teacher_id = exam.teacher_id
           INNER JOIN lesson_purchases purchase
             ON purchase.lesson_id = roster_lesson.id
+           AND purchase.revoked_at IS NULL
            AND purchase.access_expires_at > NOW()
           INNER JOIN users student
             ON student.id = purchase.student_id
@@ -624,7 +630,9 @@ export class QuizAnalyticsService {
           SELECT exam.id, student.id
           FROM exams exam
           INNER JOIN lesson_packages roster_course ON roster_course.teacher_id = exam.teacher_id
-          INNER JOIN package_purchases purchase ON purchase.package_id = roster_course.id
+          INNER JOIN package_purchases purchase
+            ON purchase.package_id = roster_course.id
+           AND purchase.revoked_at IS NULL
           INNER JOIN users student
             ON student.id = purchase.student_id
            AND student.is_active = true

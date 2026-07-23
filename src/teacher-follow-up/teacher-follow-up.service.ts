@@ -489,11 +489,13 @@ export class TeacherFollowUpService {
               SELECT 1 FROM lesson_purchases lp
               WHERE lp.student_id = student.id
                 AND lp.lesson_id = homework.lesson_id
+                AND lp.revoked_at IS NULL
                 AND lp.access_expires_at > NOW()
             ) OR EXISTS (
               SELECT 1 FROM package_purchases pp
               INNER JOIN lesson_package_items item ON item.package_id = pp.package_id
               WHERE pp.student_id = student.id AND item.lesson_id = homework.lesson_id
+                AND pp.revoked_at IS NULL
             )
           )
         GROUP BY student.id

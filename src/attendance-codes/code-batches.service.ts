@@ -1,17 +1,34 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Queue } from 'bullmq';
 import { In, IsNull, Repository } from 'typeorm';
 
+import { Book } from '../books/entities/book.entity';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import {
+  CollectionParty,
+  FinancialLedgerEntry,
+  LedgerDirection,
+  Order,
+  OrderStatus,
+} from '../payments/entities';
+import { toMinorUnits } from '../payments/money.util';
+import { CommissionService } from '../payments/services/commission.service';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { applyCodeSelection } from './code-query.util';
-import { generateAttendanceCode } from './code-generator.util';
+import { generateAttendanceCode, hashAttendanceCode } from './code-generator.util';
 import { generateQrPngBuffer } from './exporters/qr.util';
 import {
   BulkCodeAction,
@@ -83,21 +100,52 @@ export class CodeBatchesService {
     private readonly lessonsRepo: Repository<Lesson>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepo: Repository<LessonPackage>,
+    @InjectRepository(Book)
+    private readonly booksRepo: Repository<Book>,
     @InjectQueue(QUEUE_NAMES.CODE_GENERATION)
     private readonly generationQueue: Queue,
+    private readonly commissions: CommissionService,
+    private readonly config: ConfigService,
   ) {}
 
   /* ============================ Batch lifecycle ============================ */
 
   /** Validate the target item, persist a PENDING batch, and enqueue generation. */
   public async createBatch(dto: CreateCodeBatchDto, adminId: string): Promise<CodeBatch> {
-    await this.assertItemExists(dto.type, dto.item_id);
+    const item = await this.getItemSnapshot(dto.type, dto.item_id);
+    const commissionBps = this.commissions.resolveRate(dto.platform_commission_bps);
+    if (dto.collection_party === CollectionParty.UNKNOWN) {
+      throw new BadRequestException(
+        biBody(
+          'New code batches must identify the collection party',
+          'يجب تحديد جهة تحصيل الأموال لدفعات الأكواد الجديدة',
+        ),
+      );
+    }
+    await this.assertReceivableCreditAvailable(
+      item.teacherId,
+      dto.collection_party,
+      dto.face_value_minor ?? item.priceMinor,
+      commissionBps,
+      dto.count,
+    );
 
     const batch = await this.batchRepo.save(
       this.batchRepo.create({
         name: dto.name.trim(),
         type: dto.type,
         item_id: dto.item_id,
+        teacher_id: item.teacherId,
+        face_value_minor: dto.face_value_minor ?? item.priceMinor,
+        platform_commission_bps: commissionBps,
+        currency: 'EGP',
+        collection_party: dto.collection_party,
+        distribution_notes: dto.distribution_notes?.trim() ?? null,
+        export_allowed: dto.export_allowed ?? false,
+        metadata: {
+          product_title_snapshot: item.title,
+          product_price_minor_snapshot: item.priceMinor,
+        },
         requested_count: dto.count,
         generated_count: 0,
         status: CodeBatchStatus.PENDING,
@@ -164,15 +212,31 @@ export class CodeBatchesService {
 
       while (generated < batch.requested_count && safety++ < maxLoops) {
         const size = Math.min(GENERATION_CHUNK, batch.requested_count - generated);
-        const rows = Array.from({ length: size }, () => ({
-          code: generateAttendanceCode(),
-          type: batch.type,
-          item_id: batch.item_id,
-          batch_id: batch.id,
-          expires_at: batch.expires_at,
-          created_by: batch.created_by,
-          status: AttendanceCodeStatus.UNUSED,
-        }));
+        const rows = Array.from({ length: size }, () => {
+          const code = generateAttendanceCode();
+          return {
+            code,
+            lookup_hash: hashAttendanceCode(code),
+            type: batch.type,
+            item_id: batch.item_id,
+            teacher_id: batch.teacher_id,
+            face_value_minor: batch.face_value_minor,
+            platform_commission_bps: batch.platform_commission_bps,
+            currency: batch.currency,
+            batch_id: batch.id,
+            status: AttendanceCodeStatus.UNUSED,
+            valid_from: new Date(),
+            maximum_redemptions: 1,
+            redemption_count: 0,
+            collection_party: batch.collection_party,
+            assigned_party: null,
+            assigned_student_id: null,
+            redeemed_order_id: null,
+            metadata: { batch_name: batch.name },
+            expires_at: batch.expires_at,
+            created_by: batch.created_by,
+          };
+        });
 
         const result = await this.codeRepo
           .createQueryBuilder()
@@ -253,14 +317,49 @@ export class CodeBatchesService {
   }
 
   /** Batch detail with a lifecycle breakdown of its codes. */
-  public async getBatch(id: string): Promise<CodeBatch & { analytics: CodeAnalytics }> {
+  public async getBatch(id: string): Promise<
+    CodeBatch & {
+      analytics: CodeAnalytics;
+      financial_summary: Record<string, number | string>;
+    }
+  > {
     const batch = await this.batchRepo.findOne({
       where: { id },
       relations: ['creator'],
     });
     if (!batch) throw new NotFoundException(biBody('Batch not found', 'الدفعة غير موجودة'));
     const analytics = await this.getAnalytics({ batch_id: id });
-    return Object.assign(batch, { analytics });
+    const orderTotals = await this.batchRepo.manager
+      .getRepository(Order)
+      .createQueryBuilder('order')
+      .select('COALESCE(SUM(order.final_amount_minor), 0)', 'gross_minor')
+      .addSelect('COALESCE(SUM(order.platform_commission_minor), 0)', 'commission_minor')
+      .addSelect('COALESCE(SUM(order.teacher_earning_minor), 0)', 'teacher_earning_minor')
+      .addSelect('COALESCE(SUM(order.refunded_amount_minor), 0)', 'refunded_minor')
+      .where("order.metadata ->> 'code_batch_id' = :batchId", { batchId: id })
+      .andWhere('order.status IN (:...statuses)', {
+        statuses: [OrderStatus.PAID, OrderStatus.PARTIALLY_REFUNDED, OrderStatus.REFUNDED],
+      })
+      .getRawOne<{
+        gross_minor: string;
+        commission_minor: string;
+        teacher_earning_minor: string;
+        refunded_minor: string;
+      }>();
+    const faceValue = batch.face_value_minor ?? 0;
+    const commissionMinor = Number(orderTotals?.commission_minor ?? 0);
+    const financial_summary = {
+      currency: batch.currency,
+      issued_face_value_minor: faceValue * batch.generated_count,
+      redeemed_gross_minor: Number(orderTotals?.gross_minor ?? 0),
+      platform_commission_minor: commissionMinor,
+      teacher_earning_minor: Number(orderTotals?.teacher_earning_minor ?? 0),
+      refunded_minor: Number(orderTotals?.refunded_minor ?? 0),
+      unused_liability_minor: faceValue * analytics.remaining,
+      platform_receivable_minor:
+        batch.collection_party === CollectionParty.PLATFORM ? 0 : commissionMinor,
+    };
+    return Object.assign(batch, { analytics, financial_summary });
   }
 
   public async listCodes(
@@ -571,7 +670,44 @@ export class CodeBatchesService {
     return applyCodeSelection(this.codeRepo.createQueryBuilder('code'), query);
   }
 
-  private async assertItemExists(type: AttendanceCodeType, itemId: string): Promise<void> {
+  private async getItemSnapshot(
+    type: AttendanceCodeType,
+    itemId: string,
+  ): Promise<{ teacherId: string; priceMinor: number; title: string }> {
+    if (type === AttendanceCodeType.LESSON) {
+      const found = await this.lessonsRepo.findOne({
+        where: { id: itemId, deleted_at: IsNull() },
+      });
+      if (!found) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+      return {
+        teacherId: found.teacher_id,
+        priceMinor: toMinorUnits(found.price),
+        title: found.title,
+      };
+    }
+    if (type === AttendanceCodeType.PACKAGE) {
+      const found = await this.packagesRepo.findOne({
+        where: { id: itemId, deleted_at: IsNull() },
+      });
+      if (!found) throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
+      return {
+        teacherId: found.teacher_id,
+        priceMinor: toMinorUnits(found.price),
+        title: found.title,
+      };
+    }
+    const found = await this.booksRepo.findOne({
+      where: { id: itemId, deleted_at: IsNull() },
+    });
+    if (!found) throw new NotFoundException(biBody('Book not found', 'الكتاب غير موجود'));
+    return {
+      teacherId: found.teacher_id,
+      priceMinor: toMinorUnits(found.price),
+      title: found.title,
+    };
+  }
+
+  public async assertItemExists(type: AttendanceCodeType, itemId: string): Promise<void> {
     if (type === AttendanceCodeType.LESSON) {
       const found = await this.lessonsRepo.findOne({
         where: { id: itemId, deleted_at: IsNull() },
@@ -585,6 +721,42 @@ export class CodeBatchesService {
     }
     // BOOK items are validated by the books module elsewhere; parity with the
     // existing single-code generation which does not re-validate books here.
+  }
+
+  private async assertReceivableCreditAvailable(
+    teacherId: string,
+    collectionParty: CollectionParty,
+    faceValueMinor: number,
+    commissionBps: number,
+    count: number,
+  ): Promise<void> {
+    if (collectionParty === CollectionParty.PLATFORM) return;
+    const limit = Number.parseInt(
+      this.config.get<string>('TEACHER_CODE_RECEIVABLE_LIMIT_MINOR') ?? '0',
+      10,
+    );
+    if (!Number.isSafeInteger(limit) || limit <= 0) return;
+    const result = await this.batchRepo.manager
+      .getRepository(FinancialLedgerEntry)
+      .createQueryBuilder('entry')
+      .select(
+        `COALESCE(SUM(CASE WHEN entry.direction = :credit THEN entry.amount_minor ELSE -entry.amount_minor END), 0)`,
+        'balance',
+      )
+      .where('entry.teacher_id = :teacherId', { teacherId })
+      .andWhere('entry.account = :account', { account: 'platform_receivable' })
+      .setParameter('credit', LedgerDirection.CREDIT)
+      .getRawOne<{ balance: string }>();
+    const outstanding = Number(result?.balance ?? 0);
+    const projectedCommission = Math.round((faceValueMinor * commissionBps * count) / 10_000);
+    if (outstanding + projectedCommission > limit) {
+      throw new ConflictException(
+        biBody(
+          'This batch exceeds the configured platform receivable credit limit',
+          'تتجاوز هذه الدفعة حد مديونية المنصة المسموح به',
+        ),
+      );
+    }
   }
 
   /** Write one audit row per affected code (chunked), for a complete trail. */

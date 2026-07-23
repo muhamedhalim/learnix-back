@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Book } from '../books/entities/book.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { PaymentsModule } from '../payments/payments.module';
 import { LessonPurchase, PackagePurchase, Payment } from '../payments/entities';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
@@ -23,6 +24,7 @@ import { CodeGenerationProcessor } from './processors/code-generation.processor'
 
 @Module({
   imports: [
+    PaymentsModule,
     TypeOrmModule.forFeature([
       AttendanceCode,
       CodeBatch,

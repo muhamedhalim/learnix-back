@@ -8,7 +8,10 @@ import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
-import { ItemType, LessonPurchase, PackagePurchase, Payment, PaymentStatus } from '../payments/entities';
+import { LessonPurchase, PackagePurchase, Payment } from '../payments/entities';
+import { CommissionService } from '../payments/services/commission.service';
+import { OrdersService } from '../payments/services/orders.service';
+import { PaymentFinalizationService } from '../payments/services/payment-finalization.service';
 import { AttendanceCodesService } from './attendance-codes.service';
 import { AttendanceCode, AttendanceCodeStatus, AttendanceCodeType } from './entities';
 
@@ -18,9 +21,12 @@ describe('AttendanceCodesService — redemption correctness', () => {
   let lessonsRepo: { findOne: jest.Mock };
   let packagesRepo: { findOne: jest.Mock };
   let booksRepo: { findOne: jest.Mock };
+  let orders: { createActivationCodeOrder: jest.Mock };
+  let finalizer: { finalizeSuccessfulPayment: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let manager: {
     findOne: jest.Mock;
+    getRepository: jest.Mock;
     save: jest.Mock;
     create: jest.Mock;
     insert: jest.Mock;
@@ -29,6 +35,7 @@ describe('AttendanceCodesService — redemption correctness', () => {
 
   /** Per-entity responses for manager.findOne, settable per test. */
   let managerFindOneByEntity: Map<unknown, unknown>;
+  let lookupCode: AttendanceCode | null;
 
   const buildCode = (over: Partial<AttendanceCode> = {}): AttendanceCode =>
     ({
@@ -40,16 +47,30 @@ describe('AttendanceCodesService — redemption correctness', () => {
       status: AttendanceCodeStatus.UNUSED,
       is_used: false,
       is_active: true,
+      valid_from: null,
       expires_at: new Date(Date.now() + 86_400_000),
+      redemption_count: 0,
+      maximum_redemptions: 1,
+      assigned_student_id: null,
       ...over,
     }) as AttendanceCode;
 
   beforeEach(async () => {
     managerFindOneByEntity = new Map();
+    lookupCode = null;
+    const queryBuilder = {
+      setLock: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn(() => Promise.resolve(lookupCode)),
+    };
     manager = {
       findOne: jest.fn((entity: unknown) =>
         Promise.resolve(managerFindOneByEntity.get(entity) ?? null),
       ),
+      getRepository: jest.fn(() => ({
+        createQueryBuilder: jest.fn(() => queryBuilder),
+      })),
       save: jest.fn((_entity: unknown, obj: unknown) =>
         Promise.resolve({ id: 'saved-1', ...(obj as object) }),
       ),
@@ -67,6 +88,13 @@ describe('AttendanceCodesService — redemption correctness', () => {
     lessonsRepo = { findOne: jest.fn() };
     packagesRepo = { findOne: jest.fn() };
     booksRepo = { findOne: jest.fn() };
+    orders = {
+      createActivationCodeOrder: jest.fn().mockResolvedValue({
+        order: { id: 'order-1', final_amount_minor: 10_000, currency: 'EGP' },
+        payment: { id: 'payment-1' } as Payment,
+      }),
+    };
+    finalizer = { finalizeSuccessfulPayment: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -76,6 +104,12 @@ describe('AttendanceCodesService — redemption correctness', () => {
         { provide: getRepositoryToken(LessonPackage), useValue: packagesRepo },
         { provide: getRepositoryToken(Book), useValue: booksRepo },
         { provide: DataSource, useValue: dataSource },
+        { provide: OrdersService, useValue: orders },
+        { provide: PaymentFinalizationService, useValue: finalizer },
+        {
+          provide: CommissionService,
+          useValue: { resolveRate: jest.fn().mockReturnValue(3_000) },
+        },
       ],
     }).compile();
 
@@ -84,67 +118,57 @@ describe('AttendanceCodesService — redemption correctness', () => {
 
   describe('verifyAndRedeem', () => {
     it('rejects an unknown/used/expired code without side effects', async () => {
-      managerFindOneByEntity.set(AttendanceCode, null);
+      lookupCode = null;
 
-      await expect(
-        service.verifyAndRedeem({ code: 'nope' }, 'student-1'),
-      ).rejects.toBeInstanceOf(NotFoundException);
-      expect(manager.save).not.toHaveBeenCalled();
-      expect(manager.insert).not.toHaveBeenCalled();
-    });
-
-    it('redeems a lesson code: marks used, audits, creates a 0-amount payment, grants access', async () => {
-      managerFindOneByEntity.set(AttendanceCode, buildCode());
-      managerFindOneByEntity.set(LessonPurchase, null); // not already owned
-      managerFindOneByEntity.set(Lesson, { id: 'lesson-1', available_for_days: 7 });
-
-      const payment = await service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1');
-
-      // Code consumed with canonical lifecycle + audit trail.
-      const savedCode = manager.save.mock.calls.find((c) => c[0] === AttendanceCode)?.[1] as
-        | AttendanceCode
-        | undefined;
-      expect(savedCode).toMatchObject({
-        is_used: true,
-        status: AttendanceCodeStatus.REDEEMED,
-        used_by: 'student-1',
-      });
-      expect(manager.insert).toHaveBeenCalled();
-
-      // Free payment ledger entry (idempotent per code+user).
-      expect(payment).toMatchObject({
-        item_type: ItemType.LESSON,
-        final_amount: 0,
-        status: PaymentStatus.COMPLETED,
-        idempotency_key: 'purchase-code-code-1-student-1',
-      });
-
-      // Access artifact + counter.
-      const savedPurchase = manager.save.mock.calls.find((c) => c[0] === LessonPurchase)?.[1];
-      expect(savedPurchase).toMatchObject({ student_id: 'student-1', lesson_id: 'lesson-1' });
-      expect(manager.increment).toHaveBeenCalledWith(Lesson, { id: 'lesson-1' }, 'students_count', 1);
-    });
-
-    it('redeems a BOOK code into a BookPurchase (permanent access) + purchase counter', async () => {
-      managerFindOneByEntity.set(
-        AttendanceCode,
-        buildCode({ type: AttendanceCodeType.BOOK, item_id: 'book-1' }),
+      await expect(service.verifyAndRedeem({ code: 'nope' }, 'student-1')).rejects.toBeInstanceOf(
+        NotFoundException,
       );
+      expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
+      expect(finalizer.finalizeSuccessfulPayment).not.toHaveBeenCalled();
+    });
+
+    it('locks a lesson code and routes redemption through the canonical finalizer', async () => {
+      lookupCode = buildCode();
+      managerFindOneByEntity.set(LessonPurchase, null); // not already owned
+
+      const result = await service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1');
+
+      expect(orders.createActivationCodeOrder).toHaveBeenCalledWith(
+        manager,
+        lookupCode,
+        'student-1',
+      );
+      expect(finalizer.finalizeSuccessfulPayment).toHaveBeenCalledWith(
+        {
+          orderId: 'order-1',
+          paymentId: 'payment-1',
+          sourceReference: 'activation-code-code-1',
+          actorId: 'student-1',
+          activationCodeId: 'code-1',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+        },
+        manager,
+      );
+      expect(result).toMatchObject({ id: 'payment-1' });
+    });
+
+    it('routes a book code through the same canonical order and finalizer', async () => {
+      lookupCode = buildCode({ type: AttendanceCodeType.BOOK, item_id: 'book-1' });
       managerFindOneByEntity.set(BookPurchase, null); // not already owned
 
       await service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1');
 
-      const savedBookPurchase = manager.save.mock.calls.find((c) => c[0] === BookPurchase)?.[1];
-      expect(savedBookPurchase).toMatchObject({
-        student_id: 'student-1',
-        book_id: 'book-1',
-        price_paid: 0,
-      });
-      expect(manager.increment).toHaveBeenCalledWith(Book, { id: 'book-1' }, 'purchase_count', 1);
+      expect(orders.createActivationCodeOrder).toHaveBeenCalledWith(
+        manager,
+        lookupCode,
+        'student-1',
+      );
+      expect(finalizer.finalizeSuccessfulPayment).toHaveBeenCalledTimes(1);
     });
 
     it('refuses to burn the code when the student already owns the item (409)', async () => {
-      managerFindOneByEntity.set(AttendanceCode, buildCode());
+      lookupCode = buildCode();
       managerFindOneByEntity.set(LessonPurchase, {
         id: 'lp-1',
         access_expires_at: new Date(Date.now() + 86_400_000),
@@ -154,24 +178,18 @@ describe('AttendanceCodesService — redemption correctness', () => {
         service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1'),
       ).rejects.toBeInstanceOf(ConflictException);
 
-      // Nothing was consumed or granted.
-      expect(manager.save).not.toHaveBeenCalled();
-      expect(manager.insert).not.toHaveBeenCalled();
-      const paymentSaves = manager.save.mock.calls.filter((c) => c[0] === Payment);
-      expect(paymentSaves).toHaveLength(0);
+      expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
+      expect(finalizer.finalizeSuccessfulPayment).not.toHaveBeenCalled();
     });
 
     it('refuses a package code when the package is already purchased', async () => {
-      managerFindOneByEntity.set(
-        AttendanceCode,
-        buildCode({ type: AttendanceCodeType.PACKAGE, item_id: 'pkg-1' }),
-      );
+      lookupCode = buildCode({ type: AttendanceCodeType.PACKAGE, item_id: 'pkg-1' });
       managerFindOneByEntity.set(PackagePurchase, { id: 'pp-1' });
 
       await expect(
         service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1'),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(manager.save).not.toHaveBeenCalled();
+      expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
     });
   });
 
@@ -194,7 +212,11 @@ describe('AttendanceCodesService — redemption correctness', () => {
     });
 
     it('generates BOOK codes when the book exists', async () => {
-      booksRepo.findOne.mockResolvedValue({ id: 'book-1' });
+      booksRepo.findOne.mockResolvedValue({
+        id: 'book-1',
+        teacher_id: 'teacher-1',
+        price: 100,
+      });
       codesRepo.save.mockImplementation((codes: unknown) => Promise.resolve(codes));
 
       const codes = await service.generateCodes(

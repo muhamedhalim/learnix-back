@@ -1,36 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  forwardRef,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import {
-  DataSource,
-  EntityManager,
-  In,
-  IsNull,
-  LessThanOrEqual,
-  MoreThan,
-  Repository,
-  SelectQueryBuilder,
-} from 'typeorm';
+import { DataSource, In, IsNull, MoreThan, Repository, SelectQueryBuilder } from 'typeorm';
 
-import { Book } from '../../books/entities/book.entity';
-import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
-import { computeAccessExpiresAt } from '../../common/utils/lesson-access.util';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
-import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
 import { biBody } from '../../i18n/error-translator.util';
-import { IdempotencyService } from '../../idempotency/idempotency.service';
-import { Lesson } from '../../lessons/entities/lesson.entity';
-import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto, type PaymentSortField } from '../dto/payment-filter.dto';
 import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
@@ -39,12 +15,17 @@ import { PurchasePackageDto } from '../dto/purchase-package.dto';
 import {
   ItemType,
   LessonPurchase,
+  Order,
+  OrderStatus,
   PackagePurchase,
   Payment,
-  PaymentMethod,
+  PaymentChannel,
   PaymentStatus,
 } from '../entities';
-import { EasyKashService } from './easykash.service';
+import { EntitlementsService } from './entitlements.service';
+import { OrdersService } from './orders.service';
+import { PaymentFinalizationService } from './payment-finalization.service';
+import { RefundsService } from './refunds.service';
 
 export interface PaymentResponse {
   payment_id: string;
@@ -66,18 +47,6 @@ export interface PaymentVerificationContext {
   currency: string;
   transactionId?: string;
 }
-
-/** The only currency this platform charges in. Charges in any other currency
- * are treated as tampering and rejected. */
-const EXPECTED_CURRENCY = 'EGP';
-
-/** How long an initiated payment blocks new attempts for the same item. Matches
- * the gateway payment-session expiration (1h); after this an abandoned PENDING
- * payment is considered stale and is expired to free the slot. */
-const OPEN_PAYMENT_TTL_MS = 60 * 60 * 1000;
-
-/** Name of the partial unique index guarding against concurrent double-charge. */
-const OPEN_PAYMENT_INDEX = 'UQ_payments_open_per_user_item';
 
 const PAYMENT_SORT_COLUMN_BY_FIELD: Readonly<Record<PaymentSortField, string>> = {
   created_at: 'payment.created_at',
@@ -149,407 +118,84 @@ export class PaymentsService {
     private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(PackagePurchase)
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
-    @InjectRepository(Lesson)
-    private readonly lessonsRepository: Repository<Lesson>,
-    @InjectRepository(LessonPackage)
-    private readonly packagesRepository: Repository<LessonPackage>,
-    @InjectRepository(Book)
-    private readonly booksRepository: Repository<Book>,
-    @InjectRepository(BookPurchase)
-    private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly dataSource: DataSource,
-    private readonly easyKashService: EasyKashService,
-    private readonly idempotencyService: IdempotencyService,
     @Inject(forwardRef(() => DiscountCodesService))
     private readonly discountCodesService: DiscountCodesService,
+    private readonly ordersService: OrdersService,
+    private readonly finalizer: PaymentFinalizationService,
+    private readonly entitlementsService: EntitlementsService,
+    private readonly refundsService: RefundsService,
   ) {}
 
-  /**
-   * Purchase a lesson - initiates payment with EasyKash
-   */
   public async purchaseLesson(dto: PurchaseLessonDto, userId: string): Promise<PaymentResponse> {
-    // Generate idempotency key if not provided
-    const idempotencyKey =
-      dto.idempotency_key ?? `lesson-${userId}-${dto.lesson_id}-${Date.now().toString()}`;
-
-    // Check idempotency
-    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+    return this.purchaseThroughCanonicalOrder(
+      ItemType.LESSON,
+      dto.lesson_id,
+      dto.discount_code,
+      dto.idempotency_key,
+      dto.billing_data,
       userId,
-      idempotencyKey,
     );
-    if (
-      idempotencyCheck.isProcessed &&
-      idempotencyCheck.cachedResult !== undefined &&
-      idempotencyCheck.cachedResult !== null
-    ) {
-      this.logger.log(`Returning cached payment response for user ${userId}`);
-      return idempotencyCheck.cachedResult as PaymentResponse;
-    }
-
-    // Get lesson
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: dto.lesson_id, deleted_at: IsNull() },
-    });
-
-    if (lesson === null) {
-      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
-    }
-
-    // Check if student already has active access
-    const existingAccess = await this.checkLessonAccess(userId, dto.lesson_id);
-    if (existingAccess.has_access) {
-      const expiresLabel = existingAccess.expires_at?.toISOString() ?? 'unlimited';
-      throw new ConflictException(
-        biBody(
-          `You already have access to this lesson until ${expiresLabel}`,
-          `لديك بالفعل صلاحية الوصول إلى هذا الدرس حتى ${expiresLabel}`,
-        ),
-      );
-    }
-
-    // Apply discount code if provided
-    let discountAmount = 0;
-    let discountCodeId: string | null = null;
-
-    if (dto.discount_code !== undefined && dto.discount_code !== '') {
-      const verification = await this.discountCodesService.verifyCode(
-        {
-          code: dto.discount_code,
-          item_type: ApplicableItem.LESSON,
-          item_id: dto.lesson_id,
-          amount: lesson.price,
-        },
-        userId,
-      );
-
-      if (!verification.valid) {
-        throw new BadRequestException(verification.error);
-      }
-
-      discountAmount = verification.discount_amount ?? 0;
-      discountCodeId = verification.discount_code_id ?? null;
-    }
-
-    const finalAmount = lesson.price - discountAmount;
-    this.assertChargeableAmount(finalAmount);
-
-    // Create payment using transaction
-    return await this.initiatePaymentTxn(async (manager) => {
-      // Block a second concurrent charge for the same lesson (double-charge).
-      await this.assertNoOpenPayment(manager, userId, ItemType.LESSON, dto.lesson_id);
-
-      // Create payment record
-      const payment = manager.create(Payment, {
-        user_id: userId,
-        item_type: ItemType.LESSON,
-        item_id: dto.lesson_id,
-        amount: lesson.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        status: PaymentStatus.PENDING,
-        payment_method: PaymentMethod.CARD,
-        idempotency_key: idempotencyKey,
-      });
-
-      const savedPayment = await manager.save(Payment, payment);
-
-      // Apply discount code if used (within transaction for atomicity)
-      if (discountCodeId !== null && discountCodeId !== '') {
-        await this.discountCodesService.applyDiscount(
-          discountCodeId,
-          userId,
-          savedPayment.id,
-          discountAmount,
-          manager,
-        );
-      }
-
-      // Initiate EasyKash payment
-      const providerResult = await this.easyKashService.initiatePayment(
-        finalAmount,
-        savedPayment.id,
-        dto.billing_data,
-      );
-
-      // Persist the gateway reference (column name retained from the Paymob era).
-      savedPayment.paymob_order_id = providerResult.providerReference;
-      savedPayment.status = PaymentStatus.PROCESSING;
-      await manager.save(Payment, savedPayment);
-
-      const response: PaymentResponse = {
-        payment_id: savedPayment.id,
-        payment_key: providerResult.providerReference,
-        paymob_order_id: 0,
-        amount: lesson.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        iframe_url: providerResult.redirectUrl,
-      };
-
-      // Store idempotency result
-      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
-
-      this.logger.log(
-        `Payment ${savedPayment.id} initiated for lesson ${dto.lesson_id} by user ${userId}`,
-      );
-
-      return response;
-    });
   }
 
   /**
    * Purchase a package - initiates payment with EasyKash
    */
   public async purchasePackage(dto: PurchasePackageDto, userId: string): Promise<PaymentResponse> {
-    // Generate idempotency key if not provided
-    const idempotencyKey =
-      dto.idempotency_key ?? `package-${userId}-${dto.package_id}-${Date.now().toString()}`;
-
-    // Check idempotency
-    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+    return this.purchaseThroughCanonicalOrder(
+      ItemType.PACKAGE,
+      dto.package_id,
+      dto.discount_code,
+      dto.idempotency_key,
+      dto.billing_data,
       userId,
-      idempotencyKey,
     );
-    if (
-      idempotencyCheck.isProcessed &&
-      idempotencyCheck.cachedResult !== undefined &&
-      idempotencyCheck.cachedResult !== null
-    ) {
-      this.logger.log(`Returning cached payment response for user ${userId}`);
-      return idempotencyCheck.cachedResult as PaymentResponse;
-    }
-
-    // Get package
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: dto.package_id, deleted_at: IsNull(), is_active: true },
-      relations: ['items', 'items.lesson'],
-    });
-
-    if (pkg === null) {
-      throw new NotFoundException(
-        biBody('Package not found or not active', 'الباقة غير موجودة أو غير مفعّلة'),
-      );
-    }
-
-    // Apply discount code if provided
-    let discountAmount = 0;
-    let discountCodeId: string | null = null;
-
-    if (dto.discount_code !== undefined && dto.discount_code !== '') {
-      const verification = await this.discountCodesService.verifyCode(
-        {
-          code: dto.discount_code,
-          item_type: ApplicableItem.PACKAGE,
-          item_id: dto.package_id,
-          amount: pkg.price,
-        },
-        userId,
-      );
-
-      if (!verification.valid) {
-        throw new BadRequestException(verification.error);
-      }
-
-      discountAmount = verification.discount_amount ?? 0;
-      discountCodeId = verification.discount_code_id ?? null;
-    }
-
-    const finalAmount = pkg.price - discountAmount;
-    this.assertChargeableAmount(finalAmount);
-
-    // Create payment using transaction
-    return await this.initiatePaymentTxn(async (manager) => {
-      // Block a second concurrent charge for the same package (double-charge).
-      await this.assertNoOpenPayment(manager, userId, ItemType.PACKAGE, dto.package_id);
-
-      // Create payment record
-      const payment = manager.create(Payment, {
-        user_id: userId,
-        item_type: ItemType.PACKAGE,
-        item_id: dto.package_id,
-        amount: pkg.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        status: PaymentStatus.PENDING,
-        payment_method: PaymentMethod.CARD,
-        idempotency_key: idempotencyKey,
-      });
-
-      const savedPayment = await manager.save(Payment, payment);
-
-      // Apply discount code if used (within transaction for atomicity)
-      if (discountCodeId !== null && discountCodeId !== '') {
-        await this.discountCodesService.applyDiscount(
-          discountCodeId,
-          userId,
-          savedPayment.id,
-          discountAmount,
-          manager,
-        );
-      }
-
-      // Initiate EasyKash payment
-      const providerResult = await this.easyKashService.initiatePayment(
-        finalAmount,
-        savedPayment.id,
-        dto.billing_data,
-      );
-
-      // Persist the gateway reference (column name retained from the Paymob era).
-      savedPayment.paymob_order_id = providerResult.providerReference;
-      savedPayment.status = PaymentStatus.PROCESSING;
-      await manager.save(Payment, savedPayment);
-
-      const response: PaymentResponse = {
-        payment_id: savedPayment.id,
-        payment_key: providerResult.providerReference,
-        paymob_order_id: 0,
-        amount: pkg.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        iframe_url: providerResult.redirectUrl,
-      };
-
-      // Store idempotency result
-      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
-
-      this.logger.log(
-        `Payment ${savedPayment.id} initiated for package ${dto.package_id} by user ${userId}`,
-      );
-
-      return response;
-    });
   }
 
   /**
    * Purchase a book - initiates payment with EasyKash
    */
   public async purchaseBook(dto: PurchaseBookPaymentDto, userId: string): Promise<PaymentResponse> {
-    // Generate idempotency key if not provided
-    const idempotencyKey =
-      dto.idempotency_key ?? `book-${userId}-${dto.book_id}-${Date.now().toString()}`;
-
-    // Check idempotency
-    const idempotencyCheck = await this.idempotencyService.checkPaymentRequest(
+    return this.purchaseThroughCanonicalOrder(
+      ItemType.BOOK,
+      dto.book_id,
+      dto.discount_code,
+      dto.idempotency_key,
+      dto.billing_data,
       userId,
-      idempotencyKey,
     );
-    if (
-      idempotencyCheck.isProcessed &&
-      idempotencyCheck.cachedResult !== undefined &&
-      idempotencyCheck.cachedResult !== null
-    ) {
-      this.logger.log(`Returning cached payment response for user ${userId}`);
-      return idempotencyCheck.cachedResult as PaymentResponse;
-    }
+  }
 
-    // Get book
-    const book = await this.booksRepository.findOne({
-      where: { id: dto.book_id, deleted_at: IsNull() },
+  private async purchaseThroughCanonicalOrder(
+    itemType: ItemType,
+    itemId: string,
+    discountCode: string | undefined,
+    idempotencyKey: string | undefined,
+    billingData: BillingDataDto,
+    userId: string,
+  ): Promise<PaymentResponse> {
+    const created = await this.ordersService.createOrder(
+      {
+        item_type: itemType,
+        item_id: itemId,
+        payment_channel: PaymentChannel.GATEWAY,
+        ...(discountCode !== undefined ? { discount_code: discountCode } : {}),
+        ...(idempotencyKey !== undefined ? { idempotency_key: idempotencyKey } : {}),
+      },
+      userId,
+    );
+    const checkout = await this.ordersService.startGatewayCheckout(created.order.id, userId, {
+      billing_data: billingData,
     });
-
-    if (book === null) {
-      throw new NotFoundException(biBody('Book not found', 'الكتاب غير موجود'));
-    }
-
-    // Books are a one-time purchase (no expiry) — reject if already owned.
-    const existingPurchase = await this.bookPurchasesRepository.findOne({
-      where: { student_id: userId, book_id: dto.book_id },
-    });
-    if (existingPurchase) {
-      throw new ConflictException(
-        biBody('You have already purchased this book', 'لقد قمت بشراء هذا الكتاب بالفعل'),
-      );
-    }
-
-    // Apply discount code if provided
-    let discountAmount = 0;
-    let discountCodeId: string | null = null;
-
-    if (dto.discount_code !== undefined && dto.discount_code !== '') {
-      const verification = await this.discountCodesService.verifyCode(
-        {
-          code: dto.discount_code,
-          item_type: ApplicableItem.BOOK,
-          item_id: dto.book_id,
-          amount: book.price,
-        },
-        userId,
-      );
-
-      if (!verification.valid) {
-        throw new BadRequestException(verification.error);
-      }
-
-      discountAmount = verification.discount_amount ?? 0;
-      discountCodeId = verification.discount_code_id ?? null;
-    }
-
-    const finalAmount = book.price - discountAmount;
-    this.assertChargeableAmount(finalAmount);
-
-    // Create payment using transaction
-    return await this.initiatePaymentTxn(async (manager) => {
-      // Block a second concurrent charge for the same book (double-charge).
-      await this.assertNoOpenPayment(manager, userId, ItemType.BOOK, dto.book_id);
-
-      // Create payment record
-      const payment = manager.create(Payment, {
-        user_id: userId,
-        item_type: ItemType.BOOK,
-        item_id: dto.book_id,
-        amount: book.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        status: PaymentStatus.PENDING,
-        payment_method: PaymentMethod.CARD,
-        idempotency_key: idempotencyKey,
-      });
-
-      const savedPayment = await manager.save(Payment, payment);
-
-      // Apply discount code if used (within transaction for atomicity)
-      if (discountCodeId !== null && discountCodeId !== '') {
-        await this.discountCodesService.applyDiscount(
-          discountCodeId,
-          userId,
-          savedPayment.id,
-          discountAmount,
-          manager,
-        );
-      }
-
-      // Initiate EasyKash payment
-      const providerResult = await this.easyKashService.initiatePayment(
-        finalAmount,
-        savedPayment.id,
-        dto.billing_data,
-      );
-
-      // Persist the gateway reference (column name retained from the Paymob era).
-      savedPayment.paymob_order_id = providerResult.providerReference;
-      savedPayment.status = PaymentStatus.PROCESSING;
-      await manager.save(Payment, savedPayment);
-
-      const response: PaymentResponse = {
-        payment_id: savedPayment.id,
-        payment_key: providerResult.providerReference,
-        paymob_order_id: 0,
-        amount: book.price,
-        discount_amount: discountAmount,
-        final_amount: finalAmount,
-        iframe_url: providerResult.redirectUrl,
-      };
-
-      // Store idempotency result
-      await this.idempotencyService.storePaymentResult(userId, idempotencyKey, response);
-
-      this.logger.log(
-        `Payment ${savedPayment.id} initiated for book ${dto.book_id} by user ${userId}`,
-      );
-
-      return response;
-    });
+    return {
+      payment_id: checkout.payment_id,
+      payment_key: checkout.payment_id,
+      paymob_order_id: 0,
+      amount: created.order.original_amount_minor / 100,
+      discount_amount: created.order.discount_amount_minor / 100,
+      final_amount: created.order.final_amount_minor / 100,
+      iframe_url: checkout.redirect_url,
+    };
   }
 
   /**
@@ -560,83 +206,19 @@ export class PaymentsService {
     userId: string,
     billingData: BillingDataDto,
   ): Promise<PaymentResponse> {
-    // Find expired purchase
-    const expiredPurchase = await this.lessonPurchasesRepository.findOne({
-      where: {
-        student_id: userId,
-        lesson_id: lessonId,
-        access_expires_at: LessThanOrEqual(new Date()),
-      },
-      relations: ['lesson'],
+    const created = await this.ordersService.createReopenOrder(lessonId, userId);
+    const checkout = await this.ordersService.startGatewayCheckout(created.order.id, userId, {
+      billing_data: billingData,
     });
-
-    if (!expiredPurchase) {
-      throw new BadRequestException(
-        biBody(
-          'You have not previously purchased this lesson or access is still active',
-          'لم تقم بشراء هذا الدرس من قبل أو أن صلاحية الوصول ما زالت سارية',
-        ),
-      );
-    }
-
-    // Get current lesson price
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId, deleted_at: IsNull() },
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
-    }
-
-    // Calculate 50% reopen price
-    const reopenPrice = lesson.price * 0.5;
-    this.assertChargeableAmount(reopenPrice);
-    const idempotencyKey = `reopen-${userId}-${lessonId}-${Date.now().toString()}`;
-
-    // Create payment using transaction
-    return await this.initiatePaymentTxn(async (manager) => {
-      // Block a second concurrent reopen charge for the same lesson.
-      await this.assertNoOpenPayment(manager, userId, ItemType.LESSON, lessonId);
-
-      const payment = manager.create(Payment, {
-        user_id: userId,
-        item_type: ItemType.LESSON,
-        item_id: lessonId,
-        amount: reopenPrice,
-        discount_amount: 0, // No additional discounts on reopen
-        final_amount: reopenPrice,
-        status: PaymentStatus.PENDING,
-        payment_method: PaymentMethod.CARD,
-        idempotency_key: idempotencyKey,
-      });
-
-      const savedPayment = await manager.save(Payment, payment);
-
-      // Initiate EasyKash payment
-      const providerResult = await this.easyKashService.initiatePayment(
-        reopenPrice,
-        savedPayment.id,
-        billingData,
-      );
-
-      savedPayment.paymob_order_id = providerResult.providerReference;
-      savedPayment.status = PaymentStatus.PROCESSING;
-      await manager.save(Payment, savedPayment);
-
-      this.logger.log(
-        `Reopen payment ${savedPayment.id} initiated for lesson ${lessonId} by user ${userId} at 50% price`,
-      );
-
-      return {
-        payment_id: savedPayment.id,
-        payment_key: providerResult.providerReference,
-        paymob_order_id: 0,
-        amount: reopenPrice,
-        discount_amount: 0,
-        final_amount: reopenPrice,
-        iframe_url: providerResult.redirectUrl,
-      };
-    });
+    return {
+      payment_id: checkout.payment_id,
+      payment_key: checkout.payment_id,
+      paymob_order_id: 0,
+      amount: created.order.original_amount_minor / 100,
+      discount_amount: created.order.discount_amount_minor / 100,
+      final_amount: created.order.final_amount_minor / 100,
+      iframe_url: checkout.redirect_url,
+    };
   }
 
   /**
@@ -656,192 +238,27 @@ export class PaymentsService {
     paymentId: string,
     verification?: PaymentVerificationContext,
   ): Promise<void> {
-    await retryTransaction(this.dataSource, async (manager) => {
-      const payment = await manager.findOne(Payment, {
-        where: { id: paymentId },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      if (!payment) {
-        throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
-      }
-
-      if (payment.status === PaymentStatus.COMPLETED) {
-        this.logger.log(`Payment ${paymentId} already completed, skipping`);
-        return;
-      }
-
-      // A payment that already reached a terminal non-completed state (refunded,
-      // voided->refunded, expired) must never be flipped to completed by a late
-      // or replayed "success" webhook.
-      if (payment.status === PaymentStatus.REFUNDED || payment.status === PaymentStatus.EXPIRED) {
-        this.logger.warn(`Refusing to complete payment ${paymentId}: already ${payment.status}`);
-        return;
-      }
-
-      // Financial verification against the authoritative, locked payment row.
-      this.assertCapturedAmountMatches(payment, verification);
-
-      // Update payment status (+ persist the gateway transaction id for
-      // reconciliation / settlement audit).
-      payment.status = PaymentStatus.COMPLETED;
-      if (verification?.transactionId !== undefined) {
-        payment.paymob_transaction_id = verification.transactionId;
-      }
-      await manager.save(Payment, payment);
-
-      // Grant access based on item type
-      if (payment.item_type === ItemType.LESSON) {
-        await this.grantLessonAccess(manager, payment);
-      } else if (payment.item_type === ItemType.PACKAGE) {
-        await this.grantPackageAccess(manager, payment);
-      } else if (payment.item_type === ItemType.BOOK) {
-        await this.grantBookAccess(manager, payment);
-      }
-
-      this.logger.log(`Payment ${paymentId} completed successfully, access granted`);
+    const payment = await this.paymentsRepository.findOne({
+      where: { id: paymentId },
     });
-  }
-
-  /**
-   * Run a payment-initiation transaction, translating the partial-unique-index
-   * violation (concurrent double-charge attempt) into a clean 409 Conflict
-   * instead of leaking a raw DB error. This is the race-safe backstop behind
-   * {@link assertNoOpenPayment}.
-   */
-  private async initiatePaymentTxn(
-    fn: (manager: EntityManager) => Promise<PaymentResponse>,
-  ): Promise<PaymentResponse> {
-    try {
-      return await retryTransaction(this.dataSource, fn);
-    } catch (err) {
-      if (this.isOpenPaymentConflict(err)) {
-        throw new ConflictException(
-          biBody(
-            'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
-            'توجد بالفعل عملية دفع جارية لهذا العنصر. يرجى إكمالها أو الانتظار بضع دقائق قبل المحاولة مرة أخرى.',
-          ),
-        );
-      }
-      throw err;
+    if (!payment?.order_id) {
+      throw new NotFoundException(
+        biBody('Canonical payment order not found', 'طلب الدفع الأساسي غير موجود'),
+      );
     }
-  }
-
-  /** True when the error is a unique violation on the open-payment guard index. */
-  private isOpenPaymentConflict(err: unknown): boolean {
-    const e = err as {
-      code?: string;
-      constraint?: string;
-      driverError?: { code?: string; constraint?: string };
-    };
-    const code = e.code ?? e.driverError?.code;
-    const constraint = e.constraint ?? e.driverError?.constraint;
-    return code === '23505' && constraint === OPEN_PAYMENT_INDEX;
-  }
-
-  /**
-   * Ensure the user has no other in-flight payment for this item before
-   * creating a new one. A fresh open payment blocks the new attempt (409); an
-   * abandoned one older than the gateway TTL is expired to free the slot. Runs
-   * inside the initiation transaction so it composes with the DB unique index.
-   */
-  private async assertNoOpenPayment(
-    manager: EntityManager,
-    userId: string,
-    itemType: ItemType,
-    itemId: string,
-  ): Promise<void> {
-    const open = await manager.findOne(Payment, {
-      where: {
-        user_id: userId,
-        item_type: itemType,
-        item_id: itemId,
-        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
-      },
-      order: { created_at: 'DESC' },
+    await this.finalizer.finalizeSuccessfulPayment({
+      orderId: payment.order_id,
+      paymentId: payment.id,
+      sourceReference:
+        verification?.transactionId ?? payment.provider_reference ?? `payment-${payment.id}`,
+      actorId: null,
+      ...(verification !== undefined
+        ? {
+            verifiedAmountMinor: verification.amountCents,
+            verifiedCurrency: verification.currency,
+          }
+        : {}),
     });
-
-    if (!open) return;
-
-    const ageMs = Date.now() - open.created_at.getTime();
-    if (ageMs < OPEN_PAYMENT_TTL_MS) {
-      throw new ConflictException(
-        biBody(
-          'A payment for this item is already in progress. Please complete it or wait a few minutes before trying again.',
-          'توجد بالفعل عملية دفع جارية لهذا العنصر. يرجى إكمالها أو الانتظار بضع دقائق قبل المحاولة مرة أخرى.',
-        ),
-      );
-    }
-
-    // Stale/abandoned — expire it (guarded) so a fresh attempt can proceed.
-    const expired = await manager.update(
-      Payment,
-      {
-        id: open.id,
-        status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
-      },
-      { status: PaymentStatus.EXPIRED },
-    );
-
-    // An expired initiation never charged — release any discount use it
-    // consumed so the code stays spendable.
-    if ((expired.affected ?? 0) > 0) {
-      await this.discountCodesService.releaseUsageForPayment(open.id, manager);
-    }
-  }
-
-  /**
-   * Reject non-positive order totals before they reach the gateway. A fully
-   * discounted (0 EGP) or negative total (misconfigured fixed discount larger
-   * than the price) must never be sent to the gateway — it would fail at the gateway
-   * or, worse, create a malformed/negative order (negative settlement).
-   */
-  private assertChargeableAmount(finalAmount: number): void {
-    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
-      throw new BadRequestException(
-        biBody(
-          'Order total must be greater than zero after discounts',
-          'يجب أن يكون إجمالي الطلب أكبر من صفر بعد الخصومات',
-        ),
-      );
-    }
-  }
-
-  /**
-   * Guard against underpayment / partial capture / amount tampering / currency
-   * tampering. Throws BadRequestException (fail-closed: no access granted, the
-   * payment stays in its current state for manual review) on any mismatch.
-   */
-  private assertCapturedAmountMatches(
-    payment: Payment,
-    verification?: PaymentVerificationContext,
-  ): void {
-    if (verification === undefined) {
-      return; // Internal callers without gateway context (e.g. tests/admin).
-    }
-
-    const expectedCents = Math.round(Number(payment.final_amount) * 100);
-
-    if (verification.amountCents !== expectedCents) {
-      this.logger.error(
-        `Amount mismatch for payment ${payment.id}: captured ` +
-          `${String(verification.amountCents)} cents, expected ${String(expectedCents)} cents`,
-      );
-      throw new BadRequestException(
-        biBody(
-          'Captured amount does not match the expected order total',
-          'المبلغ المحصّل لا يطابق إجمالي الطلب المتوقع',
-        ),
-      );
-    }
-
-    if (verification.currency.toUpperCase() !== EXPECTED_CURRENCY) {
-      this.logger.error(
-        `Currency mismatch for payment ${payment.id}: got ${verification.currency}, ` +
-          `expected ${EXPECTED_CURRENCY}`,
-      );
-      throw new BadRequestException(biBody('Unexpected payment currency', 'عملة الدفع غير متوقعة'));
-    }
   }
 
   /**
@@ -854,130 +271,20 @@ export class PaymentsService {
     paymentId: string,
     verification?: PaymentVerificationContext,
   ): Promise<void> {
-    const result = await this.paymentsRepository.update(
-      {
-        id: paymentId,
-        status: In([PaymentStatus.COMPLETED, PaymentStatus.PROCESSING, PaymentStatus.PENDING]),
-      },
-      {
-        status: PaymentStatus.REFUNDED,
-        ...(verification?.transactionId !== undefined
-          ? { paymob_transaction_id: verification.transactionId }
-          : {}),
-      },
-    );
-
-    if ((result.affected ?? 0) === 0) {
-      this.logger.warn(
-        `Refund webhook for payment ${paymentId} did not change status (already terminal or missing)`,
+    const payment = await this.paymentsRepository.findOne({
+      where: { id: paymentId },
+    });
+    if (!payment?.order_id) {
+      throw new NotFoundException(
+        biBody('Canonical payment order not found', 'طلب الدفع الأساسي غير موجود'),
       );
-    } else {
-      this.logger.log(`Payment ${paymentId} marked as refunded`);
     }
-  }
-
-  /**
-   * Grant access to a lesson (7-day rule)
-   */
-  private async grantLessonAccess(manager: EntityManager, payment: Payment): Promise<void> {
-    // Get lesson to check available_for_days
-    const lesson = await manager.findOne(Lesson, {
-      where: { id: payment.item_id },
-    });
-
-    const accessDays = lesson?.available_for_days ?? 7;
-    const accessGrantedAt = new Date();
-    const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
-
-    const lessonPurchase = manager.create(LessonPurchase, {
-      student_id: payment.user_id,
-      lesson_id: payment.item_id,
-      payment_id: payment.id,
-      price_paid: payment.final_amount,
-      access_granted_at: accessGrantedAt,
-      access_expires_at: accessExpiresAt,
-      days_extended: 0,
-    });
-
-    await manager.save(LessonPurchase, lessonPurchase);
-
-    // Update lesson students_count
-    await manager.increment(Lesson, { id: payment.item_id }, 'students_count', 1);
-
-    this.logger.log(
-      `Lesson access granted: user ${payment.user_id}, lesson ${payment.item_id}, ` +
-        `expires at ${accessExpiresAt.toISOString()}`,
+    await this.refundsService.completeProviderNotification(
+      paymentId,
+      verification?.transactionId ?? payment.provider_reference ?? paymentId,
+      verification?.amountCents ?? payment.amount_minor ?? 0,
+      verification?.currency ?? payment.currency,
     );
-  }
-
-  /**
-   * Grant access to all lessons in a package
-   */
-  private async grantPackageAccess(manager: EntityManager, payment: Payment): Promise<void> {
-    // Get package with lessons
-    const pkg = await manager.findOne(LessonPackage, {
-      where: { id: payment.item_id },
-      relations: ['items', 'items.lesson'],
-    });
-
-    if (!pkg) {
-      throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
-    }
-
-    // Create package purchase record
-    const packagePurchase = manager.create(PackagePurchase, {
-      student_id: payment.user_id,
-      package_id: payment.item_id,
-      payment_id: payment.id,
-      price_paid: payment.final_amount,
-      purchased_at: new Date(),
-    });
-
-    await manager.save(PackagePurchase, packagePurchase);
-
-    // Grant access to each lesson in the package
-    for (const item of pkg.items) {
-      const { lesson } = item;
-
-      const accessDays = lesson.available_for_days;
-      const accessGrantedAt = new Date();
-      const accessExpiresAt = computeAccessExpiresAt(accessGrantedAt, accessDays);
-
-      const lessonPurchase = manager.create(LessonPurchase, {
-        student_id: payment.user_id,
-        lesson_id: lesson.id,
-        payment_id: payment.id,
-        price_paid: 0, // Individual lessons in package have 0 price
-        access_granted_at: accessGrantedAt,
-        access_expires_at: accessExpiresAt,
-        days_extended: 0,
-      });
-
-      await manager.save(LessonPurchase, lessonPurchase);
-      await manager.increment(Lesson, { id: lesson.id }, 'students_count', 1);
-    }
-
-    this.logger.log(
-      `Package access granted: user ${payment.user_id}, package ${payment.item_id}, ` +
-        `${pkg.items.length.toString()} lessons`,
-    );
-  }
-
-  /**
-   * Grant access to a purchased book (permanent, no expiry).
-   */
-  private async grantBookAccess(manager: EntityManager, payment: Payment): Promise<void> {
-    const bookPurchase = manager.create(BookPurchase, {
-      student_id: payment.user_id,
-      book_id: payment.item_id,
-      payment_id: payment.id,
-      price_paid: payment.final_amount,
-    });
-
-    await manager.save(BookPurchase, bookPurchase);
-    await manager.increment(Book, { id: payment.item_id }, 'purchase_count', 1);
-
-    this.logger.log(`Book access granted: user ${payment.user_id}, book ${payment.item_id}`);
   }
 
   /**
@@ -995,27 +302,37 @@ export class PaymentsService {
   ): Promise<void> {
     const reason = failureReason ?? 'Payment declined';
     await retryTransaction(this.dataSource, async (manager) => {
-      const result = await manager.update(
-        Payment,
-        {
-          id: paymentId,
-          status: In([PaymentStatus.PENDING, PaymentStatus.PROCESSING]),
-        },
-        {
-          status: PaymentStatus.FAILED,
-          failure_reason: reason,
-          ...(verification?.transactionId !== undefined
-            ? { paymob_transaction_id: verification.transactionId }
-            : {}),
-        },
-      );
-
-      if ((result.affected ?? 0) === 0) {
+      const payment = await manager.findOne(Payment, {
+        where: { id: paymentId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payment || ![PaymentStatus.PENDING, PaymentStatus.PROCESSING].includes(payment.status)) {
         this.logger.warn(
           `Ignoring failure webhook for payment ${paymentId}: not in an open state ` +
             `(already completed/refunded/failed)`,
         );
         return;
+      }
+
+      payment.status = PaymentStatus.FAILED;
+      payment.failure_reason = reason;
+      if (verification?.transactionId !== undefined) {
+        payment.paymob_transaction_id = verification.transactionId;
+      }
+      await manager.save(Payment, payment);
+      if (payment.order_id) {
+        await manager.update(
+          Order,
+          {
+            id: payment.order_id,
+            status: In([
+              OrderStatus.AWAITING_PAYMENT,
+              OrderStatus.PAYMENT_SUBMITTED,
+              OrderStatus.UNDER_REVIEW,
+            ]),
+          },
+          { status: OrderStatus.REJECTED },
+        );
       }
 
       // The charge never happened — hand back any discount use consumed at
@@ -1030,11 +347,24 @@ export class PaymentsService {
    * Check if student has active access to a lesson
    */
   public async checkLessonAccess(userId: string, lessonId: string): Promise<AccessCheckResult> {
+    const entitlement = await this.entitlementsService.getActive(userId, ItemType.LESSON, lessonId);
+    if (entitlement) {
+      if (!entitlement.expires_at) return { has_access: true };
+      const daysRemaining = Math.ceil(
+        (entitlement.expires_at.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+      );
+      return {
+        has_access: true,
+        expires_at: entitlement.expires_at,
+        days_remaining: daysRemaining,
+      };
+    }
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: {
         student_id: userId,
         lesson_id: lessonId,
         access_expires_at: MoreThan(new Date()),
+        revoked_at: IsNull(),
       },
     });
 
@@ -1094,6 +424,7 @@ export class PaymentsService {
       where: {
         student_id: userId,
         access_expires_at: MoreThan(new Date()),
+        revoked_at: IsNull(),
       },
       relations: ['lesson', 'lesson.subject', 'lesson.teacher'],
       order: { access_expires_at: 'ASC' },
@@ -1123,7 +454,7 @@ export class PaymentsService {
     limit = 20,
   ): Promise<{ data: PackagePurchase[]; meta: PaginationMeta }> {
     const [data, total] = await this.packagePurchasesRepository.findAndCount({
-      where: { student_id: userId },
+      where: { student_id: userId, revoked_at: IsNull() },
       relations: ['package', 'package.teacher', 'package.items', 'package.items.lesson'],
       order: { purchased_at: 'DESC' },
       skip: (page - 1) * limit,
@@ -1151,11 +482,15 @@ export class PaymentsService {
    * the caller checks separately.
    */
   public async hasLessonPlaybackAccess(userId: string, lessonId: string): Promise<boolean> {
+    if (await this.entitlementsService.hasItemAccess(userId, ItemType.LESSON, lessonId)) {
+      return true;
+    }
     const lessonPurchase = await this.lessonPurchasesRepository.findOne({
       where: {
         student_id: userId,
         lesson_id: lessonId,
         access_expires_at: MoreThan(new Date()),
+        revoked_at: IsNull(),
       },
     });
     if (lessonPurchase) return true;
@@ -1168,6 +503,7 @@ export class PaymentsService {
         lessonId,
       })
       .where('purchase.student_id = :userId', { userId })
+      .andWhere('purchase.revoked_at IS NULL')
       .getCount();
 
     return packageEnrolments > 0;

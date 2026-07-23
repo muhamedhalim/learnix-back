@@ -8,13 +8,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
-import {
-  buildAbsoluteUrl,
-  getConfiguredPublicOrigin,
-} from '../../config/public-url.util';
+import { buildAbsoluteUrl, getConfiguredPublicOrigin } from '../../config/public-url.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { StorageObjectNotFoundError, StoredObject } from '../../storage/storage.interface';
 import { StorageService } from '../../storage/storage.service';
@@ -99,6 +96,7 @@ export class BookPurchasesService {
       where: {
         student_id: studentId,
         book_id: bookId,
+        revoked_at: IsNull(),
       },
     });
   }
@@ -120,6 +118,7 @@ export class BookPurchasesService {
       .leftJoinAndSelect('book.teacher', 'teacher')
       .leftJoinAndSelect('book.subject', 'subject')
       .where('purchase.student_id = :studentId', { studentId })
+      .andWhere('purchase.revoked_at IS NULL')
       .andWhere('book.deleted_at IS NULL');
 
     // Apply search filter
