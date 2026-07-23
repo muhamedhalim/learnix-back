@@ -9,6 +9,7 @@ import {
 
 import { minorUnitsTransformer } from '../money.util';
 import { CollectionParty } from './collection-party.enum';
+import { ManualPaymentMethodType } from './manual-payment-method-type.enum';
 
 @Entity('manual_payment_methods')
 @Index('IDX_manual_payment_methods_enabled_order', ['enabled', 'display_order'])
@@ -19,11 +20,12 @@ export class ManualPaymentMethod {
   @Column({ type: 'varchar', length: 120 })
   name!: string;
 
-  @Column({ type: 'varchar', length: 120, name: 'name_ar' })
-  name_ar!: string;
+  // Deprecated legacy content. New writes use the canonical `name` field.
+  @Column({ type: 'varchar', length: 120, name: 'name_ar', nullable: true, select: false })
+  name_ar!: string | null;
 
   @Column({ type: 'varchar', length: 40 })
-  type!: string;
+  type!: ManualPaymentMethodType;
 
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
@@ -34,14 +36,25 @@ export class ManualPaymentMethod {
   @Column({ type: 'varchar', length: 160, name: 'recipient_name' })
   recipient_name!: string;
 
-  @Column({ type: 'jsonb', name: 'destination_details' })
+  // Retained for a non-destructive migration only; never used by new writes or student responses.
+  @Column({ type: 'jsonb', name: 'destination_details', select: false })
   destination_details!: Record<string, string>;
+
+  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  configuration!: Record<string, string>;
 
   @Column({ type: 'text' })
   instructions!: string;
 
-  @Column({ type: 'text', name: 'instructions_ar' })
-  instructions_ar!: string;
+  // Deprecated legacy content. New writes use the canonical `instructions` field.
+  @Column({ type: 'text', name: 'instructions_ar', nullable: true, select: false })
+  instructions_ar!: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'internal_notes', select: false })
+  internal_notes!: string | null;
+
+  @Column({ type: 'jsonb', nullable: true, name: 'legacy_content_metadata', select: false })
+  legacy_content_metadata!: Record<string, unknown> | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true, name: 'qr_file_key' })
   qr_file_key!: string | null;
@@ -71,8 +84,8 @@ export class ManualPaymentMethod {
   @Column({ type: 'boolean', default: true, name: 'proof_required' })
   proof_required!: boolean;
 
-  @Column({ type: 'boolean', default: true, name: 'reference_required' })
-  reference_required!: boolean;
+  @Column({ type: 'boolean', default: true, name: 'transaction_reference_required' })
+  transaction_reference_required!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
   countries!: string[] | null;

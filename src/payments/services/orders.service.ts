@@ -36,6 +36,7 @@ import {
   PaymentMethod,
   PaymentStatus,
 } from '../entities';
+import { serializeManualPaymentMethodForStudent } from '../manual-payment-method-configuration';
 import { EGP_CURRENCY, fromMinorUnits, toMinorUnits } from '../money.util';
 import { CommissionService } from './commission.service';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
@@ -85,13 +86,12 @@ export interface CheckoutQuote {
     manual: Array<{
       id: string;
       name: string;
-      name_ar: string;
-      type: string;
+      type: ManualPaymentMethod['type'];
       minimum_amount_minor: number | null;
       maximum_amount_minor: number | null;
       currency: string;
       proof_required: boolean;
-      reference_required: boolean;
+      transaction_reference_required: boolean;
     }>;
     gateway: Array<{
       name: string;
@@ -163,13 +163,12 @@ export class OrdersService {
           .map((method) => ({
             id: method.id,
             name: method.name,
-            name_ar: method.name_ar,
             type: method.type,
             minimum_amount_minor: method.minimum_amount_minor,
             maximum_amount_minor: method.maximum_amount_minor,
             currency: method.currency,
             proof_required: method.proof_required,
-            reference_required: method.reference_required,
+            transaction_reference_required: method.transaction_reference_required,
           })),
         gateway: this.providers.list().map((provider) => ({
           name: provider.name,
@@ -549,19 +548,7 @@ export class OrdersService {
         ? await this.manualMethods.findOne({ where: { id: methodId } })
         : null;
       if (method && this.isPayableStatus(order.status)) {
-        manual_method = {
-          id: method.id,
-          name: method.name,
-          name_ar: method.name_ar,
-          type: method.type,
-          recipient_name: method.recipient_name,
-          destination_details: method.destination_details,
-          instructions: method.instructions,
-          instructions_ar: method.instructions_ar,
-          qr_available: method.qr_file_key !== null,
-          proof_required: method.proof_required,
-          reference_required: method.reference_required,
-        };
+        manual_method = serializeManualPaymentMethodForStudent(method);
       }
     }
     return { ...order, manual_method };

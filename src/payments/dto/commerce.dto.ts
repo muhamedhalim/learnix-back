@@ -21,6 +21,7 @@ import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import {
   CollectionParty,
   ItemType,
+  ManualPaymentMethodType,
   ManualPaymentSubmissionStatus,
   OrderStatus,
   PaymentChannel,
@@ -107,13 +108,8 @@ export class CreateManualPaymentMethodDto {
   @Length(2, 120)
   public name!: string;
 
-  @IsString()
-  @Length(2, 120)
-  public name_ar!: string;
-
-  @IsString()
-  @Length(2, 40)
-  public type!: string;
+  @IsEnum(ManualPaymentMethodType)
+  public type!: ManualPaymentMethodType;
 
   @IsOptional()
   @IsBoolean()
@@ -131,15 +127,11 @@ export class CreateManualPaymentMethodDto {
   public recipient_name!: string;
 
   @IsObject()
-  public destination_details!: Record<string, string>;
+  public configuration!: Record<string, string>;
 
   @IsString()
   @Length(2, 5000)
   public instructions!: string;
-
-  @IsString()
-  @Length(2, 5000)
-  public instructions_ar!: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -170,7 +162,12 @@ export class CreateManualPaymentMethodDto {
 
   @IsOptional()
   @IsBoolean()
-  public reference_required?: boolean;
+  public transaction_reference_required?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  public internal_notes?: string;
 
   @IsOptional()
   @IsArray()
@@ -189,14 +186,8 @@ export class UpdateManualPaymentMethodDto {
   public name?: string;
 
   @IsOptional()
-  @IsString()
-  @Length(2, 120)
-  public name_ar?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(2, 40)
-  public type?: string;
+  @IsEnum(ManualPaymentMethodType)
+  public type?: ManualPaymentMethodType;
 
   @IsOptional()
   @IsBoolean()
@@ -216,17 +207,12 @@ export class UpdateManualPaymentMethodDto {
 
   @IsOptional()
   @IsObject()
-  public destination_details?: Record<string, string>;
+  public configuration?: Record<string, string>;
 
   @IsOptional()
   @IsString()
   @Length(2, 5000)
   public instructions?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(2, 5000)
-  public instructions_ar?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -258,7 +244,12 @@ export class UpdateManualPaymentMethodDto {
 
   @IsOptional()
   @IsBoolean()
-  public reference_required?: boolean;
+  public transaction_reference_required?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  public internal_notes?: string | null;
 
   @IsOptional()
   @IsArray()

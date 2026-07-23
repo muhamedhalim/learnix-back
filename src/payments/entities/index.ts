@@ -7,6 +7,7 @@ export * from './item-type.enum';
 export * from './ledger.enums';
 export * from './lesson-purchase.entity';
 export * from './manual-payment-method.entity';
+export * from './manual-payment-method-type.enum';
 export * from './manual-payment-status.enum';
 export * from './manual-payment-submission.entity';
 export * from './order-status.enum';
