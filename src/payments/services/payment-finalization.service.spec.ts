@@ -11,6 +11,8 @@ import {
   ItemType,
   LedgerDirection,
   LessonPurchase,
+  ManualPaymentSubmission,
+  ManualPaymentSubmissionStatus,
   Order,
   OrderStatus,
   Payment,
@@ -64,6 +66,7 @@ describe('PaymentFinalizationService', () => {
     Object.assign(order, {
       status: OrderStatus.AWAITING_PAYMENT,
       paid_at: null,
+      payment_channel: PaymentChannel.GATEWAY,
     });
     Object.assign(payment, {
       status: PaymentStatus.PROCESSING,
@@ -78,6 +81,16 @@ describe('PaymentFinalizationService', () => {
         if (entity === Order) return Promise.resolve(order);
         if (entity === Payment) return Promise.resolve(payment);
         if (entity === Entitlement) return Promise.resolve(entitlement);
+        if (entity === ManualPaymentSubmission) {
+          return Promise.resolve({
+            id: 'manual-submission-1',
+            order_id: order.id,
+            student_id: order.student_id,
+            claimed_amount_minor: order.final_amount_minor,
+            currency: order.currency,
+            status: ManualPaymentSubmissionStatus.SUBMITTED,
+          });
+        }
         if (entity === Lesson) {
           return Promise.resolve({ id: 'lesson-1', available_for_days: 7 });
         }
@@ -183,5 +196,28 @@ describe('PaymentFinalizationService', () => {
     expect(entitlement).toBeNull();
     expect(inserted.filter((row) => row.target === FinancialLedgerEntry)).toHaveLength(0);
     expect(savedCompatibilityPurchases).toHaveLength(0);
+  });
+
+  it('creates an active entitlement and compatibility purchase when manual proof is approved', async () => {
+    order.payment_channel = PaymentChannel.MANUAL;
+
+    await service.finalizeSuccessfulPayment(
+      {
+        orderId: order.id,
+        paymentId: payment.id,
+        sourceReference: 'manual-submission-1',
+        actorId: 'admin-1',
+        manualSubmissionId: 'manual-submission-1',
+      },
+      manager,
+    );
+
+    expect(order.status).toBe(OrderStatus.PAID);
+    expect(entitlement).toMatchObject({
+      student_id: 'student-1',
+      item_type: ItemType.LESSON,
+      item_id: 'lesson-1',
+    });
+    expect(savedCompatibilityPurchases).toHaveLength(1);
   });
 });

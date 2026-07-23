@@ -4,6 +4,7 @@ import {
   Get,
   HttpStatus,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Post,
   Query,
@@ -22,6 +23,7 @@ import { PaymentFilterDto } from '../dto/payment-filter.dto';
 import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
 import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
 import { PurchasePackageDto } from '../dto/purchase-package.dto';
+import { ItemType } from '../entities';
 import { PaymentsService } from '../services/payments.service';
 
 @ApiTags('Payments - Student')
@@ -158,6 +160,21 @@ export class PaymentsController {
     const access = await this.paymentsService.checkLessonAccess(user.userId, lessonId);
     return {
       data: access,
+    };
+  }
+
+  @Get('access/:itemType/:id')
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Canonical entitlement access status retrieved successfully',
+  })
+  public async checkItemAccess(
+    @Param('itemType', new ParseEnumPipe(ItemType)) itemType: ItemType,
+    @Param('id', ParseUUIDPipe) itemId: string,
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown }> {
+    return {
+      data: await this.paymentsService.checkItemAccess(user.userId, itemType, itemId),
     };
   }
 }

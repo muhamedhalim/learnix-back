@@ -26,6 +26,8 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { MediaService } from '../../media/media.service';
+import { ItemType } from '../../payments/entities/item-type.enum';
+import { EntitlementsService } from '../../payments/services/entitlements.service';
 import { BookFilterDto, PurchaseBookDto, toPublicBookResponse } from '../dto';
 import { BookPurchasesService } from '../services/book-purchases.service';
 import { BooksService } from '../services/books.service';
@@ -40,6 +42,7 @@ export class StudentBooksController {
     private readonly bookPurchasesService: BookPurchasesService,
     private readonly booksService: BooksService,
     private readonly media: MediaService,
+    private readonly entitlementsService: EntitlementsService,
   ) {}
 
   /**
@@ -112,6 +115,17 @@ export class StudentBooksController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) bookId: string,
   ): Promise<{ has_access: boolean; purchased_at: Date | null }> {
+    if (
+      await this.entitlementsService.hasItemAccess(
+        user.userId,
+        ItemType.BOOK,
+        bookId,
+      )
+    ) {
+      return { has_access: true, purchased_at: null };
+    }
+
+    // Pre-entitlement purchases remain readable while they are normalized.
     const purchase = await this.bookPurchasesService.checkAlreadyPurchased(
       user.userId,
       bookId,

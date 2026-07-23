@@ -6,6 +6,7 @@ import { DataSource, In, IsNull, MoreThan, Repository, SelectQueryBuilder } from
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { biBody } from '../../i18n/error-translator.util';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto, type PaymentSortField } from '../dto/payment-filter.dto';
@@ -118,6 +119,8 @@ export class PaymentsService {
     private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(PackagePurchase)
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
+    @InjectRepository(BookPurchase)
+    private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => DiscountCodesService))
     private readonly discountCodesService: DiscountCodesService,
@@ -344,10 +347,16 @@ export class PaymentsService {
   }
 
   /**
-   * Check if student has active access to a lesson
+   * The student-facing ownership decision. New payments are always represented
+   * by an entitlement; the lesson-purchase fallback below only preserves access
+   * for pre-entitlement records while those records are migrated.
    */
-  public async checkLessonAccess(userId: string, lessonId: string): Promise<AccessCheckResult> {
-    const entitlement = await this.entitlementsService.getActive(userId, ItemType.LESSON, lessonId);
+  public async checkItemAccess(
+    userId: string,
+    itemType: ItemType,
+    itemId: string,
+  ): Promise<AccessCheckResult> {
+    const entitlement = await this.entitlementsService.getActive(userId, itemType, itemId);
     if (entitlement) {
       if (!entitlement.expires_at) return { has_access: true };
       const daysRemaining = Math.ceil(
@@ -359,10 +368,32 @@ export class PaymentsService {
         days_remaining: daysRemaining,
       };
     }
+
+    // A lesson can also be owned through an active package entitlement. This
+    // is deliberately checked through EntitlementsService, so checkout and
+    // content navigation use the same canonical ownership rule.
+    if (await this.entitlementsService.hasItemAccess(userId, itemType, itemId)) {
+      return { has_access: true };
+    }
+
+    if (itemType === ItemType.PACKAGE) {
+      const purchase = await this.packagePurchasesRepository.findOne({
+        where: { student_id: userId, package_id: itemId, revoked_at: IsNull() },
+      });
+      return { has_access: Boolean(purchase) };
+    }
+
+    if (itemType === ItemType.BOOK) {
+      const purchase = await this.bookPurchasesRepository.findOne({
+        where: { student_id: userId, book_id: itemId, revoked_at: IsNull() },
+      });
+      return { has_access: Boolean(purchase) };
+    }
+
     const purchase = await this.lessonPurchasesRepository.findOne({
       where: {
         student_id: userId,
-        lesson_id: lessonId,
+        lesson_id: itemId,
         access_expires_at: MoreThan(new Date()),
         revoked_at: IsNull(),
       },
@@ -382,6 +413,11 @@ export class PaymentsService {
       expires_at: purchase.access_expires_at,
       days_remaining: daysRemaining,
     };
+  }
+
+  /** @deprecated Use checkItemAccess so every item type follows one policy. */
+  public async checkLessonAccess(userId: string, lessonId: string): Promise<AccessCheckResult> {
+    return this.checkItemAccess(userId, ItemType.LESSON, lessonId);
   }
 
   /**

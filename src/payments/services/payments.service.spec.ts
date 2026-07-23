@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import {
   ItemType,
   LessonPurchase,
@@ -31,6 +32,7 @@ describe('PaymentsService — canonical compatibility routes', () => {
   let finalizer: { finalizeSuccessfulPayment: jest.Mock };
   let refunds: { completeProviderNotification: jest.Mock };
   let discounts: { releaseUsageForPayment: jest.Mock };
+  let entitlements: { getActive: jest.Mock; hasItemAccess: jest.Mock };
   let manager: {
     findOne: jest.Mock;
     save: jest.Mock;
@@ -61,6 +63,10 @@ describe('PaymentsService — canonical compatibility routes', () => {
     finalizer = { finalizeSuccessfulPayment: jest.fn().mockResolvedValue(undefined) };
     refunds = { completeProviderNotification: jest.fn().mockResolvedValue(undefined) };
     discounts = { releaseUsageForPayment: jest.fn().mockResolvedValue(undefined) };
+    entitlements = {
+      getActive: jest.fn().mockResolvedValue(null),
+      hasItemAccess: jest.fn().mockResolvedValue(false),
+    };
     manager = {
       findOne: jest.fn(),
       save: jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value)),
@@ -79,13 +85,14 @@ describe('PaymentsService — canonical compatibility routes', () => {
         { provide: getRepositoryToken(Payment), useValue: payments },
         { provide: getRepositoryToken(LessonPurchase), useValue: {} },
         { provide: getRepositoryToken(PackagePurchase), useValue: {} },
+        { provide: getRepositoryToken(BookPurchase), useValue: {} },
         { provide: DataSource, useValue: dataSource },
         { provide: DiscountCodesService, useValue: discounts },
         { provide: OrdersService, useValue: orders },
         { provide: PaymentFinalizationService, useValue: finalizer },
         {
           provide: EntitlementsService,
-          useValue: { getActive: jest.fn().mockResolvedValue(null) },
+          useValue: entitlements,
         },
         { provide: RefundsService, useValue: refunds },
       ],
@@ -180,6 +187,23 @@ describe('PaymentsService — canonical compatibility routes', () => {
       'refund-1',
       10_000,
       'EGP',
+    );
+  });
+
+  it('uses the canonical entitlement policy for package and lesson access', async () => {
+    entitlements.hasItemAccess.mockResolvedValue(true);
+
+    await expect(
+      service.checkItemAccess('student-1', ItemType.PACKAGE, 'package-1'),
+    ).resolves.toEqual({ has_access: true });
+    await expect(
+      service.checkLessonAccess('student-1', 'lesson-1'),
+    ).resolves.toEqual({ has_access: true });
+
+    expect(entitlements.hasItemAccess).toHaveBeenCalledWith(
+      'student-1',
+      ItemType.PACKAGE,
+      'package-1',
     );
   });
 
