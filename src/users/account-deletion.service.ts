@@ -52,8 +52,11 @@ export class AccountDeletionService {
       // Audit rows that identify the target are target data. The deletion event
       // below is deliberately retained under the acting administrator instead.
       await manager.query("DELETE FROM audit_logs WHERE target_id = $1 AND target_type IN ('teacher', 'student', 'user')", [target.id]);
-      const deletedUsers = await manager.query<Array<{ id: string }>>('DELETE FROM users WHERE id = $1 RETURNING id', [target.id]);
-      if (deletedUsers.length !== 1) throw new ConflictException('Account deletion could not be completed');
+      // TypeORM's PostgreSQL driver returns DELETE results as [rows, rowCount]
+      // even with RETURNING. Checking the outer array length incorrectly turns a
+      // successful one-row deletion into a 409 because its length is always 2.
+      const [, deletedUserCount] = await manager.query<[Array<{ id: string }>, number]>('DELETE FROM users WHERE id = $1 RETURNING id', [target.id]);
+      if (deletedUserCount !== 1) throw new ConflictException({ code: 'ACCOUNT_DELETE_DEPENDENCY_CONFLICT', message: 'Account deletion could not be completed' });
       await manager.getRepository(AuditLog).save({
         admin_id: actorId,
         action: 'account.permanently_deleted',
@@ -112,9 +115,9 @@ export class AccountDeletionService {
         }
       }
       const hasId = await this.hasIdColumn(manager, fk.tableName);
-      const count = hasId ? (await manager.query<Array<{ id: string }>>(
+      const count = hasId ? (await manager.query<[Array<{ id: string }>, number]>(
         `DELETE FROM ${this.identifier(fk.tableName)} WHERE ${this.identifier(fk.columnName)} = ANY($1) RETURNING id`, [parentIds],
-      )).length : await this.countRows(manager, fk, parentIds);
+      ))[1] : await this.countRows(manager, fk, parentIds);
       if (!hasId) await manager.query(`DELETE FROM ${this.identifier(fk.tableName)} WHERE ${this.identifier(fk.columnName)} = ANY($1)`, [parentIds]);
       if (count) counts.set(fk.tableName, (counts.get(fk.tableName) ?? 0) + count);
     }
