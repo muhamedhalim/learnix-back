@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpStatus,
   Param,
@@ -21,7 +22,12 @@ import {
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Pagination20Dto } from '../../common/dto/pagination.dto';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { AccountDeletionService } from '../../users/account-deletion.service';
+import { HardDeleteAccountDto } from '../../users/dto/hard-delete-account.dto';
+import { UserRole } from '../../users/entities/user-role.enum';
 import {
   ApproveStudentDto,
   RejectStudentDto,
@@ -36,7 +42,7 @@ import { StudentsService } from '../students.service';
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminStudentsController {
-  constructor(private readonly studentsService: StudentsService) {}
+  constructor(private readonly studentsService: StudentsService, private readonly accountDeletion: AccountDeletionService) {}
 
   /**
    * Get all students with optional filtering
@@ -230,5 +236,21 @@ export class AdminStudentsController {
       message: 'Grade level updated successfully',
       student,
     };
+  }
+
+  @Get(':id/deletion-preview')
+  @ApiOperation({ summary: 'Preview permanent student account deletion' })
+  public async deletionPreview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload): Promise<{ data: unknown }> {
+    return { data: await this.accountDeletion.preview(id, UserRole.STUDENT, user.userId) };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Permanently delete a student and all dependent data' })
+  public async permanentlyDelete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: HardDeleteAccountDto,
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown }> {
+    return { data: await this.accountDeletion.permanentlyDelete(id, UserRole.STUDENT, user.userId, dto.reason) };
   }
 }

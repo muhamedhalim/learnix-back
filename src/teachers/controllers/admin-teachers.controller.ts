@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -22,7 +23,12 @@ import {
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Pagination20Dto } from '../../common/dto/pagination.dto';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { AccountDeletionService } from '../../users/account-deletion.service';
+import { HardDeleteAccountDto } from '../../users/dto/hard-delete-account.dto';
+import { UserRole } from '../../users/entities/user-role.enum';
 import {
   ApproveTeacherDto,
   AssignSubjectsDto,
@@ -38,7 +44,7 @@ import { TeachersService } from '../teachers.service';
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminTeachersController {
-  constructor(private readonly teachersService: TeachersService) {}
+  constructor(private readonly teachersService: TeachersService, private readonly accountDeletion: AccountDeletionService) {}
 
   /**
    * Get all teachers with optional filtering
@@ -281,5 +287,21 @@ export class AdminTeachersController {
       message: 'Subjects assigned successfully',
       teacher,
     };
+  }
+
+  @Get(':id/deletion-preview')
+  @ApiOperation({ summary: 'Preview permanent teacher account deletion' })
+  public async deletionPreview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload): Promise<{ data: unknown }> {
+    return { data: await this.accountDeletion.preview(id, UserRole.TEACHER, user.userId) };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Permanently delete a teacher and all dependent data' })
+  public async permanentlyDelete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: HardDeleteAccountDto,
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown }> {
+    return { data: await this.accountDeletion.permanentlyDelete(id, UserRole.TEACHER, user.userId, dto.reason) };
   }
 }
