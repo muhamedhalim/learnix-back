@@ -7,6 +7,11 @@ import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
 import { Question } from '../exams/entities/question.entity';
+import { QuestionSolve } from '../gamification/entities/question-solve.entity';
+import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { HomeworkSubmission } from '../lessons/entities/homework-submission.entity';
+import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
+import { Subject } from '../subjects/entities/subject.entity';
 import { QuizAnalyticsService } from './quiz-analytics.service';
 
 describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
@@ -15,9 +20,19 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
   const answers = { createQueryBuilder: jest.fn(), query: jest.fn() };
   const exams = { findOne: jest.fn() };
   const questions = { count: jest.fn() };
+  const questionSolves = { find: jest.fn() };
+  const homeworkSubmissions = { find: jest.fn() };
+  const lessonProgress = { find: jest.fn() };
+  const attendance = { find: jest.fn() };
+  const subjects = { find: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    questionSolves.find.mockResolvedValue([]);
+    homeworkSubmissions.find.mockResolvedValue([]);
+    lessonProgress.find.mockResolvedValue([]);
+    attendance.find.mockResolvedValue([]);
+    subjects.find.mockResolvedValue([]);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QuizAnalyticsService,
@@ -25,6 +40,11 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
         { provide: getRepositoryToken(ExamAttemptAnswer), useValue: answers },
         { provide: getRepositoryToken(Exam), useValue: exams },
         { provide: getRepositoryToken(Question), useValue: questions },
+        { provide: getRepositoryToken(QuestionSolve), useValue: questionSolves },
+        { provide: getRepositoryToken(HomeworkSubmission), useValue: homeworkSubmissions },
+        { provide: getRepositoryToken(LessonProgress), useValue: lessonProgress },
+        { provide: getRepositoryToken(AttendanceRecord), useValue: attendance },
+        { provide: getRepositoryToken(Subject), useValue: subjects },
       ],
     }).compile();
     service = module.get(QuizAnalyticsService);
@@ -94,6 +114,58 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
       attempts: [expect.objectContaining({ scoreManual: 3, scoreTotal: 9, feedback: ['Strong explanation'] })],
     });
     expect(result.attempts).not.toEqual(expect.arrayContaining([expect.objectContaining({ examName: 'Private result' })]));
+  });
+
+  it('derives a subject strength from reviewed marks, public practice, and engagement evidence', async () => {
+    questionSolves.find.mockResolvedValue([
+      { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-01') },
+      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-02') },
+      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
+    ]);
+    homeworkSubmissions.find.mockResolvedValue([{
+      score: 9, graded_at: new Date('2026-07-04'),
+      homework: { max_score: 10, lesson: { subject_id: 'math' } },
+    }]);
+    lessonProgress.find.mockResolvedValue([
+      { completed: true, progress_percent: 100, last_watched_at: new Date('2026-07-04'), lesson: { subject_id: 'math' } },
+      { completed: false, progress_percent: 50, last_watched_at: new Date('2026-07-05'), lesson: { subject_id: 'math' } },
+    ]);
+    attendance.find.mockResolvedValue([
+      { status: 'present', marked_at: new Date('2026-07-04'), lesson: { subject_id: 'math' } },
+      { status: 'late', marked_at: new Date('2026-07-05'), lesson: { subject_id: 'math' } },
+    ]);
+    subjects.find.mockResolvedValue([{ id: 'math', name: 'Mathematics' }]);
+
+    const insights = await (
+      service as unknown as { getStudentPerformanceInsights: (id: string, answers: unknown[], filter: object) => Promise<unknown[]> }
+    ).getStudentPerformanceInsights('student-1', [
+      {
+        score: 4, max_score: 4, updated_at: new Date('2026-07-05'),
+        exam_question: { question: { subject_id: 'math' } },
+      },
+    ], {});
+
+    expect(insights).toEqual([expect.objectContaining({
+      topic: 'Mathematics', percent: 88, answers: 5,
+      sources: { exams: 1, practice: 3, homework: 1 },
+      trend: 'improving', lessonProgressPercent: 75, lessonCompletionPercent: 50, attendancePercent: 100,
+    })]);
+  });
+
+  it('does not classify a subject with fewer than five valid scored observations', async () => {
+    questionSolves.find.mockResolvedValue([
+      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-01') },
+      { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-02') },
+      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
+      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-04') },
+    ]);
+    subjects.find.mockResolvedValue([{ id: 'math', name: 'Mathematics' }]);
+
+    const insights = await (
+      service as unknown as { getStudentPerformanceInsights: (id: string, answers: unknown[], filter: object) => Promise<unknown[]> }
+    ).getStudentPerformanceInsights('student-1', [], {});
+
+    expect(insights).toEqual([]);
   });
 
   it('computes teacher completion from eligible exam-student pairs, not attempts', async () => {

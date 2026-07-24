@@ -9,7 +9,12 @@ import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity'
 import { Question } from '../exams/entities/question.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { ReviewPolicy } from '../exams/entities/review-policy.enum';
+import { QuestionSolve } from '../gamification/entities/question-solve.entity';
 import { biBody } from '../i18n/error-translator.util';
+import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { HomeworkSubmission } from '../lessons/entities/homework-submission.entity';
+import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
+import { Subject } from '../subjects/entities/subject.entity';
 
 interface StudentAnalyticsFilter {
   subjectId?: string;
@@ -24,9 +29,33 @@ interface StudentAttemptHighlightsRow {
   progress: { date: string; percent: number }[];
 }
 
+/** Legacy internal helper result; the student API uses StudentPerformanceInsight. */
 interface StudentTopicHighlightsRow {
   strongTopics: { topic: string; percent: number; answers: number }[];
   weakTopics: { topic: string; percent: number; answers: number }[];
+}
+
+export interface StudentPerformanceInsight {
+  /** Current taxonomy is subject-level because practice and homework are subject-scoped. */
+  topic: string;
+  scope: 'subject';
+  percent: number;
+  /** Number of completed questions or graded assignments included in the score. */
+  answers: number;
+  sources: { exams: number; practice: number; homework: number };
+  trend: 'improving' | 'stable' | 'declining' | 'insufficient_data';
+  lessonProgressPercent: number | null;
+  lessonCompletionPercent: number | null;
+  attendancePercent: number | null;
+}
+
+interface SubjectPerformanceBucket {
+  scores: Array<{ score: number; max: number; completedAt: Date; source: 'exam' | 'practice' | 'homework' }>;
+  completedLessons: number;
+  lessonsWithProgress: number;
+  totalLessonProgress: number;
+  attended: number;
+  attendanceRecords: number;
 }
 
 interface StudentVisibleAttempt {
@@ -61,6 +90,16 @@ export class QuizAnalyticsService {
     private readonly examsRepository: Repository<Exam>,
     @InjectRepository(Question)
     private readonly questionsRepository: Repository<Question>,
+    @InjectRepository(QuestionSolve)
+    private readonly questionSolvesRepository: Repository<QuestionSolve>,
+    @InjectRepository(HomeworkSubmission)
+    private readonly homeworkSubmissionsRepository: Repository<HomeworkSubmission>,
+    @InjectRepository(LessonProgress)
+    private readonly lessonProgressRepository: Repository<LessonProgress>,
+    @InjectRepository(AttendanceRecord)
+    private readonly attendanceRepository: Repository<AttendanceRecord>,
+    @InjectRepository(Subject)
+    private readonly subjectsRepository: Repository<Subject>,
   ) {}
 
   /* ===================== Student ===================== */
@@ -73,8 +112,9 @@ export class QuizAnalyticsService {
     bestQuiz: { title: string; percent: number } | null;
     worstQuiz: { title: string; percent: number } | null;
     progress: { date: string; percent: number }[];
-    strongTopics: { topic: string; percent: number; answers: number }[];
-    weakTopics: { topic: string; percent: number; answers: number }[];
+    strongTopics: StudentPerformanceInsight[];
+    weakTopics: StudentPerformanceInsight[];
+    performanceInsights: { minimumAssessments: number; hasEnoughData: boolean };
     performanceByQuestionType: { type: string; percent: number; answers: number }[];
     attempts: StudentVisibleAttempt[];
   }> {
@@ -113,7 +153,7 @@ export class QuizAnalyticsService {
         return total + Math.max(0, attempt.submitted_at.getTime() - attempt.started_at.getTime());
       }, 0) / 60_000,
     );
-    const topicStats = this.aggregateTopics(answers);
+    const performanceInsights = await this.getStudentPerformanceInsights(studentId, answers, filter);
     const typeStats = this.aggregateQuestionTypes(answers);
     const attempts: StudentVisibleAttempt[] = visibleAttempts.map((attempt, index) => ({
       examName: attempt.exam.title,
@@ -143,8 +183,12 @@ export class QuizAnalyticsService {
       bestQuiz: best ? { title: best.examName, percent: best.percentage } : null,
       worstQuiz: worst ? { title: worst.examName, percent: worst.percentage } : null,
       progress: [...attempts].reverse().map((attempt) => ({ date: attempt.reviewedAt.slice(0, 10), percent: attempt.percentage })),
-      strongTopics: topicStats.filter((topic) => topic.percent >= 60).sort((a, b) => b.percent - a.percent).slice(0, 5),
-      weakTopics: topicStats.filter((topic) => topic.percent < 60).sort((a, b) => a.percent - b.percent).slice(0, 5),
+      strongTopics: performanceInsights.filter((topic) => topic.percent >= 75).sort((a, b) => b.percent - a.percent).slice(0, 5),
+      weakTopics: performanceInsights.filter((topic) => topic.percent < 55).sort((a, b) => a.percent - b.percent).slice(0, 5),
+      performanceInsights: {
+        minimumAssessments: 5,
+        hasEnoughData: performanceInsights.length > 0,
+      },
       performanceByQuestionType: typeStats,
       attempts,
     };
@@ -161,15 +205,138 @@ export class QuizAnalyticsService {
     return true;
   }
 
-  private aggregateTopics(answers: ExamAttemptAnswer[]): { topic: string; percent: number; answers: number }[] {
-    const rows = new Map<string, { score: number; max: number; answers: number }>();
-    for (const answer of answers) {
-      const topic = answer.exam_question?.question?.topic ?? null;
-      if (!topic || answer.score === null || answer.max_score <= 0) continue;
-      const row = rows.get(topic) ?? { score: 0, max: 0, answers: 0 };
-      row.score += Number(answer.score); row.max += Number(answer.max_score); row.answers += 1; rows.set(topic, row);
+  /**
+   * Builds subject-level mastery insights from student-visible scored work.
+   *
+   * A subject is eligible only after at least five completed questions or
+   * graded assignments. Strength is >=75%, needs-work is <55%; the middle
+   * band intentionally remains unclassified. Scores are mark-weighted
+   * (sum(score) / sum(max)), not a frontend approximation. Lesson completion
+   * and attendance are shown as learning-engagement evidence only and never
+   * change a mastery percentage. Trend compares the earlier and later halves
+   * of at least four dated score observations; a 10-point move is meaningful.
+   */
+  private async getStudentPerformanceInsights(
+    studentId: string,
+    examAnswers: ExamAttemptAnswer[],
+    filter: StudentAnalyticsFilter,
+  ): Promise<StudentPerformanceInsight[]> {
+    const [practiceSolves, homeworkSubmissions, lessonProgress, attendance] = await Promise.all([
+      this.questionSolvesRepository.find({ where: { user_id: studentId, suspicious: false }, order: { created_at: 'ASC' } }),
+      this.homeworkSubmissionsRepository.find({
+        where: { student_id: studentId, status: 'graded' },
+        relations: ['homework', 'homework.lesson'],
+      }),
+      this.lessonProgressRepository.find({ where: { student_id: studentId }, relations: ['lesson'] }),
+      this.attendanceRepository.find({ where: { student_id: studentId }, relations: ['lesson'] }),
+    ]);
+
+    const buckets = new Map<string, SubjectPerformanceBucket>();
+    const ensureBucket = (subjectId: string): SubjectPerformanceBucket => {
+      const existing = buckets.get(subjectId);
+      if (existing) return existing;
+      const created: SubjectPerformanceBucket = {
+        scores: [], completedLessons: 0, lessonsWithProgress: 0, totalLessonProgress: 0, attended: 0, attendanceRecords: 0,
+      };
+      buckets.set(subjectId, created);
+      return created;
+    };
+    const isSelectedSubject = (subjectId: string) => !filter.subjectId || filter.subjectId === subjectId;
+    const inDateRange = (date: Date | null | undefined) => {
+      if (!date) return false;
+      return (!filter.from || date >= new Date(filter.from)) && (!filter.to || date <= new Date(filter.to));
+    };
+
+    for (const answer of examAnswers) {
+      const subjectId = answer.exam_question?.question?.subject_id;
+      if (!subjectId || answer.score === null || answer.max_score <= 0 || !isSelectedSubject(subjectId)) continue;
+      // The enclosing exam query already applies its student-visible state,
+      // teacher, subject, and date filters. Answer marks include manual review.
+      ensureBucket(subjectId).scores.push({
+        score: Number(answer.score), max: Number(answer.max_score), completedAt: answer.updated_at ?? new Date(0), source: 'exam',
+      });
     }
-    return [...rows].map(([topic, value]) => ({ topic, answers: value.answers, percent: Math.round((value.score / value.max) * 100) }));
+    // Practice cannot be attributed to one teacher, so do not mix it into a
+    // teacher-filtered report. It remains part of the student's general view.
+    if (!filter.teacherId) {
+      for (const solve of practiceSolves) {
+        if (!isSelectedSubject(solve.subject_id) || !inDateRange(solve.created_at)) continue;
+        ensureBucket(solve.subject_id).scores.push({
+          score: solve.is_correct ? 1 : 0, max: 1, completedAt: solve.created_at, source: 'practice',
+        });
+      }
+      for (const submission of homeworkSubmissions) {
+        const subjectId = submission.homework?.lesson?.subject_id;
+        if (!subjectId || submission.score === null || Number(submission.homework.max_score) <= 0 || !isSelectedSubject(subjectId) || !inDateRange(submission.graded_at)) continue;
+        ensureBucket(subjectId).scores.push({
+          score: Number(submission.score), max: Number(submission.homework.max_score), completedAt: submission.graded_at!, source: 'homework',
+        });
+      }
+    }
+    if (!filter.teacherId) {
+      for (const progress of lessonProgress) {
+        const subjectId = progress.lesson?.subject_id;
+        if (!subjectId || !isSelectedSubject(subjectId) || !inDateRange(progress.last_watched_at)) continue;
+        const bucket = ensureBucket(subjectId);
+        bucket.lessonsWithProgress += 1;
+        bucket.completedLessons += progress.completed ? 1 : 0;
+        bucket.totalLessonProgress += Math.max(0, Math.min(100, progress.progress_percent));
+      }
+      for (const record of attendance) {
+        const subjectId = record.lesson?.subject_id;
+        if (!subjectId || !isSelectedSubject(subjectId) || record.status === 'excused' || !inDateRange(record.marked_at)) continue;
+        const bucket = ensureBucket(subjectId);
+        bucket.attendanceRecords += 1;
+        bucket.attended += record.status === 'present' || record.status === 'late' ? 1 : 0;
+      }
+    }
+
+    const subjectIds = [...buckets.keys()];
+    const subjects = subjectIds.length ? await this.subjectsRepository.find({ where: { id: In(subjectIds) } }) : [];
+    const subjectNames = new Map(subjects.map((subject) => [subject.id, subject.name]));
+
+    return subjectIds.flatMap((subjectId) => {
+      const bucket = buckets.get(subjectId)!;
+      const label = subjectNames.get(subjectId);
+      if (!label || bucket.scores.length < 5) return [];
+      const score = bucket.scores.reduce((total, item) => total + item.score, 0);
+      const max = bucket.scores.reduce((total, item) => total + item.max, 0);
+      if (max <= 0) return [];
+      const bySource = { exams: 0, practice: 0, homework: 0 };
+      for (const item of bucket.scores) {
+        if (item.source === 'exam') bySource.exams += 1;
+        else if (item.source === 'practice') bySource.practice += 1;
+        else bySource.homework += 1;
+      }
+      return [{
+        topic: label,
+        scope: 'subject' as const,
+        percent: Math.round((score / max) * 100),
+        answers: bucket.scores.length,
+        sources: bySource,
+        trend: this.getPerformanceTrend(bucket.scores),
+        lessonProgressPercent: bucket.lessonsWithProgress
+          ? Math.round(bucket.totalLessonProgress / bucket.lessonsWithProgress)
+          : null,
+        lessonCompletionPercent: bucket.lessonsWithProgress
+          ? Math.round((bucket.completedLessons / bucket.lessonsWithProgress) * 100)
+          : null,
+        attendancePercent: bucket.attendanceRecords
+          ? Math.round((bucket.attended / bucket.attendanceRecords) * 100)
+          : null,
+      }];
+    });
+  }
+
+  private getPerformanceTrend(scores: SubjectPerformanceBucket['scores']): StudentPerformanceInsight['trend'] {
+    if (scores.length < 4) return 'insufficient_data';
+    const sorted = [...scores].sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
+    const middle = Math.floor(sorted.length / 2);
+    const average = (items: typeof sorted) => items.reduce((sum, item) => sum + (item.score / item.max) * 100, 0) / items.length;
+    const difference = average(sorted.slice(middle)) - average(sorted.slice(0, middle));
+    if (difference >= 10) return 'improving';
+    if (difference <= -10) return 'declining';
+    return 'stable';
   }
 
   private aggregateQuestionTypes(answers: ExamAttemptAnswer[]): { type: string; percent: number; answers: number }[] {
