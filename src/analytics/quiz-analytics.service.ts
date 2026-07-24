@@ -1,13 +1,22 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
 import { Question } from '../exams/entities/question.entity';
+import { AttemptState } from '../exams/entities/attempt-state.enum';
+import { ReviewPolicy } from '../exams/entities/review-policy.enum';
 import { biBody } from '../i18n/error-translator.util';
+
+interface StudentAnalyticsFilter {
+  subjectId?: string;
+  teacherId?: string;
+  from?: string;
+  to?: string;
+}
 
 interface StudentAttemptHighlightsRow {
   bestQuiz: { title: string; percent: number } | null;
@@ -18,6 +27,22 @@ interface StudentAttemptHighlightsRow {
 interface StudentTopicHighlightsRow {
   strongTopics: { topic: string; percent: number; answers: number }[];
   weakTopics: { topic: string; percent: number; answers: number }[];
+}
+
+interface StudentVisibleAttempt {
+  examName: string;
+  teacher: string | null;
+  subject: string | null;
+  course: string | null;
+  attemptedAt: string | null;
+  reviewedAt: string;
+  scoreAuto: number;
+  scoreManual: number;
+  scoreTotal: number;
+  maxScore: number;
+  percentage: number;
+  passed: boolean | null;
+  feedback: string[];
 }
 
 /**
@@ -40,7 +65,7 @@ export class QuizAnalyticsService {
 
   /* ===================== Student ===================== */
 
-  public async getStudentAnalytics(studentId: string): Promise<{
+  public async getStudentAnalytics(studentId: string, filter: StudentAnalyticsFilter = {}): Promise<{
     totalAttempts: number;
     averageScore: number;
     passRate: number;
@@ -50,47 +75,115 @@ export class QuizAnalyticsService {
     progress: { date: string; percent: number }[];
     strongTopics: { topic: string; percent: number; answers: number }[];
     weakTopics: { topic: string; percent: number; answers: number }[];
+    performanceByQuestionType: { type: string; percent: number; answers: number }[];
+    attempts: StudentVisibleAttempt[];
   }> {
-    const summary = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .select('COUNT(*)', 'attempts')
-      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .addSelect(
-        'AVG(CASE WHEN a.score_total IS NULL THEN NULL WHEN a.passed THEN 1 ELSE 0 END) * 100',
-        'passRate',
-      )
-      .addSelect(
-        'COALESCE(SUM(EXTRACT(EPOCH FROM (a.submitted_at - a.started_at))), 0)',
-        'timeSeconds',
-      )
-      .where('a.student_id = :studentId', { studentId })
-      .andWhere('a.score_total IS NOT NULL')
-      .getRawOne<{
-        attempts: string;
-        avgPercent: string | null;
-        passRate: string | null;
-        timeSeconds: string | null;
-      }>();
-
-    const [attemptHighlights, topicHighlights] = await Promise.all([
-      this.getStudentAttemptHighlights(studentId),
-      this.getStudentTopicHighlights(studentId),
-    ]);
+    const query = this.attemptsRepository
+      .createQueryBuilder('attempt')
+      .innerJoinAndSelect('attempt.exam', 'exam')
+      .leftJoinAndSelect('exam.teacher', 'teacher')
+      .leftJoinAndSelect('exam.subject', 'subject')
+      .leftJoinAndSelect('exam.package', 'course')
+      .where('attempt.student_id = :studentId', { studentId })
+      .andWhere('attempt.state = :state', { state: AttemptState.GRADED })
+      .andWhere('attempt.score_total IS NOT NULL')
+      .andWhere('exam.deleted_at IS NULL');
+    if (filter.subjectId) query.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subjectId });
+    if (filter.teacherId) query.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacherId });
+    if (filter.from) query.andWhere('attempt.submitted_at >= :from', { from: filter.from });
+    if (filter.to) query.andWhere('attempt.submitted_at <= :to', { to: filter.to });
+    const gradedAttempts = await query.orderBy('attempt.graded_at', 'DESC').getMany();
+    const visibleAttempts = gradedAttempts.filter((attempt) => this.isStudentResultVisible(attempt));
+    const attemptIds = visibleAttempts.map((attempt) => attempt.id);
+    const answers = attemptIds.length
+      ? await this.answersRepository.find({ where: { attempt_id: In(attemptIds) }, relations: ['exam_question', 'exam_question.question'] })
+      : [];
+    const answerByAttempt = new Map<string, ExamAttemptAnswer[]>();
+    for (const answer of answers) {
+      const group = answerByAttempt.get(answer.attempt_id) ?? [];
+      group.push(answer);
+      answerByAttempt.set(answer.attempt_id, group);
+    }
+    const percentages = visibleAttempts.map((attempt) =>
+      attempt.max_score > 0 ? Math.round((Number(attempt.score_total) / Number(attempt.max_score)) * 100) : 0,
+    );
+    const totalTimeMinutes = Math.round(
+      visibleAttempts.reduce((total, attempt) => {
+        if (!attempt.submitted_at) return total;
+        return total + Math.max(0, attempt.submitted_at.getTime() - attempt.started_at.getTime());
+      }, 0) / 60_000,
+    );
+    const topicStats = this.aggregateTopics(answers);
+    const typeStats = this.aggregateQuestionTypes(answers);
+    const attempts: StudentVisibleAttempt[] = visibleAttempts.map((attempt, index) => ({
+      examName: attempt.exam.title,
+      teacher: attempt.exam.teacher?.name ?? null,
+      subject: attempt.exam.subject?.name ?? null,
+      course: attempt.exam.package?.title ?? null,
+      attemptedAt: attempt.submitted_at?.toISOString() ?? null,
+      reviewedAt: attempt.graded_at?.toISOString() ?? attempt.updated_at.toISOString(),
+      scoreAuto: Number(attempt.score_auto ?? 0),
+      scoreManual: Number(attempt.score_manual ?? 0),
+      scoreTotal: Number(attempt.score_total ?? 0),
+      maxScore: Number(attempt.max_score ?? 0),
+      percentage: percentages[index] ?? 0,
+      passed: attempt.passed,
+      feedback: (answerByAttempt.get(attempt.id) ?? [])
+        .map((answer) => answer.feedback?.trim())
+        .filter((feedback): feedback is string => Boolean(feedback)),
+    }));
+    const best = attempts.length ? [...attempts].sort((a, b) => b.percentage - a.percentage)[0] : null;
+    const worst = attempts.length ? [...attempts].sort((a, b) => a.percentage - b.percentage)[0] : null;
 
     return {
-      totalAttempts: Number.parseInt(summary?.attempts ?? '0', 10),
-      averageScore: Math.round(Number(summary?.avgPercent ?? 0)),
-      passRate: Math.round(Number(summary?.passRate ?? 0)),
-      totalTimeMinutes: Math.round(Number(summary?.timeSeconds ?? 0) / 60),
-      bestQuiz: attemptHighlights.bestQuiz,
-      worstQuiz: attemptHighlights.worstQuiz,
-      progress: attemptHighlights.progress,
-      strongTopics: topicHighlights.strongTopics,
-      weakTopics: topicHighlights.weakTopics,
+      totalAttempts: attempts.length,
+      averageScore: attempts.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / attempts.length) : 0,
+      passRate: attempts.length ? Math.round((attempts.filter((attempt) => attempt.passed === true).length / attempts.length) * 100) : 0,
+      totalTimeMinutes,
+      bestQuiz: best ? { title: best.examName, percent: best.percentage } : null,
+      worstQuiz: worst ? { title: worst.examName, percent: worst.percentage } : null,
+      progress: [...attempts].reverse().map((attempt) => ({ date: attempt.reviewedAt.slice(0, 10), percent: attempt.percentage })),
+      strongTopics: topicStats.filter((topic) => topic.percent >= 60).sort((a, b) => b.percent - a.percent).slice(0, 5),
+      weakTopics: topicStats.filter((topic) => topic.percent < 60).sort((a, b) => a.percent - b.percent).slice(0, 5),
+      performanceByQuestionType: typeStats,
+      attempts,
     };
   }
 
-  private async getStudentAttemptHighlights(
+  private isStudentResultVisible(attempt: ExamAttempt): boolean {
+    if (attempt.state !== AttemptState.GRADED || attempt.score_total === null) return false;
+    const policy = attempt.exam.config.review_policy;
+    if (policy === ReviewPolicy.NEVER) return false;
+    if (policy === ReviewPolicy.AFTER_CLOSE) {
+      const closesAt = attempt.exam.config.end_window_at;
+      return Boolean(closesAt && Date.now() > new Date(closesAt).getTime());
+    }
+    return true;
+  }
+
+  private aggregateTopics(answers: ExamAttemptAnswer[]): { topic: string; percent: number; answers: number }[] {
+    const rows = new Map<string, { score: number; max: number; answers: number }>();
+    for (const answer of answers) {
+      const topic = answer.exam_question?.question?.topic ?? null;
+      if (!topic || answer.score === null || answer.max_score <= 0) continue;
+      const row = rows.get(topic) ?? { score: 0, max: 0, answers: 0 };
+      row.score += Number(answer.score); row.max += Number(answer.max_score); row.answers += 1; rows.set(topic, row);
+    }
+    return [...rows].map(([topic, value]) => ({ topic, answers: value.answers, percent: Math.round((value.score / value.max) * 100) }));
+  }
+
+  private aggregateQuestionTypes(answers: ExamAttemptAnswer[]): { type: string; percent: number; answers: number }[] {
+    const rows = new Map<string, { score: number; max: number; answers: number }>();
+    for (const answer of answers) {
+      const type = answer.exam_question?.type_snapshot;
+      if (!type || answer.score === null || answer.max_score <= 0) continue;
+      const row = rows.get(type) ?? { score: 0, max: 0, answers: 0 };
+      row.score += Number(answer.score); row.max += Number(answer.max_score); row.answers += 1; rows.set(type, row);
+    }
+    return [...rows].map(([type, value]) => ({ type, answers: value.answers, percent: Math.round((value.score / value.max) * 100) }));
+  }
+
+  public async getStudentAttemptHighlights(
     studentId: string,
   ): Promise<StudentAttemptHighlightsRow> {
     const rows = await this.attemptsRepository.query<StudentAttemptHighlightsRow[]>(
@@ -144,7 +237,7 @@ export class QuizAnalyticsService {
     return rows[0] ?? { bestQuiz: null, worstQuiz: null, progress: [] };
   }
 
-  private async getStudentTopicHighlights(studentId: string): Promise<StudentTopicHighlightsRow> {
+  public async getStudentTopicHighlights(studentId: string): Promise<StudentTopicHighlightsRow> {
     const rows = await this.answersRepository.query<StudentTopicHighlightsRow[]>(
       `
         WITH topic_stats AS (

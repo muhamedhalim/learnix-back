@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
@@ -18,8 +18,19 @@ export class QuizAnalyticsController {
   @Get('student')
   @Roles('student')
   @ApiOperation({ summary: 'My quiz performance analytics (student)' })
-  public async student(@GetUser() user: JwtPayload): Promise<{ data: unknown }> {
-    const data = await this.quizAnalyticsService.getStudentAnalytics(user.userId);
+  public async student(
+    @GetUser() user: JwtPayload,
+    @Query('subject_id') subjectId?: string,
+    @Query('teacher_id') teacherId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<{ data: unknown }> {
+    const data = await this.quizAnalyticsService.getStudentAnalytics(user.userId, {
+      ...(subjectId ? { subjectId } : {}),
+      ...(teacherId ? { teacherId } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
     return { data };
   }
 

@@ -66,46 +66,34 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
     expect(answers.createQueryBuilder).not.toHaveBeenCalled();
   });
 
-  it('bounds student progress and returns database-ranked attempt/topic highlights', async () => {
+  it('returns only finalized, student-visible attempts and includes manual marks and feedback', async () => {
     const summaryBuilder: Record<string, jest.Mock> = {};
-    for (const method of ['select', 'addSelect', 'where', 'andWhere']) {
+    for (const method of ['innerJoinAndSelect', 'leftJoinAndSelect', 'where', 'andWhere', 'orderBy']) {
       summaryBuilder[method] = jest.fn(() => summaryBuilder);
     }
-    summaryBuilder.getRawOne = jest.fn().mockResolvedValue({
-      attempts: '10000',
-      avgPercent: '75',
-      passRate: '80',
-      timeSeconds: '3600',
-    });
+    summaryBuilder.getMany = jest.fn().mockResolvedValue([
+      {
+        id: 'attempt-1', state: 'graded', score_auto: 6, score_manual: 3, score_total: 9, max_score: 10,
+        passed: true, started_at: new Date('2026-07-14T09:00:00Z'), submitted_at: new Date('2026-07-14T09:30:00Z'), graded_at: new Date('2026-07-14T10:00:00Z'), updated_at: new Date('2026-07-14T10:00:00Z'),
+        exam: { title: 'Essay exam', config: { review_policy: 'after_graded' }, teacher: { name: 'Teacher' }, subject: { name: 'Math' }, package: null },
+      },
+      {
+        id: 'attempt-2', state: 'graded', score_auto: 10, score_manual: 0, score_total: 10, max_score: 10,
+        passed: true, started_at: new Date(), submitted_at: new Date(), graded_at: new Date(), updated_at: new Date(),
+        exam: { title: 'Private result', config: { review_policy: 'never' }, teacher: { name: 'Teacher' }, subject: { name: 'Math' }, package: null },
+      },
+    ]);
     attempts.createQueryBuilder.mockReturnValue(summaryBuilder);
-    attempts.query.mockResolvedValue([
-      {
-        bestQuiz: { title: 'Best', percent: 100 },
-        worstQuiz: { title: 'Worst', percent: 20 },
-        progress: [{ date: '2026-07-14', percent: 90 }],
-      },
-    ]);
-    answers.query.mockResolvedValue([
-      {
-        strongTopics: [{ topic: 'Algebra', answers: 50, percent: 90 }],
-        weakTopics: [{ topic: 'Geometry', answers: 20, percent: 40 }],
-      },
-    ]);
+    answers.find = jest.fn().mockResolvedValue([{ attempt_id: 'attempt-1', score: 3, max_score: 4, feedback: 'Strong explanation', exam_question: { type_snapshot: 'essay', question: { topic: 'Algebra' } } }]);
 
     const result = await service.getStudentAnalytics('student-1');
 
     expect(result).toMatchObject({
-      totalAttempts: 10000,
-      bestQuiz: { title: 'Best', percent: 100 },
-      worstQuiz: { title: 'Worst', percent: 20 },
-      strongTopics: [{ topic: 'Algebra', answers: 50, percent: 90 }],
-      weakTopics: [{ topic: 'Geometry', answers: 20, percent: 40 }],
+      totalAttempts: 1,
+      bestQuiz: { title: 'Essay exam', percent: 90 },
+      attempts: [expect.objectContaining({ scoreManual: 3, scoreTotal: 9, feedback: ['Strong explanation'] })],
     });
-    const attemptSql = attempts.query.mock.calls[0]?.[0] as string;
-    const topicSql = answers.query.mock.calls[0]?.[0] as string;
-    expect(attemptSql).toContain('LIMIT 100');
-    expect(topicSql).toContain('WITH topic_stats AS');
-    expect(topicSql).toContain('LIMIT 5');
+    expect(result.attempts).not.toEqual(expect.arrayContaining([expect.objectContaining({ examName: 'Private result' })]));
   });
 
   it('computes teacher completion from eligible exam-student pairs, not attempts', async () => {
