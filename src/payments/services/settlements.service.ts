@@ -36,6 +36,23 @@ interface SumRow {
   value: string | null;
 }
 
+/**
+ * Teacher-safe wallet projection.  This deliberately contains only balances
+ * and events attributable to the authenticated teacher; platform collection
+ * totals are an admin-finance concern and must never leave the teacher API.
+ */
+export interface TeacherWalletSummary {
+  currency: string;
+  pending_balance_minor: number;
+  available_balance_minor: number;
+  lifetime_earnings_minor: number;
+  paid_out_minor: number;
+  refunded_reversed_minor: number;
+  teacher_collected_sales_minor: number;
+  outstanding_platform_receivable_minor: number;
+  next_settlement_date: null;
+}
+
 @Injectable()
 export class SettlementsService {
   private readonly minimumPayoutMinor: number;
@@ -56,14 +73,13 @@ export class SettlementsService {
 
   public async getTeacherWallet(
     teacherId: string,
-  ): Promise<Record<string, number | string | null>> {
+  ): Promise<TeacherWalletSummary> {
     const [
       pending,
       available,
       lifetime,
       paid,
       reversed,
-      platformCollected,
       teacherCollected,
       receivable,
     ] = await Promise.all([
@@ -72,7 +88,6 @@ export class SettlementsService {
       this.lifetimeEarnings(teacherId),
       this.entryNet(teacherId, LedgerEntryType.PAYOUT),
       this.entryNet(teacherId, LedgerEntryType.TEACHER_EARNING_REVERSAL),
-      this.entryNet(teacherId, LedgerEntryType.PLATFORM_COLLECTED_SALE),
       this.entryNet(teacherId, LedgerEntryType.TEACHER_COLLECTED_SALE),
       this.accountBalance(teacherId, 'platform_receivable'),
     ]);
@@ -83,7 +98,6 @@ export class SettlementsService {
       lifetime_earnings_minor: lifetime,
       paid_out_minor: Math.abs(paid),
       refunded_reversed_minor: Math.abs(reversed),
-      platform_collected_sales_minor: platformCollected,
       teacher_collected_sales_minor: teacherCollected,
       outstanding_platform_receivable_minor: receivable,
       next_settlement_date: null,

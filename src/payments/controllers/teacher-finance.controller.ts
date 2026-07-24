@@ -30,16 +30,22 @@ export class TeacherFinanceController {
 
   @Get('orders')
   public async ordersList(@Query() filter: OrderFilterDto, @GetUser() user: JwtPayload) {
-    return this.orders.findOrders({ ...filter, teacher_id: user.userId });
+    const scopedFilter = { ...filter };
+    delete scopedFilter.teacher_id;
+    return this.orders.findOrders({ ...scopedFilter, teacher_id: user.userId });
   }
 
   @Get('settlements')
   public async settlementList(@Query() filter: SettlementFilterDto, @GetUser() user: JwtPayload) {
-    return this.settlements.list(filter, user.userId);
+    const scopedFilter = { ...filter };
+    delete scopedFilter.teacher_id;
+    return this.settlements.list(scopedFilter, user.userId);
   }
 
   @Get('refunds')
   public async refundList(@Query() filter: RefundFilterDto, @GetUser() user: JwtPayload) {
-    return this.refunds.list({ ...filter, teacher_id: user.userId });
+    const scopedFilter = { ...filter };
+    delete scopedFilter.teacher_id;
+    return this.refunds.list({ ...scopedFilter, teacher_id: user.userId });
   }
 }
