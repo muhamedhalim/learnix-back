@@ -64,6 +64,43 @@ describe('PracticeService public-content policy', () => {
     });
   });
 
+  it('returns the stored review instead of a second answer opportunity', async () => {
+    const question = {
+      id: 'answered-question', type: 'true_false', subject_id: 'subject-1', lesson_id: null,
+      difficulty: Difficulty.EASY, content: { prompt: 'True?' }, answer_key: { value: true },
+    } as Question;
+    const qb = {
+      where: jest.fn(), andWhere: jest.fn(), orderBy: jest.fn(), limit: jest.fn(),
+      getOne: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(question),
+    } as unknown as SelectQueryBuilder<Question>;
+    for (const method of ['where', 'andWhere', 'orderBy', 'limit'] as const) {
+      (qb[method] as jest.Mock).mockReturnValue(qb);
+    }
+    const previous = {
+      isCorrect: true, firstSolve: true, firstAttempt: false, suspicious: false,
+      xpAwarded: 20, xpBreakdown: [], ratingDelta: 20, subjectRating: 1220,
+      globalRating: 1220, combo: 2, streak: 1, streakExtendedToday: false,
+      level: 1, levelUp: false, xp: 45, rankTierId: null, rankUp: false,
+      alreadyAnswered: true, submittedAt: new Date('2026-01-01T12:00:00Z'), response: { value: true },
+    };
+    const service = new PracticeService(
+      { createQueryBuilder: jest.fn().mockReturnValue(qb) } as unknown as Repository<Question>,
+      { findOne: jest.fn().mockResolvedValue(null) } as never,
+      {} as never,
+      { list: () => [{ type: 'true_false', requiresManualGrading: false }] } as never,
+      { existingSolveResultFor: jest.fn().mockResolvedValue(previous) } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const rendered = await service.getNext('student-1', {});
+
+    expect(rendered).toMatchObject({
+      id: 'answered-question', already_solved: true,
+      previous_result: { alreadyAnswered: true, response: { value: true }, solution: { value: true } },
+    });
+  });
+
   it('grades a public question on the server and records the authenticated student only', async () => {
     const question = {
       id: 'public-question',
@@ -94,7 +131,7 @@ describe('PracticeService public-content policy', () => {
           }),
         }),
       } as never,
-      { recordSolve } as never,
+      { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(null) } as never,
       { resolveTier: jest.fn().mockResolvedValue(null) } as never,
       { notifyForSolve: jest.fn() } as never,
     );
@@ -114,6 +151,40 @@ describe('PracticeService public-content policy', () => {
     expect(result).toMatchObject({ isCorrect: true, xpAwarded: 20, solution: question.answer_key });
   });
 
+  it('returns the original result for a duplicate submission without grading or recording again', async () => {
+    const question = {
+      id: 'public-question', type: 'true_false', current_version: 1,
+      subject_id: 'subject-1', lesson_id: null, difficulty: Difficulty.EASY,
+      answer_key: { value: true }, content: {},
+    } as Question;
+    const existing = {
+      isCorrect: true, firstSolve: true, firstAttempt: false, suspicious: false,
+      xpAwarded: 10, xpBreakdown: [], ratingDelta: 20, subjectRating: 1220,
+      globalRating: 1220, combo: 1, streak: 1, streakExtendedToday: false,
+      level: 1, levelUp: false, xp: 35, rankTierId: null, rankUp: false,
+      alreadyAnswered: true, submittedAt: new Date('2026-01-01T12:00:00Z'), response: { value: true },
+    };
+    const recordSolve = jest.fn();
+    const registry = { require: jest.fn() };
+    const service = new PracticeService(
+      { findOne: jest.fn().mockResolvedValue(question) } as unknown as Repository<Question>,
+      { findOne: jest.fn().mockResolvedValue(null) } as never,
+      {} as never,
+      registry as never,
+      { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(existing) } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.submitAnswer('student-1', {
+      questionId: question.id, response: { value: false }, timeMs: 0,
+    });
+
+    expect(result).toMatchObject({ alreadyAnswered: true, response: { value: true } });
+    expect(registry.require).not.toHaveBeenCalled();
+    expect(recordSolve).not.toHaveBeenCalled();
+  });
+
   it('records an incorrect public answer without awarding a correct-answer result', async () => {
     const question = {
       id: 'public-question', type: 'true_false', current_version: 1,
@@ -131,7 +202,7 @@ describe('PracticeService public-content policy', () => {
       { findOne: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       { require: () => ({ validateResponse: () => [], grade: () => ({ isCorrect: false, manualRequired: false }) }) } as never,
-      { recordSolve } as never,
+      { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
       {} as never,
     );

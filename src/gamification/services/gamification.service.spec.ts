@@ -10,7 +10,7 @@ import {
 import { GamificationService } from './gamification.service';
 
 describe('GamificationService practice scoring', () => {
-  it('awards a public question only once when the same submission is retried', async () => {
+  it('stores one final answer when duplicate requests arrive concurrently', async () => {
     const profile = {
       user_id: 'student-1', xp: 0, global_rating: 1200, level: 1,
       current_combo: 0, longest_combo: 0, current_streak: 0, longest_streak: 0,
@@ -36,8 +36,13 @@ describe('GamificationService practice scoring', () => {
       find: jest.fn().mockImplementation(async () => [subject]),
     };
     const solveRepo = {
+      findOne: jest.fn().mockImplementation(async () => solves[0] ?? null),
       create: jest.fn().mockImplementation((value) => value),
-      save: jest.fn().mockImplementation(async (value) => { solves.push(value); return value; }),
+      save: jest.fn().mockImplementation(async (value) => {
+        const stored = { ...value, id: 'solve-1', created_at: new Date('2026-01-01T12:00:00Z') };
+        solves.push(stored);
+        return stored;
+      }),
     };
     const xpRepo = {
       create: jest.fn().mockImplementation((value) => value),
@@ -59,14 +64,20 @@ describe('GamificationService practice scoring', () => {
         throw new Error('Unexpected repository');
       },
     };
+    let transactionTail = Promise.resolve();
     const dataSource = {
-      transaction: (run: (manager: typeof manager) => unknown) => run(manager),
+      transaction: (run: (manager: typeof manager) => Promise<unknown>) => {
+        const current = transactionTail.then(() => run(manager));
+        transactionTail = current.then(() => undefined, () => undefined);
+        return current;
+      },
     };
     const profileLookup = { findOne: jest.fn().mockResolvedValue(profile) };
     const service = new GamificationService(
       dataSource as never,
       { resolveTier: jest.fn().mockResolvedValue({ id: 'bronze' }) } as never,
       profileLookup as never,
+      solveRepo as never,
     );
     const input = {
       userId: 'student-1', questionId: 'question-1', questionVersion: 1,
@@ -74,16 +85,21 @@ describe('GamificationService practice scoring', () => {
       isCorrect: true, response: { optionId: 'correct' }, timeMs: 5_000,
     };
 
-    const first = await service.recordSolve(input);
-    const retry = await service.recordSolve(input);
+    const [first, retry] = await Promise.all([service.recordSolve(input), service.recordSolve(input)]);
 
-    expect(first).toMatchObject({ firstAttempt: true, firstSolve: true });
+    expect(first).toMatchObject({ firstAttempt: true, firstSolve: true, alreadyAnswered: false });
     expect(first.xpAwarded).toBeGreaterThan(0);
     expect(first.ratingDelta).toBeGreaterThan(0);
-    expect(retry).toMatchObject({ firstAttempt: false, firstSolve: false, xpAwarded: 0, ratingDelta: 0 });
+    expect(retry).toMatchObject({
+      firstAttempt: false,
+      firstSolve: true,
+      alreadyAnswered: true,
+      xpAwarded: first.xpAwarded,
+      ratingDelta: first.ratingDelta,
+    });
     expect(profile.xp).toBe(first.xpAwarded);
-    expect(solves).toHaveLength(2);
-    expect(solves[1]).toMatchObject({ xp_awarded: 0, rating_delta: 0, first_solve: false });
+    expect(profile.total_solved).toBe(1);
+    expect(solves).toHaveLength(1);
     expect(xpEvents.reduce((total, event) => total + event.amount, 0)).toBe(first.xpAwarded);
   });
 });

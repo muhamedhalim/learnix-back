@@ -66,6 +66,10 @@ export interface SolveResult {
   xp: number;
   rankTierId: string | null;
   rankUp: boolean;
+  /** True when this request returned the student's existing final answer. */
+  alreadyAnswered: boolean;
+  submittedAt: Date;
+  response: QuestionResponsePayload | null;
 }
 
 /**
@@ -82,6 +86,8 @@ export class GamificationService {
     private readonly rankService: RankService,
     @InjectRepository(StudentGameProfile)
     private readonly profiles: Repository<StudentGameProfile>,
+    @InjectRepository(QuestionSolve)
+    private readonly solves: Repository<QuestionSolve>,
   ) {}
 
   /** The authenticated student's own game summary (profile + level progress + tier). */
@@ -161,6 +167,18 @@ export class GamificationService {
         lock: { mode: 'pessimistic_write' },
       });
 
+      // The profile lock serializes simultaneous submissions by one student.
+      // The unique ledger constraint remains the final cross-process guard.
+      const existing = await solveRepo.findOne({
+        where: { user_id: input.userId, question_id: input.questionId },
+      });
+      if (existing) {
+        const existingSubjectRating = await ratingRepo.findOne({
+          where: { user_id: input.userId, subject_id: existing.subject_id },
+        });
+        return this.existingSolveResult(profile, existingSubjectRating, existing);
+      }
+
       const state =
         (await stateRepo.findOne({
           where: { user_id: input.userId, question_id: input.questionId },
@@ -190,10 +208,8 @@ export class GamificationService {
       const today = appDateString(now);
       const suspicious = input.timeMs < MIN_SOLVE_TIME_MS;
       const legit = input.isCorrect && !suspicious;
-      // First encounter with this question — the ONLY XP/rating-earning event.
-      // Repeats (known questions) never grant XP/rating, which is what stops
-      // farming and closes any answer-key-harvest path.
-      const firstAttempt = state.times_seen === 0;
+      // The one-row solve ledger makes this the first and only final answer.
+      const firstAttempt = true;
 
       // --- solved-set bookkeeping ---
       state.times_seen += 1;
@@ -344,7 +360,56 @@ export class GamificationService {
         xp: profile.xp,
         rankTierId: profile.rank_tier_id,
         rankUp,
+        alreadyAnswered: false,
+        submittedAt: now,
+        response: input.response,
       };
     });
+  }
+
+  /** Read the prior final answer for the practice review screen. */
+  public async existingSolveResultFor(
+    userId: string,
+    questionId: string,
+  ): Promise<SolveResult | null> {
+    const existing = await this.solves.findOne({
+      where: { user_id: userId, question_id: questionId },
+    });
+    if (!existing) return null;
+
+    const profile = await this.ensureProfile(userId);
+    const subjectRating = await this.dataSource.getRepository(StudentSubjectRating).findOne({
+      where: { user_id: userId, subject_id: existing.subject_id },
+    });
+    return this.existingSolveResult(profile, subjectRating, existing);
+  }
+
+  private existingSolveResult(
+    profile: StudentGameProfile,
+    subjectRating: StudentSubjectRating | null,
+    solve: QuestionSolve,
+  ): SolveResult {
+    return {
+      isCorrect: solve.is_correct,
+      firstSolve: solve.first_solve,
+      firstAttempt: false,
+      suspicious: solve.suspicious,
+      xpAwarded: solve.xp_awarded,
+      xpBreakdown: [],
+      ratingDelta: solve.rating_delta,
+      subjectRating: subjectRating?.rating ?? STARTING_RATING,
+      globalRating: profile.global_rating,
+      combo: profile.current_combo,
+      streak: profile.current_streak,
+      streakExtendedToday: false,
+      level: profile.level,
+      levelUp: false,
+      xp: profile.xp,
+      rankTierId: profile.rank_tier_id,
+      rankUp: false,
+      alreadyAnswered: true,
+      submittedAt: solve.created_at,
+      response: solve.response,
+    };
   }
 }

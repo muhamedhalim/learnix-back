@@ -24,6 +24,7 @@ export interface RenderedQuestion {
   lesson_id: string | null;
   content: Record<string, unknown>;
   already_solved: boolean;
+  previous_result: SubmitResult | null;
 }
 
 export interface SubmitResult extends SolveResult {
@@ -62,7 +63,11 @@ export class PracticeService {
     const unsolved = await this.pickQuestion(userId, filters, true);
     const question = unsolved ?? (await this.pickQuestion(userId, filters, false));
     if (!question) return null;
-    return this.render(question, unsolved !== null ? false : true);
+    const alreadySolved = unsolved === null;
+    const prior = alreadySolved
+      ? await this.gamification.existingSolveResultFor(userId, question.id)
+      : null;
+    return await this.render(question, prior);
   }
 
   private async pickQuestion(
@@ -102,7 +107,10 @@ export class PracticeService {
       .map((def) => def.type);
   }
 
-  private render(question: Question, alreadySolved: boolean): RenderedQuestion {
+  private async render(
+    question: Question,
+    previous: SolveResult | null,
+  ): Promise<RenderedQuestion> {
     const content: Record<string, unknown> = { ...question.content };
     // Shuffle choice order for choice-type questions (anti-cheat). Answer keys
     // reference option ids, so display order carries no information.
@@ -119,7 +127,8 @@ export class PracticeService {
       subject_id: question.subject_id,
       lesson_id: question.lesson_id,
       content,
-      already_solved: alreadySolved,
+      already_solved: previous !== null,
+      previous_result: previous ? await this.buildSubmitResult(question, previous) : null,
     };
   }
 
@@ -137,6 +146,11 @@ export class PracticeService {
       where: { id: dto.questionId, is_active: true, is_public: true },
     });
     if (!question) throw new NotFoundException(biBody('Question not found', 'السؤال غير موجود'));
+
+    // A retry returns the original server-scored review before a new payload is
+    // validated. Concurrent first submits are protected in recordSolve.
+    const existing = await this.gamification.existingSolveResultFor(userId, question.id);
+    if (existing) return await this.buildSubmitResult(question, existing);
 
     const definition = this.registry.require(question.type);
     const response = dto.response ?? null;
@@ -171,31 +185,14 @@ export class PracticeService {
       sessionId: dto.sessionId ?? null,
     });
 
-    const referenceLesson = question.lesson_id
-      ? await this.lessons.findOne({
-          where: { id: question.lesson_id },
-          select: { id: true, title: true },
-        })
-      : null;
-
-    const explanationRaw = (question.content as Record<string, unknown>)['explanation'];
-    const explanation = this.extractText(explanationRaw);
-
     // Fire-and-forget engagement notifications (post-commit; never blocks/fails
     // the response). Resolve the tier once for the rank-up message.
-    if (result.rankUp || result.streakExtendedToday) {
+    if (!result.alreadyAnswered && (result.rankUp || result.streakExtendedToday)) {
       const tier = await this.rankService.resolveTier(result.globalRating, result.xp);
       void this.gameNotifications.notifyForSolve(userId, result, tier);
     }
 
-    return {
-      ...result,
-      solution: question.answer_key,
-      explanation,
-      reference_lesson: referenceLesson
-        ? { id: referenceLesson.id, title: referenceLesson.title }
-        : null,
-    };
+    return await this.buildSubmitResult(question, result);
   }
 
   /** Open a practice session. */
@@ -230,5 +227,23 @@ export class PracticeService {
       if (typeof ar === 'string' && ar.trim() !== '') return ar;
     }
     return null;
+  }
+
+  private async buildSubmitResult(question: Question, result: SolveResult): Promise<SubmitResult> {
+    const referenceLesson = question.lesson_id
+      ? await this.lessons.findOne({
+          where: { id: question.lesson_id },
+          select: { id: true, title: true },
+        })
+      : null;
+    const explanationRaw = (question.content as Record<string, unknown>)['explanation'];
+    return {
+      ...result,
+      solution: question.answer_key,
+      explanation: this.extractText(explanationRaw),
+      reference_lesson: referenceLesson
+        ? { id: referenceLesson.id, title: referenceLesson.title }
+        : null,
+    };
   }
 }

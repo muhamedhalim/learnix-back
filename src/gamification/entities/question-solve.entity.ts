@@ -4,6 +4,7 @@ import {
   Entity,
   Index,
   PrimaryGeneratedColumn,
+  Unique,
 } from 'typeorm';
 
 import { Difficulty } from '../../exams/entities/difficulty.enum';
@@ -16,6 +17,7 @@ import { numericTransformer } from '../../exams/entities/numeric.transformer';
  * Denormalises subject/lesson/difficulty so analytics never re-join `questions`.
  */
 @Entity('question_solves')
+@Unique('UQ_question_solves_user_question', ['user_id', 'question_id'])
 @Index('IDX_question_solves_user_created', ['user_id', 'created_at'])
 export class QuestionSolve {
   @PrimaryGeneratedColumn('uuid')
