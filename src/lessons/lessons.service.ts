@@ -35,9 +35,7 @@ import { LessonStatus } from './entities/lesson-status.enum';
 export interface LessonWithDetails {
   id: string;
   title: string;
-  title_ar: string;
   description: string | null;
-  description_ar: string | null;
   teacher: {
     id: string;
     name: string;
@@ -49,9 +47,6 @@ export interface LessonWithDetails {
     grade_level: string;
   };
   thumbnail: string | null;
-  /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
-  thumbnail_url: string | null;
-  // Primary video fields (Bunny.net)
   video_url: string | null;
   video_platform: 'bunny' | 'vimeo';
   bunny_video_id: string | null;
@@ -61,9 +56,6 @@ export interface LessonWithDetails {
   video_height: number | null;
   video_thumbnail: string | null;
   video_size_bytes: number | null;
-  // Legacy Vimeo fields (backward compatibility)
-  vimeo_video_id: string | null;
-  vimeo_embed_url: string | null;
   price: number;
   duration: number | null;
   is_group: boolean;
@@ -73,22 +65,15 @@ export interface LessonWithDetails {
   created_at: Date;
   updated_at: Date;
 }
-
-/**
- * Summary stats for a lesson
- */
 export interface LessonStats {
   purchaseCount: number;
   totalRevenue: number;
   averageRating: number;
 }
-
 interface LessonListRawRow {
   id: string;
   title: string;
-  title_ar: string;
   description: string | null;
-  description_ar: string | null;
   teacher_id: string;
   teacher_name: string;
   teacher_profile_picture_url: string | null;
@@ -97,7 +82,7 @@ interface LessonListRawRow {
   subject_grade_level: string;
   thumbnail: string | null;
   video_url: string | null;
-  video_platform: 'bunny' | 'vimeo';
+  video_platform: 'bunny';
   bunny_video_id: string | null;
   bunny_library_id: string | null;
   bunny_video_status: string | null;
@@ -105,8 +90,6 @@ interface LessonListRawRow {
   video_height: number | null;
   video_thumbnail: string | null;
   video_size_bytes: string | number | null;
-  vimeo_video_id: string | null;
-  vimeo_embed_url: string | null;
   price: string | number;
   duration: number | null;
   is_group: boolean;
@@ -166,24 +149,13 @@ export class LessonsService {
         ),
       );
     }
-
-    // Generate Vimeo embed URL if video ID provided
-    let vimeoEmbedUrl: string | null = null;
-    if (dto.vimeo_video_id !== undefined && dto.vimeo_video_id !== '') {
-      vimeoEmbedUrl = this.generateVimeoEmbedUrl(dto.vimeo_video_id);
-    }
-
     // Create lesson
     const lesson = this.lessonsRepository.create({
       title: dto.title,
-      title_ar: dto.title_ar,
       description: dto.description ?? null,
-      description_ar: dto.description_ar ?? null,
       teacher_id: teacherId,
       subject_id: dto.subject_id,
       thumbnail: dto.thumbnail ?? null,
-      vimeo_video_id: dto.vimeo_video_id ?? null,
-      vimeo_embed_url: vimeoEmbedUrl,
       price: dto.price,
       duration: dto.duration ?? null,
       is_group: dto.is_group ?? false,
@@ -260,9 +232,7 @@ export class LessonsService {
       .leftJoin('lesson.subject', 'subject')
       .select('lesson.id', 'id')
       .addSelect('lesson.title', 'title')
-      .addSelect('lesson.title_ar', 'title_ar')
       .addSelect('lesson.description', 'description')
-      .addSelect('lesson.description_ar', 'description_ar')
       .addSelect('teacher.id', 'teacher_id')
       .addSelect('teacher.name', 'teacher_name')
       .addSelect('teacher.profile_picture_url', 'teacher_profile_picture_url')
@@ -279,8 +249,6 @@ export class LessonsService {
       .addSelect('lesson.video_height', 'video_height')
       .addSelect('lesson.video_thumbnail', 'video_thumbnail')
       .addSelect('lesson.video_size_bytes', 'video_size_bytes')
-      .addSelect('lesson.vimeo_video_id', 'vimeo_video_id')
-      .addSelect('lesson.vimeo_embed_url', 'vimeo_embed_url')
       .addSelect('lesson.price', 'price')
       .addSelect('lesson.duration', 'duration')
       .addSelect('lesson.is_group', 'is_group')
@@ -382,9 +350,7 @@ export class LessonsService {
     return {
       id: row.id,
       title: row.title,
-      title_ar: row.title_ar,
       description: row.description,
-      description_ar: row.description_ar,
       teacher: {
         id: row.teacher_id,
         name: row.teacher_name,
@@ -396,7 +362,6 @@ export class LessonsService {
         grade_level: row.subject_grade_level,
       },
       thumbnail: row.thumbnail,
-      thumbnail_url: this.media.resolveThumbnailUrl(row.thumbnail),
       video_url: row.video_url,
       video_platform: row.video_platform,
       bunny_video_id: row.bunny_video_id,
@@ -406,8 +371,6 @@ export class LessonsService {
       video_height: row.video_height,
       video_thumbnail: row.video_thumbnail,
       video_size_bytes: row.video_size_bytes === null ? null : Number(row.video_size_bytes),
-      vimeo_video_id: row.vimeo_video_id,
-      vimeo_embed_url: row.vimeo_embed_url,
       price: Number(row.price),
       duration: row.duration,
       is_group: row.is_group,
@@ -563,14 +526,8 @@ export class LessonsService {
     if (dto.title !== undefined) {
       updates.title = dto.title;
     }
-    if (dto.title_ar !== undefined) {
-      updates.title_ar = dto.title_ar;
-    }
     if (dto.description !== undefined) {
       updates.description = dto.description;
-    }
-    if (dto.description_ar !== undefined) {
-      updates.description_ar = dto.description_ar;
     }
     if (dto.subject_id !== undefined) {
       updates.subject_id = dto.subject_id;
@@ -664,7 +621,6 @@ export class LessonsService {
   }
 
   /**
-   * Update Vimeo info for a lesson
    * Only the owner teacher can update
    */
   public async updateVimeoInfo(
@@ -691,8 +647,6 @@ export class LessonsService {
     }
 
     // Update Vimeo fields
-    lesson.vimeo_video_id = dto.vimeo_video_id;
-    lesson.vimeo_embed_url = dto.vimeo_embed_url ?? this.generateVimeoEmbedUrl(dto.vimeo_video_id);
     if (dto.duration !== undefined) {
       lesson.duration = dto.duration;
     }
@@ -713,15 +667,6 @@ export class LessonsService {
 
     return this.mapToLessonWithDetails(fullLesson);
   }
-
-  /**
-   * Generate Vimeo embed URL from video ID
-   * Legacy method for backward compatibility with existing Vimeo videos
-   */
-  public generateVimeoEmbedUrl(vimeoVideoId: string): string {
-    return `https://player.vimeo.com/video/${vimeoVideoId}`;
-  }
-
   /**
    * Update lesson video URL (Bunny.net - Primary)
    * Extracts library_id and video_id from URL and stores them separately
@@ -834,7 +779,6 @@ export class LessonsService {
 
     // Update lesson with Vimeo video info
     lesson.video_url = vimeoUrl;
-    lesson.video_platform = 'vimeo';
     if (duration !== undefined) {
       lesson.duration = duration;
     }
@@ -912,14 +856,6 @@ export class LessonsService {
     return lesson;
   }
 
-  /**
-   * Upload a lesson video through the backend to Bunny Stream (the browser
-   * never talks to Bunny directly). The server creates the Bunny video, streams
-   * the bytes to it, and stores only Bunny metadata. If the lesson already has
-   * a video, the previous asset is replaced so no orphans accumulate. On upload
-   * failure the empty Bunny video is cleaned up and the lesson is left
-   * video-less so the client can retry.
-   */
   public async uploadBunnyVideo(
     lessonId: string,
     teacherId: string,
@@ -1105,9 +1041,7 @@ export class LessonsService {
     return {
       id: lesson.id,
       title: lesson.title,
-      title_ar: lesson.title_ar,
       description: lesson.description,
-      description_ar: lesson.description_ar,
       teacher: {
         id: lesson.teacher.id,
         name: lesson.teacher.name,
@@ -1119,8 +1053,6 @@ export class LessonsService {
         grade_level: lesson.subject.grade_level,
       },
       thumbnail: lesson.thumbnail,
-      thumbnail_url: this.media.resolveThumbnailUrl(lesson.thumbnail),
-      // Primary video fields (Bunny.net)
       video_url: lesson.video_url,
       video_platform: lesson.video_platform,
       bunny_video_id: lesson.bunny_video_id,
@@ -1130,9 +1062,6 @@ export class LessonsService {
       video_height: lesson.video_height,
       video_thumbnail: lesson.video_thumbnail,
       video_size_bytes: lesson.video_size_bytes == null ? null : Number(lesson.video_size_bytes),
-      // Legacy Vimeo fields (backward compatibility)
-      vimeo_video_id: lesson.vimeo_video_id,
-      vimeo_embed_url: lesson.vimeo_embed_url,
       price: lesson.price,
       duration: lesson.duration,
       is_group: lesson.is_group,

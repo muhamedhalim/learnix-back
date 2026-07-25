@@ -35,15 +35,8 @@ export class Lesson {
   @Index('IDX_lessons_title')
   title!: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: false, name: 'title_ar' })
-  @Index('IDX_lessons_title_ar')
-  title_ar!: string;
-
   @Column({ type: 'text', nullable: true })
   description!: string | null;
-
-  @Column({ type: 'text', nullable: true, name: 'description_ar' })
-  description_ar!: string | null;
 
   @Column({ type: 'uuid', nullable: false, name: 'teacher_id' })
   @Index('IDX_lessons_teacher_id')
@@ -79,7 +72,7 @@ export class Lesson {
     name: 'video_platform',
   })
   @Index('IDX_lessons_video_platform')
-  video_platform!: 'bunny' | 'vimeo';
+  video_platform!: 'bunny';
 
   @Column({
     type: 'varchar',
@@ -130,23 +123,6 @@ export class Lesson {
   /** Stored video size in bytes, retrieved from Bunny after encoding. */
   @Column({ type: 'bigint', nullable: true, name: 'video_size_bytes' })
   video_size_bytes!: number | null;
-
-  // Legacy Vimeo fields (for backward compatibility during migration)
-  @Column({
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-    name: 'vimeo_video_id',
-  })
-  vimeo_video_id!: string | null;
-
-  @Column({
-    type: 'varchar',
-    length: 500,
-    nullable: true,
-    name: 'vimeo_embed_url',
-  })
-  vimeo_embed_url!: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: false })
   price!: number;

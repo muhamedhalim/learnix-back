@@ -18,20 +18,10 @@ export class LessonBaseDto {
   @MaxLength(100)
   title!: string;
 
-  @ApiProperty()
-  @IsString()
-  @MaxLength(255)
-  title_ar!: string;
-
   @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
   description?: string;
-
-  @ApiProperty({ required: false })
-  @IsString()
-  @IsOptional()
-  description_ar?: string;
 
   @ApiProperty()
   @IsUUID()
@@ -73,9 +63,9 @@ export class LessonBaseDto {
   @Min(0)
   duration?: number;
 
-  @ApiProperty({ required: false, description: 'Legacy Vimeo video ID' })
+  @ApiProperty({ required: false, description: 'Legacy bunny video ID' })
   @IsString()
   @IsOptional()
   @MaxLength(255)
-  vimeo_video_id?: string;
+  bunny_video_id?: string;
 }
