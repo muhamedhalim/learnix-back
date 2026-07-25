@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
+import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonStatus } from '../lessons/entities/lesson-status.enum';
 import { MediaService } from '../media/media.service';
@@ -16,26 +17,29 @@ import { CourseStatus } from './entities/course-status.enum';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 
+/** Free previews are unauthenticated, so the signed URL is kept intentionally short-lived. */
+const FREE_PREVIEW_SIGNED_URL_TTL_SECONDS = 10 * 60;
+
 interface PreviewLesson {
   id: string;
   title: string;
   duration: number | null;
   is_free_preview: boolean;
   locked: boolean;
-  /** Playable source — present only for free-preview lessons. */
-  video: {
-    video_platform: string;
-    bunny_video_id: string | null;
-    bunny_library_id: string | null;
-    video_url: string | null;
-    vimeo_embed_url: string | null;
-  } | null;
+  /**
+   * Playable source — present only for free-preview lessons whose video has
+   * finished encoding. Never exposes bunny_video_id/bunny_library_id/the raw
+   * embed URL: this endpoint is public and unauthenticated, so only a
+   * short-lived signed URL is safe to hand out.
+   */
+  video: { signed_url: string; expires_in: number } | null;
 }
 
 /**
  * Builds the public, pre-purchase course preview. Locked lessons are listed but
- * carry no playable source; free-preview lessons expose their embed fields so a
- * teaser plays without a purchase.
+ * carry no playable source; free-preview lessons expose a short-lived signed
+ * playback URL so a teaser plays without a purchase and without leaking any
+ * Bunny Stream identifiers.
  */
 @Injectable()
 export class CoursePreviewService {
@@ -54,6 +58,7 @@ export class CoursePreviewService {
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
     private readonly reviewsService: ReviewsService,
     private readonly media: MediaService,
+    private readonly bunnyStream: BunnyStreamService,
   ) {}
 
   public async getPreview(packageId: string): Promise<unknown> {
@@ -152,20 +157,22 @@ export class CoursePreviewService {
 
     const toPreview = (lesson: Lesson): PreviewLesson => {
       const free = lesson.is_free_preview;
+      const videoReady = lesson.bunny_video_id !== null && lesson.bunny_video_status === 'ready';
+      const signedUrl =
+        free && videoReady
+          ? this.bunnyStream.generateSignedEmbedUrl(
+              lesson.bunny_video_id as string,
+              FREE_PREVIEW_SIGNED_URL_TTL_SECONDS,
+            )
+          : null;
       return {
         id: lesson.id,
         title: lesson.title,
         duration: lesson.duration,
         is_free_preview: free,
         locked: !free,
-        video: free
-          ? {
-              video_platform: lesson.video_platform,
-              bunny_video_id: lesson.bunny_video_id,
-              bunny_library_id: lesson.bunny_library_id,
-              video_url: lesson.video_url,
-              vimeo_embed_url: lesson.vimeo_embed_url,
-            }
+        video: signedUrl
+          ? { signed_url: signedUrl, expires_in: FREE_PREVIEW_SIGNED_URL_TTL_SECONDS }
           : null,
       };
     };

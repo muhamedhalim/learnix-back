@@ -16,7 +16,6 @@ function body<T extends object>(metatype: new () => T, value: object): Promise<T
 
 const validLesson = {
   title: 'Algebra lesson',
-  title_ar: 'درس الجبر',
   subject_id: '11111111-1111-4111-8111-111111111111',
   price: 0,
 };

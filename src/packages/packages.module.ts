@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaModule } from '../media/media.module';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -39,7 +40,7 @@ import { PackagesService } from './packages.service';
     PackagesController,
     TeacherPackagesController,
   ],
-  providers: [PackagesService, CoursePreviewService],
+  providers: [PackagesService, CoursePreviewService, BunnyStreamService],
   exports: [PackagesService, TypeOrmModule],
 })
 export class PackagesModule implements OnModuleInit {

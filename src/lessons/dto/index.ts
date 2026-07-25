@@ -7,5 +7,3 @@ export * from './lesson-progress.dto';
 export * from './public-lesson-response.dto';
 export * from './update-lesson.dto';
 export * from './upsert-note.dto';
-export * from './update-lesson-video.dto';
-export * from './vimeo-video.dto';

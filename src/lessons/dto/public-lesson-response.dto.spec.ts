@@ -7,9 +7,7 @@ describe('toPublicLessonResponse', () => {
     const lesson: LessonWithDetails = {
       id: 'lesson-1',
       title: 'Algebra',
-      title_ar: 'Algebra AR',
       description: 'Description',
-      description_ar: null,
       teacher: {
         id: 'teacher-1',
         name: 'Teacher',
@@ -27,8 +25,6 @@ describe('toPublicLessonResponse', () => {
       video_height: 1080,
       video_thumbnail: 'https://provider.example/private-thumbnail.jpg',
       video_size_bytes: 1234,
-      vimeo_video_id: 'vimeo-secret',
-      vimeo_embed_url: 'https://player.example/private',
       price: 100,
       duration: 60,
       is_group: false,

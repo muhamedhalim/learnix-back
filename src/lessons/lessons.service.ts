@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -9,7 +10,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository, SelectQueryBuilder } from 'typeorm';
 
-import { VIDEO_URL_PATTERNS } from '../common/constants';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
@@ -22,7 +22,6 @@ import {
   PublicLessonResponseDto,
   toPublicLessonResponse,
   UpdateLessonDto,
-  UpdateVimeoInfoDto,
 } from './dto';
 import { PaymentsService } from '../payments/services/payments.service';
 import { BunnyStreamService, BunnyVideoMetadata } from './bunny-stream.service';
@@ -47,8 +46,10 @@ export interface LessonWithDetails {
     grade_level: string;
   };
   thumbnail: string | null;
+  /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
+  thumbnail_url: string | null;
   video_url: string | null;
-  video_platform: 'bunny' | 'vimeo';
+  video_platform: 'bunny';
   bunny_video_id: string | null;
   bunny_library_id: string | null;
   bunny_video_status: string | null;
@@ -102,6 +103,8 @@ interface LessonListRawRow {
 
 @Injectable()
 export class LessonsService {
+  private readonly logger = new Logger(LessonsService.name);
+
   constructor(
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
@@ -318,7 +321,7 @@ export class LessonsService {
     }
 
     if (search !== undefined && search !== '') {
-      queryBuilder.andWhere('(lesson.title ILIKE :search OR lesson.title_ar ILIKE :search)', {
+      queryBuilder.andWhere('lesson.title ILIKE :search', {
         search: `%${search}%`,
       });
     }
@@ -362,6 +365,7 @@ export class LessonsService {
         grade_level: row.subject_grade_level,
       },
       thumbnail: row.thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(row.thumbnail),
       video_url: row.video_url,
       video_platform: row.video_platform,
       bunny_video_id: row.bunny_video_id,
@@ -621,178 +625,6 @@ export class LessonsService {
   }
 
   /**
-   * Only the owner teacher can update
-   */
-  public async updateVimeoInfo(
-    lessonId: string,
-    teacherId: string,
-    dto: UpdateVimeoInfoDto,
-  ): Promise<LessonWithDetails> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId },
-      relations: ['teacher', 'subject'],
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(
-        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
-      );
-    }
-
-    // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
-      );
-    }
-
-    // Update Vimeo fields
-    if (dto.duration !== undefined) {
-      lesson.duration = dto.duration;
-    }
-
-    const savedLesson = await this.lessonsRepository.save(lesson);
-
-    // Reload with relations
-    const fullLesson = await this.lessonsRepository.findOne({
-      where: { id: savedLesson.id },
-      relations: ['teacher', 'subject'],
-    });
-
-    if (!fullLesson) {
-      throw new NotFoundException(
-        biBody('Failed to load updated lesson', 'فشل تحميل الدرس المُحدَّث'),
-      );
-    }
-
-    return this.mapToLessonWithDetails(fullLesson);
-  }
-  /**
-   * Update lesson video URL (Bunny.net - Primary)
-   * Extracts library_id and video_id from URL and stores them separately
-   */
-  public async updateVideoUrl(
-    lessonId: string,
-    teacherId: string,
-    videoUrl: string,
-    duration?: number,
-  ): Promise<{
-    message: string;
-    video_url: string;
-    video_platform: string;
-    bunny_video_id: string;
-    bunny_library_id: string;
-  }> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId },
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(
-        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
-      );
-    }
-
-    // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
-      );
-    }
-
-    // Validate Bunny.net URL format using regex from constants
-    const match = videoUrl.match(VIDEO_URL_PATTERNS.BUNNY);
-
-    if (match?.[1] === undefined || match[2] === undefined) {
-      throw new BadRequestException(
-        biBody(
-          'Invalid Bunny.net URL format. Expected: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
-          'صيغة رابط Bunny.net غير صالحة. الصيغة المتوقعة: https://iframe.mediadelivery.net/embed/{library_id}/{video_id}',
-        ),
-      );
-    }
-
-    // Extract library ID and video ID from URL
-    const libraryId = match[1];
-    const videoId = match[2];
-
-    // Update lesson with Bunny.net video info
-    lesson.video_url = videoUrl;
-    lesson.video_platform = 'bunny';
-    lesson.bunny_video_id = videoId;
-    lesson.bunny_library_id = libraryId;
-    if (duration !== undefined) {
-      lesson.duration = duration;
-    }
-
-    await this.lessonsRepository.save(lesson);
-
-    return {
-      message: 'Video URL updated successfully',
-      video_url: videoUrl,
-      video_platform: 'bunny',
-      bunny_video_id: videoId,
-      bunny_library_id: libraryId,
-    };
-  }
-
-  /**
-   * Update lesson video URL (Vimeo - Legacy)
-   * @deprecated Use updateVideoUrl() with Bunny.net URLs instead
-   */
-  public async updateVimeoUrl(
-    lessonId: string,
-    teacherId: string,
-    vimeoUrl: string,
-    duration?: number,
-  ): Promise<{
-    message: string;
-    video_url: string;
-    video_platform: string;
-  }> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId },
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(
-        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
-      );
-    }
-
-    // Verify ownership
-    if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only update your own lessons', 'يمكنك تحديث دروسك الخاصة فقط'),
-      );
-    }
-
-    // Validate Vimeo URL format
-    if (!VIDEO_URL_PATTERNS.VIMEO.test(vimeoUrl)) {
-      throw new BadRequestException(
-        biBody(
-          'Invalid Vimeo URL format. Please provide a valid Vimeo video URL.',
-          'صيغة رابط Vimeo غير صالحة. يرجى تقديم رابط فيديو Vimeo صالح.',
-        ),
-      );
-    }
-
-    // Update lesson with Vimeo video info
-    lesson.video_url = vimeoUrl;
-    if (duration !== undefined) {
-      lesson.duration = duration;
-    }
-
-    await this.lessonsRepository.save(lesson);
-
-    return {
-      message: 'Vimeo URL updated successfully (legacy)',
-      video_url: vimeoUrl,
-      video_platform: 'vimeo',
-    };
-  }
-
-  /**
    * Get lesson statistics
    * Returns purchase count, revenue, etc.
    */
@@ -856,6 +688,18 @@ export class LessonsService {
     return lesson;
   }
 
+  /**
+   * Uploads (or replaces) a lesson's video. Replacement ordering is
+   * deliberately safe: the NEW video is created and fully uploaded to Bunny
+   * *before* the lesson is touched or the OLD video is deleted. If Bunny
+   * fails at any point up to and including the upload, the lesson keeps
+   * whatever video it had before this call — it is never left video-less
+   * because of a Bunny outage. The old asset is only removed after the new
+   * one is confirmed live on the lesson, and that cleanup is best-effort
+   * (BunnyStreamService.deleteVideo never throws — 404 counts as already
+   * deleted, and any other failure is logged, not raised) so a cleanup
+   * hiccup can never revert or block the successful replacement.
+   */
   public async uploadBunnyVideo(
     lessonId: string,
     teacherId: string,
@@ -863,22 +707,32 @@ export class LessonsService {
     title?: string,
   ): Promise<{ videoId: string; libraryId: string; status: string }> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
-
-    // Replace: remove the previous Bunny video so we never leak assets.
-    if (lesson.bunny_video_id) {
-      await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
-    }
+    const previousVideoId = lesson.bunny_video_id;
 
     const { videoId, libraryId } = await this.bunnyStream.createVideo(
       title ?? file.originalname ?? lesson.title,
     );
+    this.logger.log(
+      `Lesson ${lessonId}: created Bunny video ${videoId} (library ${libraryId}), starting upload` +
+        (previousVideoId ? ` (replacing ${previousVideoId})` : ''),
+    );
 
-    // Persist the pending video before the (slow) byte transfer so a crash
-    // mid-upload still leaves a tracked, cleanable reference.
+    try {
+      await this.bunnyStream.uploadVideo(videoId, file.buffer);
+    } catch (err) {
+      // The new asset never received bytes and was never linked to the
+      // lesson — clean it up and leave any existing video untouched.
+      this.logger.warn(`Lesson ${lessonId}: upload to Bunny video ${videoId} failed, cleaning up`);
+      await this.bunnyStream.deleteVideo(videoId);
+      throw err;
+    }
+
+    // Bytes delivered — link the lesson to the new video. Bunny now encodes;
+    // status polling (refreshBunnyStatus) takes over from here.
     lesson.video_platform = 'bunny';
     lesson.bunny_video_id = videoId;
     lesson.bunny_library_id = libraryId;
-    lesson.bunny_video_status = 'uploading';
+    lesson.bunny_video_status = 'processing';
     lesson.video_url = this.bunnyStream.buildEmbedUrl(videoId);
     lesson.video_thumbnail = null;
     lesson.video_width = null;
@@ -886,23 +740,10 @@ export class LessonsService {
     lesson.video_size_bytes = file.size;
     await this.lessonsRepository.save(lesson);
 
-    try {
-      await this.bunnyStream.uploadVideo(videoId, file.buffer);
-    } catch (err) {
-      // Roll back to a clean, video-less lesson so the teacher can retry.
-      await this.bunnyStream.deleteVideo(videoId);
-      lesson.bunny_video_id = null;
-      lesson.bunny_library_id = null;
-      lesson.bunny_video_status = null;
-      lesson.video_url = null;
-      lesson.video_size_bytes = null;
-      await this.lessonsRepository.save(lesson);
-      throw err;
+    if (previousVideoId && previousVideoId !== videoId) {
+      this.logger.log(`Lesson ${lessonId}: replacement live, queuing cleanup of ${previousVideoId}`);
+      await this.bunnyStream.deleteVideo(previousVideoId);
     }
-
-    // Bytes delivered — Bunny now encodes. Status polling takes over.
-    lesson.bunny_video_status = 'processing';
-    await this.lessonsRepository.save(lesson);
 
     return { videoId, libraryId, status: 'processing' };
   }
@@ -1053,6 +894,7 @@ export class LessonsService {
         grade_level: lesson.subject.grade_level,
       },
       thumbnail: lesson.thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(lesson.thumbnail),
       video_url: lesson.video_url,
       video_platform: lesson.video_platform,
       bunny_video_id: lesson.bunny_video_id,

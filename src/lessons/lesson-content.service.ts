@@ -379,7 +379,6 @@ export class LessonContentService {
       lesson: {
         id: homework.lesson.id,
         title: homework.lesson.title,
-        title_ar: homework.lesson.title_ar,
       },
       submission: homework.submissions[0]
         ? this.toStudentSubmissionResponse(homework.submissions[0])

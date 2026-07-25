@@ -62,10 +62,4 @@ export class LessonBaseDto {
   @IsOptional()
   @Min(0)
   duration?: number;
-
-  @ApiProperty({ required: false, description: 'Legacy bunny video ID' })
-  @IsString()
-  @IsOptional()
-  @MaxLength(255)
-  bunny_video_id?: string;
 }

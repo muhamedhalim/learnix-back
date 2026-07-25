@@ -67,7 +67,6 @@ export interface PackageWithDetails {
   lessons: Array<{
     id: string;
     title: string;
-    title_ar: string;
     price: number;
     duration: number | null;
     order_index: number;
@@ -712,7 +711,6 @@ export class PackagesService {
       lessons: sortedItems.map((item) => ({
         id: item.lesson.id,
         title: item.lesson.title,
-        title_ar: item.lesson.title_ar,
         price: Number.parseFloat(item.lesson.price.toString()),
         duration: item.lesson.duration,
         order_index: item.order_index,

@@ -20,7 +20,6 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiOperation,
-  ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
@@ -33,14 +32,7 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { biBody } from '../../i18n/error-translator.util';
-import {
-  CreateLessonDto,
-  TeacherLessonFilterDto,
-  UpdateLessonDto,
-  UpdateLessonVideoDto,
-  UpdateVimeoInfoDto,
-  UpdateVimeoUrlDto,
-} from '../dto';
+import { CreateLessonDto, TeacherLessonFilterDto, UpdateLessonDto } from '../dto';
 import { LessonsService } from '../lessons.service';
 
 /** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
@@ -207,28 +199,13 @@ export class TeacherLessonsController {
     };
   }
 
-  /**
-   * Update video URL for a lesson (Bunny.net - Primary)
-   */
-  @Put(':id/video')
-  @ApiOperation({
-    summary: 'Update lesson video URL (Bunny.net)',
-    description:
-      'Updates the video URL for a lesson using Bunny.net Stream. Automatically extracts and stores library ID and video ID. Teacher can only update their own lessons.',
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only update your own lessons',
-  })
-  public async updateVideoUrl(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateLessonVideoDto,
-  ): Promise<unknown> {
-    return await this.lessonsService.updateVideoUrl(id, user.userId, dto.video_url, dto.duration);
-  }
-
-  /* ===================== Bunny Stream — backend-proxied upload ===================== */
+  /* ===================== Bunny Stream — backend-proxied upload =====================
+   * The only supported way to attach a video is POST :id/video below: the
+   * server creates the Bunny asset itself and streams the bytes, so a video
+   * is always one our own upload session produced. There is deliberately no
+   * endpoint that accepts a client-supplied video URL/ID — that would let a
+   * caller point a lesson at an arbitrary (possibly another library's or
+   * another teacher's) Bunny asset with no server-side verification. */
 
   /**
    * Upload a lesson video. The browser sends the local file to THIS backend
@@ -312,68 +289,5 @@ export class TeacherLessonsController {
   ): Promise<unknown> {
     await this.lessonsService.removeBunnyVideo(id, user.userId);
     return { message: 'Video removed successfully' };
-  }
-
-  /**
-   * Update Vimeo URL for a lesson (Legacy - Deprecated)
-   * @deprecated Use PUT /lessons/:id/video with Bunny.net URLs instead
-   */
-  @Put(':id/vimeo')
-  @ApiOperation({
-    summary: 'Update Vimeo URL (Legacy - Deprecated)',
-    description:
-      'DEPRECATED: Use PUT /teacher/lessons/:id/video instead. Updates the video URL for a lesson using Vimeo (legacy support only).',
-    deprecated: true,
-  })
-  @ApiParam({ name: 'id', description: 'Lesson ID', type: 'number' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Vimeo URL updated successfully',
-    schema: {
-      example: {
-        message: 'Vimeo URL updated successfully (legacy)',
-        video_url: 'https://vimeo.com/123456789',
-        video_platform: 'vimeo',
-      },
-    },
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only update your own lessons',
-  })
-  public async updateVimeoUrl(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateVimeoUrlDto,
-  ): Promise<unknown> {
-    const vimeoUrl = dto.vimeo_url ?? dto.video_url;
-    return await this.lessonsService.updateVideoUrl(id, user.userId, vimeoUrl, dto.duration);
-  }
-
-  /**
-   * Update Vimeo info for a lesson (Legacy DTO - Deprecated)
-   * @deprecated Use PUT /lessons/:id/video with Bunny.net URLs instead
-   */
-  @Put(':id/vimeo-info')
-  @ApiOperation({
-    summary: 'Update Vimeo info (Legacy - Deprecated)',
-    description:
-      'DEPRECATED: Use PUT /teacher/lessons/:id/video instead. Updates Vimeo video information for a lesson.',
-    deprecated: true,
-  })
-  @ApiResponse({
-    status: HttpStatus.FORBIDDEN,
-    description: 'You can only update your own lessons',
-  })
-  public async updateVimeoInfo(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() vimeoDto: UpdateVimeoInfoDto,
-  ): Promise<unknown> {
-    const lesson = await this.lessonsService.updateVimeoInfo(id, user.userId, vimeoDto);
-    return {
-      message: 'Vimeo info updated successfully',
-      lesson,
-    };
   }
 }

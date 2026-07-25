@@ -623,7 +623,7 @@ export class OrdersService {
         itemType,
         itemId,
         title: lesson.title,
-        titleAr: lesson.title_ar,
+        titleAr: null,
         teacherId: lesson.teacher_id,
         sellerName: seller?.name ?? null,
         priceMinor: toMinorUnits(lesson.price),

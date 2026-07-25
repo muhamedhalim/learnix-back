@@ -5,7 +5,6 @@ exports[`toPublicLessonResponse uses an allowlist that cannot expose paid video 
   "available_for_days": 30,
   "created_at": 2026-01-01T00:00:00.000Z,
   "description": "Description",
-  "description_ar": null,
   "duration": 60,
   "id": "lesson-1",
   "is_group": false,
@@ -23,7 +22,6 @@ exports[`toPublicLessonResponse uses an allowlist that cannot expose paid video 
   },
   "thumbnail_url": "https://api.example.test/api/v1/media/public/images/lesson.jpg",
   "title": "Algebra",
-  "title_ar": "Algebra AR",
   "updated_at": 2026-01-02T00:00:00.000Z,
 }
 `;

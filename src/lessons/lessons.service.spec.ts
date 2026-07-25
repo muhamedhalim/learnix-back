@@ -65,9 +65,7 @@ describe('LessonsService.findAll', () => {
       {
         id: 'lesson-1',
         title: 'Algebra',
-        title_ar: 'Algebra AR',
         description: 'Description',
-        description_ar: null,
         teacher_id: 'teacher-1',
         teacher_name: 'Teacher',
         teacher_email: 'teacher@example.com',
@@ -85,8 +83,6 @@ describe('LessonsService.findAll', () => {
         video_height: null,
         video_thumbnail: null,
         video_size_bytes: '4096',
-        vimeo_video_id: null,
-        vimeo_embed_url: null,
         price: '125.50',
         duration: 120,
         is_group: false,
@@ -177,9 +173,7 @@ describe('LessonsService lesson duration persistence', () => {
   const lesson = {
     id: 'lesson-1',
     title: 'Algebra lesson',
-    title_ar: 'درس الجبر',
     description: null,
-    description_ar: null,
     teacher_id: teacher.id,
     teacher,
     subject_id: subject.id,
@@ -194,8 +188,6 @@ describe('LessonsService lesson duration persistence', () => {
     video_height: null,
     video_thumbnail: null,
     video_size_bytes: null,
-    vimeo_video_id: null,
-    vimeo_embed_url: null,
     price: 0,
     duration: null,
     is_group: false,
@@ -238,7 +230,6 @@ describe('LessonsService lesson duration persistence', () => {
   it('creates a lesson without a duration before video metadata is available', async () => {
     const result = await service.create(teacher.id, {
       title: lesson.title,
-      title_ar: lesson.title_ar,
       subject_id: subject.id,
       price: 0,
     });
@@ -253,7 +244,6 @@ describe('LessonsService lesson duration persistence', () => {
   it('persists a supplied duration in seconds on create', async () => {
     await service.create(teacher.id, {
       title: lesson.title,
-      title_ar: lesson.title_ar,
       subject_id: subject.id,
       price: 0,
       duration: 3_600,

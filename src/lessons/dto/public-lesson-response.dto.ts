@@ -34,12 +34,8 @@ export class PublicLessonResponseDto {
   public id!: string;
   @ApiProperty()
   public title!: string;
-  @ApiProperty()
-  public title_ar!: string;
   @ApiProperty({ nullable: true })
   public description!: string | null;
-  @ApiProperty({ nullable: true })
-  public description_ar!: string | null;
   @ApiProperty({ type: PublicLessonTeacherDto })
   public teacher!: PublicLessonTeacherDto;
   @ApiProperty({ type: PublicLessonSubjectDto })
@@ -69,15 +65,15 @@ export function toPublicLessonResponse(
   return {
     id: lesson.id,
     title: lesson.title,
-    title_ar: lesson.title_ar,
     description: lesson.description,
-    description_ar: lesson.description_ar,
     teacher: {
       id: lesson.teacher.id,
       name: lesson.teacher.name,
       profile_picture_url: resolvePublicMedia(lesson.teacher.profile_picture_url),
     },
     subject: lesson.subject,
+    // Already resolved through the media proxy at the mapping layer
+    // (LessonsService.mapToLessonWithDetails / mapListRowToLessonWithDetails).
     thumbnail_url: lesson.thumbnail_url,
     price: lesson.price,
     duration: lesson.duration,

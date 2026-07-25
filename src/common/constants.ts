@@ -70,32 +70,3 @@ export const PUBLIC_MEDIA_FOLDERS = [
   'profiles',
 ] as const;
 export type PublicMediaFolder = (typeof PUBLIC_MEDIA_FOLDERS)[number];
-
-// Video platform types
-export const VIDEO_PLATFORMS = {
-  BUNNY: 'bunny',
-  VIMEO: 'vimeo', // Legacy support during migration
-} as const;
-
-export type VideoPlatform =
-  (typeof VIDEO_PLATFORMS)[keyof typeof VIDEO_PLATFORMS];
-
-// URL validation patterns
-export const VIDEO_URL_PATTERNS = {
-  // Bunny.net Stream embed URLs
-  // Matches: https://iframe.mediadelivery.net/embed/123456/abc-def-ghi
-  // Matches: https://player.mediadelivery.net/embed/123456/abc-def-ghi
-  BUNNY:
-    /^https?:\/\/(?:iframe|player)\.mediadelivery\.net\/embed\/(\d+)\/([a-z0-9-]+)/i,
-
-  // Legacy Vimeo URL patterns (for backward compatibility)
-  VIMEO:
-    /^https?:\/\/(www\.)?(vimeo\.com|player\.vimeo\.com)\/(video\/)?(\d+|channels\/[\w-]+\/\d+|groups\/[\w-]+\/videos\/\d+)/i,
-} as const;
-
-// Bunny.net Stream constants
-export const BUNNY_STREAM = {
-  EMBED_BASE_URL: 'https://iframe.mediadelivery.net/embed',
-  PLAYER_BASE_URL: 'https://player.mediadelivery.net/embed',
-  API_BASE_URL: 'https://video.bunnycdn.com/library',
-} as const;

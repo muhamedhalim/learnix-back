@@ -14,7 +14,11 @@ export function typeOrmArtifactPaths(compiled: boolean): {
   const migrationsDir = compiled ? 'dist/src/migrations' : 'src/migrations';
   return {
     entities: [`${baseDir}/**/entities/*.entity.${fileExtension}`],
-    migrations: [`${migrationsDir}/[0-9]*-*.${fileExtension}`],
+    // `!(*.spec)` excludes migration test files (e.g. `*.spec.ts`) sitting
+    // alongside real migrations in this directory — without it, ts-node
+    // happily "runs" a Jest spec file as a migration and crashes on the
+    // first `describe()` call.
+    migrations: [`${migrationsDir}/[0-9]*-!(*.spec).${fileExtension}`],
   };
 }
 

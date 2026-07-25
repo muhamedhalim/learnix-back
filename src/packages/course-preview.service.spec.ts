@@ -3,6 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -24,6 +25,9 @@ describe('CoursePreviewService.getPreview', () => {
   const purchases = { count: jest.fn() };
   const reviews = { getPackageAggregates: jest.fn() };
   const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
+  const bunnyStream = {
+    generateSignedEmbedUrl: jest.fn().mockReturnValue('https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1'),
+  };
 
   const relatedQb = {
     where: jest.fn().mockReturnThis(),
@@ -46,6 +50,7 @@ describe('CoursePreviewService.getPreview', () => {
         { provide: getRepositoryToken(PackagePurchase), useValue: purchases },
         { provide: ReviewsService, useValue: reviews },
         { provide: MediaService, useValue: media },
+        { provide: BunnyStreamService, useValue: bunnyStream },
       ],
     }).compile();
     service = module.get(CoursePreviewService);
@@ -85,11 +90,11 @@ describe('CoursePreviewService.getPreview', () => {
     lessons.find.mockResolvedValue([
       {
         id: 'L1', title: 'Free intro', duration: 60, is_free_preview: true,
-        video_platform: 'bunny', bunny_video_id: 'b1', bunny_library_id: 'lib', video_url: null, vimeo_embed_url: null,
+        video_platform: 'bunny', bunny_video_id: 'b1', bunny_library_id: 'lib', bunny_video_status: 'ready', video_url: null,
       },
       {
         id: 'L2', title: 'Paid lesson', duration: 120, is_free_preview: false,
-        video_platform: 'bunny', bunny_video_id: 'b2', bunny_library_id: 'lib', video_url: null, vimeo_embed_url: null,
+        video_platform: 'bunny', bunny_video_id: 'b2', bunny_library_id: 'lib', bunny_video_status: 'ready', video_url: null,
       },
     ]);
     reviews.getPackageAggregates.mockResolvedValue({
@@ -110,6 +115,13 @@ describe('CoursePreviewService.getPreview', () => {
     const locked = flat.find((l) => l.id === 'L2')!;
     expect(free.locked).toBe(false);
     expect(free.video).not.toBeNull();
+    expect(free.video).toEqual({
+      signed_url: 'https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1',
+      expires_in: 600,
+    });
+    expect(bunnyStream.generateSignedEmbedUrl).toHaveBeenCalledWith('b1', 600);
+    // The unauthenticated preview must never leak Bunny asset identifiers.
+    expect(JSON.stringify(free.video)).not.toMatch(/bunny_video_id|bunny_library_id|"b1"|"lib"/);
     expect(locked.locked).toBe(true);
     expect(locked.video).toBeNull();
   });
