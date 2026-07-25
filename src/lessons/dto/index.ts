@@ -1,5 +1,6 @@
 export * from './create-bunny-upload.dto';
 export * from './create-lesson.dto';
+export * from './set-lesson-visibility.dto';
 export * from './lesson-content.dto';
 export * from './homework.dto';
 export * from './lesson-filter.dto';

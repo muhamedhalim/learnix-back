@@ -32,7 +32,7 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { biBody } from '../../i18n/error-translator.util';
-import { CreateLessonDto, TeacherLessonFilterDto, UpdateLessonDto } from '../dto';
+import { CreateBunnyUploadDto, CreateLessonDto, SetLessonVisibilityDto, TeacherLessonFilterDto, UpdateLessonDto } from '../dto';
 import { LessonsService } from '../lessons.service';
 
 /** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
@@ -177,6 +177,27 @@ export class TeacherLessonsController {
     };
   }
 
+  @Post(':id/publish')
+  @ApiOperation({ summary: 'Publish a ready lesson' })
+  public async publish(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    const lesson = await this.lessonsService.publishLesson(id, user.userId);
+    return { message: 'Lesson published successfully', lesson };
+  }
+
+  @Put(':id/visibility')
+  @ApiOperation({ summary: 'Hide or return a lesson to draft' })
+  public async setVisibility(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetLessonVisibilityDto,
+  ): Promise<unknown> {
+    const lesson = await this.lessonsService.setLessonVisibility(id, user.userId, dto.status);
+    return { message: 'Lesson visibility updated successfully', lesson };
+  }
+
   /**
    * Delete a lesson
    */
@@ -197,6 +218,31 @@ export class TeacherLessonsController {
     return {
       message: 'Lesson deleted successfully',
     };
+  }
+
+  /**
+   * Short-lived credentials for direct resumable upload. These credentials are
+   * scoped to one already-created video and cannot be used as the Bunny API
+   * key or to inspect any other library asset.
+   */
+  @Post(':id/video/upload-session')
+  @ApiOperation({ summary: 'Create a direct Bunny TUS upload session' })
+  public async createUploadSession(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateBunnyUploadDto,
+  ): Promise<unknown> {
+    return await this.lessonsService.createBunnyUploadSession(id, user.userId, dto.title);
+  }
+
+  @Post(':id/video/upload-session/:sessionId/complete')
+  @ApiOperation({ summary: 'Verify and attach a completed direct upload' })
+  public async completeUploadSession(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ): Promise<unknown> {
+    return await this.lessonsService.completeBunnyUploadSession(id, user.userId, sessionId);
   }
 
   /* ===================== Bunny Stream — backend-proxied upload =====================

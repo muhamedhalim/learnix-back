@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
 import {
-  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -15,6 +14,12 @@ export type BunnyVideoStatus = 'created' | 'uploading' | 'processing' | 'ready' 
 export interface BunnyCreatedVideo {
   videoId: string;
   libraryId: string;
+}
+
+export interface BunnyTusAuthorization {
+  endpoint: string;
+  headers: Record<string, string>;
+  expiresAt: Date;
 }
 
 export interface BunnyVideoMetadata {
@@ -113,6 +118,31 @@ export class BunnyStreamService {
     return `${this.buildEmbedUrl(videoId)}?token=${token}&expires=${expires}`;
   }
 
+  /**
+   * Issues the short-lived, per-video credentials required by Bunny's TUS
+   * endpoint. The Stream API key stays server-side; the browser receives only
+   * a constrained signature that expires quickly and cannot create or manage
+   * any other video.
+   */
+  public createTusAuthorization(videoId: string, ttlSeconds = 60 * 60): BunnyTusAuthorization {
+    this.assertConfigured();
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const expiration = Math.floor(expiresAt.getTime() / 1000).toString();
+    const signature = createHash('sha256')
+      .update(`${this.libraryId}${this.apiKey}${expiration}${videoId}`)
+      .digest('hex');
+    return {
+      endpoint: 'https://video.bunnycdn.com/tusupload',
+      headers: {
+        AuthorizationSignature: signature,
+        AuthorizationExpire: expiration,
+        LibraryId: this.libraryId,
+        VideoId: videoId,
+      },
+      expiresAt,
+    };
+  }
+
   public buildPlaybackUrl(videoId: string): string {
     if (this.cdnHostname) {
       return `https://${this.cdnHostname}/${videoId}/playlist.m3u8`;
@@ -141,7 +171,7 @@ export class BunnyStreamService {
       Status: ${res.status}
       Response: ${error}
       `);
-      throw new BadRequestException(
+      throw new ServiceUnavailableException(
         biBody(
           'Failed to create video on Bunny Stream.',
           'فشل إنشاء الفيديو على خدمة Bunny Stream.',
@@ -150,7 +180,7 @@ export class BunnyStreamService {
     }
     const data = (await res.json()) as { guid?: string };
     if (!data.guid) {
-      throw new BadRequestException(
+      throw new ServiceUnavailableException(
         biBody(
           'Bunny Stream did not return a video id.',
           'لم تُرجع خدمة Bunny Stream معرّف فيديو.',
@@ -190,7 +220,7 @@ export class BunnyStreamService {
       headers: this.headers(),
     });
     if (res.status === 404) {
-      throw new BadRequestException(
+      throw new ServiceUnavailableException(
         biBody('Video not found on Bunny Stream.', 'الفيديو غير موجود على خدمة Bunny Stream.'),
       );
     }
@@ -215,8 +245,8 @@ export class BunnyStreamService {
   }
 
   /** Delete a video from Bunny Stream. 404 is treated as already-gone. */
-  public async deleteVideo(videoId: string): Promise<void> {
-    if (!this.isConfigured) return;
+  public async deleteVideo(videoId: string): Promise<boolean> {
+    if (!this.isConfigured) return false;
     try {
       const res = await fetch(`${this.apiBase}/${this.libraryId}/videos/${videoId}`, {
         method: 'DELETE',
@@ -224,10 +254,13 @@ export class BunnyStreamService {
       });
       if (!res.ok && res.status !== 404) {
         this.logger.warn(`Bunny deleteVideo failed (${res.status}) ${videoId}`);
+        return false;
       }
+      return true;
     } catch (err) {
       // Cleanup is best-effort — never block the caller on Bunny availability.
       this.logger.warn(`Bunny deleteVideo error for ${videoId}: ${(err as Error).message}`);
+      return false;
     }
   }
 

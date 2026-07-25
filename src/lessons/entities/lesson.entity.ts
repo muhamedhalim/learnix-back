@@ -10,6 +10,7 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
+  VersionColumn,
 } from 'typeorm';
 
 import type { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
@@ -151,7 +152,7 @@ export class Lesson {
   @Column({
     type: 'enum',
     enum: LessonStatus,
-    default: LessonStatus.PUBLISHED,
+    default: LessonStatus.DRAFT,
     name: 'status',
   })
   @Index('IDX_lessons_status')
@@ -162,6 +163,10 @@ export class Lesson {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updated_at!: Date;
+
+  /** Incremented on every write so clients can detect stale editor state. */
+  @VersionColumn({ name: 'version' })
+  version!: number;
 
   @DeleteDateColumn({ name: 'deleted_at' })
   deleted_at!: Date | null;

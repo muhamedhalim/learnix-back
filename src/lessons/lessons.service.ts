@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,8 +8,9 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { LessThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
@@ -27,6 +29,7 @@ import { PaymentsService } from '../payments/services/payments.service';
 import { BunnyStreamService, BunnyVideoMetadata } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
+import { LessonVideoUploadSession } from './entities/lesson-video-upload-session.entity';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -48,14 +51,10 @@ export interface LessonWithDetails {
   thumbnail: string | null;
   /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
   thumbnail_url: string | null;
-  video_url: string | null;
-  video_platform: 'bunny';
-  bunny_video_id: string | null;
-  bunny_library_id: string | null;
+  has_video: boolean;
   bunny_video_status: string | null;
   video_width: number | null;
   video_height: number | null;
-  video_thumbnail: string | null;
   video_size_bytes: number | null;
   price: number;
   duration: number | null;
@@ -82,14 +81,10 @@ interface LessonListRawRow {
   subject_name: string;
   subject_grade_level: string;
   thumbnail: string | null;
-  video_url: string | null;
-  video_platform: 'bunny';
   bunny_video_id: string | null;
-  bunny_library_id: string | null;
   bunny_video_status: string | null;
   video_width: number | null;
   video_height: number | null;
-  video_thumbnail: string | null;
   video_size_bytes: string | number | null;
   price: string | number;
   duration: number | null;
@@ -112,6 +107,8 @@ export class LessonsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    @InjectRepository(LessonVideoUploadSession)
+    private readonly uploadSessionsRepository: Repository<LessonVideoUploadSession>,
     private readonly bunnyStream: BunnyStreamService,
     private readonly paymentsService: PaymentsService,
     private readonly media: MediaService,
@@ -161,6 +158,7 @@ export class LessonsService {
       thumbnail: dto.thumbnail ?? null,
       price: dto.price,
       duration: dto.duration ?? null,
+      status: LessonStatus.DRAFT,
       is_group: dto.is_group ?? false,
       is_free_preview: dto.is_free_preview ?? false,
       available_for_days: dto.available_for_days ?? 7,
@@ -243,14 +241,10 @@ export class LessonsService {
       .addSelect('subject.name', 'subject_name')
       .addSelect('subject.grade_level', 'subject_grade_level')
       .addSelect('lesson.thumbnail', 'thumbnail')
-      .addSelect('lesson.video_url', 'video_url')
-      .addSelect('lesson.video_platform', 'video_platform')
       .addSelect('lesson.bunny_video_id', 'bunny_video_id')
-      .addSelect('lesson.bunny_library_id', 'bunny_library_id')
       .addSelect('lesson.bunny_video_status', 'bunny_video_status')
       .addSelect('lesson.video_width', 'video_width')
       .addSelect('lesson.video_height', 'video_height')
-      .addSelect('lesson.video_thumbnail', 'video_thumbnail')
       .addSelect('lesson.video_size_bytes', 'video_size_bytes')
       .addSelect('lesson.price', 'price')
       .addSelect('lesson.duration', 'duration')
@@ -346,7 +340,6 @@ export class LessonsService {
 
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
     queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('lesson.id', sortOrder);
-    queryBuilder.addOrderBy('lesson.id', order.toUpperCase() as 'ASC' | 'DESC');
   }
 
   private mapListRowToLessonWithDetails(row: LessonListRawRow): LessonWithDetails {
@@ -366,14 +359,10 @@ export class LessonsService {
       },
       thumbnail: row.thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(row.thumbnail),
-      video_url: row.video_url,
-      video_platform: row.video_platform,
-      bunny_video_id: row.bunny_video_id,
-      bunny_library_id: row.bunny_library_id,
+      has_video: row.bunny_video_id !== null,
       bunny_video_status: row.bunny_video_status,
       video_width: row.video_width,
       video_height: row.video_height,
-      video_thumbnail: row.video_thumbnail,
       video_size_bytes: row.video_size_bytes === null ? null : Number(row.video_size_bytes),
       price: Number(row.price),
       duration: row.duration,
@@ -554,14 +543,30 @@ export class LessonsService {
     if (dto.duration !== undefined) {
       updates.duration = dto.duration;
     }
-    if (dto.status !== undefined) {
-      // Publishing requires the Bunny video (if any) to be fully encoded.
-      if (dto.status === LessonStatus.PUBLISHED) {
-        this.assertVideoReadyForPublish(lesson);
-      }
-      updates.status = dto.status;
-    }
     Object.assign(lesson, updates);
+  }
+
+  /** Publishing is deliberately separate from metadata editing. */
+  public async publishLesson(lessonId: string, teacherId: string): Promise<LessonWithDetails> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId, ['teacher', 'subject']);
+    this.assertPublishable(lesson);
+    if (lesson.status !== LessonStatus.PUBLISHED) {
+      lesson.status = LessonStatus.PUBLISHED;
+      await this.lessonsRepository.save(lesson);
+    }
+    return this.mapToLessonWithDetails(lesson);
+  }
+
+  /** Teachers may hide or return a lesson to draft, but never publish here. */
+  public async setLessonVisibility(
+    lessonId: string,
+    teacherId: string,
+    visibility: LessonStatus.DRAFT | LessonStatus.HIDDEN,
+  ): Promise<LessonWithDetails> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId, ['teacher', 'subject']);
+    lesson.status = visibility;
+    await this.lessonsRepository.save(lesson);
+    return this.mapToLessonWithDetails(lesson);
   }
 
   /**
@@ -586,12 +591,13 @@ export class LessonsService {
       );
     }
 
-    // Clean up the Bunny Stream asset so deleted lessons don't leak storage.
+    // Database state is authoritative: never delete external media before the
+    // soft-delete succeeds, otherwise a failed write leaves a visible lesson
+    // without its video.
+    await this.lessonsRepository.softDelete(lessonId);
     if (lesson.bunny_video_id) {
       await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
     }
-
-    await this.lessonsRepository.softDelete(lessonId);
   }
 
   /**
@@ -671,9 +677,14 @@ export class LessonsService {
    * Bunny Stream — secure direct (TUS) upload orchestration
    * ============================================================ */
 
-  private async findOwnedLesson(lessonId: string, teacherId: string): Promise<Lesson> {
+  private async findOwnedLesson(
+    lessonId: string,
+    teacherId: string,
+    relations?: Array<'teacher' | 'subject'>,
+  ): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
+      ...(relations !== undefined ? { relations } : {}),
     });
     if (!lesson) {
       throw new NotFoundException(
@@ -686,6 +697,127 @@ export class LessonsService {
       );
     }
     return lesson;
+  }
+
+  /** Create a short-lived, server-authorized direct TUS upload session. */
+  public async createBunnyUploadSession(
+    lessonId: string,
+    teacherId: string,
+    title?: string,
+  ): Promise<{
+    sessionId: string;
+    endpoint: string;
+    headers: Record<string, string>;
+    expiresAt: Date;
+  }> {
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    const created = await this.bunnyStream.createVideo(title ?? lesson.title);
+    let authorization;
+    try {
+      authorization = this.bunnyStream.createTusAuthorization(created.videoId, 60 * 60);
+      const session = this.uploadSessionsRepository.create({
+        lesson_id: lesson.id,
+        teacher_id: teacherId,
+        bunny_video_id: created.videoId,
+        previous_bunny_video_id: lesson.bunny_video_id,
+        status: 'created',
+        expires_at: authorization.expiresAt,
+        completed_at: null,
+        cleaned_at: null,
+        cleanup_attempts: 0,
+        last_cleanup_error: null,
+      });
+      const saved = await this.uploadSessionsRepository.save(session);
+      return {
+        sessionId: saved.id,
+        endpoint: authorization.endpoint,
+        headers: authorization.headers,
+        expiresAt: authorization.expiresAt,
+      };
+    } catch (error) {
+      // The session was never committed, so the created provider asset is an
+      // orphan. Cleanup is safe and must not mask the original failure.
+      await this.bunnyStream.deleteVideo(created.videoId);
+      throw error;
+    }
+  }
+
+  /** Atomically attach an uploaded Bunny asset only after Bunny confirms it exists. */
+  public async completeBunnyUploadSession(
+    lessonId: string,
+    teacherId: string,
+    sessionId: string,
+  ): Promise<{ status: string }> {
+    const session = await this.uploadSessionsRepository.findOne({
+      where: { id: sessionId, lesson_id: lessonId, teacher_id: teacherId },
+    });
+    if (!session) {
+      throw new NotFoundException(biBody('Upload session not found.', 'جلسة الرفع غير موجودة.'));
+    }
+    if (session.status === 'completed') return { status: 'processing' };
+    if (session.expires_at <= new Date()) {
+      throw new ConflictException(biBody('Upload session has expired. Start a new upload.', 'انتهت صلاحية جلسة الرفع. ابدأ رفعاً جديداً.'));
+    }
+
+    const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    const meta = await this.bunnyStream.getVideo(session.bunny_video_id);
+    if (meta.status === 'created') {
+      throw new ConflictException(
+        biBody('Upload has not finished yet.', 'لم يكتمل رفع الفيديو بعد.'),
+      );
+    }
+
+    lesson.video_platform = 'bunny';
+    lesson.bunny_video_id = session.bunny_video_id;
+    lesson.bunny_video_status = meta.status;
+    lesson.video_url = null;
+    lesson.video_thumbnail = null;
+    lesson.video_width = meta.width;
+    lesson.video_height = meta.height;
+    lesson.video_size_bytes = meta.sizeBytes;
+    if (meta.durationSeconds !== null) lesson.duration = meta.durationSeconds;
+    await this.lessonsRepository.save(lesson);
+
+    session.status = session.previous_bunny_video_id ? 'cleanup_pending' : 'completed';
+    session.completed_at = new Date();
+    await this.uploadSessionsRepository.save(session);
+    await this.cleanupUploadSession(session);
+    return { status: meta.status };
+  }
+
+  /** Durable cleanup saga for expired uploads and replacement leftovers. */
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  public async cleanExpiredBunnyUploadSessions(): Promise<void> {
+    const sessions = await this.uploadSessionsRepository.find({
+      where: [
+        { status: 'created', expires_at: LessThanOrEqual(new Date()) },
+        { status: 'cleanup_pending' },
+      ],
+      take: 100,
+      order: { created_at: 'ASC' },
+    });
+    for (const session of sessions) {
+      if (session.status === 'created') session.status = 'abandoned';
+      await this.cleanupUploadSession(session);
+    }
+  }
+
+  private async cleanupUploadSession(session: LessonVideoUploadSession): Promise<void> {
+    const videoId =
+      session.status === 'abandoned' ? session.bunny_video_id : session.previous_bunny_video_id;
+    if (!videoId) return;
+    try {
+      const deleted = await this.bunnyStream.deleteVideo(videoId);
+      if (!deleted) throw new Error('Bunny cleanup did not complete');
+      session.status = 'cleaned';
+      session.cleaned_at = new Date();
+      session.last_cleanup_error = null;
+    } catch (error) {
+      session.status = 'cleanup_pending';
+      session.cleanup_attempts += 1;
+      session.last_cleanup_error = error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error';
+    }
+    await this.uploadSessionsRepository.save(session);
   }
 
   /**
@@ -755,7 +887,7 @@ export class LessonsService {
   public async refreshBunnyStatus(
     lessonId: string,
     teacherId: string,
-  ): Promise<BunnyVideoMetadata & { lessonId: string }> {
+  ): Promise<Pick<BunnyVideoMetadata, 'status' | 'progress' | 'durationSeconds' | 'width' | 'height' | 'sizeBytes'> & { lessonId: string }> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
     if (!lesson.bunny_video_id) {
       throw new BadRequestException(
@@ -769,15 +901,21 @@ export class LessonsService {
     const meta = await this.bunnyStream.getVideo(lesson.bunny_video_id);
 
     lesson.bunny_video_status = meta.status;
-    lesson.video_url = meta.embedUrl;
     if (meta.durationSeconds != null) lesson.duration = meta.durationSeconds;
     if (meta.width != null) lesson.video_width = meta.width;
     if (meta.height != null) lesson.video_height = meta.height;
     if (meta.sizeBytes != null) lesson.video_size_bytes = meta.sizeBytes;
-    if (meta.thumbnailUrl) lesson.video_thumbnail = meta.thumbnailUrl;
     await this.lessonsRepository.save(lesson);
 
-    return { ...meta, lessonId: lesson.id };
+    return {
+      lessonId: lesson.id,
+      status: meta.status,
+      progress: meta.progress,
+      durationSeconds: meta.durationSeconds,
+      width: meta.width,
+      height: meta.height,
+      sizeBytes: meta.sizeBytes,
+    };
   }
 
   /** Remove the lesson's Bunny video (from Bunny + clear stored metadata). */
@@ -815,8 +953,17 @@ export class LessonsService {
 
     const isOwner = lesson.teacher_id === userId;
     const isAdmin = role === UserRole.ADMIN;
+    // Students must never play a draft/hidden lesson even if an old purchase
+    // exists. Owners/admins retain editorial access to unpublished content.
+    if (!isOwner && !isAdmin && lesson.status !== LessonStatus.PUBLISHED) {
+      throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+    }
+    const isFreePreview = lesson.is_free_preview && lesson.bunny_video_status === 'ready';
     const hasAccess =
-      isOwner || isAdmin || (await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId));
+      isOwner ||
+      isAdmin ||
+      isFreePreview ||
+      (await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId));
 
     if (!hasAccess) {
       throw new ForbiddenException(
@@ -838,7 +985,6 @@ export class LessonsService {
     lessonId: string,
     userId: string,
     role: string,
-    ttlSeconds = 60 * 60,
   ): Promise<{ signedUrl: string; expiresIn: number }> {
     const lesson = await this.assertViewerAccess(lessonId, userId, role);
     if (!lesson.bunny_video_id || lesson.bunny_video_status !== 'ready') {
@@ -847,6 +993,7 @@ export class LessonsService {
       );
     }
 
+    const ttlSeconds = 5 * 60;
     const signedUrl = this.bunnyStream.generateSignedEmbedUrl(lesson.bunny_video_id, ttlSeconds);
     if (!signedUrl) {
       throw new ServiceUnavailableException(
@@ -864,7 +1011,10 @@ export class LessonsService {
    * Guard: a lesson may only be published once its Bunny video has finished
    * encoding. Lessons with no Bunny video are unaffected.
    */
-  public assertVideoReadyForPublish(lesson: Lesson): void {
+  public assertPublishable(lesson: Lesson): void {
+    if (lesson.title.trim().length === 0) {
+      throw new BadRequestException(biBody('A lesson title is required before publishing.', 'يلزم عنوان للدرس قبل النشر.'));
+    }
     if (lesson.bunny_video_id && lesson.bunny_video_status !== 'ready') {
       throw new BadRequestException(
         biBody(
@@ -895,14 +1045,10 @@ export class LessonsService {
       },
       thumbnail: lesson.thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(lesson.thumbnail),
-      video_url: lesson.video_url,
-      video_platform: lesson.video_platform,
-      bunny_video_id: lesson.bunny_video_id,
-      bunny_library_id: lesson.bunny_library_id,
+      has_video: lesson.bunny_video_id !== null,
       bunny_video_status: lesson.bunny_video_status,
       video_width: lesson.video_width,
       video_height: lesson.video_height,
-      video_thumbnail: lesson.video_thumbnail,
       video_size_bytes: lesson.video_size_bytes == null ? null : Number(lesson.video_size_bytes),
       price: lesson.price,
       duration: lesson.duration,
