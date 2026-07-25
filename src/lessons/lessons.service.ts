@@ -155,7 +155,10 @@ export class LessonsService {
       description: dto.description ?? null,
       teacher_id: teacherId,
       subject_id: dto.subject_id,
-      thumbnail: dto.thumbnail ?? null,
+      thumbnail:
+        dto.thumbnail === undefined
+          ? null
+          : this.media.normalizeStoredPublicReference(dto.thumbnail),
       price: dto.price,
       duration: dto.duration ?? null,
       status: LessonStatus.DRAFT,
@@ -343,6 +346,7 @@ export class LessonsService {
   }
 
   private mapListRowToLessonWithDetails(row: LessonListRawRow): LessonWithDetails {
+    const thumbnail = this.media.canonicalPublicReference(row.thumbnail);
     return {
       id: row.id,
       title: row.title,
@@ -350,15 +354,15 @@ export class LessonsService {
       teacher: {
         id: row.teacher_id,
         name: row.teacher_name,
-        profile_picture_url: row.teacher_profile_picture_url,
+        profile_picture_url: this.media.resolveThumbnailUrl(row.teacher_profile_picture_url),
       },
       subject: {
         id: row.subject_id,
         name: row.subject_name,
         grade_level: row.subject_grade_level,
       },
-      thumbnail: row.thumbnail,
-      thumbnail_url: this.media.resolveThumbnailUrl(row.thumbnail),
+      thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),
       has_video: row.bunny_video_id !== null,
       bunny_video_status: row.bunny_video_status,
       video_width: row.video_width,
@@ -529,7 +533,7 @@ export class LessonsService {
       updates.price = dto.price;
     }
     if (dto.thumbnail !== undefined) {
-      updates.thumbnail = dto.thumbnail;
+      updates.thumbnail = this.media.normalizeStoredPublicReference(dto.thumbnail);
     }
     if (dto.is_group !== undefined) {
       updates.is_group = dto.is_group;
@@ -756,7 +760,12 @@ export class LessonsService {
     }
     if (session.status === 'completed') return { status: 'processing' };
     if (session.expires_at <= new Date()) {
-      throw new ConflictException(biBody('Upload session has expired. Start a new upload.', 'انتهت صلاحية جلسة الرفع. ابدأ رفعاً جديداً.'));
+      throw new ConflictException(
+        biBody(
+          'Upload session has expired. Start a new upload.',
+          'انتهت صلاحية جلسة الرفع. ابدأ رفعاً جديداً.',
+        ),
+      );
     }
 
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
@@ -815,7 +824,8 @@ export class LessonsService {
     } catch (error) {
       session.status = 'cleanup_pending';
       session.cleanup_attempts += 1;
-      session.last_cleanup_error = error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error';
+      session.last_cleanup_error =
+        error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error';
     }
     await this.uploadSessionsRepository.save(session);
   }
@@ -873,7 +883,9 @@ export class LessonsService {
     await this.lessonsRepository.save(lesson);
 
     if (previousVideoId && previousVideoId !== videoId) {
-      this.logger.log(`Lesson ${lessonId}: replacement live, queuing cleanup of ${previousVideoId}`);
+      this.logger.log(
+        `Lesson ${lessonId}: replacement live, queuing cleanup of ${previousVideoId}`,
+      );
       await this.bunnyStream.deleteVideo(previousVideoId);
     }
 
@@ -887,7 +899,12 @@ export class LessonsService {
   public async refreshBunnyStatus(
     lessonId: string,
     teacherId: string,
-  ): Promise<Pick<BunnyVideoMetadata, 'status' | 'progress' | 'durationSeconds' | 'width' | 'height' | 'sizeBytes'> & { lessonId: string }> {
+  ): Promise<
+    Pick<
+      BunnyVideoMetadata,
+      'status' | 'progress' | 'durationSeconds' | 'width' | 'height' | 'sizeBytes'
+    > & { lessonId: string }
+  > {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
     if (!lesson.bunny_video_id) {
       throw new BadRequestException(
@@ -1013,7 +1030,9 @@ export class LessonsService {
    */
   public assertPublishable(lesson: Lesson): void {
     if (lesson.title.trim().length === 0) {
-      throw new BadRequestException(biBody('A lesson title is required before publishing.', 'يلزم عنوان للدرس قبل النشر.'));
+      throw new BadRequestException(
+        biBody('A lesson title is required before publishing.', 'يلزم عنوان للدرس قبل النشر.'),
+      );
     }
     if (lesson.bunny_video_id && lesson.bunny_video_status !== 'ready') {
       throw new BadRequestException(
@@ -1029,6 +1048,7 @@ export class LessonsService {
    * Helper method to map Lesson entity to response type
    */
   private mapToLessonWithDetails(lesson: Lesson): LessonWithDetails {
+    const thumbnail = this.media.canonicalPublicReference(lesson.thumbnail);
     return {
       id: lesson.id,
       title: lesson.title,
@@ -1036,15 +1056,15 @@ export class LessonsService {
       teacher: {
         id: lesson.teacher.id,
         name: lesson.teacher.name,
-        profile_picture_url: lesson.teacher.profile_picture_url,
+        profile_picture_url: this.media.resolveThumbnailUrl(lesson.teacher.profile_picture_url),
       },
       subject: {
         id: lesson.subject.id,
         name: lesson.subject.name,
         grade_level: lesson.subject.grade_level,
       },
-      thumbnail: lesson.thumbnail,
-      thumbnail_url: this.media.resolveThumbnailUrl(lesson.thumbnail),
+      thumbnail,
+      thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),
       has_video: lesson.bunny_video_id !== null,
       bunny_video_status: lesson.bunny_video_status,
       video_width: lesson.video_width,

@@ -39,6 +39,26 @@ describe('MediaService public URL policy', () => {
     ).toBe('images/cover.jpg');
   });
 
+  it('canonicalizes a legacy localhost value before it can appear in a response', () => {
+    const storage = {
+      isOwnUrl: jest.fn().mockReturnValue(true),
+      toKey: jest.fn().mockReturnValue('images/cover.jpg'),
+    } as never;
+    const service = new MediaService(
+      storage,
+      config({ NODE_ENV: 'production', PUBLIC_MEDIA_BASE_URL: 'https://api.learnix.example' }),
+    );
+
+    const key = service.canonicalPublicReference(
+      'http://localhost:3001/api/v1/media/public/images/cover.jpg',
+    );
+
+    expect(key).toBe('images/cover.jpg');
+    expect(service.resolveThumbnailUrl(key)).toBe(
+      'https://api.learnix.example/api/v1/media/public/images/cover.jpg',
+    );
+  });
+
   it('rejects a new localhost value that is not a recognized storage URL', () => {
     const storage = { isOwnUrl: jest.fn().mockReturnValue(false) } as never;
     const service = new MediaService(

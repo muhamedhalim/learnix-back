@@ -36,7 +36,11 @@ describe('LessonsService.findAll', () => {
     'getMany',
   ]);
   const repository = { createQueryBuilder: jest.fn() };
-  const media = { resolveThumbnailUrl: jest.fn() };
+  const media = {
+    canonicalPublicReference: jest.fn((value: string | null) => value),
+    normalizeStoredPublicReference: jest.fn((value: string) => value),
+    resolveThumbnailUrl: jest.fn(),
+  };
 
   let service: LessonsService;
 
@@ -53,7 +57,9 @@ describe('LessonsService.findAll', () => {
       repository as unknown as Repository<Lesson>,
       {} as Repository<User>,
       {} as Repository<Subject>,
-      {} as Repository<import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession>,
+      {} as Repository<
+        import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession
+      >,
       {} as BunnyStreamService,
       {} as PaymentsService,
       media as unknown as MediaService,
@@ -207,13 +213,20 @@ describe('LessonsService lesson duration persistence', () => {
   };
   const usersRepository = { findOne: jest.fn() };
   const subjectsRepository = { findOne: jest.fn() };
-  const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
+  const media = {
+    canonicalPublicReference: jest.fn((value: string | null) => value),
+    normalizeStoredPublicReference: jest.fn((value: string) => value),
+    resolveThumbnailUrl: jest.fn().mockReturnValue(null),
+  };
   let service: LessonsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     lesson.duration = null;
-    lessonRepository.create.mockImplementation((value: Partial<Lesson>) => ({ ...lesson, ...value }));
+    lessonRepository.create.mockImplementation((value: Partial<Lesson>) => ({
+      ...lesson,
+      ...value,
+    }));
     lessonRepository.save.mockImplementation(async (value: Lesson) => value);
     lessonRepository.findOne.mockResolvedValue(lesson);
     usersRepository.findOne.mockResolvedValue(teacher);
@@ -222,7 +235,9 @@ describe('LessonsService lesson duration persistence', () => {
       lessonRepository as unknown as Repository<Lesson>,
       usersRepository as unknown as Repository<User>,
       subjectsRepository as unknown as Repository<Subject>,
-      {} as Repository<import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession>,
+      {} as Repository<
+        import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession
+      >,
       {} as BunnyStreamService,
       {} as PaymentsService,
       media as unknown as MediaService,
@@ -254,7 +269,27 @@ describe('LessonsService lesson duration persistence', () => {
     expect(lessonRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({ duration: 3_600 }),
     );
-    expect(lessonRepository.save).toHaveBeenCalledWith(expect.objectContaining({ duration: 3_600 }));
+    expect(lessonRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 3_600 }),
+    );
+  });
+
+  it('stores an uploaded thumbnail as a provider-neutral key', async () => {
+    media.normalizeStoredPublicReference.mockReturnValue('images/cover.jpg');
+
+    await service.create(teacher.id, {
+      title: lesson.title,
+      subject_id: subject.id,
+      price: 0,
+      thumbnail: 'http://localhost:3001/api/v1/media/public/images/cover.jpg',
+    });
+
+    expect(media.normalizeStoredPublicReference).toHaveBeenCalledWith(
+      'http://localhost:3001/api/v1/media/public/images/cover.jpg',
+    );
+    expect(lessonRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ thumbnail: 'images/cover.jpg' }),
+    );
   });
 
   it('persists a valid duration update using the same seconds-based field', async () => {

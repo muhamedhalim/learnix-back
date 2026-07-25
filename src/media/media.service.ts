@@ -106,6 +106,21 @@ export class MediaService {
     return this.storage.isOwnUrl(value) ? this.storage.toKey(value) : value;
   }
 
+  /**
+   * Canonical response representation for a value from an older database row.
+   * Invalid or private-looking references are omitted rather than echoed back
+   * to a browser. Recognized legacy localhost URLs become provider-neutral
+   * keys, so a response can never preserve the old machine's host name.
+   */
+  public canonicalPublicReference(value: string | null | undefined): string | null {
+    if (value === null || value === undefined || value === '') return null;
+    try {
+      return this.normalizeStoredPublicReference(value);
+    } catch {
+      return null;
+    }
+  }
+
   private resolvePublicMediaBaseUrl(): string {
     const configured =
       this.config.get<string>('PUBLIC_MEDIA_BASE_URL') ?? this.config.get<string>('BACKEND_URL');
