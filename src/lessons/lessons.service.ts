@@ -590,6 +590,9 @@ export class LessonsService {
     if (dto.available_for_days !== undefined) {
       updates.available_for_days = dto.available_for_days;
     }
+    if (dto.duration !== undefined) {
+      updates.duration = dto.duration;
+    }
     if (dto.status !== undefined) {
       // Publishing requires the Bunny video (if any) to be fully encoded.
       if (dto.status === LessonStatus.PUBLISHED) {

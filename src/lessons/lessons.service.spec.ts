@@ -4,6 +4,7 @@ import { MediaService } from '../media/media.service';
 import { PaymentsService } from '../payments/services/payments.service';
 import type { Subject } from '../subjects/entities/subject.entity';
 import type { User } from '../users/entities/user.entity';
+import { UserRole } from '../users/entities/user-role.enum';
 import { BunnyStreamService } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
@@ -157,5 +158,118 @@ describe('LessonsService.findAll', () => {
       subjectId: 'subject-1',
     });
     expect(pageQuery.offset).toHaveBeenCalledWith(25);
+  });
+});
+
+describe('LessonsService lesson duration persistence', () => {
+  const teacher = {
+    id: 'teacher-1',
+    role: UserRole.TEACHER,
+    name: 'Teacher',
+    profile_picture_url: null,
+  } as User;
+  const subject = {
+    id: 'subject-1',
+    name: 'Mathematics',
+    grade_level: '10',
+  } as Subject;
+
+  const lesson = {
+    id: 'lesson-1',
+    title: 'Algebra lesson',
+    title_ar: 'درس الجبر',
+    description: null,
+    description_ar: null,
+    teacher_id: teacher.id,
+    teacher,
+    subject_id: subject.id,
+    subject,
+    thumbnail: null,
+    video_url: null,
+    video_platform: 'bunny',
+    bunny_video_id: null,
+    bunny_library_id: null,
+    bunny_video_status: null,
+    video_width: null,
+    video_height: null,
+    video_thumbnail: null,
+    video_size_bytes: null,
+    vimeo_video_id: null,
+    vimeo_embed_url: null,
+    price: 0,
+    duration: null,
+    is_group: false,
+    is_free_preview: false,
+    available_for_days: 7,
+    students_count: 0,
+    status: LessonStatus.PUBLISHED,
+    created_at: new Date('2026-01-01T00:00:00.000Z'),
+    updated_at: new Date('2026-01-01T00:00:00.000Z'),
+  } as Lesson;
+
+  const lessonRepository = {
+    create: jest.fn(),
+    save: jest.fn(),
+    findOne: jest.fn(),
+  };
+  const usersRepository = { findOne: jest.fn() };
+  const subjectsRepository = { findOne: jest.fn() };
+  const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
+  let service: LessonsService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    lesson.duration = null;
+    lessonRepository.create.mockImplementation((value: Partial<Lesson>) => ({ ...lesson, ...value }));
+    lessonRepository.save.mockImplementation(async (value: Lesson) => value);
+    lessonRepository.findOne.mockResolvedValue(lesson);
+    usersRepository.findOne.mockResolvedValue(teacher);
+    subjectsRepository.findOne.mockResolvedValue(subject);
+    service = new LessonsService(
+      lessonRepository as unknown as Repository<Lesson>,
+      usersRepository as unknown as Repository<User>,
+      subjectsRepository as unknown as Repository<Subject>,
+      {} as BunnyStreamService,
+      {} as PaymentsService,
+      media as unknown as MediaService,
+    );
+  });
+
+  it('creates a lesson without a duration before video metadata is available', async () => {
+    const result = await service.create(teacher.id, {
+      title: lesson.title,
+      title_ar: lesson.title_ar,
+      subject_id: subject.id,
+      price: 0,
+    });
+
+    expect(lessonRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: null }),
+    );
+    expect(lessonRepository.save).toHaveBeenCalledWith(expect.objectContaining({ duration: null }));
+    expect(result.duration).toBeNull();
+  });
+
+  it('persists a supplied duration in seconds on create', async () => {
+    await service.create(teacher.id, {
+      title: lesson.title,
+      title_ar: lesson.title_ar,
+      subject_id: subject.id,
+      price: 0,
+      duration: 3_600,
+    });
+
+    expect(lessonRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 3_600 }),
+    );
+    expect(lessonRepository.save).toHaveBeenCalledWith(expect.objectContaining({ duration: 3_600 }));
+  });
+
+  it('persists a valid duration update using the same seconds-based field', async () => {
+    const result = await service.update(lesson.id, teacher.id, { duration: 1_800 });
+
+    expect(lesson.duration).toBe(1_800);
+    expect(lessonRepository.save).toHaveBeenCalledWith(lesson);
+    expect(result.duration).toBe(1_800);
   });
 });
