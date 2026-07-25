@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  HttpCode,
   Get,
   HttpStatus,
   Param,
@@ -32,7 +33,13 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { biBody } from '../../i18n/error-translator.util';
-import { CreateBunnyUploadDto, CreateLessonDto, SetLessonVisibilityDto, TeacherLessonFilterDto, UpdateLessonDto } from '../dto';
+import {
+  CreateBunnyUploadDto,
+  CreateLessonDto,
+  SetLessonVisibilityDto,
+  TeacherLessonFilterDto,
+  UpdateLessonDto,
+} from '../dto';
 import { LessonsService } from '../lessons.service';
 
 /** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
@@ -110,9 +117,14 @@ export class TeacherLessonsController {
    * Create a new lesson
    */
   @Post()
+  @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create a new lesson',
     description: 'Creates a lesson owned by the authenticated teacher.',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Lesson created successfully',
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,

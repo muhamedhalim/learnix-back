@@ -21,6 +21,13 @@ const validLesson = {
 };
 
 describe('lesson duration validation', () => {
+  it('accepts the current quick-create payload and rejects the removed duration_minutes field', async () => {
+    await expect(body(CreateLessonDto, validLesson)).resolves.toMatchObject(validLesson);
+    await expect(
+      body(CreateLessonDto, { ...validLesson, duration_minutes: 60 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('allows creation before a video duration is known', async () => {
     await expect(body(CreateLessonDto, validLesson)).resolves.toMatchObject({
       ...validLesson,
