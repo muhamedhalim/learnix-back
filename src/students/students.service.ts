@@ -54,7 +54,8 @@ export interface StudentProfileWithDetails {
   updated_at: Date;
   purchasedLessons?: Array<{
     lessonId: string;
-    title: string;
+    /** Null when the purchased lesson was soft-deleted after purchase. */
+    title: string | null;
     attended: boolean;
     purchasedAt: Date;
     expiresAt: Date;
@@ -63,9 +64,10 @@ export interface StudentProfileWithDetails {
   }>;
   exams?: Array<{
     examId: string;
-    title: string;
+    /** Null when the historical exam was soft-deleted. */
+    title: string | null;
     score: number | null;
-    totalMarks: number;
+    totalMarks: number | null;
     status: string;
     submittedAt: Date | null;
   }>;
@@ -165,7 +167,9 @@ export class StudentsService {
     const now = new Date();
     const purchasedLessons = lessonPurchases.map((lp) => ({
       lessonId: lp.lesson_id,
-      title: lp.lesson.title,
+      // TypeORM excludes soft-deleted related records from relation loading.
+      // Keep the historical purchase readable when its lesson no longer exists.
+      title: lp.lesson?.title ?? null,
       attended: Boolean(lp.access_granted_at),
       purchasedAt: lp.created_at,
       expiresAt: lp.access_expires_at,
@@ -175,9 +179,11 @@ export class StudentsService {
 
     const exams = examAttempts.map((ea) => ({
       examId: ea.exam_id,
-      title: ea.exam.title,
+      // Exam attempts remain useful in a student's history after an exam has
+      // been soft-deleted, so the response deliberately exposes null metadata.
+      title: ea.exam?.title ?? null,
       score: ea.score_total,
-      totalMarks: ea.exam.total_marks,
+      totalMarks: ea.exam?.total_marks ?? null,
       status: ea.state,
       submittedAt: ea.submitted_at,
     }));
