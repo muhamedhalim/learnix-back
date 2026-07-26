@@ -26,6 +26,12 @@ export type HomeworkSubmissionStatus = 'submitted' | 'graded';
 @Index('IDX_homework_submissions_homework_id', ['homework_id'])
 @Index('IDX_homework_submissions_student_id', ['student_id'])
 @Index('IDX_homework_submissions_status', ['status'])
+@Index('IDX_homework_submissions_homework_status_submitted', [
+  'homework_id',
+  'status',
+  'submitted_at',
+])
+@Index('IDX_homework_submissions_homework_graded', ['homework_id', 'graded_at'])
 export class HomeworkSubmission {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -55,6 +61,10 @@ export class HomeworkSubmission {
   /** Public URL returned by the authenticated homework upload endpoint. */
   @Column({ type: 'varchar', length: 1000, nullable: true })
   resource_url!: string | null;
+
+  /** Student-visible filename, stored separately from the opaque private key. */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  resource_filename!: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'submitted' })
   status!: HomeworkSubmissionStatus;

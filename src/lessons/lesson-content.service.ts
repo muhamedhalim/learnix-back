@@ -261,6 +261,7 @@ export class LessonContentService {
   ): Promise<LessonHomework> {
     await this.assertOwnedLesson(lessonId, teacherId);
     this.validateTeacherResourceReference(dto.resource_url, teacherId);
+    this.validateDisplayFilename(dto.resource_filename);
     const homework = this.homeworkRepository.create({
       lesson_id: lessonId,
       title: dto.title,
@@ -269,6 +270,7 @@ export class LessonContentService {
       description_ar: dto.description_ar ?? null,
       type: dto.type ?? 'text',
       resource_url: dto.resource_url ?? null,
+      resource_filename: dto.resource_filename?.trim() || null,
       due_at: dto.due_at ? new Date(dto.due_at) : null,
       questions: this.normalizeQuestions(dto.questions),
       max_score: dto.max_score ?? 100,
@@ -299,6 +301,10 @@ export class LessonContentService {
     if (dto.resource_url !== undefined) {
       this.validateTeacherResourceReference(dto.resource_url, teacherId);
       homework.resource_url = dto.resource_url;
+    }
+    if (dto.resource_filename !== undefined) {
+      this.validateDisplayFilename(dto.resource_filename);
+      homework.resource_filename = dto.resource_filename.trim() || null;
     }
     if (dto.due_at !== undefined) {
       homework.due_at = dto.due_at ? new Date(dto.due_at) : null;
@@ -426,6 +432,7 @@ export class LessonContentService {
     const homework = await this.assertStudentCanAccessHomework(studentId, homeworkId);
     this.validateHomeworkResponse(homework, dto);
     const resourceReference = dto.resource_url?.trim() || null;
+    this.validateDisplayFilename(dto.resource_filename);
     if (
       resourceReference !== null &&
       (resourceReference.includes('..') ||
@@ -461,6 +468,7 @@ export class LessonContentService {
     }));
     const previousResource = existing?.resource_url ?? null;
     submission.resource_url = resourceReference;
+    submission.resource_filename = resourceReference ? dto.resource_filename?.trim() || null : null;
     submission.status = 'submitted';
     submission.is_late = homework.due_at !== null && submittedAt > homework.due_at;
     submission.score = null;
@@ -547,9 +555,21 @@ export class LessonContentService {
         biBody('Homework submission not found', 'إجابة الواجب غير موجودة'),
       );
     }
+    const feedback = dto.feedback?.trim() || null;
+    // A transport retry after a successful write must not create a second
+    // grade event or notification. Re-grading remains possible when the
+    // teacher actually changes the score or feedback.
+    if (
+      submission.status === 'graded' &&
+      Number(submission.score) === dto.score &&
+      submission.feedback === feedback &&
+      submission.graded_by === teacherId
+    ) {
+      return submission;
+    }
     submission.status = 'graded';
     submission.score = dto.score;
-    submission.feedback = dto.feedback?.trim() || null;
+    submission.feedback = feedback;
     submission.graded_at = new Date();
     submission.graded_by = teacherId;
     const saved = await this.homeworkSubmissions.save(submission);
@@ -649,9 +669,18 @@ export class LessonContentService {
     }
   }
 
+  /** A filename is presentation metadata only; it can never become a storage path. */
+  private validateDisplayFilename(filename: string | undefined): void {
+    if (filename === undefined || filename.trim() === '') return;
+    if (filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+      throw new BadRequestException(biBody('Invalid file name', 'اسم الملف غير صالح'));
+    }
+  }
+
   private toStudentSubmissionResponse(submission: HomeworkSubmission): Record<string, unknown> {
     return {
       ...submission,
+      resource_filename: submission.resource_filename,
       resource_url: submission.resource_url
         ? buildAbsoluteUrl(
             this.apiOrigin,

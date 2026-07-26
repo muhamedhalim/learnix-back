@@ -22,6 +22,9 @@ import type { HomeworkSubmission } from './homework-submission.entity';
  */
 @Entity('lesson_homework')
 @Index('IDX_lesson_homework_lesson_id', ['lesson_id'])
+@Index('IDX_lesson_homework_lesson_published_due', ['lesson_id', 'published_at', 'due_at'], {
+  where: '"deleted_at" IS NULL',
+})
 export class LessonHomework {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -51,6 +54,10 @@ export class LessonHomework {
   /** Optional reference (e.g. attachment URL for a file assignment). */
   @Column({ type: 'varchar', length: 1000, nullable: true })
   resource_url!: string | null;
+
+  /** Original display name for the private assignment file; never a storage key. */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  resource_filename!: string | null;
 
   @Column('timestamptz', { nullable: true })
   due_at!: Date | null;

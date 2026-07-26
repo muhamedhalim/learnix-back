@@ -17,6 +17,7 @@ import {
 } from './controllers';
 import { TeacherLessonContentController } from './controllers/teacher-lesson-content.controller';
 import { StudentHomeworkController } from './controllers/student-homework.controller';
+import { TeacherHomeworkController } from './controllers/teacher-homework.controller';
 import { BunnyStreamService } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonVideoUploadSession } from './entities/lesson-video-upload-session.entity';
@@ -26,6 +27,7 @@ import { HomeworkSubmission } from './entities/homework-submission.entity';
 import { LessonNote } from './entities/lesson-note.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
 import { LessonContentService } from './lesson-content.service';
+import { TeacherHomeworkService } from './teacher-homework.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
 
@@ -56,8 +58,15 @@ import { ProgressService } from './progress.service';
     TeacherLessonsController,
     TeacherLessonContentController,
     StudentHomeworkController,
+    TeacherHomeworkController,
   ],
-  providers: [LessonsService, ProgressService, LessonContentService, BunnyStreamService],
+  providers: [
+    LessonsService,
+    ProgressService,
+    LessonContentService,
+    TeacherHomeworkService,
+    BunnyStreamService,
+  ],
   exports: [LessonsService, ProgressService, BunnyStreamService, TypeOrmModule],
 })
 export class LessonsModule implements OnModuleInit {

@@ -84,6 +84,12 @@ export class CreateHomeworkDto {
   @MaxLength(1000)
   public resource_url?: string;
 
+  @ApiPropertyOptional({ description: 'Original uploaded filename (display only)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public resource_filename?: string;
+
   @ApiPropertyOptional({ description: 'Due date (ISO 8601)' })
   @IsOptional()
   @IsDateString()
@@ -141,6 +147,12 @@ export class UpdateHomeworkDto {
   @IsString()
   @MaxLength(1000)
   public resource_url?: string;
+
+  @ApiPropertyOptional({ description: 'Original uploaded filename (display only)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public resource_filename?: string;
 
   @ApiPropertyOptional({ description: 'Due date (ISO 8601)' })
   @IsOptional()

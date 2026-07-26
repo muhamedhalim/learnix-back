@@ -11,10 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import sharp from 'sharp';
 
 import { FILE_LIMITS, UploadFolder } from '../common/constants';
-import {
-  extensionMatchesMime,
-  hasExpectedMagicBytes,
-} from '../common/utils/file-signature.util';
+import { extensionMatchesMime, hasExpectedMagicBytes } from '../common/utils/file-signature.util';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { StorageService } from '../storage/storage.service';
@@ -106,7 +103,10 @@ export class UploadService {
       !hasExpectedMagicBytes(file.mimetype, file.buffer)
     ) {
       throw new BadRequestException(
-        biBody('File content does not match its declared type', 'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù†ÙˆØ¹Ù‡ Ø§Ù„Ù…Ø¹Ù„Ù†'),
+        biBody(
+          'File content does not match its declared type',
+          'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù†ÙˆØ¹Ù‡ Ø§Ù„Ù…Ø¹Ù„Ù†',
+        ),
       );
     }
     const filename = `${randomUUID()}.${extension}`;
@@ -118,7 +118,9 @@ export class UploadService {
     });
     // `url` is retained as the frontend contract name, but the value is an
     // opaque private reference, never a provider URL.
-    return { url: stored.path, filename };
+    // The opaque storage key stays in `url`; the original name is returned
+    // separately so it can be shown/downloaded without exposing that key.
+    return { url: stored.path, filename: file.originalname };
   }
 
   private validateFileSize(file: Express.Multer.File, folder: UploadFolder): void {

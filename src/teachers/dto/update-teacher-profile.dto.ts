@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -10,7 +10,6 @@ import {
   Matches,
   MaxLength,
   Min,
-  MinLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -60,9 +59,9 @@ export class UpdateTeacherProfileDto {
     required: false,
     maxLength: 2000,
   })
-  @IsString()
   @IsOptional()
-  @MinLength(10)
+  @Transform(({ value }): unknown => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
   @MaxLength(2000)
   public qualifications?: string;
 

@@ -29,6 +29,13 @@ interface StudentAttemptHighlightsRow {
   progress: { date: string; percent: number }[];
 }
 
+/** Attempts that reached submission; drafts, expired, and voided work are not analytics. */
+const TEACHER_ANALYTICS_ATTEMPT_STATES = [
+  AttemptState.SUBMITTED,
+  AttemptState.GRADING,
+  AttemptState.GRADED,
+];
+
 /** Legacy internal helper result; the student API uses StudentPerformanceInsight. */
 interface StudentTopicHighlightsRow {
   strongTopics: { topic: string; percent: number; answers: number }[];
@@ -50,7 +57,12 @@ export interface StudentPerformanceInsight {
 }
 
 interface SubjectPerformanceBucket {
-  scores: Array<{ score: number; max: number; completedAt: Date; source: 'exam' | 'practice' | 'homework' }>;
+  scores: Array<{
+    score: number;
+    max: number;
+    completedAt: Date;
+    source: 'exam' | 'practice' | 'homework';
+  }>;
   completedLessons: number;
   lessonsWithProgress: number;
   totalLessonProgress: number;
@@ -104,7 +116,10 @@ export class QuizAnalyticsService {
 
   /* ===================== Student ===================== */
 
-  public async getStudentAnalytics(studentId: string, filter: StudentAnalyticsFilter = {}): Promise<{
+  public async getStudentAnalytics(
+    studentId: string,
+    filter: StudentAnalyticsFilter = {},
+  ): Promise<{
     totalAttempts: number;
     averageScore: number;
     passRate: number;
@@ -128,15 +143,22 @@ export class QuizAnalyticsService {
       .andWhere('attempt.state = :state', { state: AttemptState.GRADED })
       .andWhere('attempt.score_total IS NOT NULL')
       .andWhere('exam.deleted_at IS NULL');
-    if (filter.subjectId) query.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subjectId });
-    if (filter.teacherId) query.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacherId });
+    if (filter.subjectId)
+      query.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subjectId });
+    if (filter.teacherId)
+      query.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacherId });
     if (filter.from) query.andWhere('attempt.submitted_at >= :from', { from: filter.from });
     if (filter.to) query.andWhere('attempt.submitted_at <= :to', { to: filter.to });
     const gradedAttempts = await query.orderBy('attempt.graded_at', 'DESC').getMany();
-    const visibleAttempts = gradedAttempts.filter((attempt) => this.isStudentResultVisible(attempt));
+    const visibleAttempts = gradedAttempts.filter((attempt) =>
+      this.isStudentResultVisible(attempt),
+    );
     const attemptIds = visibleAttempts.map((attempt) => attempt.id);
     const answers = attemptIds.length
-      ? await this.answersRepository.find({ where: { attempt_id: In(attemptIds) }, relations: ['exam_question', 'exam_question.question'] })
+      ? await this.answersRepository.find({
+          where: { attempt_id: In(attemptIds) },
+          relations: ['exam_question', 'exam_question.question'],
+        })
       : [];
     const answerByAttempt = new Map<string, ExamAttemptAnswer[]>();
     for (const answer of answers) {
@@ -145,7 +167,9 @@ export class QuizAnalyticsService {
       answerByAttempt.set(answer.attempt_id, group);
     }
     const percentages = visibleAttempts.map((attempt) =>
-      attempt.max_score > 0 ? Math.round((Number(attempt.score_total) / Number(attempt.max_score)) * 100) : 0,
+      attempt.max_score > 0
+        ? Math.round((Number(attempt.score_total) / Number(attempt.max_score)) * 100)
+        : 0,
     );
     const totalTimeMinutes = Math.round(
       visibleAttempts.reduce((total, attempt) => {
@@ -153,7 +177,11 @@ export class QuizAnalyticsService {
         return total + Math.max(0, attempt.submitted_at.getTime() - attempt.started_at.getTime());
       }, 0) / 60_000,
     );
-    const performanceInsights = await this.getStudentPerformanceInsights(studentId, answers, filter);
+    const performanceInsights = await this.getStudentPerformanceInsights(
+      studentId,
+      answers,
+      filter,
+    );
     const typeStats = this.aggregateQuestionTypes(answers);
     const attempts: StudentVisibleAttempt[] = visibleAttempts.map((attempt, index) => ({
       examName: attempt.exam.title,
@@ -172,19 +200,37 @@ export class QuizAnalyticsService {
         .map((answer) => answer.feedback?.trim())
         .filter((feedback): feedback is string => Boolean(feedback)),
     }));
-    const best = attempts.length ? [...attempts].sort((a, b) => b.percentage - a.percentage)[0] : null;
-    const worst = attempts.length ? [...attempts].sort((a, b) => a.percentage - b.percentage)[0] : null;
+    const best = attempts.length
+      ? [...attempts].sort((a, b) => b.percentage - a.percentage)[0]
+      : null;
+    const worst = attempts.length
+      ? [...attempts].sort((a, b) => a.percentage - b.percentage)[0]
+      : null;
 
     return {
       totalAttempts: attempts.length,
-      averageScore: attempts.length ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / attempts.length) : 0,
-      passRate: attempts.length ? Math.round((attempts.filter((attempt) => attempt.passed === true).length / attempts.length) * 100) : 0,
+      averageScore: attempts.length
+        ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / attempts.length)
+        : 0,
+      passRate: attempts.length
+        ? Math.round(
+            (attempts.filter((attempt) => attempt.passed === true).length / attempts.length) * 100,
+          )
+        : 0,
       totalTimeMinutes,
       bestQuiz: best ? { title: best.examName, percent: best.percentage } : null,
       worstQuiz: worst ? { title: worst.examName, percent: worst.percentage } : null,
-      progress: [...attempts].reverse().map((attempt) => ({ date: attempt.reviewedAt.slice(0, 10), percent: attempt.percentage })),
-      strongTopics: performanceInsights.filter((topic) => topic.percent >= 75).sort((a, b) => b.percent - a.percent).slice(0, 5),
-      weakTopics: performanceInsights.filter((topic) => topic.percent < 55).sort((a, b) => a.percent - b.percent).slice(0, 5),
+      progress: [...attempts]
+        .reverse()
+        .map((attempt) => ({ date: attempt.reviewedAt.slice(0, 10), percent: attempt.percentage })),
+      strongTopics: performanceInsights
+        .filter((topic) => topic.percent >= 75)
+        .sort((a, b) => b.percent - a.percent)
+        .slice(0, 5),
+      weakTopics: performanceInsights
+        .filter((topic) => topic.percent < 55)
+        .sort((a, b) => a.percent - b.percent)
+        .slice(0, 5),
       performanceInsights: {
         minimumAssessments: 5,
         hasEnoughData: performanceInsights.length > 0,
@@ -222,12 +268,18 @@ export class QuizAnalyticsService {
     filter: StudentAnalyticsFilter,
   ): Promise<StudentPerformanceInsight[]> {
     const [practiceSolves, homeworkSubmissions, lessonProgress, attendance] = await Promise.all([
-      this.questionSolvesRepository.find({ where: { user_id: studentId, suspicious: false }, order: { created_at: 'ASC' } }),
+      this.questionSolvesRepository.find({
+        where: { user_id: studentId, suspicious: false },
+        order: { created_at: 'ASC' },
+      }),
       this.homeworkSubmissionsRepository.find({
         where: { student_id: studentId, status: 'graded' },
         relations: ['homework', 'homework.lesson'],
       }),
-      this.lessonProgressRepository.find({ where: { student_id: studentId }, relations: ['lesson'] }),
+      this.lessonProgressRepository.find({
+        where: { student_id: studentId },
+        relations: ['lesson'],
+      }),
       this.attendanceRepository.find({ where: { student_id: studentId }, relations: ['lesson'] }),
     ]);
 
@@ -236,24 +288,42 @@ export class QuizAnalyticsService {
       const existing = buckets.get(subjectId);
       if (existing) return existing;
       const created: SubjectPerformanceBucket = {
-        scores: [], completedLessons: 0, lessonsWithProgress: 0, totalLessonProgress: 0, attended: 0, attendanceRecords: 0,
+        scores: [],
+        completedLessons: 0,
+        lessonsWithProgress: 0,
+        totalLessonProgress: 0,
+        attended: 0,
+        attendanceRecords: 0,
       };
       buckets.set(subjectId, created);
       return created;
     };
-    const isSelectedSubject = (subjectId: string) => !filter.subjectId || filter.subjectId === subjectId;
+    const isSelectedSubject = (subjectId: string) =>
+      !filter.subjectId || filter.subjectId === subjectId;
     const inDateRange = (date: Date | null | undefined) => {
       if (!date) return false;
-      return (!filter.from || date >= new Date(filter.from)) && (!filter.to || date <= new Date(filter.to));
+      return (
+        (!filter.from || date >= new Date(filter.from)) &&
+        (!filter.to || date <= new Date(filter.to))
+      );
     };
 
     for (const answer of examAnswers) {
       const subjectId = answer.exam_question?.question?.subject_id;
-      if (!subjectId || answer.score === null || answer.max_score <= 0 || !isSelectedSubject(subjectId)) continue;
+      if (
+        !subjectId ||
+        answer.score === null ||
+        answer.max_score <= 0 ||
+        !isSelectedSubject(subjectId)
+      )
+        continue;
       // The enclosing exam query already applies its student-visible state,
       // teacher, subject, and date filters. Answer marks include manual review.
       ensureBucket(subjectId).scores.push({
-        score: Number(answer.score), max: Number(answer.max_score), completedAt: answer.updated_at ?? new Date(0), source: 'exam',
+        score: Number(answer.score),
+        max: Number(answer.max_score),
+        completedAt: answer.updated_at ?? new Date(0),
+        source: 'exam',
       });
     }
     // Practice cannot be attributed to one teacher, so do not mix it into a
@@ -262,21 +332,35 @@ export class QuizAnalyticsService {
       for (const solve of practiceSolves) {
         if (!isSelectedSubject(solve.subject_id) || !inDateRange(solve.created_at)) continue;
         ensureBucket(solve.subject_id).scores.push({
-          score: solve.is_correct ? 1 : 0, max: 1, completedAt: solve.created_at, source: 'practice',
+          score: solve.is_correct ? 1 : 0,
+          max: 1,
+          completedAt: solve.created_at,
+          source: 'practice',
         });
       }
       for (const submission of homeworkSubmissions) {
         const subjectId = submission.homework?.lesson?.subject_id;
-        if (!subjectId || submission.score === null || Number(submission.homework.max_score) <= 0 || !isSelectedSubject(subjectId) || !inDateRange(submission.graded_at)) continue;
+        if (
+          !subjectId ||
+          submission.score === null ||
+          Number(submission.homework.max_score) <= 0 ||
+          !isSelectedSubject(subjectId) ||
+          !inDateRange(submission.graded_at)
+        )
+          continue;
         ensureBucket(subjectId).scores.push({
-          score: Number(submission.score), max: Number(submission.homework.max_score), completedAt: submission.graded_at!, source: 'homework',
+          score: Number(submission.score),
+          max: Number(submission.homework.max_score),
+          completedAt: submission.graded_at!,
+          source: 'homework',
         });
       }
     }
     if (!filter.teacherId) {
       for (const progress of lessonProgress) {
         const subjectId = progress.lesson?.subject_id;
-        if (!subjectId || !isSelectedSubject(subjectId) || !inDateRange(progress.last_watched_at)) continue;
+        if (!subjectId || !isSelectedSubject(subjectId) || !inDateRange(progress.last_watched_at))
+          continue;
         const bucket = ensureBucket(subjectId);
         bucket.lessonsWithProgress += 1;
         bucket.completedLessons += progress.completed ? 1 : 0;
@@ -284,7 +368,13 @@ export class QuizAnalyticsService {
       }
       for (const record of attendance) {
         const subjectId = record.lesson?.subject_id;
-        if (!subjectId || !isSelectedSubject(subjectId) || record.status === 'excused' || !inDateRange(record.marked_at)) continue;
+        if (
+          !subjectId ||
+          !isSelectedSubject(subjectId) ||
+          record.status === 'excused' ||
+          !inDateRange(record.marked_at)
+        )
+          continue;
         const bucket = ensureBucket(subjectId);
         bucket.attendanceRecords += 1;
         bucket.attended += record.status === 'present' || record.status === 'late' ? 1 : 0;
@@ -292,7 +382,9 @@ export class QuizAnalyticsService {
     }
 
     const subjectIds = [...buckets.keys()];
-    const subjects = subjectIds.length ? await this.subjectsRepository.find({ where: { id: In(subjectIds) } }) : [];
+    const subjects = subjectIds.length
+      ? await this.subjectsRepository.find({ where: { id: In(subjectIds) } })
+      : [];
     const subjectNames = new Map(subjects.map((subject) => [subject.id, subject.name]));
 
     return subjectIds.flatMap((subjectId) => {
@@ -308,46 +400,60 @@ export class QuizAnalyticsService {
         else if (item.source === 'practice') bySource.practice += 1;
         else bySource.homework += 1;
       }
-      return [{
-        topic: label,
-        scope: 'subject' as const,
-        percent: Math.round((score / max) * 100),
-        answers: bucket.scores.length,
-        sources: bySource,
-        trend: this.getPerformanceTrend(bucket.scores),
-        lessonProgressPercent: bucket.lessonsWithProgress
-          ? Math.round(bucket.totalLessonProgress / bucket.lessonsWithProgress)
-          : null,
-        lessonCompletionPercent: bucket.lessonsWithProgress
-          ? Math.round((bucket.completedLessons / bucket.lessonsWithProgress) * 100)
-          : null,
-        attendancePercent: bucket.attendanceRecords
-          ? Math.round((bucket.attended / bucket.attendanceRecords) * 100)
-          : null,
-      }];
+      return [
+        {
+          topic: label,
+          scope: 'subject' as const,
+          percent: Math.round((score / max) * 100),
+          answers: bucket.scores.length,
+          sources: bySource,
+          trend: this.getPerformanceTrend(bucket.scores),
+          lessonProgressPercent: bucket.lessonsWithProgress
+            ? Math.round(bucket.totalLessonProgress / bucket.lessonsWithProgress)
+            : null,
+          lessonCompletionPercent: bucket.lessonsWithProgress
+            ? Math.round((bucket.completedLessons / bucket.lessonsWithProgress) * 100)
+            : null,
+          attendancePercent: bucket.attendanceRecords
+            ? Math.round((bucket.attended / bucket.attendanceRecords) * 100)
+            : null,
+        },
+      ];
     });
   }
 
-  private getPerformanceTrend(scores: SubjectPerformanceBucket['scores']): StudentPerformanceInsight['trend'] {
+  private getPerformanceTrend(
+    scores: SubjectPerformanceBucket['scores'],
+  ): StudentPerformanceInsight['trend'] {
     if (scores.length < 4) return 'insufficient_data';
     const sorted = [...scores].sort((a, b) => a.completedAt.getTime() - b.completedAt.getTime());
     const middle = Math.floor(sorted.length / 2);
-    const average = (items: typeof sorted) => items.reduce((sum, item) => sum + (item.score / item.max) * 100, 0) / items.length;
+    const average = (items: typeof sorted) =>
+      items.reduce((sum, item) => sum + (item.score / item.max) * 100, 0) / items.length;
     const difference = average(sorted.slice(middle)) - average(sorted.slice(0, middle));
     if (difference >= 10) return 'improving';
     if (difference <= -10) return 'declining';
     return 'stable';
   }
 
-  private aggregateQuestionTypes(answers: ExamAttemptAnswer[]): { type: string; percent: number; answers: number }[] {
+  private aggregateQuestionTypes(
+    answers: ExamAttemptAnswer[],
+  ): { type: string; percent: number; answers: number }[] {
     const rows = new Map<string, { score: number; max: number; answers: number }>();
     for (const answer of answers) {
       const type = answer.exam_question?.type_snapshot;
       if (!type || answer.score === null || answer.max_score <= 0) continue;
       const row = rows.get(type) ?? { score: 0, max: 0, answers: 0 };
-      row.score += Number(answer.score); row.max += Number(answer.max_score); row.answers += 1; rows.set(type, row);
+      row.score += Number(answer.score);
+      row.max += Number(answer.max_score);
+      row.answers += 1;
+      rows.set(type, row);
     }
-    return [...rows].map(([type, value]) => ({ type, answers: value.answers, percent: Math.round((value.score / value.max) * 100) }));
+    return [...rows].map(([type, value]) => ({
+      type,
+      answers: value.answers,
+      percent: Math.round((value.score / value.max) * 100),
+    }));
   }
 
   public async getStudentAttemptHighlights(
@@ -506,7 +612,10 @@ export class QuizAnalyticsService {
       avgPercent: number;
     }[];
   }> {
-    const teacherExams = { teacherId };
+    const teacherExams = {
+      teacherId,
+      analyticsAttemptStates: TEACHER_ANALYTICS_ATTEMPT_STATES,
+    };
 
     const summary = await this.attemptsRepository
       .createQueryBuilder('a')
@@ -521,6 +630,8 @@ export class QuizAnalyticsService {
         'passRate',
       )
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .getRawOne<{
         total: string;
         scored: string;
@@ -545,6 +656,8 @@ export class QuizAnalyticsService {
       .addSelect('COUNT(*)', 'attempts')
       .addSelect('AVG(CASE WHEN aa.is_correct THEN 1 ELSE 0 END) * 100', 'correctRate')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('aa.is_correct IS NOT NULL')
       .groupBy('aa.question_id')
       .orderBy('"correctRate"', 'ASC')
@@ -563,6 +676,8 @@ export class QuizAnalyticsService {
       .addSelect('COUNT(*)', 'count')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere("a.started_at >= NOW() - INTERVAL '30 days'")
       .groupBy('date')
       .orderBy('date', 'ASC')
@@ -598,6 +713,8 @@ export class QuizAnalyticsService {
         'previousAvg',
       )
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .getRawOne<{
         currentAttempts: string;
@@ -614,6 +731,8 @@ export class QuizAnalyticsService {
       .addSelect('COUNT(*)', 'attempts')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('u.id')
       .addGroupBy('u.name')
@@ -628,6 +747,8 @@ export class QuizAnalyticsService {
       .select('l.title', 'lessonTitle')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('l.id')
       .addGroupBy('l.title')
@@ -652,9 +773,12 @@ export class QuizAnalyticsService {
          SELECT attempt.score_total::numeric / NULLIF(attempt.max_score, 0) * 100 AS percent
          FROM exam_attempts attempt
          INNER JOIN exams exam ON exam.id = attempt.exam_id
-         WHERE exam.teacher_id = $1 AND attempt.score_total IS NOT NULL
+         WHERE exam.teacher_id = $1
+           AND exam.deleted_at IS NULL
+           AND attempt.state = ANY($2)
+           AND attempt.score_total IS NOT NULL
        ) scored`,
-      [teacherId],
+      [teacherId, TEACHER_ANALYTICS_ATTEMPT_STATES],
     );
 
     const examComparisons = await this.attemptsRepository
@@ -666,6 +790,8 @@ export class QuizAnalyticsService {
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('e.id')
       .addGroupBy('e.title')
@@ -688,6 +814,8 @@ export class QuizAnalyticsService {
       .addSelect('COUNT(*)', 'attempts')
       .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
       .where('e.teacher_id = :teacherId', teacherExams)
+      .andWhere('e.deleted_at IS NULL')
+      .andWhere('a.state IN (:...analyticsAttemptStates)', teacherExams)
       .andWhere('a.score_total IS NOT NULL')
       .groupBy('course.id')
       .addGroupBy('course.title')
@@ -714,12 +842,15 @@ export class QuizAnalyticsService {
           : 0,
       eligibleStudents: eligibility.eligibleStudents,
       completedStudents: eligibility.completedStudents,
-      gradeDistribution: [
-        { range: '<50%', count: Number(distribution?.failing ?? 0) },
-        { range: '50–64%', count: Number(distribution?.passing ?? 0) },
-        { range: '65–84%', count: Number(distribution?.good ?? 0) },
-        { range: '85–100%', count: Number(distribution?.excellent ?? 0) },
-      ],
+      gradeDistribution:
+        scored === 0
+          ? []
+          : [
+              { range: '<50%', count: Number(distribution?.failing ?? 0) },
+              { range: '50–64%', count: Number(distribution?.passing ?? 0) },
+              { range: '65–84%', count: Number(distribution?.good ?? 0) },
+              { range: '85–100%', count: Number(distribution?.excellent ?? 0) },
+            ],
       mostFailedQuestions: failed.map((f) => ({
         questionId: f.questionId,
         topic: f.topic,
@@ -912,6 +1043,8 @@ export class QuizAnalyticsService {
           FROM exam_attempts attempt
           INNER JOIN exams exam ON exam.id = attempt.exam_id
           WHERE exam.teacher_id = $1
+            AND exam.deleted_at IS NULL
+            AND attempt.state = ANY($2)
             AND attempt.score_total IS NOT NULL
         )
         SELECT
@@ -922,7 +1055,7 @@ export class QuizAnalyticsService {
           ON completed.exam_id = eligible.exam_id
          AND completed.student_id = eligible.student_id
       `,
-      [teacherId],
+      [teacherId, TEACHER_ANALYTICS_ATTEMPT_STATES],
     );
 
     return {

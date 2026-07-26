@@ -64,6 +64,12 @@ export class SubmitHomeworkDto {
   @IsString()
   @MaxLength(1000)
   public resource_url?: string;
+
+  @ApiPropertyOptional({ description: 'Original uploaded filename (display only)', maxLength: 255 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  public resource_filename?: string;
 }
 
 export class GradeHomeworkDto {
