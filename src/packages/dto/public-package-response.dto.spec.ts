@@ -36,13 +36,25 @@ describe('toPublicPackageResponse', () => {
       updated_at: new Date('2026-01-02T00:00:00.000Z'),
     } as PackageWithDetails;
 
-    const result = toPublicPackageResponse(
-      pkg,
-      (value) => (value ? `https://api.example.test/media/${value}` : null),
+    const result = toPublicPackageResponse(pkg, (value) =>
+      value ? `https://api.example.test/media/${value}` : null,
     );
 
     expect(result).toMatchSnapshot();
     expect(JSON.stringify(result)).not.toMatch(/private@example|"images\/raw-object-key/i);
-    expect(result.thumbnail).toBe(result.thumbnail_url);
+    expect(result).toMatchObject({
+      thumbnail_url: 'https://api.example.test/media/images/raw-object-key.jpg',
+    });
+    expect(result).not.toHaveProperty('thumbnail');
+  });
+
+  it('preserves a missing thumbnail as null', () => {
+    const pkg = { thumbnail: null } as PackageWithDetails;
+    const resolvePublicMedia = jest.fn((value: string | null) => value);
+
+    const result = toPublicPackageResponse(pkg, resolvePublicMedia);
+
+    expect(result.thumbnail_url).toBeNull();
+    expect(resolvePublicMedia).toHaveBeenCalledWith(null);
   });
 });

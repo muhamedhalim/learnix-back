@@ -29,6 +29,7 @@ function buildQueryBuilder(
     take: jest.fn(),
     getCount: jest.fn().mockResolvedValue(packages.length),
     getMany: jest.fn().mockResolvedValue(packages),
+    getOne: jest.fn().mockResolvedValue(packages[0] ?? null),
   };
 
   for (const method of [
@@ -51,7 +52,11 @@ function buildService(packages: LessonPackage[]): PackagesService {
     createQueryBuilder: jest.fn().mockReturnValue(buildQueryBuilder(packages)),
   } as unknown as Repository<LessonPackage>;
 
-  const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
+  const media = {
+    resolveThumbnailUrl: jest.fn((value: string | null) =>
+      value ? `https://api.example.test/api/v1/media/public/${value}` : null,
+    ),
+  };
 
   return new PackagesService(
     packagesRepository,
@@ -114,6 +119,22 @@ function makePackage(overrides: Partial<LessonPackage> = {}): LessonPackage {
 }
 
 describe('PackagesService.findAll', () => {
+  it('uses the same resolved thumbnail_url public contract for list and detail', async () => {
+    const service = buildService([makePackage({ thumbnail: 'images/cover.jpg' })]);
+
+    const list = await service.findAllPublic({ page: 1, limit: 20 });
+    const detail = await service.findPublicOne('pkg-1');
+
+    expect(list.data[0]).toMatchObject({
+      thumbnail_url: 'https://api.example.test/api/v1/media/public/images/cover.jpg',
+    });
+    expect(detail).toMatchObject({
+      thumbnail_url: 'https://api.example.test/api/v1/media/public/images/cover.jpg',
+    });
+    expect(list.data[0]).not.toHaveProperty('thumbnail');
+    expect(detail).not.toHaveProperty('thumbnail');
+  });
+
   it('maps a normal package (teacher + lesson present) unchanged', async () => {
     const service = buildService([makePackage()]);
 

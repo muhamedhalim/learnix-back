@@ -16,7 +16,6 @@ export interface PublicPackageResponseDto {
   tags: string[] | null;
   estimated_duration: number | null;
   published_at: Date | null;
-  thumbnail: string | null;
   thumbnail_url: string | null;
   lessons_count: number;
   lessons: PackageWithDetails['lessons'];
@@ -29,7 +28,6 @@ export function toPublicPackageResponse(
   pkg: PackageWithDetails,
   resolvePublicMedia: (value: string | null) => string | null,
 ): PublicPackageResponseDto {
-  const thumbnailUrl = pkg.thumbnail_url;
   return {
     id: pkg.id,
     title: pkg.title,
@@ -52,9 +50,7 @@ export function toPublicPackageResponse(
     tags: pkg.tags,
     estimated_duration: pkg.estimated_duration,
     published_at: pkg.published_at,
-    // Retain the historical `thumbnail` field without exposing the stored key.
-    thumbnail: thumbnailUrl,
-    thumbnail_url: thumbnailUrl,
+    thumbnail_url: resolvePublicMedia(pkg.thumbnail),
     lessons_count: pkg.lessons_count,
     lessons: pkg.lessons,
     created_at: pkg.created_at,
