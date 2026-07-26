@@ -6,17 +6,6 @@ import type {
   TeacherProfile,
 } from '../entities/teacher-profile.entity';
 
-export class PublicTeacherUserDto {
-  @ApiProperty()
-  public id!: string;
-
-  @ApiProperty()
-  public name!: string;
-
-  @ApiProperty({ nullable: true })
-  public profile_picture_url!: string | null;
-}
-
 export class PublicTeacherSubjectDto {
   @ApiProperty()
   public id!: string;
@@ -40,8 +29,12 @@ export class PublicTeacherResponseDto {
   @ApiProperty()
   public id!: string;
 
-  @ApiProperty({ type: PublicTeacherUserDto })
-  public user!: PublicTeacherUserDto;
+  @ApiProperty()
+  public name!: string;
+
+  /** Resolved public avatar URL. It is deliberately not a nested User field. */
+  @ApiProperty({ nullable: true })
+  public profile_picture_url!: string | null;
 
   @ApiProperty()
   public qualifications!: string;
@@ -95,11 +88,8 @@ export function toPublicTeacherResponse(
 ): PublicTeacherResponseDto {
   return {
     id: profile.id,
-    user: {
-      id: profile.user.id,
-      name: profile.user.name,
-      profile_picture_url: resolvePublicMedia(profile.user.profile_picture_url),
-    },
+    name: profile.user.name,
+    profile_picture_url: resolvePublicMedia(profile.user.profile_picture_url),
     qualifications: profile.qualifications,
     years_of_experience: profile.years_of_experience,
     bio: profile.bio,

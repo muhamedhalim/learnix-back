@@ -11,8 +11,10 @@ exports[`public teacher serialization allowlists professional fields and exclude
   "languages": [
     "en",
   ],
+  "name": "Teacher Name",
   "professional_title": "Instructor",
   "professional_title_ar": null,
+  "profile_picture_url": "https://api.example.com/api/v1/media/public/profiles/avatar.jpg",
   "qualifications": "MSc",
   "rating": 4.8,
   "skills": [
@@ -30,11 +32,6 @@ exports[`public teacher serialization allowlists professional fields and exclude
     },
   ],
   "total_ratings": 12,
-  "user": {
-    "id": "user-id",
-    "name": "Teacher Name",
-    "profile_picture_url": "https://api.example.com/api/v1/media/public/profiles/avatar.jpg",
-  },
   "years_of_experience": 5,
 }
 `;

@@ -48,6 +48,11 @@ describe('public teacher serialization', () => {
       value ? `https://api.example.com/api/v1/media/public/${value}` : null,
     );
     expect(result).toMatchSnapshot();
+    expect(result).toMatchObject({
+      name: 'Teacher Name',
+      profile_picture_url: 'https://api.example.com/api/v1/media/public/profiles/avatar.jpg',
+    });
+    expect(result).not.toHaveProperty('user');
     expect(JSON.stringify(result)).not.toMatch(
       /private@example|phone|username|password|firebase|status|rejection|deleted_at/i,
     );
