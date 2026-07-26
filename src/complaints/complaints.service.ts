@@ -7,6 +7,7 @@ import { PaginatedResponse, PaginationMeta } from '../common/interfaces/paginati
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
+import { StudentProfile } from '../students/entities/student-profile.entity';
 import { ComplaintFilterDto, CreateComplaintDto, RespondComplaintDto } from './dto';
 import { Complaint } from './entities/complaint.entity';
 import { ComplaintStatus } from './enums/complaint-status.enum';
@@ -16,12 +17,26 @@ export class ComplaintsService {
   constructor(
     @InjectRepository(Complaint)
     private readonly complaintsRepository: Repository<Complaint>,
+    @InjectRepository(StudentProfile)
+    private readonly studentProfilesRepository: Repository<StudentProfile>,
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  public async createComplaint(studentId: string, dto: CreateComplaintDto): Promise<Complaint> {
+  public async createComplaint(studentUserId: string, dto: CreateComplaintDto): Promise<Complaint> {
+    // The JWT identity is the sole source of the complaint owner. Student IDs
+    // are intentionally absent from CreateComplaintDto so callers cannot file
+    // complaints on another student's behalf.
+    const studentProfile = await this.studentProfilesRepository.findOne({
+      where: { user_id: studentUserId },
+    });
+    if (!studentProfile) {
+      throw new NotFoundException(
+        biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
+      );
+    }
+
     const complaint = this.complaintsRepository.create({
-      student_id: studentId,
+      student_id: studentProfile.user_id,
       type: dto.type,
       target_id: dto.target_id ?? null,
       subject: dto.subject,

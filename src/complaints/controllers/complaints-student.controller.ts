@@ -4,7 +4,6 @@ import {
   Get,
   Post,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -17,16 +16,10 @@ import {
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { ComplaintsService } from '../complaints.service';
 import { ComplaintFilterDto, CreateComplaintDto } from '../dto';
-
-interface AuthRequest extends Request {
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
 
 @ApiTags('Complaints')
 @Controller('student/complaints')
@@ -41,9 +34,9 @@ export class ComplaintsStudentController {
   @ApiResponse({ status: 201, description: 'Complaint created successfully' })
   public async createComplaint(
     @Body() dto: CreateComplaintDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return await this.complaintsService.createComplaint(req.user.id, dto);
+    return await this.complaintsService.createComplaint(user.userId, dto);
   }
 
   @Get()
@@ -54,10 +47,10 @@ export class ComplaintsStudentController {
   })
   public async getOwnComplaints(
     @Query() filter: ComplaintFilterDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
     return await this.complaintsService.getStudentComplaints(
-      req.user.id,
+      user.userId,
       filter.page,
       filter.limit,
     );
