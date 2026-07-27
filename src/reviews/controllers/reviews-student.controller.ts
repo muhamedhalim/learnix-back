@@ -8,38 +8,25 @@ import {
   ParseEnumPipe,
   Patch,
   Post,
-  Request,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Throttle } from '@nestjs/throttler';
 
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { THROTTLE } from '../../common/constants';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { CreateReviewDto, UpdateReviewDto } from '../dto';
 import { ReviewTargetType } from '../entities/review-helpful-vote.entity';
 import { ReviewsService } from '../reviews.service';
 
-interface AuthRequest extends Request {
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
-
 @ApiTags('Reviews')
 @Controller('student')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(HybridAuthGuard, RolesGuard)
 @Roles('student')
 @ApiBearerAuth('JWT-auth')
 export class ReviewsStudentController {
@@ -54,9 +41,9 @@ export class ReviewsStudentController {
   public async createTeacherReview(
     @Param('teacherId') teacherId: string,
     @Body() dto: CreateReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.createTeacherReview(teacherId, req.user.id, dto);
+    return this.reviewsService.createTeacherReview(teacherId, user.userId, dto);
   }
 
   @Patch('teachers/:teacherId/reviews')
@@ -64,9 +51,9 @@ export class ReviewsStudentController {
   public async updateTeacherReview(
     @Param('teacherId') teacherId: string,
     @Body() dto: UpdateReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.updateTeacherReview(teacherId, req.user.id, dto);
+    return this.reviewsService.updateTeacherReview(teacherId, user.userId, dto);
   }
 
   @Delete('teachers/:teacherId/reviews')
@@ -74,9 +61,9 @@ export class ReviewsStudentController {
   @ApiOperation({ summary: 'Delete your teacher review' })
   public async deleteTeacherReview(
     @Param('teacherId') teacherId: string,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<{ message: string }> {
-    await this.reviewsService.deleteTeacherReview(teacherId, req.user.id);
+    await this.reviewsService.deleteTeacherReview(teacherId, user.userId);
     return { message: 'Review deleted' };
   }
 
@@ -89,9 +76,9 @@ export class ReviewsStudentController {
   public async createLessonReview(
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.createLessonReview(lessonId, req.user.id, dto);
+    return this.reviewsService.createLessonReview(lessonId, user.userId, dto);
   }
 
   @Patch('lessons/:lessonId/reviews')
@@ -99,9 +86,9 @@ export class ReviewsStudentController {
   public async updateLessonReview(
     @Param('lessonId') lessonId: string,
     @Body() dto: UpdateReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.updateLessonReview(lessonId, req.user.id, dto);
+    return this.reviewsService.updateLessonReview(lessonId, user.userId, dto);
   }
 
   @Delete('lessons/:lessonId/reviews')
@@ -109,9 +96,9 @@ export class ReviewsStudentController {
   @ApiOperation({ summary: 'Delete your lesson review' })
   public async deleteLessonReview(
     @Param('lessonId') lessonId: string,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<{ message: string }> {
-    await this.reviewsService.deleteLessonReview(lessonId, req.user.id);
+    await this.reviewsService.deleteLessonReview(lessonId, user.userId);
     return { message: 'Review deleted' };
   }
 
@@ -124,8 +111,8 @@ export class ReviewsStudentController {
   public async toggleHelpful(
     @Param('type', new ParseEnumPipe(ReviewTargetType)) type: ReviewTargetType,
     @Param('reviewId') reviewId: string,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<{ helpful: boolean; helpful_count: number }> {
-    return this.reviewsService.toggleHelpfulVote(type, reviewId, req.user.id);
+    return this.reviewsService.toggleHelpfulVote(type, reviewId, user.userId);
   }
 }

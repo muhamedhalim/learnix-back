@@ -14,7 +14,19 @@ import { SearchService } from './search.service';
 /** QB whose count/getMany resolve to the provided values; clone() returns self. */
 function qb(count: number, many: unknown[]) {
   const b: Record<string, jest.Mock> = {};
-  for (const m of ['where', 'andWhere', 'orderBy', 'setParameter', 'skip', 'take', 'innerJoin', 'limit', 'select', 'addSelect', 'groupBy']) {
+  for (const m of [
+    'where',
+    'andWhere',
+    'orderBy',
+    'setParameter',
+    'skip',
+    'take',
+    'innerJoin',
+    'limit',
+    'select',
+    'addSelect',
+    'groupBy',
+  ]) {
     b[m] = jest.fn(() => b);
   }
   b.clone = jest.fn(() => b);
@@ -70,6 +82,20 @@ describe('SearchService', () => {
       thumbnail: null,
       url: '/courses/P1',
     });
+  });
+
+  it('searches lesson titles without querying the nonexistent lessons.title_ar column', async () => {
+    const row = qb(1, [{ id: 'L1', title: 'Algebra lesson', thumbnail: null }]);
+    lessons.createQueryBuilder.mockReturnValue(row);
+
+    const result = await service.searchByType('alg', SearchType.LESSONS, 1, 20);
+
+    expect(result.data[0]?.id).toBe('L1');
+    expect(row.andWhere).toHaveBeenCalledWith('l.title ILIKE :like', { like: '%alg%' });
+    expect(row.andWhere).not.toHaveBeenCalledWith(
+      expect.stringContaining('l.title_ar'),
+      expect.anything(),
+    );
   });
 
   it('does not throw if logging a query fails', async () => {
@@ -139,6 +165,9 @@ describe('SearchService', () => {
     const result = await service.searchInCourse('pkg-1', 'algebra');
 
     expect(result).toEqual({ lessons: [], chapters: [] });
+    expect(row.andWhere).toHaveBeenCalledWith('l.title ILIKE :like', {
+      like: '%algebra%',
+    });
     expect(row.orderBy).toHaveBeenCalledWith('l.title', 'ASC');
   });
 });

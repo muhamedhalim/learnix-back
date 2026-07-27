@@ -23,7 +23,7 @@ describe('WishlistService', () => {
   };
   const lessonsRepo = { find: jest.fn(), findOne: jest.fn() };
   const packagesRepo = { find: jest.fn(), findOne: jest.fn() };
-  const cartService = { addToCart: jest.fn() };
+  const cartService = { addToCart: jest.fn(), findCart: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -119,9 +119,10 @@ describe('WishlistService', () => {
     it('adds to cart then removes the wishlist entry', async () => {
       const e = entry({});
       wishlistRepo.findOne.mockResolvedValue(e);
-      cartService.addToCart.mockResolvedValue({});
+      const cart = { id: 'cart-1', items: [] };
+      cartService.addToCart.mockResolvedValue(cart);
 
-      await service.moveToCart('u1', 'w1');
+      await expect(service.moveToCart('u1', 'w1')).resolves.toBe(cart);
 
       expect(cartService.addToCart).toHaveBeenCalledWith('u1', {
         itemType: WishlistItemType.LESSON,
@@ -134,10 +135,13 @@ describe('WishlistService', () => {
       const e = entry({});
       wishlistRepo.findOne.mockResolvedValue(e);
       cartService.addToCart.mockRejectedValue(new ConflictException('Item already in cart'));
+      const existingCart = { id: 'cart-1', items: [{ id: 'item-1' }] };
+      cartService.findCart.mockResolvedValue(existingCart);
 
-      await service.moveToCart('u1', 'w1');
+      await expect(service.moveToCart('u1', 'w1')).resolves.toBe(existingCart);
 
       expect(wishlistRepo.remove).toHaveBeenCalledWith(e);
+      expect(cartService.findCart).toHaveBeenCalledWith('u1');
     });
 
     it('propagates non-conflict errors and does not remove', async () => {
@@ -150,9 +154,7 @@ describe('WishlistService', () => {
 
     it('404s when the wishlist entry is missing', async () => {
       wishlistRepo.findOne.mockResolvedValue(null);
-      await expect(service.moveToCart('u1', 'missing')).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(service.moveToCart('u1', 'missing')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

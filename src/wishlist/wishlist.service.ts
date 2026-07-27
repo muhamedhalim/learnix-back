@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 
 import { CartService } from '../cart/cart.service';
+import type { CartResponseDto } from '../cart/dto';
 import { CartItemType } from '../cart/entities/cart-item.entity';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -186,7 +187,7 @@ export class WishlistService {
    * detection) stay in one place. If the item is already in the cart we treat
    * that as success and still remove it from the wishlist.
    */
-  public async moveToCart(userId: string, itemId: string): Promise<void> {
+  public async moveToCart(userId: string, itemId: string): Promise<CartResponseDto> {
     const entry = await this.wishlistRepository.findOne({
       where: { id: itemId, user_id: userId },
     });
@@ -197,8 +198,9 @@ export class WishlistService {
       );
     }
 
+    let cart: CartResponseDto;
     try {
-      await this.cartService.addToCart(userId, {
+      cart = await this.cartService.addToCart(userId, {
         itemType: entry.item_type as unknown as CartItemType,
         itemId: entry.item_id,
       });
@@ -208,9 +210,11 @@ export class WishlistService {
       if (!(error instanceof ConflictException)) {
         throw error;
       }
+      cart = await this.cartService.findCart(userId);
     }
 
     await this.wishlistRepository.remove(entry);
+    return cart;
   }
 
   /**

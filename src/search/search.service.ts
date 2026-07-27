@@ -133,7 +133,10 @@ export class SearchService {
         .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = l.id')
         .where('lpi.package_id = :packageId', { packageId })
         .andWhere('l.deleted_at IS NULL')
-        .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like });
+        // `lessons` has a single `title` column. Unlike packages and chapters,
+        // it has never had a `title_ar` column, so querying it makes catalogue
+        // search fail against the production schema.
+        .andWhere('l.title ILIKE :like', { like });
 
     const lessons = await this.safeGetMany((useSimilarity) => {
       const qb = baseLessons().limit(20);
@@ -307,7 +310,7 @@ export class SearchService {
         .createQueryBuilder('l')
         .where('l.deleted_at IS NULL')
         .andWhere('l.status = :status', { status: LessonStatus.PUBLISHED })
-        .andWhere('(l.title ILIKE :like OR l.title_ar ILIKE :like)', { like });
+        .andWhere('l.title ILIKE :like', { like });
 
     const total = await base().getCount();
     const rows = await this.safeGetMany((useSimilarity) => {

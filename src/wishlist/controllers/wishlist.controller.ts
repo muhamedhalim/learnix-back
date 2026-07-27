@@ -11,13 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -30,6 +24,7 @@ import {
   WishlistQueryDto,
   WishlistResponseDto,
 } from '../dto';
+import type { CartResponseDto } from '../../cart/dto';
 import type { WishlistItemType } from '../entities/wishlist-item.entity';
 import { WishlistService } from '../wishlist.service';
 
@@ -77,9 +72,7 @@ export class WishlistController {
 
   @Get('count')
   @ApiOperation({ summary: 'Get the wishlist item count (badge)' })
-  public async count(
-    @GetUser() user: JwtPayload,
-  ): Promise<{ count: number }> {
+  public async count(@GetUser() user: JwtPayload): Promise<{ count: number }> {
     const count = await this.wishlistService.getCount(user.userId);
     return { count };
   }
@@ -116,8 +109,8 @@ export class WishlistController {
   public async moveToCart(
     @GetUser() user: JwtPayload,
     @Param('itemId', ParseUUIDPipe) itemId: string,
-  ): Promise<{ message: string }> {
-    await this.wishlistService.moveToCart(user.userId, itemId);
-    return { message: 'Moved to cart' };
+  ): Promise<{ message: string; data: CartResponseDto }> {
+    const cart = await this.wishlistService.moveToCart(user.userId, itemId);
+    return { message: 'Moved to cart', data: cart };
   }
 }
