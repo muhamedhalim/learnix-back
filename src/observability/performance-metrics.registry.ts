@@ -44,6 +44,30 @@ export interface HttpPerformanceSample extends HttpMetricKey {
   responseBytes: number;
 }
 
+export interface PerformanceMetricsSnapshot {
+  requests: number;
+  requestsPerMinute: number;
+  averageLatencyMs: number;
+  errorRatePercent: number;
+  responses4xx: number;
+  responses5xx: number;
+  slowEndpointCount: number;
+  successfulQueries: number;
+  failedQueries: number;
+  averageQueryLatencyMs: number;
+  failures: Record<FailureDomain, number>;
+  memory: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+  };
+  cpuSeconds: number;
+  processCpuPercent: number;
+  uptimeSeconds: number;
+  eventLoopDelayMs: number;
+  eventLoopDelayMaxMs: number;
+}
+
 function escapeLabel(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('\n', '\\n').replaceAll('"', '\\"');
 }
@@ -57,6 +81,9 @@ function seconds(milliseconds: number): string {
 }
 
 class PerformanceMetricsRegistry {
+  private readonly startedAt = Date.now();
+  private lastCpuSampleAt = Date.now();
+  private lastCpuUsage = process.cpuUsage();
   private readonly httpMetrics = new Map<string, HttpMetricValue>();
   private successfulQueries = 0;
   private failedQueries = 0;
@@ -114,6 +141,78 @@ class PerformanceMetricsRegistry {
       this.failedQueries++;
     }
     this.queryDurationMsSum += durationMs;
+  }
+
+  /**
+   * Sanitised in-process snapshot for the authenticated health dashboard.
+   * It intentionally exposes aggregates only: no route parameters, headers,
+   * bodies, user identifiers, or raw request samples.
+   */
+  public snapshot(): PerformanceMetricsSnapshot {
+    let requests = 0;
+    let durationMs = 0;
+    let responses4xx = 0;
+    let responses5xx = 0;
+    const slowRoutes = new Set<string>();
+
+    for (const [key, metric] of this.httpMetrics) {
+      const [, route = '', statusValue = '0'] = key.split('\u0000');
+      const status = Number(statusValue);
+      requests += metric.requestCount;
+      durationMs += metric.durationMsSum;
+      if (status >= 400 && status < 500) responses4xx += metric.requestCount;
+      if (status >= 500) responses5xx += metric.requestCount;
+      if (metric.requestCount > 0 && metric.durationMsSum / metric.requestCount >= 500) {
+        slowRoutes.add(route);
+      }
+    }
+
+    const memory = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const now = Date.now();
+    const cpuDelta = process.cpuUsage(this.lastCpuUsage);
+    const elapsedCpuMicros = Math.max((now - this.lastCpuSampleAt) * 1_000, 1);
+    const processCpuPercent = ((cpuDelta.user + cpuDelta.system) / elapsedCpuMicros) * 100;
+    this.lastCpuUsage = cpu;
+    this.lastCpuSampleAt = now;
+    const elapsedMinutes = Math.max((Date.now() - this.startedAt) / 60_000, 1 / 60);
+    const totalQueries = this.successfulQueries + this.failedQueries;
+    const failures = {} as Record<FailureDomain, number>;
+    const domains: FailureDomain[] = [
+      'payment',
+      'webhook',
+      'email',
+      'queue',
+      'unhandled_exception',
+      'unhandled_rejection',
+    ];
+    for (const domain of domains) {
+      failures[domain] = this.failureCounts.get(domain) ?? 0;
+    }
+
+    return {
+      requests,
+      requestsPerMinute: requests / elapsedMinutes,
+      averageLatencyMs: requests === 0 ? 0 : durationMs / requests,
+      errorRatePercent: requests === 0 ? 0 : ((responses4xx + responses5xx) / requests) * 100,
+      responses4xx,
+      responses5xx,
+      slowEndpointCount: slowRoutes.size,
+      successfulQueries: this.successfulQueries,
+      failedQueries: this.failedQueries,
+      averageQueryLatencyMs: totalQueries === 0 ? 0 : this.queryDurationMsSum / totalQueries,
+      failures,
+      memory: {
+        rssBytes: memory.rss,
+        heapUsedBytes: memory.heapUsed,
+        heapTotalBytes: memory.heapTotal,
+      },
+      cpuSeconds: (cpu.user + cpu.system) / 1_000_000,
+      processCpuPercent,
+      uptimeSeconds: process.uptime(),
+      eventLoopDelayMs: eventLoopDelay.mean / 1e6,
+      eventLoopDelayMaxMs: eventLoopDelay.max / 1e6,
+    };
   }
 
   public renderPrometheus(): string {

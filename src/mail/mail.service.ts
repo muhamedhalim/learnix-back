@@ -46,6 +46,26 @@ export class MailService {
   public isConfigured(): boolean {
     return this.transporter !== null;
   }
+
+  /** Safe SMTP handshake used by the authenticated health indicator. */
+  public async verifyConnectivity(): Promise<boolean> {
+    if (this.transporter === null) return false;
+    await this.transporter.verify();
+    return true;
+  }
+
+  /** Sends a clearly labelled, content-free diagnostic message. */
+  public async sendHealthCheckEmail(to: string): Promise<boolean> {
+    return this.send({
+      to,
+      subject: 'Learnix system health test',
+      text: 'This is a diagnostic email requested by an authorised Learnix administrator. No action is required.',
+      html:
+        '<p>This is a diagnostic email requested by an authorised Learnix administrator.</p>' +
+        '<p>No action is required.</p>',
+    });
+  }
+
   public async send(options: {
     to: string;
     subject: string;
