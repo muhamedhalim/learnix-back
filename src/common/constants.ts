@@ -50,6 +50,9 @@ export const THROTTLE = {
   DEFAULT: { ttl: 60_000, limit: 5 }, // 5 requests per minute (hardened from 10)
   STRICT: { ttl: 60_000, limit: 3 }, // 3 requests per minute for expensive operations
   AUTH: { ttl: 300_000, limit: 5 }, // 5 auth attempts per 5 minutes (prevents brute force)
+  // TEMPORARY: TestSprite exercises many login scenarios from one IP. Restore
+  // `THROTTLE.AUTH` on AuthController.login before the next production deploy.
+  LOGIN_TESTSPRITE_TEMPORARY: { ttl: 60_000, limit: 150 },
   PAYMENTS: { ttl: 60_000, limit: 3 }, // 3 payment initializations per minute
   FILE_UPLOAD: { ttl: 60_000, limit: 3 }, // 3 uploads per minute
 } as const;

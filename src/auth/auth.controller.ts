@@ -150,7 +150,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: THROTTLE.AUTH })
+  @Throttle({ default: THROTTLE.LOGIN_TESTSPRITE_TEMPORARY })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async login(
     @Body() loginDto: LoginDto,
