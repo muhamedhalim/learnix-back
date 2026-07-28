@@ -44,6 +44,22 @@ export interface HttpPerformanceSample extends HttpMetricKey {
   responseBytes: number;
 }
 
+export type CacheMetricOutcome =
+  | 'hit'
+  | 'miss'
+  | 'computation'
+  | 'lock_contention'
+  | 'fallback_error'
+  | 'invalidation';
+
+export interface CacheMetricSample {
+  family: string;
+  /** Static endpoint name only. IDs and other personal data are forbidden. */
+  endpoint: string;
+  outcome: CacheMetricOutcome;
+  loadTimeMs?: number;
+}
+
 export interface PerformanceMetricsSnapshot {
   requests: number;
   requestsPerMinute: number;
@@ -89,6 +105,7 @@ class PerformanceMetricsRegistry {
   private failedQueries = 0;
   private queryDurationMsSum = 0;
   private readonly failureCounts = new Map<FailureDomain, number>();
+  private readonly cacheMetrics = new Map<string, { count: number; loadTimeMsSum: number }>();
 
   /**
    * Increment a business/runtime failure counter (payment, webhook, email,
@@ -141,6 +158,15 @@ class PerformanceMetricsRegistry {
       this.failedQueries++;
     }
     this.queryDurationMsSum += durationMs;
+  }
+
+  /** Application cache metrics, deliberately separate from Redis-wide counters. */
+  public recordCache(sample: CacheMetricSample): void {
+    const key = `${sample.family}\u0000${sample.endpoint}\u0000${sample.outcome}`;
+    const current = this.cacheMetrics.get(key) ?? { count: 0, loadTimeMsSum: 0 };
+    current.count++;
+    current.loadTimeMsSum += sample.loadTimeMs ?? 0;
+    this.cacheMetrics.set(key, current);
   }
 
   /**
@@ -285,10 +311,47 @@ class PerformanceMetricsRegistry {
 
     this.renderHttpStatusCounters(lines);
     this.renderFailureCounters(lines);
+    this.renderApplicationCacheMetrics(lines);
     this.renderRuntimeMetrics(lines);
 
     lines.push('');
     return lines.join('\n');
+  }
+
+  private renderApplicationCacheMetrics(lines: string[]): void {
+    lines.push(
+      '# HELP backend_app_cache_events_total Application cache events by family, static endpoint, and outcome.',
+      '# TYPE backend_app_cache_events_total counter',
+      '# HELP backend_app_cache_load_seconds_total Time spent loading application cache entries.',
+      '# TYPE backend_app_cache_load_seconds_total counter',
+      '# HELP backend_app_cache_hit_ratio Application cache hit ratio for each family and endpoint.',
+      '# TYPE backend_app_cache_hit_ratio gauge',
+    );
+
+    const ratios = new Map<string, { hits: number; misses: number }>();
+    for (const [key, value] of this.cacheMetrics) {
+      const [family = '', endpoint = '', outcome = ''] = key.split('\u0000');
+      const labels = `family="${escapeLabel(family)}",endpoint="${escapeLabel(endpoint)}",outcome="${escapeLabel(outcome)}"`;
+      lines.push(
+        `backend_app_cache_events_total{${labels}} ${value.count.toString()}`,
+        `backend_app_cache_load_seconds_total{${labels}} ${seconds(value.loadTimeMsSum)}`,
+      );
+      if (outcome === 'hit' || outcome === 'miss') {
+        const ratioKey = `${family}\u0000${endpoint}`;
+        const aggregate = ratios.get(ratioKey) ?? { hits: 0, misses: 0 };
+        if (outcome === 'hit') aggregate.hits += value.count;
+        else aggregate.misses += value.count;
+        ratios.set(ratioKey, aggregate);
+      }
+    }
+    for (const [key, value] of ratios) {
+      const [family = '', endpoint = ''] = key.split('\u0000');
+      const denominator = value.hits + value.misses;
+      const ratio = denominator === 0 ? 0 : value.hits / denominator;
+      lines.push(
+        `backend_app_cache_hit_ratio{family="${escapeLabel(family)}",endpoint="${escapeLabel(endpoint)}"} ${ratio.toString()}`,
+      );
+    }
   }
 
   /**

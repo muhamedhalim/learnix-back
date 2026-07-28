@@ -1,18 +1,16 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   BadRequestException,
   ConflictException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
@@ -117,8 +115,7 @@ export class StudentsService {
     private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
     @InjectRepository(ExamAttempt)
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
-    @Inject(CACHE_MANAGER)
-    private readonly cacheManager: Cache,
+    private readonly applicationCache: ApplicationCacheService,
     private readonly guardiansService: GuardiansService,
   ) {}
 
@@ -128,12 +125,15 @@ export class StudentsService {
    * Includes purchased lessons and exam attempts with caching (5-min TTL)
    */
   public async findStudentProfile(userId: string): Promise<StudentProfileWithDetails> {
-    // Check cache first
-    const cacheKey = `student:profile:${userId}`;
-    const cached = await this.cacheManager.get<StudentProfileWithDetails>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'student_profile',
+        endpoint: 'students.profile',
+        scope: `owner:${userId}`,
+        parts: [userId],
+        ttlMs: 60_000,
+      },
+      async () => {
 
     // Fetch basic profile
     const profile = await this.studentProfilesRepository.findOne({
@@ -195,10 +195,9 @@ export class StudentsService {
       exams,
     };
 
-    // Cache for 5 minutes (300 seconds)
-    await this.cacheManager.set(cacheKey, profileWithDetails, 300_000);
-
-    return profileWithDetails;
+        return profileWithDetails;
+      },
+    );
   }
 
   /**
@@ -525,7 +524,7 @@ export class StudentsService {
     }
 
     // Refresh the cached admin dashboard so counters reflect the new status.
-    await this.cacheManager.del('dashboard:admin');
+    await this.applicationCache.invalidate(['admin_dashboard', 'student_profile']);
 
     return this.mapToProfileWithDetails(profile);
   }
@@ -563,7 +562,7 @@ export class StudentsService {
     // TODO: Log audit trail for rejection action
 
     // Refresh the cached admin dashboard so counters reflect the new status.
-    await this.cacheManager.del('dashboard:admin');
+    await this.applicationCache.invalidate(['admin_dashboard', 'student_profile']);
 
     return this.mapToProfileWithDetails(profile);
   }

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
@@ -23,9 +23,11 @@ import { User } from '../users/entities/user.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 import { DistributedSingleFlightService } from './distributed-single-flight.service';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { QuizAnalyticsController } from './quiz-analytics.controller';
 import { QuizAnalyticsService } from './quiz-analytics.service';
 
+@Global()
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -51,7 +53,12 @@ import { QuizAnalyticsService } from './quiz-analytics.service';
     ]),
   ],
   controllers: [AnalyticsController, QuizAnalyticsController],
-  providers: [AnalyticsService, DistributedSingleFlightService, QuizAnalyticsService],
-  exports: [AnalyticsService, QuizAnalyticsService],
+  providers: [
+    AnalyticsService,
+    DistributedSingleFlightService,
+    ApplicationCacheService,
+    QuizAnalyticsService,
+  ],
+  exports: [AnalyticsService, DistributedSingleFlightService, ApplicationCacheService, QuizAnalyticsService],
 })
 export class AnalyticsModule {}

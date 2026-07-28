@@ -7,7 +7,14 @@ import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
 import { createClient } from 'redis';
 
+import { performanceMetrics } from '../observability/performance-metrics.registry';
+
 const CACHE_MISS = Symbol('CACHE_MISS');
+
+export interface CacheMetricContext {
+  family: string;
+  endpoint: string;
+}
 
 @Injectable()
 export class DistributedSingleFlightService implements OnModuleInit, OnModuleDestroy {
@@ -98,14 +105,15 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     cacheKey: string,
     ttlMs: number,
     compute: () => Promise<T>,
+    metric: CacheMetricContext = { family: 'legacy', endpoint: 'legacy' },
   ): Promise<T> {
-    const cached = await this.getCached<T>(cacheKey);
+    const cached = await this.getCached<T>(cacheKey, metric);
     if (cached !== CACHE_MISS) return cached;
 
     const activeFlight = this.localFlights.get(cacheKey) as Promise<T> | undefined;
     if (activeFlight) return await activeFlight;
 
-    const flight = this.coordinateAcrossReplicas(cacheKey, ttlMs, compute);
+    const flight = this.coordinateAcrossReplicas(cacheKey, ttlMs, compute, metric);
     this.localFlights.set(cacheKey, flight);
 
     try {
@@ -121,9 +129,10 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     cacheKey: string,
     ttlMs: number,
     compute: () => Promise<T>,
+    metric: CacheMetricContext,
   ): Promise<T> {
     if (!this.redisClient?.isReady) {
-      return await this.computeAndCache(cacheKey, ttlMs, compute);
+      return await this.computeAndCache(cacheKey, ttlMs, compute, metric);
     }
 
     const lockKey = `cache-lock:${cacheKey}`;
@@ -132,10 +141,11 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     do {
       const token = randomUUID();
       if (await this.acquireLock(lockKey, token)) {
-        return await this.computeAsLockOwner(lockKey, token, cacheKey, ttlMs, compute);
+        return await this.computeAsLockOwner(lockKey, token, cacheKey, ttlMs, compute, metric);
       }
 
-      const cached = await this.getCached<T>(cacheKey);
+      performanceMetrics.recordCache({ ...metric, outcome: 'lock_contention' });
+      const cached = await this.getCached<T>(cacheKey, metric);
       if (cached !== CACHE_MISS) return cached;
 
       await this.delay(this.pollIntervalMs);
@@ -144,7 +154,12 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     this.logger.warn(
       `Timed out waiting ${this.waitTimeoutMs.toString()}ms for ${lockKey}; computing locally as availability fallback`,
     );
-    return await this.computeAndCache(cacheKey, ttlMs, compute);
+    try {
+      return await this.computeAndCache(cacheKey, ttlMs, compute, metric);
+    } catch (error) {
+      performanceMetrics.recordCache({ ...metric, outcome: 'fallback_error' });
+      throw error;
+    }
   }
 
   private async computeAsLockOwner<T>(
@@ -153,12 +168,15 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     cacheKey: string,
     ttlMs: number,
     compute: () => Promise<T>,
+    metric: CacheMetricContext,
   ): Promise<T> {
+    const renewal = this.startLockRenewal(lockKey, token);
     try {
-      const cached = await this.getCached<T>(cacheKey);
+      const cached = await this.getCached<T>(cacheKey, metric);
       if (cached !== CACHE_MISS) return cached;
-      return await this.computeAndCache(cacheKey, ttlMs, compute);
+      return await this.computeAndCache(cacheKey, ttlMs, compute, metric);
     } finally {
+      clearInterval(renewal);
       await this.releaseLock(lockKey, token);
     }
   }
@@ -167,15 +185,32 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
     cacheKey: string,
     ttlMs: number,
     compute: () => Promise<T>,
+    metric: CacheMetricContext,
   ): Promise<T> {
+    const startedAt = performance.now();
     const result = await compute();
     await this.cacheManager.set(cacheKey, result, ttlMs);
+    performanceMetrics.recordCache({
+      ...metric,
+      outcome: 'computation',
+      loadTimeMs: performance.now() - startedAt,
+    });
     return result;
   }
 
-  private async getCached<T>(cacheKey: string): Promise<T | typeof CACHE_MISS> {
+  private async getCached<T>(
+    cacheKey: string,
+    metric: CacheMetricContext,
+  ): Promise<T | typeof CACHE_MISS> {
+    const startedAt = performance.now();
     const value = await this.cacheManager.get<T>(cacheKey);
-    return value === undefined || value === null ? CACHE_MISS : value;
+    const hit = value !== undefined && value !== null;
+    performanceMetrics.recordCache({
+      ...metric,
+      outcome: hit ? 'hit' : 'miss',
+      loadTimeMs: performance.now() - startedAt,
+    });
+    return hit ? value : CACHE_MISS;
   }
 
   private async acquireLock(lockKey: string, token: string): Promise<boolean> {
@@ -197,6 +232,27 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
         keys: [lockKey],
         arguments: [token],
       },
+    );
+  }
+
+  private startLockRenewal(lockKey: string, token: string): ReturnType<typeof setInterval> {
+    const interval = Math.max(Math.floor(this.lockTtlMs / 3), 100);
+    return setInterval(() => {
+      void this.renewLock(lockKey, token).catch((error: unknown) => {
+        this.logger.warn(
+          `Failed to renew ${lockKey}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+    }, interval);
+  }
+
+  private async renewLock(lockKey: string, token: string): Promise<void> {
+    if (!this.redisClient?.isReady) return;
+    await this.redisClient.eval(
+      `if redis.call("GET", KEYS[1]) == ARGV[1]
+       then return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+       else return 0 end`,
+      { keys: [lockKey], arguments: [token, this.lockTtlMs.toString()] },
     );
   }
 

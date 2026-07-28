@@ -1,4 +1,3 @@
-import type { Cache } from 'cache-manager';
 import type { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AnalyticsService } from './analytics.service';
@@ -52,15 +51,11 @@ describe('AnalyticsService.getAdminDashboard', () => {
     const paymentsRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(revenueBuilder),
     };
-    const cache = {
-      get: jest.fn().mockResolvedValue(undefined),
-      set: jest.fn().mockResolvedValue(undefined),
-    };
-    const singleFlight = {
+    const applicationCache = {
       getOrCompute: jest
         .fn()
         .mockImplementation(
-          async (_key: string, _ttl: number, compute: () => Promise<unknown>) => await compute(),
+          async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
         ),
     };
 
@@ -77,8 +72,7 @@ describe('AnalyticsService.getAdminDashboard', () => {
       {} as Repository<never>,
       {} as Repository<never>,
       {} as Repository<never>,
-      cache as unknown as Cache,
-      singleFlight as never,
+      applicationCache as never,
     );
 
     const resultPromise = service.getAdminDashboard();
@@ -133,7 +127,7 @@ describe('AnalyticsService.getAdminDashboard', () => {
         books: 150.5,
       },
     });
-    expect(singleFlight.getOrCompute).toHaveBeenCalledTimes(1);
+    expect(applicationCache.getOrCompute).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -169,6 +163,7 @@ describe('AnalyticsService.getExamAnalytics', () => {
     const examsRepository = {
       findOne: jest.fn().mockResolvedValue({
         id: 'exam-1',
+        teacher_id: 'teacher-1',
         passing_marks: 50,
         total_marks: 100,
       }),
@@ -182,9 +177,12 @@ describe('AnalyticsService.getExamAnalytics', () => {
       query: jest.fn().mockResolvedValue(questionRows),
       find: jest.fn(),
     };
-    const cache = {
-      get: jest.fn().mockResolvedValue(undefined),
-      set: jest.fn().mockResolvedValue(undefined),
+    const applicationCache = {
+      getOrCompute: jest
+        .fn()
+        .mockImplementation(
+          async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+        ),
     };
 
     const service = new AnalyticsService(
@@ -200,11 +198,13 @@ describe('AnalyticsService.getExamAnalytics', () => {
       examQuestionsRepository as unknown as Repository<never>,
       {} as Repository<never>,
       {} as Repository<never>,
-      cache as unknown as Cache,
-      {} as never,
+      applicationCache as never,
     );
 
-    const result = await service.getExamAnalytics('exam-1');
+    const result = await service.getExamAnalytics(
+      { userId: 'teacher-1', email: '', name: '', role: 'teacher' },
+      'exam-1',
+    );
 
     expect(attemptBuilder.getRawOne).toHaveBeenCalledTimes(1);
     expect(examQuestionsRepository.query).toHaveBeenCalledTimes(1);
@@ -247,5 +247,32 @@ describe('AnalyticsService.getExamAnalytics', () => {
         '81-100': 40000,
       },
     });
+  });
+
+  it('rejects a teacher who does not own the exam before cache access', async () => {
+    const applicationCache = { getOrCompute: jest.fn() };
+    const service = new AnalyticsService(
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      { findOne: jest.fn().mockResolvedValue({ id: 'exam-1', teacher_id: 'owner' }) } as never,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      applicationCache as never,
+    );
+
+    await expect(
+      service.getExamAnalytics(
+        { userId: 'other-teacher', email: '', name: '', role: 'teacher' },
+        'exam-1',
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
   });
 });

@@ -54,8 +54,8 @@ export class AnalyticsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Forbidden - Admin role required',
   })
-  public async getAdminDashboard(): Promise<{ data: AdminDashboardDto }> {
-    const stats = await this.analyticsService.getAdminDashboard();
+  public async getAdminDashboard(@GetUser() user: JwtPayload): Promise<{ data: AdminDashboardDto }> {
+    const stats = await this.analyticsService.getAdminDashboard(user.tenantId);
     return { data: stats };
   }
 
@@ -81,7 +81,7 @@ export class AnalyticsController {
   public async getTeacherDashboard(
     @GetUser() user: JwtPayload,
   ): Promise<{ data: TeacherDashboardDto }> {
-    const stats = await this.analyticsService.getTeacherDashboard(user.userId);
+    const stats = await this.analyticsService.getTeacherDashboard(user.userId, user.tenantId);
     return { data: stats };
   }
 
@@ -107,7 +107,7 @@ export class AnalyticsController {
   public async getStudentDashboard(
     @GetUser() user: JwtPayload,
   ): Promise<{ data: StudentDashboardDto }> {
-    const stats = await this.analyticsService.getStudentDashboard(user.userId);
+    const stats = await this.analyticsService.getStudentDashboard(user.userId, user.tenantId);
     return { data: stats };
   }
 
@@ -118,6 +118,7 @@ export class AnalyticsController {
    * Returns purchase counts, views, completion rate, revenue, and ratings
    */
   @Get('lessons/:lessonId')
+  @Roles('admin', 'teacher')
   @ApiOperation({
     summary: 'Get lesson analytics',
     description:
@@ -138,9 +139,10 @@ export class AnalyticsController {
     description: 'Lesson not found',
   })
   public async getLessonAnalytics(
+    @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
   ): Promise<{ data: LessonAnalyticsDto }> {
-    const analytics = await this.analyticsService.getLessonAnalytics(lessonId);
+    const analytics = await this.analyticsService.getLessonAnalytics(user, lessonId);
     return { data: analytics };
   }
 
@@ -149,6 +151,7 @@ export class AnalyticsController {
    * Returns submissions, scores, pass rate, and per-question analysis
    */
   @Get('exams/:examId')
+  @Roles('admin', 'teacher')
   @ApiOperation({
     summary: 'Get exam analytics',
     description:
@@ -169,9 +172,10 @@ export class AnalyticsController {
     description: 'Exam not found',
   })
   public async getExamAnalytics(
+    @GetUser() user: JwtPayload,
     @Param('examId', ParseUUIDPipe) examId: string,
   ): Promise<{ data: ExamAnalyticsDto }> {
-    const analytics = await this.analyticsService.getExamAnalytics(examId);
+    const analytics = await this.analyticsService.getExamAnalytics(user, examId);
     return { data: analytics };
   }
 }

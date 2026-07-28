@@ -1,20 +1,18 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   ConflictException,
   ForbiddenException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import type { Cache } from 'cache-manager';
 import * as admin from 'firebase-admin';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
 import { UploadService } from '../uploads/upload.service';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.enum';
@@ -27,22 +25,14 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     private readonly uploadService: UploadService,
-    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
-
-  /**
-   * Get cache key for a specific user profile
-   */
-  private getUserCacheKey(userId: string): string {
-    return `user:profile:${userId}`;
-  }
 
   /**
    * Invalidate user profile cache
    */
   private async invalidateUserCache(userId: string): Promise<void> {
-    const cacheKey = this.getUserCacheKey(userId);
-    await this.cacheManager.del(cacheKey);
+    await this.applicationCache.invalidate(['user_profile']);
     this.logger.debug(`Invalidated cache for user ${userId}`);
   }
 
@@ -83,15 +73,15 @@ export class UsersService {
   }
 
   public async findOne(id: string): Promise<unknown> {
-    // Try to get from cache first
-    const cacheKey = this.getUserCacheKey(id);
-    const cached = await this.cacheManager.get(cacheKey);
-    if (cached !== null && cached !== undefined) {
-      this.logger.debug(`Cache HIT for user ${id}`);
-      return cached;
-    }
-
-    this.logger.debug(`Cache MISS for user ${id}`);
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'user_profile',
+        endpoint: 'users.profile',
+        scope: `owner:${id}`,
+        parts: [id],
+        ttlMs: 60_000,
+      },
+      async () => {
 
     const user = await this.userRepository.findOne({
       where: { id },
@@ -128,11 +118,9 @@ export class UsersService {
       last_login: user.last_login,
     };
 
-    // Cache for 10 minutes (600000 milliseconds)
-    await this.cacheManager.set(cacheKey, userProfile, 600_000);
-    this.logger.debug(`Cached user ${id} for 10 minutes`);
-
-    return userProfile;
+        return userProfile;
+      },
+    );
   }
 
   public async findByEmail(email: string): Promise<User | null> {

@@ -59,13 +59,17 @@ describe('StudentsService.findStudentProfile', () => {
     const examAttempts = {
       createQueryBuilder: jest.fn().mockReturnValue(examsQuery),
     };
-    const cache = { get: jest.fn().mockResolvedValue(undefined), set: jest.fn().mockResolvedValue(undefined) };
+    const applicationCache = {
+      getOrCompute: jest.fn().mockImplementation(
+        async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+      ),
+    };
     const service = new StudentsService(
       studentProfiles as never,
       {} as never,
       lessonPurchases as never,
       examAttempts as never,
-      cache as never,
+      applicationCache as never,
       { findPrimaryPhonesForStudents: jest.fn().mockResolvedValue(new Map()) } as never,
     );
 
@@ -77,6 +81,9 @@ describe('StudentsService.findStudentProfile', () => {
     expect(result.exams).toEqual([
       expect.objectContaining({ examId: 'deleted-exam-id', title: null, totalMarks: null }),
     ]);
-    expect(cache.set).toHaveBeenCalledWith(`student:profile:${userId}`, result, 300_000);
+    expect(applicationCache.getOrCompute).toHaveBeenCalledWith(
+      expect.objectContaining({ family: 'student_profile', scope: `owner:${userId}` }),
+      expect.any(Function),
+    );
   });
 });

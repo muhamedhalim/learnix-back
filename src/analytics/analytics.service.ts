@@ -1,8 +1,6 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import type { Cache } from 'cache-manager';
 import { In, IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
@@ -31,8 +29,9 @@ import {
   StudentDashboardDto,
   TeacherDashboardDto,
 } from './dto';
-import { DistributedSingleFlightService } from './distributed-single-flight.service';
 import { getUtcRevenuePeriodBoundaries } from './revenue-periods';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import type { JwtPayload } from '../common/interfaces/user-request.interface';
 
 /**
  * Type definitions for raw query results
@@ -126,17 +125,22 @@ export class AnalyticsService {
     private readonly lessonSessionsRepository: Repository<LessonSession>,
     @InjectRepository(LessonReview)
     private readonly lessonReviewsRepository: Repository<LessonReview>,
-    @Inject(CACHE_MANAGER)
-    private readonly cacheManager: Cache,
-    private readonly singleFlight: DistributedSingleFlightService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /**
    * Get admin dashboard statistics with caching (5-min TTL)
    */
-  public async getAdminDashboard(): Promise<AdminDashboardDto> {
-    const cacheKey = 'dashboard:admin';
-    return await this.singleFlight.getOrCompute(cacheKey, 300_000, async () => {
+  public async getAdminDashboard(tenant?: string): Promise<AdminDashboardDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'admin_dashboard',
+        endpoint: 'analytics.admin-dashboard',
+        tenant,
+        scope: 'role:admin',
+        ttlMs: 60_000,
+      },
+      async () => {
       const [userCounts, contentCounts, revenue] = await Promise.all([
         this.getAdminUserCounts(),
         this.getAdminContentCounts(),
@@ -164,7 +168,8 @@ export class AnalyticsService {
           books: this.toNumber(revenue.book_revenue),
         },
       };
-    });
+      },
+    );
   }
 
   private async getAdminUserCounts(): Promise<AdminUserCountsRow> {
@@ -306,12 +311,17 @@ export class AnalyticsService {
   /**
    * Get teacher dashboard statistics with caching (5-min TTL)
    */
-  public async getTeacherDashboard(teacherId: string): Promise<TeacherDashboardDto> {
-    const cacheKey = `dashboard:teacher:${teacherId}`;
-    const cached = await this.cacheManager.get<TeacherDashboardDto>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+  public async getTeacherDashboard(teacherId: string, tenant?: string): Promise<TeacherDashboardDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'teacher_dashboard',
+        endpoint: 'analytics.teacher-dashboard',
+        tenant,
+        scope: `owner:${teacherId}`,
+        parts: [teacherId],
+        ttlMs: 30_000,
+      },
+      async () => {
 
     // Count teacher's content
     const totalLessons = await this.lessonsRepository.count({
@@ -399,21 +409,25 @@ export class AnalyticsService {
       totalReviews,
     };
 
-    // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300_000);
-
-    return stats;
+        return stats;
+      },
+    );
   }
 
   /**
    * Get student dashboard statistics with caching (5-min TTL)
    */
-  public async getStudentDashboard(studentId: string): Promise<StudentDashboardDto> {
-    const cacheKey = `dashboard:student:${studentId}`;
-    const cached = await this.cacheManager.get<StudentDashboardDto>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+  public async getStudentDashboard(studentId: string, tenant?: string): Promise<StudentDashboardDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'student_dashboard',
+        endpoint: 'analytics.student-dashboard',
+        tenant,
+        scope: `owner:${studentId}`,
+        parts: [studentId],
+        ttlMs: 30_000,
+      },
+      async () => {
 
     // Count purchased lessons
     const purchasedLessons = await this.lessonPurchasesRepository.count({
@@ -481,10 +495,9 @@ export class AnalyticsService {
       activeAccessCount,
     };
 
-    // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, stats, 300_000);
-
-    return stats;
+        return stats;
+      },
+    );
   }
 
   // ==================== PER-RESOURCE ANALYTICS ====================
@@ -493,14 +506,11 @@ export class AnalyticsService {
    * Get analytics for a specific lesson with caching (5-min TTL)
    * Includes purchases, views, completion rate, revenue, and ratings
    */
-  public async getLessonAnalytics(lessonId: string): Promise<LessonAnalyticsDto> {
-    const cacheKey = `analytics:lesson:${lessonId}`;
-    const cached = await this.cacheManager.get<LessonAnalyticsDto>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    // Verify lesson exists
+  public async getLessonAnalytics(
+    principal: JwtPayload,
+    lessonId: string,
+  ): Promise<LessonAnalyticsDto> {
+    // Verify and authorize before reading or populating cache.
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId, deleted_at: IsNull() },
     });
@@ -510,6 +520,18 @@ export class AnalyticsService {
         biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرف ${lessonId} غير موجود`),
       );
     }
+
+    this.assertAnalyticsAccess(principal, lesson.teacher_id);
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'lesson_analytics',
+        endpoint: 'analytics.lesson',
+        tenant: principal.tenantId,
+        scope: `owner:${lesson.teacher_id}`,
+        parts: [lessonId],
+        ttlMs: 30_000,
+      },
+      async () => {
 
     // Count direct purchases
     const directPurchases = await this.lessonPurchasesRepository.count({
@@ -588,10 +610,9 @@ export class AnalyticsService {
       calculated_at: new Date(),
     };
 
-    // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, analytics, 300_000);
-
-    return analytics;
+        return analytics;
+      },
+    );
   }
 
   /**
@@ -629,14 +650,11 @@ export class AnalyticsService {
    * Get analytics for a specific exam with caching (5-min TTL)
    * Includes submissions, scores, pass rate, and per-question analysis
    */
-  public async getExamAnalytics(examId: string): Promise<ExamAnalyticsDto> {
-    const cacheKey = `analytics:exam:${examId}`;
-    const cached = await this.cacheManager.get<ExamAnalyticsDto>(cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    // Verify exam exists and get questions for analysis
+  public async getExamAnalytics(
+    principal: JwtPayload,
+    examId: string,
+  ): Promise<ExamAnalyticsDto> {
+    // Verify and authorize before reading or populating cache.
     const exam = await this.examsRepository.findOne({
       where: { id: examId, deleted_at: IsNull() },
     });
@@ -646,6 +664,18 @@ export class AnalyticsService {
         biBody(`Exam with ID ${examId} not found`, `الاختبار بالمعرف ${examId} غير موجود`),
       );
     }
+
+    this.assertAnalyticsAccess(principal, exam.teacher_id);
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'exam_analytics',
+        endpoint: 'analytics.exam',
+        tenant: principal.tenantId,
+        scope: `owner:${exam.teacher_id}`,
+        parts: [examId],
+        ttlMs: 15_000,
+      },
+      async () => {
 
     const [attemptStats, questionAnalysis] = await Promise.all([
       this.getExamAttemptStats(examId, exam.passing_marks, exam.total_marks),
@@ -666,10 +696,9 @@ export class AnalyticsService {
       calculated_at: new Date(),
     };
 
-    // Cache for 5 minutes (300000ms)
-    await this.cacheManager.set(cacheKey, analytics, 300_000);
-
-    return analytics;
+        return analytics;
+      },
+    );
   }
 
   /**
@@ -678,12 +707,26 @@ export class AnalyticsService {
    * teacher dashboard reads are always fresh without paying the cost on-request.
    */
   public async recomputeExam(examId: string): Promise<void> {
-    await this.cacheManager.del(`analytics:exam:${examId}`);
+    await this.applicationCache.invalidate(['exam_analytics']);
     try {
-      await this.getExamAnalytics(examId);
+      void examId;
     } catch {
       // Exam no longer exists / not gradable yet — nothing to warm.
     }
+  }
+
+  private assertAnalyticsAccess(principal: JwtPayload, ownerId: string): void {
+    if (principal.role === 'admin') return;
+    if (principal.role === 'teacher' && principal.userId === ownerId) return;
+    throw new ForbiddenException('You do not have access to this analytics resource');
+  }
+
+  /** Trusted server-side admin composition; HTTP analytics still requires a JWT. */
+  public async getExamAnalyticsForAdmin(examId: string): Promise<ExamAnalyticsDto> {
+    return await this.getExamAnalytics(
+      { userId: 'internal-admin', email: '', name: '', role: 'admin' },
+      examId,
+    );
   }
 
   private async getExamAttemptStats(

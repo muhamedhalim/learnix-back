@@ -101,7 +101,7 @@ export class AdminExamsService {
 
     const stats = await this.getAttemptStats([examId]);
     const listItem = this.toListItem(exam, stats.get(examId));
-    const analytics = await this.analytics.getExamAnalytics(examId);
+    const analytics = await this.analytics.getExamAnalyticsForAdmin(examId);
     return { ...listItem, ...analytics };
   }
 

@@ -1,19 +1,17 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   BadRequestException,
   ConflictException,
-  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import type { Cache } from 'cache-manager';
 
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
@@ -93,8 +91,7 @@ export class TeachersService {
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
     private readonly dataSource: DataSource,
-    @Inject(CACHE_MANAGER)
-    private readonly cacheManager: Cache,
+    private readonly applicationCache: ApplicationCacheService,
     private readonly media: MediaService,
   ) {}
 
@@ -103,7 +100,7 @@ export class TeachersService {
    * changes immediately (the analytics service caches it for 5 minutes).
    */
   private async invalidateAdminDashboard(): Promise<void> {
-    await this.cacheManager.del('dashboard:admin');
+    await this.applicationCache.invalidate(['admin_dashboard', 'teacher_dashboard', 'teacher_report']);
   }
 
   /**

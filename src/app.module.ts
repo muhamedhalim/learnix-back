@@ -6,7 +6,7 @@ import { Inject, Injectable, Logger, Module, type OnModuleDestroy } from '@nestj
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule, ThrottlerStorage } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -31,6 +31,7 @@ import { CartModule } from './cart/cart.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { CommentsModule } from './comments/comments.module';
 import { RedisKeyvStore } from './common/cache/redis-keyv.store';
+import { CacheInvalidationInterceptor } from './common/cache/cache-invalidation.interceptor';
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
 import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
@@ -359,6 +360,7 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     ...(process.env['NODE_ENV'] === 'test'
       ? []
       : [{ provide: APP_GUARD, useClass: ThrottlerGuard }]),
+    { provide: APP_INTERCEPTOR, useClass: CacheInvalidationInterceptor },
   ],
 })
 export class AppModule {}

@@ -1,8 +1,6 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import type { Cache } from 'cache-manager';
 import { Between, IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
@@ -21,6 +19,7 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { TeacherFollowUpService } from '../teacher-follow-up/teacher-follow-up.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import type {
   PlatformReportDto,
   RevenueBreakdownDto,
@@ -59,8 +58,6 @@ interface DateRange {
 
 @Injectable()
 export class ReportsService {
-  private readonly logger = new Logger(ReportsService.name);
-
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
@@ -88,8 +85,7 @@ export class ReportsService {
     private readonly subjectsRepository: Repository<Subject>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
-    @Inject(CACHE_MANAGER)
-    private readonly cacheManager: Cache,
+    private readonly applicationCache: ApplicationCacheService,
     private readonly teacherFollowUp: TeacherFollowUpService,
   ) {}
 
@@ -102,13 +98,15 @@ export class ReportsService {
     to?: Date,
   ): Promise<TeacherReportDto> {
     const { startDate, endDate } = this.normalizeDateRange(from, to);
-    const cacheKey = `report:teacher:${teacherId}:${startDate.toISOString()}:${endDate.toISOString()}`;
-
-    const cached = await this.cacheManager.get<TeacherReportDto>(cacheKey);
-    if (cached) {
-      this.logger.debug(`Cache hit for teacher report: ${teacherId}`);
-      return cached;
-    }
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'teacher_report',
+        endpoint: 'reports.teacher',
+        scope: `owner:${teacherId}`,
+        parts: [teacherId, startDate.toISOString(), endDate.toISOString()],
+        ttlMs: 30_000,
+      },
+      async () => {
 
     const range = { startDate, endDate };
     const [revenue, students, lessons, exams, followUp] = await Promise.all([
@@ -133,21 +131,24 @@ export class ReportsService {
       riskStudentCount: followUp.riskStudentCount,
     };
 
-    await this.cacheManager.set(cacheKey, report, 300_000);
-    return report;
+        return report;
+      },
+    );
   }
 
   /**
    * Get student progress report
    */
   public async getStudentProgressReport(studentId: string): Promise<StudentProgressReportDto> {
-    const cacheKey = `report:student:${studentId}`;
-
-    const cached = await this.cacheManager.get<StudentProgressReportDto>(cacheKey);
-    if (cached) {
-      this.logger.debug(`Cache hit for student report: ${studentId}`);
-      return cached;
-    }
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'student_report',
+        endpoint: 'reports.student-progress',
+        scope: `owner:${studentId}`,
+        parts: [studentId],
+        ttlMs: 30_000,
+      },
+      async () => {
 
     const subjects = await this.subjectsRepository.find({
       where: { deleted_at: IsNull() },
@@ -175,8 +176,9 @@ export class ReportsService {
       needsImprovement,
     };
 
-    await this.cacheManager.set(cacheKey, report, 300_000);
-    return report;
+        return report;
+      },
+    );
   }
 
   /**
@@ -184,13 +186,15 @@ export class ReportsService {
    */
   public async getPlatformReport(from?: Date, to?: Date): Promise<PlatformReportDto> {
     const { startDate, endDate } = this.normalizeDateRange(from, to);
-    const cacheKey = `report:platform:${startDate.toISOString()}:${endDate.toISOString()}`;
-
-    const cached = await this.cacheManager.get<PlatformReportDto>(cacheKey);
-    if (cached) {
-      this.logger.debug('Cache hit for platform report');
-      return cached;
-    }
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'platform_report',
+        endpoint: 'reports.platform',
+        scope: 'role:admin',
+        parts: [startDate.toISOString(), endDate.toISOString()],
+        ttlMs: 60_000,
+      },
+      async () => {
 
     const range = { startDate, endDate };
     const [users, revenue, content, engagement] = await Promise.all([
@@ -211,8 +215,9 @@ export class ReportsService {
       engagement,
     };
 
-    await this.cacheManager.set(cacheKey, report, 600_000);
-    return report;
+        return report;
+      },
+    );
   }
 
   // ====================== TEACHER REPORT HELPERS ======================
