@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsHexColor,
@@ -157,4 +158,30 @@ export class UpdateTemplateDto {
   @IsOptional()
   @IsBoolean()
   public is_default?: boolean;
+}
+
+/**
+ * Non-persistent values for the exact PDF preview. They are deliberately
+ * separate from a saved template so illustrative recipient data cannot leak
+ * into future issued certificates.
+ */
+export class CertificatePreviewDto extends CreateTemplateDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  public sample_student_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  public sample_course_title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  public sample_teacher_name?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public sample_issue_date?: string;
 }

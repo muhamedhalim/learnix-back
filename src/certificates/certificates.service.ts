@@ -21,7 +21,7 @@ import { PreferredLanguage } from '../guardians/entities/preferred-language.enum
 import { User } from '../users/entities/user.entity';
 import { generateCertificateNumber, generateVerificationCode } from './certificate-code.util';
 import { CertificatePdfService } from './certificate-pdf.service';
-import { CreateTemplateDto, UpdateTemplateDto } from './dto';
+import { CertificatePreviewDto, CreateTemplateDto, UpdateTemplateDto } from './dto';
 import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
@@ -587,17 +587,26 @@ export class CertificatesService {
     certificate: Certificate,
     locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
-    // The frozen issue-time design always wins; live-template lookup only
-    // remains for legacy certificates issued before snapshots existed.
-    if (certificate.template_snapshot) {
-      return this.pdfService.render(certificate, certificate.template_snapshot, locale);
-    }
+    return this.pdfService.render(
+      certificate,
+      await this.getRenderableTemplateSnapshot(certificate),
+      locale,
+    );
+  }
+
+  /**
+   * The canonical design data for an issued certificate. New certificates
+   * always return their frozen issue-time snapshot. The live-template lookup
+   * remains only as a backward-compatible rendering strategy for legacy rows.
+   */
+  public async getRenderableTemplateSnapshot(
+    certificate: Certificate,
+  ): Promise<CertificateTemplateSnapshot | null> {
+    if (certificate.template_snapshot) return certificate.template_snapshot;
     const template = certificate.template_id
-      ? await this.templatesRepository.findOne({
-          where: { id: certificate.template_id },
-        })
+      ? await this.templatesRepository.findOne({ where: { id: certificate.template_id } })
       : await this.findDefaultTemplate();
-    return this.pdfService.render(certificate, template, locale);
+    return template ? this.snapshotOf(template) : null;
   }
 
   /**
@@ -606,7 +615,7 @@ export class CertificatesService {
    * Nothing is persisted.
    */
   public renderTemplateSample(
-    dto: CreateTemplateDto,
+    dto: CertificatePreviewDto,
     locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
     const design = this.sanitizeTemplateDto(dto);
@@ -624,6 +633,10 @@ export class CertificatesService {
       status: CertificateStatus.ISSUED,
       issued_at: new Date(),
     });
+    sample.student_name = dto.sample_student_name?.trim() || sample.student_name;
+    sample.course_title = dto.sample_course_title?.trim() || sample.course_title;
+    sample.teacher_name = dto.sample_teacher_name?.trim() || sample.teacher_name;
+    if (dto.sample_issue_date) sample.issued_at = new Date(dto.sample_issue_date);
     return this.pdfService.render(
       sample,
       {
@@ -1038,6 +1051,13 @@ export class CertificatesService {
   private sanitizeTemplateDto<T extends CreateTemplateDto | UpdateTemplateDto>(dto: T): T {
     const sanitized = { ...dto } as Record<string, unknown>;
     for (const [key, value] of Object.entries(sanitized)) {
+      // Validation DTO instances can carry every optional field as an own
+      // `undefined` property. Leaving those values in a PATCH would erase the
+      // published template's required name/body before it is snapshotted.
+      if (value === undefined) {
+        delete sanitized[key];
+        continue;
+      }
       if (typeof value === 'string') {
         sanitized[key] = value
           .replace(/[<>]/g, '')

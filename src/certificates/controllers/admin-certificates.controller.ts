@@ -27,6 +27,7 @@ import { THROTTLE } from '../../common/constants';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
 import {
+  CertificatePreviewDto,
   CertificateListFilterDto,
   CreateTemplateDto,
   IssueCertificateDto,
@@ -123,7 +124,7 @@ export class AdminCertificatesController {
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Render an unsaved template design as a sample PDF' })
   public async previewTemplate(
-    @Body() dto: CreateTemplateDto,
+    @Body() dto: CertificatePreviewDto,
     @Req() request: Request,
   ): Promise<StreamableFile> {
     const buffer = await this.certificatesService.renderTemplateSample(

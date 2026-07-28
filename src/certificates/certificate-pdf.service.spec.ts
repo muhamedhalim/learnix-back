@@ -96,6 +96,19 @@ describe('CertificatePdfService', () => {
     expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
   });
 
+  it('keeps long mixed-language recipient and course text within the fixed A4 renderer', async () => {
+    const longCertificate = {
+      ...certificate,
+      student_name: 'أحمد محمد عبدالرحمن الطويل Long English Name',
+      course_title: 'Advanced Learning and Achievement Program with an Extended Course Title',
+    } as Certificate;
+
+    const buffer = await service.render(longCertificate, null, PreferredLanguage.AR);
+
+    expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+    expect(buffer.length).toBeGreaterThan(1000);
+  });
+
   it('renders Arabic using template title_ar/body_ar/signature_title_ar when present', async () => {
     const template = {
       title: 'Award of Excellence',

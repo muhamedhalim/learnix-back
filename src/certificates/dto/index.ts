@@ -1,4 +1,8 @@
-export { CreateTemplateDto, UpdateTemplateDto } from './certificate-template.dto';
+export {
+  CertificatePreviewDto,
+  CreateTemplateDto,
+  UpdateTemplateDto,
+} from './certificate-template.dto';
 export {
   CertificateListFilterDto,
   CertificateVisibilityDto,

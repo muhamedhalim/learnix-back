@@ -164,11 +164,25 @@ export class CertificatePdfService {
 
     // Title.
     const title = isArabic ? tpl.title_ar || tpl.title : tpl.title;
+    const renderedTitle = rtlText(isArabic ? title : title.toUpperCase());
+    const renderedTitleSize = this.fitTextBlockSize(
+      doc,
+      renderedTitle,
+      'Body-Bold',
+      titleSize,
+      20,
+      width * 0.82,
+      58,
+    );
     doc
       .fillColor(accent)
       .font('Body-Bold')
-      .fontSize(titleSize)
-      .text(rtlText(isArabic ? title : title.toUpperCase()), 0, 105, { align: alignment });
+      .fontSize(renderedTitleSize)
+      .text(renderedTitle, width * 0.09, 105, {
+        align: alignment,
+        width: width * 0.82,
+        height: 58,
+      });
 
     // Body with placeholders replaced. The formatted date always mixes a
     // (possibly Arabic) month name with digits, so it is rendered as a
@@ -191,19 +205,42 @@ export class CertificatePdfService {
       .fontSize(bodySize)
       .text(rtlText(ui.certifies), 0, 182, { align: alignment });
 
+    const studentNameSize = this.fitTextSize(
+      doc,
+      rtlText(certificate.student_name),
+      'Body-Bold',
+      30,
+      20,
+      width * 0.78,
+    );
     doc
       .fillColor('#111827')
       .font('Body-Bold')
-      .fontSize(30)
-      .text(rtlText(certificate.student_name), 0, 212, { align: alignment });
+      .fontSize(studentNameSize)
+      .text(rtlText(certificate.student_name), width * 0.11, 212, {
+        align: alignment,
+        width: width * 0.78,
+        height: 42,
+      });
 
+    const renderedBody = rtlText(body);
+    const renderedBodySize = this.fitTextBlockSize(
+      doc,
+      renderedBody,
+      'Body',
+      bodySize,
+      12,
+      width * 0.7,
+      62,
+    );
     doc
       .fillColor('#374151')
       .font('Body')
-      .fontSize(bodySize)
-      .text(rtlText(body), width * 0.15, 262, {
+      .fontSize(renderedBodySize)
+      .text(renderedBody, width * 0.15, 262, {
         align: alignment,
         width: width * 0.7,
+        height: 62,
       });
 
     if (certificate.teacher_name) {
@@ -320,6 +357,38 @@ export class CertificatePdfService {
   private clamp(value: number | undefined, min: number, max: number, fallback: number): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
     return Math.max(min, Math.min(max, value));
+  }
+
+  /** Keep long Arabic and Latin names inside the fixed A4-safe area. */
+  private fitTextSize(
+    doc: PDFKit.PDFDocument,
+    text: string,
+    font: string,
+    maxSize: number,
+    minSize: number,
+    maxWidth: number,
+  ): number {
+    doc.font(font);
+    for (let size = maxSize; size >= minSize; size -= 1) {
+      if (doc.fontSize(size).widthOfString(text) <= maxWidth) return size;
+    }
+    return minSize;
+  }
+
+  private fitTextBlockSize(
+    doc: PDFKit.PDFDocument,
+    text: string,
+    font: string,
+    maxSize: number,
+    minSize: number,
+    width: number,
+    maxHeight: number,
+  ): number {
+    doc.font(font);
+    for (let size = maxSize; size >= minSize; size -= 1) {
+      if (doc.fontSize(size).heightOfString(text, { width }) <= maxHeight) return size;
+    }
+    return minSize;
   }
 
   /**

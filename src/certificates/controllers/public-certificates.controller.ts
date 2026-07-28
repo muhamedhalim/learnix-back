@@ -7,6 +7,7 @@ import type { Request } from 'express';
 import { THROTTLE } from '../../common/constants';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificateStatus } from '../entities/certificate-status.enum';
+import type { CertificateTemplateSnapshot } from '../entities/certificate.entity';
 import { CertificatesService } from '../certificates.service';
 import { PublicCertificatesFilterDto } from '../dto';
 
@@ -40,9 +41,11 @@ export class PublicCertificatesController {
       completion_percentage: number;
       issued_at: Date;
       status: CertificateStatus;
+      template_snapshot: CertificateTemplateSnapshot | null;
     };
   }> {
     const cert = await this.certificatesService.getByVerificationCode(code);
+    const templateSnapshot = await this.certificatesService.getRenderableTemplateSnapshot(cert);
     return {
       valid: cert.status === CertificateStatus.ISSUED,
       certificate: {
@@ -53,6 +56,8 @@ export class PublicCertificatesController {
         completion_percentage: cert.completion_percentage,
         issued_at: cert.issued_at,
         status: cert.status,
+        // Formatting only: no IDs, storage paths, or private profile data.
+        template_snapshot: templateSnapshot,
       },
     };
   }

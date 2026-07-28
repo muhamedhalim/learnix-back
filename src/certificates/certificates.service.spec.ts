@@ -239,6 +239,28 @@ describe('CertificatesService', () => {
       expect(templates.save).not.toHaveBeenCalled();
     });
 
+    it('keeps required published fields when a PATCH DTO carries optional undefined keys', async () => {
+      const template = {
+        id: 't1',
+        name: 'Named',
+        title: 'Title',
+        body: 'Presented to {{student}}',
+        body_ar: null,
+        status: CertificateTemplateStatus.PUBLISHED,
+      };
+      templates.findOne.mockResolvedValue(template);
+
+      await service.updateTemplate('t1', {
+        title: 'Updated title',
+        name: undefined,
+        body: undefined,
+      });
+
+      expect(templates.save).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Named', body: 'Presented to {{student}}', title: 'Updated title' }),
+      );
+    });
+
     it('publish flips the status and makes a teacher template the default', async () => {
       templates.findOne.mockResolvedValue({
         id: 't1',
@@ -397,6 +419,20 @@ describe('CertificatesService', () => {
         expect.objectContaining({ title: 'Old design' }),
         expect.anything(),
       );
+    });
+
+    it('returns the frozen snapshot to every canonical renderer without a live lookup', async () => {
+      const certificate = {
+        id: 'c1',
+        template_id: 'tpl-1',
+        template_snapshot: { title: 'Issued design', accent_color: '#123456' },
+      } as unknown as Certificate;
+
+      await expect(service.getRenderableTemplateSnapshot(certificate)).resolves.toMatchObject({
+        title: 'Issued design',
+        accent_color: '#123456',
+      });
+      expect(templates.findOne).not.toHaveBeenCalled();
     });
   });
 
