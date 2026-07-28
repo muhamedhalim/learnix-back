@@ -129,42 +129,39 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const startedAt = Date.now();
     if (!this.mail.isConfigured()) {
       return this.misconfigured(
-        'smtp-email',
+        'mailersend-email',
         'Email delivery',
         'provider',
         startedAt,
-        'SMTP is not configured; production email delivery is unavailable.',
+        'MailerSend is not configured; production email delivery is unavailable.',
         true,
       );
     }
     try {
       await this.mail.verifyConnectivity();
       return componentResult({
-        id: 'smtp-email',
+        id: 'mailersend-email',
         name: 'Email delivery',
         category: 'provider',
         status: 'healthy',
         startedAt,
-        message: 'SMTP connection and authentication handshake succeeded.',
+        message: 'MailerSend is configured and outbound emails will be queued for delivery.',
         metadata: {
           purpose: 'Transactional and administrative email',
           configured: true,
-          host: this.config.get<string>('SMTP_HOST') ?? null,
-          port: this.config.get<number>('SMTP_PORT') ?? 587,
-          secure:
-            this.config.get<string>('SMTP_SECURE') === 'true' ||
-            this.config.get<number>('SMTP_PORT') === 465,
+          provider: this.config.get<string>('MAIL_PROVIDER') ?? null,
+          sender: this.config.get<string>('MAIL_FROM_EMAIL') ?? null,
         },
         dependencies: ['backend-api'],
       });
     } catch (error) {
       return this.failed(
-        'smtp-email',
+        'mailersend-email',
         'Email delivery',
         'provider',
         startedAt,
         error,
-        'Verify SMTP host, port, TLS mode, credentials, and provider status.',
+        'Verify MAIL_PROVIDER, MAILERSEND_API_KEY, MAIL_FROM_EMAIL, and MailerSend status.',
       );
     }
   }

@@ -114,7 +114,7 @@ export class HealthDiagnosticsService {
     await this.audit.record({
       adminId: input.adminId,
       action: 'health_test_email',
-      target: 'smtp-email',
+      target: 'mailersend-email',
       details: { sent },
       ipAddress: input.ipAddress,
     });
@@ -124,8 +124,8 @@ export class HealthDiagnosticsService {
       startedAt: startedAt.toISOString(),
       completedAt: new Date().toISOString(),
       message: sent
-        ? 'A diagnostic email was accepted for delivery to the authenticated administrator.'
-        : 'The diagnostic email was not accepted for delivery.',
+        ? 'A diagnostic email was queued for delivery to the authenticated administrator.'
+        : 'The diagnostic email was not queued for delivery.',
     };
   }
 

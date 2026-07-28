@@ -248,32 +248,63 @@ export class EnvironmentVariables {
   // non-production environments so the flow remains testable).
   @IsString()
   @IsOptional()
-  public SMTP_HOST?: string;
-
-  @IsNumber()
-  @IsOptional()
-  @Type(() => Number)
-  public SMTP_PORT?: number;
+  public MAIL_PROVIDER?: string;
 
   @IsString()
   @IsOptional()
-  public SMTP_SECURE?: string;
+  public MAILERSEND_API_KEY?: string;
 
   @IsString()
   @IsOptional()
-  public SMTP_USER?: string;
-
-  @IsString()
-  @IsOptional()
-  public SMTP_PASSWORD?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAIL_FROM?: string;
+  public MAIL_FROM_EMAIL?: string;
 
   @IsString()
   @IsOptional()
   public MAIL_FROM_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAIL_REPLY_TO?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_WELCOME?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_PASSWORD_RESET?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_LOGIN_VERIFICATION?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_INVITATION?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_PAYMENT_CONFIRMATION?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_INVOICE?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_CERTIFICATE?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_HOMEWORK?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_EXAM?: string;
+
+  @IsString()
+  @IsOptional()
+  public MAILERSEND_TEMPLATE_SUBSCRIPTION?: string;
 
   // Password reset token lifetime (duration string, e.g. "1h", "30m"). Default 1h.
   @IsString()

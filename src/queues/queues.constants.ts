@@ -66,6 +66,8 @@ export const JOB_TYPES = {
     FULFILL_PAYMENT: 'fulfill-payment',
   },
   EMAIL: {
+    /** Outbound MailerSend delivery; executed only by MailProcessor. */
+    DELIVER: 'deliver-email',
     PAYMENT_CONFIRMATION: 'payment-confirmation',
     LESSON_PURCHASE_CONFIRMATION: 'lesson-purchase-confirmation',
     PACKAGE_PURCHASE_CONFIRMATION: 'package-purchase-confirmation',

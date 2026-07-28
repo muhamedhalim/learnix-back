@@ -68,7 +68,7 @@ const RULES: RiskRule[] = [
   },
   {
     id: 'provider-latency',
-    componentId: /^(easykash|meta-whatsapp|twilio-sms|bunny-stream|smtp-email)$/u,
+    componentId: /^(easykash|meta-whatsapp|twilio-sms|bunny-stream|mailersend-email)$/u,
     metric: '__latency',
     threshold: 1_000,
     level: 'medium',

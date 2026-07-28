@@ -85,7 +85,7 @@ export class HealthOrchestratorService {
         ([
           'frontend-web',
           'jwt-authentication',
-          'smtp-email',
+          'mailersend-email',
           'easykash',
           'firebase',
           'meta-whatsapp',
