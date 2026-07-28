@@ -58,10 +58,11 @@ export class PublicCertificatesController {
   }
 
   @Get('verify/:code/pdf')
+  @Throttle({ default: VERIFY_THROTTLE })
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Download a verified certificate PDF (public)' })
   public async pdf(@Param('code') code: string, @Req() request: Request): Promise<StreamableFile> {
-    const cert = await this.certificatesService.getByVerificationCode(code);
+    const cert = await this.certificatesService.getVerifiedCertificateByCode(code);
     const buffer = await this.certificatesService.renderPdf(cert, resolveRequestLocale(request));
     return new StreamableFile(buffer, {
       type: 'application/pdf',

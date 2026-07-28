@@ -39,13 +39,13 @@ describe('Certificates (e2e)', () => {
       `INSERT INTO subjects (id, name) VALUES (gen_random_uuid(), 'E2E Subject') RETURNING id`,
     )) as [{ id: string }];
     const [{ id: lessonId }] = (await dataSource.query(
-      `INSERT INTO lessons (id, title, title_ar, teacher_id, subject_id, price)
-       VALUES (gen_random_uuid(), 'E2E Lesson', 'درس', $1, $2, 0) RETURNING id`,
+      `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version)
+       VALUES (gen_random_uuid(), 'E2E Lesson', $1, $2, 0, 1) RETURNING id`,
       [teacherId, subjectId],
     )) as [{ id: string }];
     const [{ id: packageId }] = (await dataSource.query(
       `INSERT INTO lesson_packages (id, title, title_ar, teacher_id, price)
-       VALUES (gen_random_uuid(), 'E2E Course', 'كورس', $1, 0) RETURNING id`,
+       VALUES (gen_random_uuid(), 'E2E Course', 'كورس تجريبي', $1, 0) RETURNING id`,
       [teacherId],
     )) as [{ id: string }];
     await dataSource.query(
@@ -265,6 +265,10 @@ describe('Certificates (e2e)', () => {
         overrides: { requestedRole: 'teacher' },
         role: 'teacher',
       });
+      const otherTeacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
+        overrides: { requestedRole: 'teacher' },
+        role: 'teacher',
+      });
       const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
       const { packageId, lessonId } = await seedCourse(ctx.dataSource, teacher.userId);
       await completeCourse(ctx.dataSource, student.userId, packageId, lessonId);
@@ -284,6 +288,19 @@ describe('Certificates (e2e)', () => {
         is_public: boolean;
       };
       expect(cert.is_public).toBe(false);
+
+      // Student and owning teacher use the exact same snapshot renderer.
+      const studentPdf = await student.agent
+        .get(`${API_PREFIX}/student/certificates/${cert.id}/pdf`)
+        .expect(200);
+      expect(studentPdf.headers['content-type']).toContain('application/pdf');
+      const teacherPdf = await teacher.agent
+        .get(`${API_PREFIX}/teacher/certificates/issued/${cert.id}/pdf`)
+        .expect(200);
+      expect(teacherPdf.headers['content-type']).toContain('application/pdf');
+      await otherTeacher.agent
+        .get(`${API_PREFIX}/teacher/certificates/issued/${cert.id}/pdf`)
+        .expect(404);
 
       // Private → the anonymous gallery is empty.
       const emptyGallery = await request(server)
@@ -329,6 +346,9 @@ describe('Certificates (e2e)', () => {
         .get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`)
         .expect(200);
       expect(revokedVerify.body.valid).toBe(false);
+      await request(server)
+        .get(`${API_PREFIX}/certificates/verify/${cert.verification_code}/pdf`)
+        .expect(404);
 
       // Reissue → fresh credentials; the old code is dead, the new one verifies.
       const reissued = await admin.agent
@@ -343,7 +363,7 @@ describe('Certificates (e2e)', () => {
         .get(`${API_PREFIX}/certificates/verify/${newCode}`)
         .expect(200);
       expect(newVerify.body.valid).toBe(true);
-    });
+    }, 15_000);
 
     it('an invalid verification code reveals nothing', async () => {
       const res = await request(server)

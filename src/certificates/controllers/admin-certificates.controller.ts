@@ -56,6 +56,21 @@ export class AdminCertificatesController {
     return this.certificatesService.listCertificates(filter);
   }
 
+  @Get(':id/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @ApiOperation({ summary: 'Preview an issued certificate' })
+  public async pdf(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: Request,
+  ): Promise<StreamableFile> {
+    const certificate = await this.certificatesService.getManagedCertificateForTeacher(id);
+    const pdf = await this.certificatesService.renderPdf(certificate, resolveRequestLocale(request));
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: `inline; filename="certificate-${certificate.certificate_number}.pdf"`,
+    });
+  }
+
   @Post('issue')
   @ApiOperation({ summary: 'Issue certificates (single, bulk, or all-completed)' })
   public issue(@Body() dto: IssueCertificateDto): Promise<unknown> {

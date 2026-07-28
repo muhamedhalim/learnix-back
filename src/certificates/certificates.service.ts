@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -176,6 +177,7 @@ export class CertificatesService {
     const template = options.templateId
       ? await this.resolveIssuanceTemplate(options.templateId, options.restrictTemplateOwner)
       : ((await this.findDefaultTemplate(pkg.teacher_id)) ?? (await this.findDefaultTemplate()));
+    this.assertTemplateCanBeIssued(template);
 
     const certificate = this.certificatesRepository.create({
       certificate_number: await this.uniqueNumber(),
@@ -380,6 +382,11 @@ export class CertificatesService {
     return saved;
   }
 
+  /** Read an issued certificate, asserting teacher course-ownership when scoped. */
+  public getManagedCertificateForTeacher(id: string, teacherId?: string): Promise<Certificate> {
+    return this.getManagedCertificate(id, teacherId);
+  }
+
   /** Load a certificate, asserting teacher course-ownership when scoped. */
   private async getManagedCertificate(id: string, teacherId?: string): Promise<Certificate> {
     const certificate = await this.certificatesRepository.findOne({ where: { id } });
@@ -565,6 +572,15 @@ export class CertificatesService {
     return certificate;
   }
 
+  /** A downloadable public document is available only while the certificate is valid. */
+  public async getVerifiedCertificateByCode(code: string): Promise<Certificate> {
+    const certificate = await this.getByVerificationCode(code);
+    if (certificate.status !== CertificateStatus.ISSUED) {
+      throw new NotFoundException(biBody('Certificate not found', 'Ø§Ù„Ø´Ù‡Ø§Ø¯Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©'));
+    }
+    return certificate;
+  }
+
   /* ===================== PDF ===================== */
 
   public async renderPdf(
@@ -594,6 +610,10 @@ export class CertificatesService {
     locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
     const design = this.sanitizeTemplateDto(dto);
+    this.assertTemplatePlaceholders({
+      body: design.body ?? '',
+      body_ar: design.body_ar ?? null,
+    });
     const sample = this.certificatesRepository.create({
       certificate_number: 'CERT-PREVIEW',
       verification_code: 'PREVIEW',
@@ -752,6 +772,36 @@ export class CertificatesService {
     );
   }
 
+  /** Published platform designs plus the teacher's own published designs. */
+  public async getIssuableTemplates(
+    ownerId: string,
+  ): Promise<(CertificateTemplate & { issued_count: number })[]> {
+    const templates = await this.templatesRepository.find({
+      where: [
+        { owner_id: ownerId, status: CertificateTemplateStatus.PUBLISHED },
+        { owner_id: IsNull(), status: CertificateTemplateStatus.PUBLISHED },
+      ],
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: 100,
+    });
+    if (templates.length === 0) return [];
+
+    const counts = await this.certificatesRepository
+      .createQueryBuilder('c')
+      .select('c.template_id', 'template_id')
+      .addSelect('COUNT(*)', 'count')
+      .where('c.template_id IN (:...ids)', { ids: templates.map((template) => template.id) })
+      .groupBy('c.template_id')
+      .getRawMany<{ template_id: string; count: string }>();
+    const countById = new Map(
+      counts.map((row) => [row.template_id, Number.parseInt(row.count, 10)]),
+    );
+
+    return templates.map((template) =>
+      Object.assign(template, { issued_count: countById.get(template.id) ?? 0 }),
+    );
+  }
+
   public async getTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
     const template = await this.templatesRepository.findOne({
       where: ownerId ? { id, owner_id: ownerId } : { id },
@@ -784,6 +834,9 @@ export class CertificatesService {
   ): Promise<CertificateTemplate> {
     const template = await this.getTemplate(id, ownerId);
     Object.assign(template, this.sanitizeTemplateDto(dto));
+    if (template.status === CertificateTemplateStatus.PUBLISHED) {
+      this.assertTemplateCanBeIssued(template);
+    }
     const saved = await this.templatesRepository.save(template);
     if (saved.is_default) {
       await this.unsetOtherDefaults(saved.id, saved.owner_id);
@@ -799,6 +852,8 @@ export class CertificatesService {
    */
   public async publishTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
     const template = await this.getTemplate(id, ownerId);
+
+    this.assertTemplatePlaceholders(template);
 
     const missing: string[] = [];
     if (!template.name?.trim()) missing.push('name');
@@ -909,6 +964,40 @@ export class CertificatesService {
       );
     }
     return template;
+  }
+
+  /** Published designs are executable certificate content, not free-form copy. */
+  private assertTemplateCanBeIssued(template: CertificateTemplate | null): void {
+    if (!template) return;
+    const missing = [
+      !template.name?.trim() ? 'name' : null,
+      !template.title?.trim() ? 'title' : null,
+      !template.body?.trim() ? 'body' : null,
+    ].filter((field): field is string => field !== null);
+    if (missing.length > 0) {
+      throw new BadRequestException(`Certificate template is incomplete: ${missing.join(', ')}`);
+    }
+    this.assertTemplatePlaceholders(template);
+  }
+
+  /** Reject unsupported placeholders before they are frozen into a certificate. */
+  private assertTemplatePlaceholders(
+    template: Pick<CertificateTemplate, 'body' | 'body_ar'>,
+  ): void {
+    const supported = new Set(['student', 'course', 'date']);
+    const unsupported = new Set<string>();
+    for (const value of [template.body, template.body_ar]) {
+      if (typeof value !== 'string') continue;
+      for (const match of value.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
+        const token = match[1]?.trim().toLowerCase();
+        if (token && !supported.has(token)) unsupported.add(`{{${token}}}`);
+      }
+    }
+    if (unsupported.size > 0) {
+      throw new UnprocessableEntityException(
+        `Unsupported certificate placeholders: ${[...unsupported].join(', ')}. Use {{student}}, {{course}}, or {{date}}.`,
+      );
+    }
   }
 
   private snapshotOf(template: CertificateTemplate | null): CertificateTemplateSnapshot | null {

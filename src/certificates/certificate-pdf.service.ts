@@ -1,7 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
 
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
@@ -14,6 +13,7 @@ import { shapeArabicForPdf } from './arabic-pdf-text.util';
 import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
+import { LEARNIX_LOGO_PNG_BASE64 } from './learnix-logo.data';
 
 /** Sensible defaults used when no template row exists. */
 const DEFAULT_TEMPLATE = {
@@ -73,6 +73,9 @@ const ARABIC_FONT_BOLD = require.resolve('noto-sans-arabic/fonts/Bold.ttf');
 
 @Injectable()
 export class CertificatePdfService {
+  private readonly logger = new Logger(CertificatePdfService.name);
+  private hasLoggedMissingLogo = false;
+
   constructor(private readonly configService: ConfigService) {}
 
   /**
@@ -147,8 +150,16 @@ export class CertificatePdfService {
     }
 
     // Platform branding and verification are renderer-owned, never template fields.
-    const logo = this.readLogo();
-    doc.image(logo, width / 2 - 34, 48, { fit: [68, 44] });
+    // A wordmark is always rendered; the optional raster mark must never make a
+    // student's certificate unavailable when an image was not packaged.
+    const logo = this.readLogo(certificate.id);
+    if (logo) {
+      try {
+        doc.image(logo, width / 2 - 34, 48, { fit: [68, 44] });
+      } catch (error) {
+        this.logLogoFallback(certificate.id, 'logo_image_invalid', error);
+      }
+    }
     doc.fillColor(accent).font('Body-Bold').fontSize(16).text('Learnix', 0, 52, { align: 'center' });
 
     // Title.
@@ -294,7 +305,9 @@ export class CertificatePdfService {
     const base = getConfiguredPublicOrigin(
       (key) => this.configService.get<string>(key),
       'FRONTEND_URL',
-      'http://localhost:3000',
+      // A certificate can leave the deployment where it was issued. Never
+      // bake a loopback or container-only URL into its QR code.
+      'https://learnix.school',
     );
     return buildAbsoluteUrl(base, `/verify/${code}`);
   }
@@ -309,18 +322,48 @@ export class CertificatePdfService {
     return Math.max(min, Math.min(max, value));
   }
 
-  /** The fixed platform logo is bundled/configured by the deployment, never user supplied. */
-  private readLogo(): Buffer {
-    const configured = this.configService.get<string>('CERTIFICATE_LOGO_PATH');
-    const candidates = [
-      configured,
-      join(process.cwd(), 'assets', 'Art 2.png'),
-      join(process.cwd(), '..', 'dodline', 'public', 'Art 2.png'),
-    ].filter((path): path is string => Boolean(path));
-    const path = candidates.find((candidate) => existsSync(candidate));
-    if (!path) {
-      throw new Error('Learnix certificate logo is not deployed');
+  /**
+   * The default raster logo is embedded with this backend; it never depends
+   * on another workspace/application or a runtime path. An operator may set
+   * `CERTIFICATE_LOGO_PATH` to deliberately override it with a read-only
+   * asset included in the backend image or mounted storage.
+   *
+   * The PDF's text wordmark is the secure fallback, so an omitted or corrupt
+   * optional image can never turn a valid certificate request into a 500.
+   */
+  private readLogo(certificateId: string | undefined): Buffer | null {
+    const configured = this.configService.get<string>('CERTIFICATE_LOGO_PATH')?.trim();
+    if (!configured) {
+      return Buffer.from(LEARNIX_LOGO_PNG_BASE64, 'base64');
     }
-    return readFileSync(path);
+    if (!existsSync(configured)) {
+      this.logLogoFallback(certificateId, 'logo_path_not_found');
+      return Buffer.from(LEARNIX_LOGO_PNG_BASE64, 'base64');
+    }
+    try {
+      return readFileSync(configured);
+    } catch (error) {
+      this.logLogoFallback(certificateId, 'logo_read_failed', error);
+      return Buffer.from(LEARNIX_LOGO_PNG_BASE64, 'base64');
+    }
+  }
+
+  private logLogoFallback(
+    certificateId: string | undefined,
+    reason: 'logo_path_not_configured' | 'logo_path_not_found' | 'logo_read_failed' | 'logo_image_invalid',
+    error?: unknown,
+  ): void {
+    // Missing static branding is a deploy concern, not a certificate failure.
+    // Log once per process to retain a useful signal without flooding logs.
+    if (this.hasLoggedMissingLogo) return;
+    this.hasLoggedMissingLogo = true;
+    this.logger.warn(
+      JSON.stringify({
+        event: 'certificate_logo_fallback',
+        reason,
+        certificateId: certificateId ?? null,
+        error: error instanceof Error ? error.message : undefined,
+      }),
+    );
   }
 }

@@ -59,6 +59,22 @@ export class TeacherCertificatesController {
     return this.certificatesService.listCertificates(filter, user.userId);
   }
 
+  @Get('issued/:id/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @ApiOperation({ summary: 'Preview an issued certificate for one of my courses' })
+  public async issuedPdf(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: Request,
+  ): Promise<StreamableFile> {
+    const certificate = await this.certificatesService.getManagedCertificateForTeacher(id, user.userId);
+    const pdf = await this.certificatesService.renderPdf(certificate, resolveRequestLocale(request));
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: `inline; filename="certificate-${certificate.certificate_number}.pdf"`,
+    });
+  }
+
   @Post('issue')
   @ApiOperation({ summary: 'Issue certificates for my own course' })
   public issue(@GetUser() user: JwtPayload, @Body() dto: IssueCertificateDto): Promise<unknown> {
@@ -97,6 +113,12 @@ export class TeacherCertificatesController {
   @ApiOperation({ summary: 'List my certificate templates' })
   public templates(@GetUser() user: JwtPayload): Promise<unknown> {
     return this.certificatesService.getTemplates(user.userId);
+  }
+
+  @Get('templates/available')
+  @ApiOperation({ summary: 'List published platform and own templates available for issuance' })
+  public availableTemplates(@GetUser() user: JwtPayload): Promise<unknown> {
+    return this.certificatesService.getIssuableTemplates(user.userId);
   }
 
   @Get('templates/:id')

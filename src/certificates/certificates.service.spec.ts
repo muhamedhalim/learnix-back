@@ -123,7 +123,12 @@ describe('CertificatesService', () => {
         title: 'Algorithms',
         teacher: { name: 'Prof X' },
       });
-      templates.findOne.mockResolvedValue({ id: 't1' });
+      templates.findOne.mockResolvedValue({
+        id: 't1',
+        name: 'Default certificate',
+        title: 'Certificate of Completion',
+        body: 'Presented to {{student}} for {{course}}.',
+      });
       certificates.create.mockImplementation((v: unknown) => v);
       certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
 
@@ -218,6 +223,22 @@ describe('CertificatesService', () => {
       expect(templates.save).not.toHaveBeenCalled();
     });
 
+    it('does not let a published template be edited into unresolved certificate text', async () => {
+      templates.findOne.mockResolvedValue({
+        id: 't1',
+        name: 'Named',
+        title: 'Title',
+        body: 'Presented to {{student}}',
+        body_ar: null,
+        status: CertificateTemplateStatus.PUBLISHED,
+      });
+
+      await expect(service.updateTemplate('t1', { body: 'Presented to {{teacher}}' })).rejects.toThrow(
+        'Unsupported certificate placeholders',
+      );
+      expect(templates.save).not.toHaveBeenCalled();
+    });
+
     it('publish flips the status and makes a teacher template the default', async () => {
       templates.findOne.mockResolvedValue({
         id: 't1',
@@ -292,6 +313,24 @@ describe('CertificatesService', () => {
       expect(certificates.save).not.toHaveBeenCalled();
     });
 
+    it('refuses to freeze an unsupported placeholder into a certificate', async () => {
+      completeCourse();
+      templates.findOne.mockResolvedValue({
+        id: 'tpl-invalid-token',
+        name: 'Invalid token',
+        title: 'Title',
+        body: 'Presented to {{teacher}}',
+        body_ar: null,
+        status: CertificateTemplateStatus.PUBLISHED,
+        owner_id: null,
+      });
+
+      await expect(
+        service.issueForCourse('S1', 'P1', { templateId: 'tpl-invalid-token' }),
+      ).rejects.toThrow('Unsupported certificate placeholders');
+      expect(certificates.save).not.toHaveBeenCalled();
+    });
+
     it("refuses a teacher using another teacher's template", async () => {
       completeCourse();
       templates.findOne.mockResolvedValue({
@@ -312,6 +351,7 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(null);
       templates.findOne.mockResolvedValue({
         id: 'tpl-pub',
+        name: 'Frozen template',
         status: CertificateTemplateStatus.PUBLISHED,
         owner_id: null,
         title: 'Frozen Title',
@@ -356,6 +396,28 @@ describe('CertificatesService', () => {
         certificate,
         expect.objectContaining({ title: 'Old design' }),
         expect.anything(),
+      );
+    });
+  });
+
+  describe('issuable template access', () => {
+    it('returns only published platform and own teacher templates for issuance', async () => {
+      templates.find.mockResolvedValue([
+        { id: 'platform-template', owner_id: null, status: CertificateTemplateStatus.PUBLISHED },
+        { id: 'own-template', owner_id: 'teacher-1', status: CertificateTemplateStatus.PUBLISHED },
+      ]);
+      certificates.createQueryBuilder.mockReturnValue(qb([]));
+
+      const result = await service.getIssuableTemplates('teacher-1');
+
+      expect(result).toHaveLength(2);
+      expect(templates.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.arrayContaining([
+            expect.objectContaining({ owner_id: 'teacher-1' }),
+            expect.objectContaining({ status: CertificateTemplateStatus.PUBLISHED }),
+          ]),
+        }),
       );
     });
   });

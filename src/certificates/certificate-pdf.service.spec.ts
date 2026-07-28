@@ -8,7 +8,7 @@ import { PreferredLanguage } from '../guardians/entities/preferred-language.enum
 
 describe('CertificatePdfService', () => {
   const config = {
-    get: jest.fn().mockReturnValue('https://learnix.school'),
+    get: jest.fn((key: string) => (key === 'FRONTEND_URL' ? 'https://learnix.school' : undefined)),
   } as unknown as ConfigService;
   const service = new CertificatePdfService(config);
 
@@ -28,6 +28,44 @@ describe('CertificatePdfService', () => {
     expect(buffer.length).toBeGreaterThan(1000);
     // PDF files begin with "%PDF".
     expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+  });
+
+  it('renders with the bundled Learnix logo when no deployment override is configured', async () => {
+    const noLogoConfig = {
+      get: jest.fn((key: string) => (key === 'FRONTEND_URL' ? 'https://learnix.school' : undefined)),
+    } as unknown as ConfigService;
+    const noLogoService = new CertificatePdfService(noLogoConfig);
+
+    const buffer = await noLogoService.render(certificate, null);
+
+    expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+  });
+
+  it('keeps rendering with the bundled logo when an override path is unavailable', async () => {
+    const unavailableOverrideConfig = {
+      get: jest.fn((key: string) => {
+        if (key === 'FRONTEND_URL') return 'https://learnix.school';
+        if (key === 'CERTIFICATE_LOGO_PATH') return '/not-deployed/learnix-logo.png';
+        return undefined;
+      }),
+    } as unknown as ConfigService;
+    const unavailableOverrideService = new CertificatePdfService(unavailableOverrideConfig);
+
+    const buffer = await unavailableOverrideService.render(certificate, null);
+
+    expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+  });
+
+  it('never uses a localhost verification URL when FRONTEND_URL is absent', () => {
+    const noOriginConfig = {
+      get: jest.fn().mockReturnValue(undefined),
+    } as unknown as ConfigService;
+    const noOriginService = new CertificatePdfService(noOriginConfig);
+    const verificationUrl = (
+      noOriginService as unknown as { verificationUrl: (code: string) => string }
+    ).verificationUrl('ABCDE23456');
+
+    expect(verificationUrl).toBe('https://learnix.school/verify/ABCDE23456');
   });
 
   it('renders with a custom template + accent colour', async () => {
