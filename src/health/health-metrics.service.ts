@@ -9,12 +9,17 @@ import type { HealthComponentResult, HealthMetricPoint, HealthStatus } from './h
 
 const STATUS_RANK: Record<HealthStatus, number> = {
   healthy: 0,
+  disabled: 0,
   unknown: 1,
   warning: 2,
   misconfigured: 3,
   degraded: 4,
   down: 5,
 };
+
+const MINIMUM_AVAILABILITY_SAMPLES = 5;
+const AVAILABLE_STATUSES: HealthStatus[] = ['healthy', 'warning', 'degraded'];
+const FAILED_STATUSES: HealthStatus[] = ['down', 'misconfigured'];
 
 @Injectable()
 export class HealthMetricsService {
@@ -34,7 +39,11 @@ export class HealthMetricsService {
         resolution: 'raw',
         bucket_start: new Date(component.checkedAt),
         sample_count: 1,
-        metrics: this.numericMetadata(component.metadata),
+        metrics: {
+          ...this.numericMetadata(component.metadata),
+          availabilityEligibleSamples: ['disabled', 'unknown'].includes(component.status) ? 0 : 1,
+          availableSamples: AVAILABLE_STATUSES.includes(component.status) ? 1 : 0,
+        },
       }),
     );
     await this.metrics.insert(rows);
@@ -46,14 +55,17 @@ export class HealthMetricsService {
     const history = await this.metrics.find({
       where: {
         component_id: In(components.map((component) => component.id)),
-        resolution: 'hour',
         bucket_start: MoreThanOrEqual(since),
       },
       order: { bucket_start: 'DESC' },
-      take: 25_000,
+      take: 100_000,
     });
+    const rawCutoff =
+      Date.now() - this.retention('HEALTH_RAW_RETENTION_HOURS', 48, 6, 168) * 3_600_000;
     const grouped = new Map<string, HealthMetric[]>();
     for (const metric of history) {
+      if (metric.resolution === 'day') continue;
+      if (metric.resolution === 'hour' && metric.bucket_start.getTime() >= rawCutoff) continue;
       const list = grouped.get(metric.component_id) ?? [];
       list.push(metric);
       grouped.set(metric.component_id, list);
@@ -61,21 +73,101 @@ export class HealthMetricsService {
 
     return components.map((component) => {
       const samples = grouped.get(component.id) ?? [];
-      const successes = samples.filter((sample) => sample.status === 'healthy');
-      const failures = samples.filter((sample) =>
-        ['degraded', 'down', 'misconfigured'].includes(sample.status),
+      const currentAt = new Date(component.checkedAt);
+      const statusTimeline = [
+        { status: component.status, at: currentAt },
+        ...samples.map((sample) => ({ status: sample.status, at: sample.bucket_start })),
+      ].sort((a, b) => b.at.getTime() - a.at.getTime());
+      const successes = statusTimeline.filter((sample) =>
+        AVAILABLE_STATUSES.includes(sample.status),
       );
+      const failures = statusTimeline.filter((sample) => FAILED_STATUSES.includes(sample.status));
+      let consecutiveFailures = 0;
+      for (const sample of statusTimeline) {
+        if (FAILED_STATUSES.includes(sample.status)) {
+          consecutiveFailures++;
+          continue;
+        }
+        if (AVAILABLE_STATUSES.includes(sample.status)) break;
+      }
+
+      let collectedSamples = 1;
+      let eligibleSamples = ['disabled', 'unknown'].includes(component.status) ? 0 : 1;
+      let availableSamples = AVAILABLE_STATUSES.includes(component.status) ? 1 : 0;
+      for (const sample of samples) {
+        collectedSamples += sample.sample_count;
+        if (sample.resolution === 'raw') {
+          if (!['disabled', 'unknown'].includes(sample.status)) eligibleSamples++;
+          if (AVAILABLE_STATUSES.includes(sample.status)) availableSamples++;
+          continue;
+        }
+        const eligible = sample.metrics['availabilityEligibleSamples'];
+        const available = sample.metrics['availableSamples'];
+        // Aggregates written before the availability accounting change are
+        // intentionally excluded: their worst-status bucket cannot be safely
+        // interpreted as per-sample uptime, but the rows remain preserved.
+        if (typeof eligible === 'number' && typeof available === 'number') {
+          eligibleSamples += eligible;
+          availableSamples += available;
+        }
+      }
+
+      const oldestAt = samples.at(-1)?.bucket_start ?? currentAt;
+      const observedPeriodSeconds = Math.max(0, (currentAt.getTime() - oldestAt.getTime()) / 1000);
+      const cadenceSeconds = this.retention('HEALTH_COLLECTION_INTERVAL_SECONDS', 60, 10, 3_600);
+      const expectedSamples = Math.max(1, Math.floor(observedPeriodSeconds / cadenceSeconds) + 1);
+      const missedSamples = Math.max(0, expectedSamples - collectedSamples);
+      const coveragePercent =
+        expectedSamples === 0
+          ? null
+          : Math.min(100, Math.round((collectedSamples / expectedSamples) * 10_000) / 100);
+      const availabilityPercent =
+        eligibleSamples < MINIMUM_AVAILABILITY_SAMPLES
+          ? null
+          : Math.round((availableSamples / eligibleSamples) * 10_000) / 100;
+      const coverageState =
+        component.status === 'disabled'
+          ? 'disabled'
+          : eligibleSamples === 0
+            ? 'no_data'
+            : eligibleSamples < MINIMUM_AVAILABILITY_SAMPLES
+              ? 'insufficient_data'
+              : availableSamples === 0
+                ? 'unavailable'
+                : 'available';
+      const monitoringCoverage = {
+        state: coverageState,
+        observedPeriodSeconds: Math.round(observedPeriodSeconds),
+        expectedSamples,
+        collectedSamples,
+        eligibleSamples,
+        missedSamples,
+        coveragePercent,
+        minimumSamples: MINIMUM_AVAILABILITY_SAMPLES,
+      } as const;
+      const lastSuccessAt = successes[0]?.at.toISOString() ?? null;
+      const lastFailureAt = failures[0]?.at.toISOString() ?? null;
+      const recentFailureCount = failures.filter(
+        (failure) => failure.at.getTime() >= Date.now() - 24 * 60 * 60 * 1000,
+      ).length;
       return {
         ...component,
-        lastSuccessAt:
-          component.status === 'healthy'
-            ? component.checkedAt
-            : (successes[0]?.bucket_start.toISOString() ?? null),
-        failureCount: failures.length + (component.status === 'healthy' ? 0 : 1),
-        availabilityPercent:
-          samples.length === 0
-            ? null
-            : Math.round((successes.length / samples.length) * 10_000) / 100,
+        lastSuccessAt,
+        lastFailureAt,
+        failureCount: consecutiveFailures,
+        availabilityPercent,
+        monitoringCoverage,
+        diagnostics: {
+          summary: component.message,
+          measuredValues: component.metadata,
+          thresholds: this.thresholdMetadata(component.metadata),
+          reasonCode: component.errorCode,
+          lastSuccessAt,
+          lastFailureAt,
+          recentFailureCount,
+          monitoringCoverage,
+          recommendedAction: component.recommendation,
+        },
       };
     });
   }
@@ -148,12 +240,15 @@ export class HealthMetricsService {
           CASE status
             WHEN 'down' THEN 5 WHEN 'degraded' THEN 4
             WHEN 'misconfigured' THEN 3 WHEN 'warning' THEN 2
-            WHEN 'unknown' THEN 1 ELSE 0 END DESC))[1],
+            WHEN 'unknown' THEN 1 WHEN 'disabled' THEN -1 ELSE 0 END DESC))[1],
         round(avg(latency_ms))::integer,
         'hour',
         date_trunc('hour', bucket_start),
         count(*)::integer,
-        (array_agg(metrics ORDER BY bucket_start DESC))[1],
+        (array_agg(metrics ORDER BY bucket_start DESC))[1] || jsonb_build_object(
+          'availabilityEligibleSamples', sum(CASE WHEN status IN ('disabled','unknown') THEN 0 ELSE 1 END),
+          'availableSamples', sum(CASE WHEN status IN ('healthy','warning','degraded') THEN 1 ELSE 0 END)
+        ),
         now()
       FROM health_metrics
       WHERE resolution = 'raw'
@@ -179,12 +274,15 @@ export class HealthMetricsService {
           CASE status
             WHEN 'down' THEN 5 WHEN 'degraded' THEN 4
             WHEN 'misconfigured' THEN 3 WHEN 'warning' THEN 2
-            WHEN 'unknown' THEN 1 ELSE 0 END DESC))[1],
+            WHEN 'unknown' THEN 1 WHEN 'disabled' THEN -1 ELSE 0 END DESC))[1],
         round(avg(latency_ms))::integer,
         'day',
         date_trunc('day', bucket_start),
         sum(sample_count)::integer,
-        (array_agg(metrics ORDER BY bucket_start DESC))[1],
+        (array_agg(metrics ORDER BY bucket_start DESC))[1] || jsonb_build_object(
+          'availabilityEligibleSamples', sum(COALESCE((metrics->>'availabilityEligibleSamples')::integer, 0)),
+          'availableSamples', sum(COALESCE((metrics->>'availableSamples')::integer, 0))
+        ),
         now()
       FROM health_metrics
       WHERE resolution = 'hour'
@@ -224,27 +322,55 @@ export class HealthMetricsService {
     }
     const rows = (await this.metrics.query(
       `SELECT
-        avg(CASE WHEN status IN ('down','misconfigured') THEN 0 ELSE 1 END)
-          FILTER (WHERE resolution = 'raw' AND bucket_start >= now() - interval '24 hours') * 100 AS uptime_24h,
-        avg(CASE WHEN status IN ('down','misconfigured') THEN 0 ELSE 1 END)
-          FILTER (WHERE resolution = 'hour' AND bucket_start >= now() - interval '7 days') * 100 AS uptime_7d,
-        avg(CASE WHEN status IN ('down','misconfigured') THEN 0 ELSE 1 END)
-          FILTER (WHERE resolution IN ('hour','day') AND bucket_start >= now() - interval '30 days') * 100 AS uptime_30d
+        component_id,
+        sum((metrics->>'availableSamples')::numeric)
+          FILTER (WHERE resolution = 'raw' AND bucket_start >= now() - interval '24 hours') AS available_24h,
+        sum((metrics->>'availabilityEligibleSamples')::numeric)
+          FILTER (WHERE resolution = 'raw' AND bucket_start >= now() - interval '24 hours') AS eligible_24h,
+        sum((metrics->>'availableSamples')::numeric)
+          FILTER (WHERE resolution = 'hour' AND bucket_start >= now() - interval '7 days') AS available_7d,
+        sum((metrics->>'availabilityEligibleSamples')::numeric)
+          FILTER (WHERE resolution = 'hour' AND bucket_start >= now() - interval '7 days') AS eligible_7d,
+        sum((metrics->>'availableSamples')::numeric)
+          FILTER (WHERE resolution = 'hour' AND bucket_start >= now() - interval '30 days') AS available_30d,
+        sum((metrics->>'availabilityEligibleSamples')::numeric)
+          FILTER (WHERE resolution = 'hour' AND bucket_start >= now() - interval '30 days') AS eligible_30d
       FROM health_metrics
-      WHERE component_id = ANY($1)`,
+      WHERE component_id = ANY($1)
+        AND metrics ? 'availabilityEligibleSamples'
+      GROUP BY component_id`,
       [componentIds],
     )) as unknown as Array<{
-      uptime_24h: string | null;
-      uptime_7d: string | null;
-      uptime_30d: string | null;
+      component_id: string;
+      available_24h: string | null;
+      eligible_24h: string | null;
+      available_7d: string | null;
+      eligible_7d: string | null;
+      available_30d: string | null;
+      eligible_30d: string | null;
     }>;
-    const row = rows[0];
-    const normalise = (value: string | null | undefined): number | null =>
-      value === null || value === undefined ? null : Math.round(Number(value) * 1000) / 1000;
+    const normalise = (
+      availableKey: 'available_24h' | 'available_7d' | 'available_30d',
+      eligibleKey: 'eligible_24h' | 'eligible_7d' | 'eligible_30d',
+    ): number | null => {
+      // Calculate each component's ratio independently before averaging.
+      // This prevents a faster cadence or an operator-triggered recheck from
+      // giving one component disproportionate influence over platform uptime.
+      const ratios = rows.flatMap((row) => {
+        const denominator = Number(row[eligibleKey] ?? 0);
+        return denominator < MINIMUM_AVAILABILITY_SAMPLES
+          ? []
+          : [Number(row[availableKey] ?? 0) / denominator];
+      });
+      if (ratios.length === 0) return null;
+      return (
+        Math.round((ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length) * 100_000) / 1000
+      );
+    };
     return {
-      last24Hours: normalise(row?.uptime_24h),
-      last7Days: normalise(row?.uptime_7d),
-      last30Days: normalise(row?.uptime_30d),
+      last24Hours: normalise('available_24h', 'eligible_24h'),
+      last7Days: normalise('available_7d', 'eligible_7d'),
+      last30Days: normalise('available_30d', 'eligible_30d'),
     };
   }
 
@@ -260,5 +386,14 @@ export class HealthMetricsService {
       }
     }
     return numeric;
+  }
+
+  private thresholdMetadata(metadata: Record<string, unknown>): Record<string, number | string> {
+    const thresholds: Record<string, number | string> = {};
+    for (const [key, value] of Object.entries(metadata)) {
+      if (!key.toLowerCase().includes('threshold')) continue;
+      if (typeof value === 'number' || typeof value === 'string') thresholds[key] = value;
+    }
+    return thresholds;
   }
 }

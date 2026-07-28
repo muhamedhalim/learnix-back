@@ -41,19 +41,26 @@ export class HealthDiagnosticsService {
       action: 'health_full_check_run',
       target: 'system',
       details: {
-        status: dashboard?.summary.status ?? 'already_running',
+        status: dashboard?.summary.status ?? this.collection.getLastOutcome(),
         score: dashboard?.summary.score ?? null,
       },
       ipAddress: input.ipAddress,
     });
     return {
       action: 'run_full_health_check',
-      status: dashboard ? 'completed' : 'failed',
+      status:
+        dashboard !== null
+          ? 'completed'
+          : this.collection.getLastOutcome() === 'skipped'
+            ? 'skipped'
+            : 'failed',
       startedAt: startedAt.toISOString(),
       completedAt: new Date().toISOString(),
       message: dashboard
         ? dashboard.summary.banner
-        : 'A health collection is already running or did not complete.',
+        : this.collection.getLastOutcome() === 'skipped'
+          ? 'The collection was safely skipped because this process did not own the distributed lock.'
+          : 'The health collection did not complete.',
     };
   }
 

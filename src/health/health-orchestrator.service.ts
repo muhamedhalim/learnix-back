@@ -112,7 +112,9 @@ export class HealthOrchestratorService {
   public readinessFrom(dashboard: HealthDashboardResponse): 'ready' | 'not_ready' {
     return dashboard.components.some(
       (component) =>
-        component.critical === true && ['down', 'misconfigured'].includes(component.status),
+        (component.importance === 'critical' || component.critical === true) &&
+        component.required !== false &&
+        ['down', 'misconfigured'].includes(component.status),
     )
       ? 'not_ready'
       : 'ready';
@@ -129,9 +131,9 @@ export class HealthOrchestratorService {
 
     const overall = calculateOverallStatus(components);
     const score = calculateHealthScore(components);
-    if (overall === 'operational') {
-      this.lastSuccessfulFullCheck = new Date().toISOString();
-    }
+    // A full check succeeded when every indicator completed, regardless of
+    // whether the measured platform state contains an outage.
+    this.lastSuccessfulFullCheck = new Date().toISOString();
     let riskResult = { risks: [], historyAvailable: false } as Awaited<
       ReturnType<HealthRiskService['evaluate']>
     >;
@@ -160,6 +162,7 @@ export class HealthOrchestratorService {
       degraded: 0,
       down: 0,
       misconfigured: 0,
+      disabled: 0,
       unknown: 0,
     } satisfies Record<HealthStatus, number>;
     for (const component of components) counts[component.status]++;
@@ -229,7 +232,7 @@ export class HealthOrchestratorService {
               latencyMs: Date.now() - startedAt,
               checkedAt: new Date().toISOString(),
               lastSuccessAt: null,
-              failureCount: 1,
+              failureCount: 0,
               availabilityPercent: null,
               message: sanitiseMessage(error),
               metadata: {},
@@ -254,6 +257,19 @@ export class HealthOrchestratorService {
       warnings: component.warnings.map(sanitiseMessage),
       recommendation:
         component.recommendation === null ? null : sanitiseMessage(component.recommendation),
+      ...(component.diagnostics === undefined
+        ? {}
+        : {
+            diagnostics: {
+              ...component.diagnostics,
+              summary: sanitiseMessage(component.diagnostics.summary),
+              measuredValues: sanitiseMetadata(component.diagnostics.measuredValues),
+              recommendedAction:
+                component.diagnostics.recommendedAction === null
+                  ? null
+                  : sanitiseMessage(component.diagnostics.recommendedAction),
+            },
+          }),
     }));
   }
 
@@ -264,10 +280,11 @@ export class HealthOrchestratorService {
       misconfigured: 3,
       warning: 2,
       unknown: 1,
+      disabled: 0,
       healthy: 0,
     };
     const issues = components
-      .filter((component) => component.status !== 'healthy')
+      .filter((component) => !['healthy', 'disabled'].includes(component.status))
       .sort((a, b) => {
         const critical = Number(b.critical === true) - Number(a.critical === true);
         return critical || priority[b.status] - priority[a.status];
@@ -280,11 +297,13 @@ export class HealthOrchestratorService {
     const prefix =
       overall === 'operational'
         ? 'Platform is operational'
-        : overall === 'degraded'
-          ? 'Platform performance is degraded'
-          : overall === 'partial_outage'
-            ? 'Platform has a partial outage'
-            : 'Platform has a major outage';
+        : overall === 'operational_with_warnings'
+          ? 'Platform is operational with warnings'
+          : overall === 'degraded'
+            ? 'Platform performance is degraded'
+            : overall === 'partial_outage'
+              ? 'Platform has a partial outage'
+              : 'Platform has a major outage';
     return `${prefix}; ${names} ${leading.length === 1 ? 'requires' : 'require'} attention. ${leading[0]!.message}`;
   }
 
@@ -293,20 +312,52 @@ export class HealthOrchestratorService {
     edges: HealthDependencyEdge[];
   } {
     const byId = new Map(components.map((component) => [component.id, component]));
+    const virtualDependencies = new Map<
+      string,
+      HealthDashboardResponse['dependencyMap']['nodes'][number]
+    >();
+    for (const component of components) {
+      for (const dependency of component.dependencies) {
+        if (byId.has(dependency) || virtualDependencies.has(dependency)) continue;
+        const workerDependency = dependency.startsWith('worker-');
+        const workerConnected = component.metadata['workerConnected'] === true;
+        const backlog = Number(component.metadata['backlog'] ?? 0);
+        virtualDependencies.set(dependency, {
+          id: dependency,
+          label: workerDependency ? `${component.name} worker` : dependency,
+          category: workerDependency ? 'queue' : 'application',
+          status: workerDependency
+            ? workerConnected
+              ? 'healthy'
+              : backlog > 0
+                ? 'down'
+                : 'unknown'
+            : 'unknown',
+          latencyMs: null,
+        });
+      }
+    }
     return {
-      nodes: components.map((component) => ({
-        id: component.id,
-        label: component.name,
-        category: component.category,
-        status: component.status,
-        latencyMs: component.latencyMs,
-      })),
+      nodes: [
+        ...components.map((component) => ({
+          id: component.id,
+          label: component.name,
+          category: component.category,
+          status: component.status,
+          latencyMs: component.latencyMs,
+        })),
+        ...virtualDependencies.values(),
+      ],
       edges: components.flatMap((component) =>
         component.dependencies.map((dependency) => ({
           from: component.id,
           to: dependency,
-          status: byId.get(dependency)?.status ?? 'unknown',
+          status:
+            byId.get(dependency)?.status ??
+            virtualDependencies.get(dependency)?.status ??
+            'unknown',
           impact: `${component.name} depends on ${byId.get(dependency)?.name ?? dependency}.`,
+          type: component.dependencyTypes?.[dependency] ?? 'direct',
         })),
       ),
     };

@@ -17,6 +17,7 @@ import {
   translateMessage,
   translateMessages,
 } from '../../i18n/error-translator.util';
+import { performanceMetrics } from '../../observability/performance-metrics.registry';
 
 /**
  * RFC 7807 Problem Details for HTTP APIs
@@ -65,6 +66,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const locale = resolveRequestLocale(request);
     const problemDetails = this.createProblemDetails(exception, request, locale, requestId);
     const { status } = problemDetails;
+    performanceMetrics.recordHttpException({
+      method: request.method,
+      route: request.route?.path ? `${request.baseUrl}${String(request.route.path)}` : 'unmatched',
+      status,
+      exceptionType: exception instanceof Error ? exception.name : 'UnknownError',
+    });
 
     // Log the error with appropriate level
     const logLevel = this.getLogLevel(status);
@@ -147,10 +154,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (multerCode === 'LIMIT_FILE_SIZE') {
         status = HttpStatus.PAYLOAD_TOO_LARGE;
         title = 'Payload Too Large';
-        detail = translateMessage(
-          'Uploaded file exceeds the maximum allowed size.',
-          locale,
-        );
+        detail = translateMessage('Uploaded file exceeds the maximum allowed size.', locale);
       } else {
         status = HttpStatus.BAD_REQUEST;
         title = 'Bad Request';

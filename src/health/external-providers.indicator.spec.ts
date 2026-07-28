@@ -17,7 +17,19 @@ describe('ExternalProvidersHealthIndicator', () => {
           key === 'EASYKASH_API_KEY' ? 'configured-key' : undefined,
         ),
     } as unknown as ConfigService;
-    const mail = { isConfigured: jest.fn().mockReturnValue(false) } as unknown as MailService;
+    const mail = {
+      getHealthStatus: jest.fn().mockReturnValue({
+        state: 'disabled',
+        enabled: false,
+        configured: false,
+        missing: [],
+        configuredTemplateCount: 0,
+        probeExecuted: false,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+      }),
+    } as unknown as MailService;
     const dataSource = { query: jest.fn() } as unknown as DataSource;
     const indicator = new ExternalProvidersHealthIndicator(config, mail, dataSource);
     const results = await indicator.check();
@@ -37,11 +49,114 @@ describe('ExternalProvidersHealthIndicator', () => {
     const config = {
       get: jest.fn().mockImplementation((key: string) => values[key]),
     } as unknown as ConfigService;
-    const mail = { isConfigured: jest.fn().mockReturnValue(false) } as unknown as MailService;
+    const mail = {
+      getHealthStatus: jest.fn().mockReturnValue({
+        state: 'disabled',
+        enabled: false,
+        configured: false,
+        missing: [],
+        configuredTemplateCount: 0,
+        probeExecuted: false,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+      }),
+    } as unknown as MailService;
     const dataSource = { query: jest.fn() } as unknown as DataSource;
     const indicator = new ExternalProvidersHealthIndicator(config, mail, dataSource);
     const results = await indicator.check();
     expect(results.find((result) => result.id === 'frontend-web')?.status).toBe('down');
     expect(results.find((result) => result.id === 'jwt-authentication')?.status).toBe('healthy');
+  });
+
+  it.each([
+    ['disabled', false, false, 'disabled'],
+    ['misconfigured', true, false, 'misconfigured'],
+    ['configured', true, true, 'healthy'],
+    ['authentication_failed', true, true, 'misconfigured'],
+    ['provider_unavailable', true, true, 'degraded'],
+    ['rate_limited', true, true, 'degraded'],
+  ] as const)(
+    'classifies MailerSend runtime state %s',
+    async (state, enabled, configured, expected) => {
+      const config = { get: jest.fn() } as unknown as ConfigService;
+      const mail = {
+        getHealthStatus: jest.fn().mockReturnValue({
+          state,
+          enabled,
+          configured,
+          missing: configured ? [] : ['MAILERSEND_API_KEY'],
+          configuredTemplateCount: 4,
+          probeExecuted: false,
+          lastAttemptAt: null,
+          lastSuccessAt: null,
+          lastFailureAt: null,
+        }),
+      } as unknown as MailService;
+      const indicator = new ExternalProvidersHealthIndicator(config, mail, {
+        query: jest.fn(),
+      } as unknown as DataSource);
+      const result = (await indicator.check()).find(
+        (component) => component.id === 'mailersend-email',
+      );
+      expect(result?.status).toBe(expected);
+      expect(JSON.stringify(result)).not.toContain('test-api-key');
+    },
+  );
+
+  it('marks optional providers disabled when their capability is not configured', async () => {
+    const config = {
+      get: jest
+        .fn()
+        .mockImplementation((key: string) => (key === 'SENTRY_ENABLED' ? 'false' : undefined)),
+    } as unknown as ConfigService;
+    const mail = {
+      getHealthStatus: jest.fn().mockReturnValue({
+        state: 'disabled',
+        enabled: false,
+        configured: false,
+        missing: [],
+        configuredTemplateCount: 0,
+        probeExecuted: false,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+      }),
+    } as unknown as MailService;
+    const results = await new ExternalProvidersHealthIndicator(config, mail, {
+      query: jest.fn(),
+    } as unknown as DataSource).check();
+    for (const id of ['firebase', 'meta-whatsapp', 'twilio-sms', 'sentry']) {
+      expect(results.find((result) => result.id === id)?.status).toBe('disabled');
+    }
+  });
+
+  it('marks Sentry misconfigured only when explicitly enabled without a DSN', async () => {
+    const config = {
+      get: jest
+        .fn()
+        .mockImplementation((key: string) => (key === 'SENTRY_ENABLED' ? 'true' : undefined)),
+    } as unknown as ConfigService;
+    const mail = {
+      getHealthStatus: jest.fn().mockReturnValue({
+        state: 'disabled',
+        enabled: false,
+        configured: false,
+        missing: [],
+        configuredTemplateCount: 0,
+        probeExecuted: false,
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+      }),
+    } as unknown as MailService;
+    const results = await new ExternalProvidersHealthIndicator(config, mail, {
+      query: jest.fn(),
+    } as unknown as DataSource).check();
+    expect(results.find((result) => result.id === 'sentry')).toMatchObject({
+      status: 'misconfigured',
+      required: false,
+      importance: 'optional',
+    });
   });
 });

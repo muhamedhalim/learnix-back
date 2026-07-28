@@ -6,6 +6,7 @@ import * as admin from 'firebase-admin';
 import { DataSource } from 'typeorm';
 
 import { MailService } from '../../mail/mail.service';
+import { isSentryEnabled } from '../../observability/sentry';
 import type { HealthIndicator } from '../health-indicator.interface';
 import { errorCode, sanitiseMessage } from '../health-sanitizer.util';
 import type { HealthCategory, HealthComponentResult } from '../health.types';
@@ -127,43 +128,77 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
 
   private async checkEmail(): Promise<HealthComponentResult> {
     const startedAt = Date.now();
-    if (!this.mail.isConfigured()) {
+    const mail = this.mail.getHealthStatus();
+    if (!mail.enabled) {
+      return this.disabled(
+        'mailersend-email',
+        'Email delivery',
+        'provider',
+        startedAt,
+        'MailerSend delivery is disabled by MAIL_PROVIDER.',
+      );
+    }
+    if (!mail.configured) {
       return this.misconfigured(
         'mailersend-email',
         'Email delivery',
         'provider',
         startedAt,
-        'MailerSend is not configured; production email delivery is unavailable.',
-        true,
+        `MailerSend is enabled but required configuration is incomplete (${mail.missing.join(', ')}).`,
+        false,
       );
     }
-    try {
-      await this.mail.verifyConnectivity();
-      return componentResult({
-        id: 'mailersend-email',
-        name: 'Email delivery',
-        category: 'provider',
-        status: 'healthy',
-        startedAt,
-        message: 'MailerSend is configured and outbound emails will be queued for delivery.',
-        metadata: {
-          purpose: 'Transactional and administrative email',
-          configured: true,
-          provider: this.config.get<string>('MAIL_PROVIDER') ?? null,
-          sender: this.config.get<string>('MAIL_FROM_EMAIL') ?? null,
-        },
-        dependencies: ['backend-api'],
-      });
-    } catch (error) {
-      return this.failed(
-        'mailersend-email',
-        'Email delivery',
-        'provider',
-        startedAt,
-        error,
-        'Verify MAIL_PROVIDER, MAILERSEND_API_KEY, MAIL_FROM_EMAIL, and MailerSend status.',
-      );
-    }
+    const status =
+      mail.state === 'authentication_failed'
+        ? 'misconfigured'
+        : mail.state === 'rate_limited' || mail.state === 'provider_unavailable'
+          ? 'degraded'
+          : 'healthy';
+    const errorCode =
+      mail.state === 'authentication_failed'
+        ? 'MAILERSEND_AUTHENTICATION_FAILED'
+        : mail.state === 'rate_limited'
+          ? 'MAILERSEND_RATE_LIMITED'
+          : mail.state === 'provider_unavailable'
+            ? 'MAILERSEND_PROVIDER_UNAVAILABLE'
+            : null;
+    return componentResult({
+      id: 'mailersend-email',
+      name: 'Email delivery',
+      category: 'provider',
+      status,
+      startedAt,
+      message:
+        status === 'healthy'
+          ? 'MailerSend configuration is valid; no message-generating provider probe was executed.'
+          : 'MailerSend reported a delivery failure during the most recent real email attempt.',
+      metadata: {
+        purpose: 'Transactional and administrative email',
+        configured: true,
+        enabled: true,
+        provider: 'mailersend',
+        configuredTemplateCount: mail.configuredTemplateCount,
+        probeExecuted: false,
+        probeStatus: 'not_executed',
+        lastProviderAttemptAt: mail.lastAttemptAt,
+        lastProviderSuccessAt: mail.lastSuccessAt,
+        lastProviderFailureAt: mail.lastFailureAt,
+        providerState: mail.state,
+      },
+      warnings:
+        mail.lastAttemptAt === null
+          ? ['Provider authentication has not yet been observed from a real delivery.']
+          : [],
+      errorCode,
+      recommendation:
+        status === 'healthy'
+          ? null
+          : 'Verify the MailerSend account, API key permissions, sender domain, rate limit, and provider status.',
+      dependencies: ['redis', 'worker-email'],
+      dependencyTypes: { redis: 'direct', 'worker-email': 'operational' },
+      importance: 'important',
+      required: true,
+    });
   }
 
   private async checkEasyKash(): Promise<HealthComponentResult> {
@@ -239,13 +274,12 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const email = this.config.get<string>('FIREBASE_CLIENT_EMAIL') ?? '';
     const key = this.config.get<string>('FIREBASE_PRIVATE_KEY') ?? '';
     if (projectId === '' && email === '' && key === '') {
-      return this.misconfigured(
+      return this.disabled(
         'firebase',
         'Firebase authentication',
         'authentication',
         startedAt,
-        'Firebase is installed but not configured; Firebase bearer authentication is disabled.',
-        false,
+        'Firebase bearer authentication is disabled in this environment.',
       );
     }
     if (projectId === '' || email === '' || key === '') {
@@ -294,13 +328,12 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const phoneId = this.config.get<string>('META_WHATSAPP_PHONE_NUMBER_ID') ?? '';
     const token = this.config.get<string>('META_WHATSAPP_ACCESS_TOKEN') ?? '';
     if (phoneId === '' && token === '') {
-      return this.misconfigured(
+      return this.disabled(
         'meta-whatsapp',
         'Meta WhatsApp',
         'provider',
         startedAt,
-        'Meta WhatsApp is installed but not configured; SMS remains the fallback.',
-        false,
+        'Meta WhatsApp notifications are disabled in this environment.',
       );
     }
     if (phoneId === '' || token === '') {
@@ -337,13 +370,12 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const token = this.config.get<string>('TWILIO_AUTH_TOKEN') ?? '';
     const from = this.config.get<string>('TWILIO_PHONE_NUMBER') ?? '';
     if (sid === '' && token === '' && from === '') {
-      return this.misconfigured(
+      return this.disabled(
         'twilio-sms',
         'Twilio SMS',
         'provider',
         startedAt,
-        'Twilio is installed but not configured; SMS fallback is unavailable.',
-        false,
+        'Twilio SMS is disabled in this environment.',
       );
     }
     if (sid === '' || token === '' || from === '') {
@@ -434,32 +466,55 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
   private async checkSentry(): Promise<HealthComponentResult> {
     const startedAt = Date.now();
     const dsn = this.config.get<string>('SENTRY_DSN') ?? '';
+    const explicitlyEnabled = this.config.get<string>('SENTRY_ENABLED') === 'true';
+    const explicitlyDisabled = this.config.get<string>('SENTRY_ENABLED') === 'false';
+    if (explicitlyDisabled || (!explicitlyEnabled && dsn === '')) {
+      return this.disabled(
+        'sentry',
+        'Sentry monitoring',
+        'monitoring',
+        startedAt,
+        'Sentry monitoring is disabled in this environment.',
+      );
+    }
     if (dsn === '') {
       return this.misconfigured(
         'sentry',
         'Sentry monitoring',
         'monitoring',
         startedAt,
-        'Sentry is installed but not configured; external error monitoring is disabled.',
+        'Sentry is enabled but SENTRY_DSN is missing.',
         false,
       );
     }
+    const initialized = isSentryEnabled();
     return componentResult({
       id: 'sentry',
       name: 'Sentry monitoring',
       category: 'monitoring',
-      status: 'warning',
+      status: initialized ? 'healthy' : 'misconfigured',
       startedAt,
-      message:
-        'Sentry is initialised, but delivery cannot be verified safely without emitting a synthetic error.',
+      message: initialized
+        ? 'Sentry SDK is initialized; no synthetic exception was emitted.'
+        : 'Sentry is configured but the SDK is not initialized in this process.',
       metadata: {
         configured: true,
         release: this.config.get<string>('SENTRY_RELEASE') ?? null,
         traceSampleRate: this.config.get<number>('SENTRY_TRACES_SAMPLE_RATE') ?? null,
         environment: this.config.get<string>('NODE_ENV') ?? 'development',
+        sdkInitialized: initialized,
+        probeExecuted: false,
       },
-      warnings: ['Use the Sentry project monitor to confirm event ingestion and alert delivery.'],
-      dependencies: ['backend-api'],
+      warnings: initialized
+        ? ['Use the Sentry project monitor to confirm event ingestion and alert delivery.']
+        : [],
+      errorCode: initialized ? null : 'SENTRY_SDK_NOT_INITIALIZED',
+      recommendation: initialized
+        ? null
+        : 'Verify that instrumentation initializes Sentry before NestJS starts.',
+      dependencies: [],
+      importance: 'optional',
+      required: false,
     });
   }
 
@@ -527,6 +582,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     message: string,
     critical: boolean,
   ): HealthComponentResult {
+    const required = id === 'mailersend-email';
     return componentResult({
       id,
       name,
@@ -539,6 +595,29 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       recommendation: `Configure ${name} only if this capability is enabled in this environment.`,
       dependencies: ['backend-api'],
       critical,
+      importance: required ? 'important' : 'optional',
+      required,
+    });
+  }
+
+  private disabled(
+    id: string,
+    name: string,
+    category: HealthCategory,
+    startedAt: number,
+    message: string,
+  ): HealthComponentResult {
+    return componentResult({
+      id,
+      name,
+      category,
+      status: 'disabled',
+      startedAt,
+      message,
+      metadata: { configured: false, enabled: false, probeExecuted: false },
+      dependencies: [],
+      importance: 'optional',
+      required: false,
     });
   }
 

@@ -4,9 +4,41 @@ export type HealthStatus =
   | 'degraded'
   | 'down'
   | 'misconfigured'
+  | 'disabled'
   | 'unknown';
 
-export type OverallHealthStatus = 'operational' | 'degraded' | 'partial_outage' | 'major_outage';
+export type OverallHealthStatus =
+  | 'operational'
+  | 'operational_with_warnings'
+  | 'degraded'
+  | 'partial_outage'
+  | 'major_outage';
+
+export type HealthImportance = 'critical' | 'important' | 'optional';
+export type HealthDependencyType = 'direct' | 'operational' | 'optional';
+
+export interface MonitoringCoverage {
+  state: 'available' | 'unavailable' | 'insufficient_data' | 'no_data' | 'disabled';
+  observedPeriodSeconds: number | null;
+  expectedSamples: number;
+  collectedSamples: number;
+  eligibleSamples: number;
+  missedSamples: number;
+  coveragePercent: number | null;
+  minimumSamples: number;
+}
+
+export interface HealthDiagnostics {
+  summary: string;
+  measuredValues: Record<string, unknown>;
+  thresholds: Record<string, number | string>;
+  reasonCode: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  recentFailureCount: number;
+  monitoringCoverage: MonitoringCoverage;
+  recommendedAction: string | null;
+}
 
 export type HealthCategory =
   | 'application'
@@ -35,8 +67,14 @@ export interface HealthComponentResult {
   warnings: string[];
   errorCode: string | null;
   dependencies: string[];
+  dependencyTypes?: Partial<Record<string, HealthDependencyType>>;
   recommendation: string | null;
   critical?: boolean;
+  importance?: HealthImportance;
+  required?: boolean;
+  monitoringCoverage?: MonitoringCoverage;
+  lastFailureAt?: string | null;
+  diagnostics?: HealthDiagnostics;
 }
 
 export interface HealthDependencyNode {
@@ -52,6 +90,7 @@ export interface HealthDependencyEdge {
   to: string;
   status: HealthStatus;
   impact: string;
+  type: HealthDependencyType;
 }
 
 export interface HealthRisk {
@@ -115,7 +154,7 @@ export interface HealthMetricPoint {
 
 export interface DiagnosticActionResult {
   action: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'skipped';
   startedAt: string;
   completedAt: string;
   message: string;

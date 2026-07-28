@@ -90,6 +90,12 @@ describe('MailService', () => {
       { email: 'student@example.test', data: { reset_url: 'https://app.example.test/reset' } },
     ]);
     expect(params.html).toBeUndefined();
+    expect(service.getHealthStatus()).toMatchObject({
+      state: 'configured',
+      lastAttemptAt: expect.any(String),
+      lastSuccessAt: expect.any(String),
+      lastFailureAt: null,
+    });
   });
 
   it('does not initialize MailerSend for any other provider', async () => {

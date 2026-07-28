@@ -80,19 +80,32 @@ export class ParentNotificationProcessor extends WorkerHost {
       return;
     }
 
-    const failures: string[] = [];
+    const transientFailures: string[] = [];
+    let permanentFailures = 0;
     for (const target of targets) {
       try {
         await this.deliverToGuardian(eventType, subjectId, variables, target, job.attemptsMade + 1);
       } catch (error) {
         // Collect and rethrow after the loop so one guardian's transient
         // failure does not deprive the others of their message.
-        failures.push(error instanceof Error ? error.message : String(error));
+        if (error instanceof UnrecoverableError) {
+          permanentFailures++;
+          this.logger.warn(`Permanent guardian delivery rejection: ${error.message}`);
+        } else {
+          transientFailures.push(error instanceof Error ? error.message : String(error));
+        }
       }
     }
 
-    if (failures.length > 0) {
-      throw new Error(`Transient delivery failure for ${String(failures.length)} guardian(s): ${failures[0] ?? ''}`);
+    if (transientFailures.length > 0) {
+      throw new Error(
+        `Transient delivery failure for ${String(transientFailures.length)} guardian(s): ${transientFailures[0] ?? ''}`,
+      );
+    }
+    if (permanentFailures > 0) {
+      this.logger.warn(
+        `${String(permanentFailures)} guardian delivery target(s) were permanently ineligible; no retry scheduled.`,
+      );
     }
   }
 
@@ -117,9 +130,7 @@ export class ParentNotificationProcessor extends WorkerHost {
 
     const available = this.channels.resolve(channelTarget);
     if (available.length === 0) {
-      throw new UnrecoverableError(
-        `No channel can address guardian ${target.guardian_id}`,
-      );
+      throw new UnrecoverableError(`No channel can address guardian ${target.guardian_id}`);
     }
 
     // Reserve the send before touching a provider. A crash between "accepted"

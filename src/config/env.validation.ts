@@ -98,6 +98,24 @@ export class EnvironmentVariables {
   @IsOptional()
   public REDIS_URL?: string;
 
+  @IsString()
+  @IsOptional()
+  public PROCESS_ROLE?: string;
+
+  @IsString()
+  @IsOptional()
+  public HEALTH_COLLECTOR_PROCESS_ROLE?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public HEALTH_COLLECTOR_CADENCE_SECONDS?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public HEALTH_COLLECTOR_LOCK_TTL_MS?: number;
+
   // BullMQ tuning (fall back to legacy QUEUE_MAX_ATTEMPTS/QUEUE_BACKOFF_DELAY/
   // QUEUE_CONCURRENCY names when these are unset — see queues.constants.ts).
   @IsNumber()
@@ -163,6 +181,10 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  public SENTRY_ENABLED?: string;
+
+  @IsString()
+  @IsOptional()
   public SENTRY_RELEASE?: string;
 
   @IsNumber()
@@ -193,6 +215,18 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   public FIREBASE_PRIVATE_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  public TWILIO_ACCOUNT_SID?: string;
+
+  @IsString()
+  @IsOptional()
+  public TWILIO_AUTH_TOKEN?: string;
+
+  @IsString()
+  @IsOptional()
+  public TWILIO_PHONE_NUMBER?: string;
 
   // Bunny.net Stream (video hosting)
   @IsString()

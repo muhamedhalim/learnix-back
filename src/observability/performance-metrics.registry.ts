@@ -35,6 +35,7 @@ interface HttpMetricValue {
   responseBytesSum: number;
   durationBuckets: number[];
   queryCountBuckets: number[];
+  slowRequestCount: number;
 }
 
 export interface HttpPerformanceSample extends HttpMetricKey {
@@ -63,8 +64,13 @@ export interface CacheMetricSample {
 export interface PerformanceMetricsSnapshot {
   requests: number;
   requestsPerMinute: number;
-  averageLatencyMs: number;
+  averageLatencyMs: number | null;
+  p95LatencyMs: number | null;
   errorRatePercent: number;
+  serverErrorRatePercent: number;
+  clientErrorRatePercent: number;
+  timeoutRatePercent: number;
+  slowRequestRatePercent: number;
   responses4xx: number;
   responses5xx: number;
   slowEndpointCount: number;
@@ -82,6 +88,20 @@ export interface PerformanceMetricsSnapshot {
   uptimeSeconds: number;
   eventLoopDelayMs: number;
   eventLoopDelayMaxMs: number;
+  routeBreakdown: Array<{
+    method: string;
+    route: string;
+    status: number;
+    requests: number;
+    averageLatencyMs: number;
+  }>;
+  exceptionBreakdown: Array<{
+    method: string;
+    route: string;
+    status: number;
+    exceptionType: string;
+    count: number;
+  }>;
 }
 
 function escapeLabel(value: string): string {
@@ -106,6 +126,7 @@ class PerformanceMetricsRegistry {
   private queryDurationMsSum = 0;
   private readonly failureCounts = new Map<FailureDomain, number>();
   private readonly cacheMetrics = new Map<string, { count: number; loadTimeMsSum: number }>();
+  private readonly httpExceptions = new Map<string, number>();
 
   /**
    * Increment a business/runtime failure counter (payment, webhook, email,
@@ -129,6 +150,7 @@ class PerformanceMetricsRegistry {
         responseBytesSum: 0,
         durationBuckets: DURATION_BUCKETS_MS.map(() => 0),
         queryCountBuckets: QUERY_COUNT_BUCKETS.map(() => 0),
+        slowRequestCount: 0,
       };
       this.httpMetrics.set(mapKey, metric);
     }
@@ -138,6 +160,7 @@ class PerformanceMetricsRegistry {
     metric.dbDurationMsSum += sample.dbDurationMs;
     metric.queryCountSum += sample.queryCount;
     metric.responseBytesSum += sample.responseBytes;
+    if (sample.durationMs >= 500) metric.slowRequestCount++;
 
     for (let index = 0; index < DURATION_BUCKETS_MS.length; index++) {
       if (sample.durationMs <= DURATION_BUCKETS_MS[index]!) {
@@ -149,6 +172,18 @@ class PerformanceMetricsRegistry {
         metric.queryCountBuckets[index]!++;
       }
     }
+  }
+
+  public recordHttpException(input: {
+    method: string;
+    route: string;
+    status: number;
+    exceptionType: string;
+  }): void {
+    const safeType =
+      input.exceptionType.replaceAll(/[^A-Za-z0-9_.-]/gu, '').slice(0, 80) || 'UnknownError';
+    const key = `${input.method}\u0000${input.route}\u0000${input.status.toString()}\u0000${safeType}`;
+    this.httpExceptions.set(key, (this.httpExceptions.get(key) ?? 0) + 1);
   }
 
   public recordQuery(durationMs: number, success: boolean): void {
@@ -179,19 +214,54 @@ class PerformanceMetricsRegistry {
     let durationMs = 0;
     let responses4xx = 0;
     let responses5xx = 0;
+    let timeouts = 0;
+    let slowRequests = 0;
     const slowRoutes = new Set<string>();
+    const aggregateDurationBuckets = DURATION_BUCKETS_MS.map(() => 0);
+    const routeBreakdown: PerformanceMetricsSnapshot['routeBreakdown'] = [];
 
     for (const [key, metric] of this.httpMetrics) {
-      const [, route = '', statusValue = '0'] = key.split('\u0000');
+      const [method = '', route = '', statusValue = '0'] = key.split('\u0000');
       const status = Number(statusValue);
       requests += metric.requestCount;
       durationMs += metric.durationMsSum;
       if (status >= 400 && status < 500) responses4xx += metric.requestCount;
       if (status >= 500) responses5xx += metric.requestCount;
+      if (status === 408 || status === 504) timeouts += metric.requestCount;
+      slowRequests += metric.slowRequestCount;
+      for (let index = 0; index < aggregateDurationBuckets.length; index++) {
+        aggregateDurationBuckets[index]! += metric.durationBuckets[index] ?? 0;
+      }
+      routeBreakdown.push({
+        method,
+        route,
+        status,
+        requests: metric.requestCount,
+        averageLatencyMs: metric.durationMsSum / Math.max(metric.requestCount, 1),
+      });
       if (metric.requestCount > 0 && metric.durationMsSum / metric.requestCount >= 500) {
         slowRoutes.add(route);
       }
     }
+    const p95Target = Math.ceil(requests * 0.95);
+    const p95BucketIndex =
+      requests === 0 ? -1 : aggregateDurationBuckets.findIndex((count) => count >= p95Target);
+    const p95LatencyMs =
+      p95BucketIndex === -1
+        ? requests === 0
+          ? null
+          : DURATION_BUCKETS_MS.at(-1)!
+        : DURATION_BUCKETS_MS[p95BucketIndex]!;
+    const exceptionBreakdown: PerformanceMetricsSnapshot['exceptionBreakdown'] = [
+      ...this.httpExceptions.entries(),
+    ]
+      .map(([key, count]) => {
+        const [method = '', route = '', status = '0', exceptionType = 'UnknownError'] =
+          key.split('\u0000');
+        return { method, route, status: Number(status), exceptionType, count };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
 
     const memory = process.memoryUsage();
     const cpu = process.cpuUsage();
@@ -219,8 +289,15 @@ class PerformanceMetricsRegistry {
     return {
       requests,
       requestsPerMinute: requests / elapsedMinutes,
-      averageLatencyMs: requests === 0 ? 0 : durationMs / requests,
-      errorRatePercent: requests === 0 ? 0 : ((responses4xx + responses5xx) / requests) * 100,
+      averageLatencyMs: requests === 0 ? null : durationMs / requests,
+      p95LatencyMs,
+      // Backward-compatible alias: operational error rate is server errors,
+      // never expected authentication/not-found client responses.
+      errorRatePercent: requests === 0 ? 0 : (responses5xx / requests) * 100,
+      serverErrorRatePercent: requests === 0 ? 0 : (responses5xx / requests) * 100,
+      clientErrorRatePercent: requests === 0 ? 0 : (responses4xx / requests) * 100,
+      timeoutRatePercent: requests === 0 ? 0 : (timeouts / requests) * 100,
+      slowRequestRatePercent: requests === 0 ? 0 : (slowRequests / requests) * 100,
       responses4xx,
       responses5xx,
       slowEndpointCount: slowRoutes.size,
@@ -238,6 +315,8 @@ class PerformanceMetricsRegistry {
       uptimeSeconds: process.uptime(),
       eventLoopDelayMs: eventLoopDelay.mean / 1e6,
       eventLoopDelayMaxMs: eventLoopDelay.max / 1e6,
+      routeBreakdown: routeBreakdown.sort((a, b) => b.requests - a.requests).slice(0, 30),
+      exceptionBreakdown,
     };
   }
 

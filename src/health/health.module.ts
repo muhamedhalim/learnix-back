@@ -8,6 +8,7 @@ import { HealthAlertRule, HealthErrorGroup, HealthIncident, HealthMetric } from 
 import { HealthAlertService } from './health-alert.service';
 import { HealthAuditService } from './health-audit.service';
 import { HealthCollectionService } from './health-collection.service';
+import { HealthCollectorCoordinatorService } from './health-collector-coordinator.service';
 import { HealthController } from './health.controller';
 import { HealthDiagnosticsService } from './health-diagnostics.service';
 import { HealthErrorService } from './health-error.service';
@@ -48,6 +49,7 @@ import { StorageHealthIndicator } from './indicators/storage.indicator';
     HealthAlertService,
     HealthAuditService,
     HealthDiagnosticsService,
+    HealthCollectorCoordinatorService,
     HealthCollectionService,
     BackendApiHealthIndicator,
     DatabaseHealthIndicator,

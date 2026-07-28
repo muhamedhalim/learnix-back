@@ -10,21 +10,13 @@ import { PreferredLanguage } from '../guardians/entities/preferred-language.enum
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { MailDeliveryException } from './mail-delivery.exception';
-
-export const MAILERSEND_TEMPLATE_ENV = {
-  welcome: 'MAILERSEND_TEMPLATE_WELCOME',
-  passwordReset: 'MAILERSEND_TEMPLATE_PASSWORD_RESET',
-  verification: 'MAILERSEND_TEMPLATE_LOGIN_VERIFICATION',
-  invitation: 'MAILERSEND_TEMPLATE_INVITATION',
-  paymentConfirmation: 'MAILERSEND_TEMPLATE_PAYMENT_CONFIRMATION',
-  invoice: 'MAILERSEND_TEMPLATE_INVOICE',
-  certificate: 'MAILERSEND_TEMPLATE_CERTIFICATE',
-  homework: 'MAILERSEND_TEMPLATE_HOMEWORK',
-  exam: 'MAILERSEND_TEMPLATE_EXAM',
-  subscription: 'MAILERSEND_TEMPLATE_SUBSCRIPTION',
-} as const;
-
-export type MailTemplateName = keyof typeof MAILERSEND_TEMPLATE_ENV;
+import {
+  classifyMailerSendError,
+  resolveMailerSendConfig,
+  type MailerSendRuntimeState,
+  type MailTemplateName,
+  type ResolvedMailerSendConfig,
+} from './mailersend.config';
 
 export interface MailMessage {
   to: string;
@@ -51,18 +43,27 @@ export class MailService {
   private readonly client: MailerSend | null;
   private readonly from: Sender | null;
   private readonly replyTo: Recipient | null;
+  private readonly resolvedConfig: ResolvedMailerSendConfig;
+  private providerObservation: {
+    state: MailerSendRuntimeState;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+  };
 
   public constructor(
     private readonly configService: ConfigService,
     @InjectQueue(QUEUE_NAMES.EMAIL) private readonly emailQueue: Queue<MailJob>,
   ) {
-    const provider = this.configService.get<string>('MAIL_PROVIDER')?.trim().toLowerCase();
-    const apiKey = this.configService.get<string>('MAILERSEND_API_KEY')?.trim();
-    const fromEmail = this.configService.get<string>('MAIL_FROM_EMAIL')?.trim();
-    const fromName = this.configService.get<string>('MAIL_FROM_NAME')?.trim();
-    const replyTo = this.configService.get<string>('MAIL_REPLY_TO')?.trim();
+    this.resolvedConfig = resolveMailerSendConfig((key) => this.configService.get<string>(key));
+    this.providerObservation = {
+      state: this.resolvedConfig.state,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+    };
 
-    if (provider !== 'mailersend') {
+    if (!this.resolvedConfig.enabled) {
       this.client = null;
       this.from = null;
       this.replyTo = null;
@@ -70,24 +71,48 @@ export class MailService {
       return;
     }
 
-    if (apiKey === undefined || fromEmail === undefined) {
+    if (!this.resolvedConfig.configured) {
       this.client = null;
       this.from = null;
       this.replyTo = null;
       this.logger.warn(
-        'MailerSend is selected but MAILERSEND_API_KEY or MAIL_FROM_EMAIL is missing; delivery is disabled.',
+        `MailerSend is selected but required configuration is missing: ${this.resolvedConfig.missing.join(', ')}.`,
       );
       return;
     }
 
-    this.client = new MailerSend({ apiKey });
-    this.from = new Sender(fromEmail, fromName || undefined);
-    this.replyTo = replyTo ? new Recipient(replyTo) : null;
+    this.client = new MailerSend({ apiKey: this.resolvedConfig.apiKey ?? '' });
+    this.from = new Sender(this.resolvedConfig.fromEmail ?? '', this.resolvedConfig.fromName ?? '');
+    this.replyTo = this.resolvedConfig.replyTo ? new Recipient(this.resolvedConfig.replyTo) : null;
     this.logger.log('MailerSend email provider initialized.');
   }
 
   public isConfigured(): boolean {
     return this.client !== null && this.from !== null;
+  }
+
+  public getHealthStatus(): {
+    state: MailerSendRuntimeState;
+    enabled: boolean;
+    configured: boolean;
+    missing: string[];
+    configuredTemplateCount: number;
+    probeExecuted: false;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    lastFailureAt: string | null;
+  } {
+    return {
+      state: this.providerObservation.state,
+      enabled: this.resolvedConfig.enabled,
+      configured: this.resolvedConfig.configured,
+      missing: [...this.resolvedConfig.missing],
+      configuredTemplateCount: Object.keys(this.resolvedConfig.templateIds).length,
+      probeExecuted: false,
+      lastAttemptAt: this.providerObservation.lastAttemptAt,
+      lastSuccessAt: this.providerObservation.lastSuccessAt,
+      lastFailureAt: this.providerObservation.lastFailureAt,
+    };
   }
 
   /** MailerSend has no inexpensive authenticated health endpoint; initialization verifies configuration. */
@@ -123,6 +148,7 @@ export class MailService {
     }
 
     try {
+      this.providerObservation.lastAttemptAt = new Date().toISOString();
       await this.emailQueue.add(JOB_TYPES.EMAIL.DELIVER, message);
       this.logger.log(this.logDetails('enqueued', message));
       return true;
@@ -139,6 +165,11 @@ export class MailService {
       throw new MailDeliveryException('MailerSend delivery worker is not configured.');
     }
 
+    const attemptedAt = new Date().toISOString();
+    this.providerObservation = {
+      ...this.providerObservation,
+      lastAttemptAt: attemptedAt,
+    };
     try {
       const email = new EmailParams()
         .setFrom(this.from)
@@ -156,6 +187,12 @@ export class MailService {
       }
 
       const response = await this.client.email.send(email);
+      this.providerObservation = {
+        state: 'configured',
+        lastAttemptAt: attemptedAt,
+        lastSuccessAt: new Date().toISOString(),
+        lastFailureAt: this.providerObservation.lastFailureAt,
+      };
       this.logger.log(
         this.logDetails('sent', message, {
           responseStatus: response.statusCode,
@@ -164,6 +201,12 @@ export class MailService {
         }),
       );
     } catch (error) {
+      this.providerObservation = {
+        state: classifyMailerSendError(error),
+        lastAttemptAt: attemptedAt,
+        lastSuccessAt: this.providerObservation.lastSuccessAt,
+        lastFailureAt: new Date().toISOString(),
+      };
       performanceMetrics.recordFailure('email');
       this.logger.error(this.logDetails('send_failed', message, this.errorDetails(error)));
       throw new MailDeliveryException('Email delivery failed.');
@@ -264,8 +307,7 @@ export class MailService {
   }
 
   private templateId(template: MailTemplateName): string | undefined {
-    const value = this.configService.get<string>(MAILERSEND_TEMPLATE_ENV[template])?.trim();
-    return value === '' || value === undefined ? undefined : value;
+    return this.resolvedConfig.templateIds[template];
   }
 
   private logDetails(

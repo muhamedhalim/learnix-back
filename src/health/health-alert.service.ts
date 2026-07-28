@@ -277,9 +277,15 @@ export class HealthAlertService implements OnModuleInit {
 
   private metricValue(component: HealthComponentResult, metric: string): number | null {
     if (metric === 'statusRank') {
-      return { healthy: 0, unknown: 1, warning: 2, misconfigured: 3, degraded: 4, down: 5 }[
-        component.status
-      ];
+      return {
+        disabled: 0,
+        healthy: 0,
+        unknown: 1,
+        warning: 2,
+        misconfigured: 3,
+        degraded: 4,
+        down: 5,
+      }[component.status];
     }
     const value = component.metadata[metric];
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
