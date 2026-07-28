@@ -1,100 +1,98 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
-  Max,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
 
-import { bi } from '../../i18n/error-translator.util';
 import { ApplicableItem } from '../entities/applicable-item.enum';
 import { DiscountType } from '../entities/discount-type.enum';
 
 export class CreateDiscountCodeDto {
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(50)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   public code!: string;
 
   @IsEnum(DiscountType)
   public discount_type!: DiscountType;
 
   @ApiProperty({
-    description: 'Discount value (percentage or fixed amount in EGP)',
+    description: 'Percentage (1-100) or fixed EGP amount, depending on discount_type',
     example: 20,
-    minimum: 0,
+    minimum: 0.01,
   })
-  @IsNumber()
-  @Min(0)
-  @Max(100, {
-    message: bi(
-      'Percentage discount cannot exceed 100%',
-      'لا يمكن أن يتجاوز الخصم بالنسبة المئوية 100%',
-    ),
-  })
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
   @Type(() => Number)
   public discount_value!: number;
 
+  @IsArray()
+  @ArrayNotEmpty()
   @IsEnum(ApplicableItem, { each: true })
   public applicable_to!: ApplicableItem[];
 
-  @ApiProperty({
-    description: 'Specific item IDs (null for all items)',
-    required: false,
-    example: [1, 2, 3],
-  })
   @IsOptional()
   @IsArray()
-  @IsNumber({}, { each: true })
+  @IsUUID('4', { each: true })
   public item_ids?: string[];
 
-  @ApiProperty({
-    description: 'Maximum number of times this code can be used',
-    example: 100,
-    default: 1,
-  })
   @IsOptional()
   @IsNumber()
+  @IsInt()
   @Min(1)
   @Type(() => Number)
   public max_uses?: number;
 
-  @ApiProperty({
-    description: 'Minimum purchase amount required (in EGP)',
-    example: 50,
-    default: 0,
-  })
   @IsOptional()
   @IsNumber()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  public max_uses_per_user?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Type(() => Number)
   public min_purchase_amount?: number;
 
-  @IsDateString()
-  public valid_from!: string;
-
-  @IsDateString()
-  public valid_until!: string;
-
   @ApiProperty({
-    description: 'Whether the discount code is active',
-    default: true,
+    description: 'Maximum monetary discount for a percentage code, in EGP',
+    required: false,
+    example: 100,
   })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Type(() => Number)
+  public max_discount_amount?: number;
+
+  @IsOptional()
+  @IsDateString()
+  public valid_from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public valid_until?: string | null;
+
   @IsOptional()
   @IsBoolean()
   public is_active?: boolean;
 
-  @ApiProperty({
-    description: 'Description of the discount',
-    required: false,
-    example: 'Summer sale discount',
-  })
   @IsOptional()
   @IsString()
   @MaxLength(255)

@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -8,8 +9,8 @@ import { ApplicableItem } from './entities/applicable-item.enum';
 
 describe('DiscountCodesService', () => {
   let service: DiscountCodesService;
-  let codesRepo: { findOne: jest.Mock };
-  let usageRepo: { findOne: jest.Mock };
+  let codesRepo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+  let usageRepo: { count: jest.Mock };
 
   const buildCode = (over: Partial<DiscountCode> = {}): DiscountCode =>
     ({
@@ -20,6 +21,9 @@ describe('DiscountCodesService', () => {
       valid_until: new Date(Date.now() + 86_400_000),
       used_count: 0,
       max_uses: 100,
+      max_uses_per_user: 1,
+      max_discount_amount: null,
+      deleted_at: null,
       applicable_to: [ApplicableItem.LESSON],
       item_ids: null,
       min_purchase_amount: 0,
@@ -36,8 +40,12 @@ describe('DiscountCodesService', () => {
   };
 
   beforeEach(async () => {
-    codesRepo = { findOne: jest.fn() };
-    usageRepo = { findOne: jest.fn().mockResolvedValue(null) };
+    codesRepo = {
+      findOne: jest.fn(),
+      create: jest.fn((value) => value),
+      save: jest.fn(async (value) => value),
+    };
+    usageRepo = { count: jest.fn().mockResolvedValue(0) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -68,9 +76,7 @@ describe('DiscountCodesService', () => {
     });
 
     it('rejects an expired code', async () => {
-      codesRepo.findOne.mockResolvedValue(
-        buildCode({ valid_until: new Date(Date.now() - 1000) }),
-      );
+      codesRepo.findOne.mockResolvedValue(buildCode({ valid_until: new Date(Date.now() - 1000) }));
       const result = await service.verifyCode(dto, 'user-1');
       expect(result.valid).toBe(false);
       expect(result.error).toMatch(/expired/i);
@@ -93,7 +99,7 @@ describe('DiscountCodesService', () => {
 
     it('rejects a second use by the same user (per-user limit = 1)', async () => {
       codesRepo.findOne.mockResolvedValue(buildCode());
-      usageRepo.findOne.mockResolvedValue({ id: 'usage-1' });
+      usageRepo.count.mockResolvedValue(1);
       const result = await service.verifyCode(dto, 'user-1');
       expect(result.valid).toBe(false);
       expect(result.error).toMatch(/already used/i);
@@ -127,6 +133,122 @@ describe('DiscountCodesService', () => {
       expect(result.valid).toBe(true);
       expect(result.discount_amount).toBe(100);
       expect(result.final_amount).toBe(0);
+    });
+
+    it('supports an open-ended code and caps percentage discounts when configured', async () => {
+      codesRepo.findOne.mockResolvedValue(
+        buildCode({ valid_until: null, discount_value: 50, max_discount_amount: 30 }),
+      );
+
+      const result = await service.verifyCode(dto, 'user-1');
+
+      expect(result.valid).toBe(true);
+      expect(result.discount_amount).toBe(30);
+      expect(result.final_amount).toBe(70);
+    });
+
+    it('fails safely if a legacy percentage configuration exceeds 100%', async () => {
+      codesRepo.findOne.mockResolvedValue(buildCode({ discount_value: 120 }));
+
+      const result = await service.verifyCode(dto, 'user-1');
+
+      expect(result).toEqual({ valid: false, error: 'Discount code configuration is invalid' });
+    });
+  });
+
+  describe('create — contract validation', () => {
+    const createDto = {
+      code: 'fixed-150',
+      discount_type: DiscountType.FIXED,
+      discount_value: 150,
+      applicable_to: [ApplicableItem.LESSON],
+      max_uses: 5,
+      max_uses_per_user: 2,
+      valid_until: null,
+    };
+
+    it('accepts a fixed amount above 100 and stores the clear fixed type', async () => {
+      codesRepo.findOne.mockResolvedValue(null);
+
+      const created = await service.create(createDto);
+
+      expect(codesRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'FIXED-150',
+          discount_type: DiscountType.FIXED,
+          discount_value: 150,
+          valid_until: null,
+          max_uses_per_user: 2,
+        }),
+      );
+      expect(created.discount_type).toBe(DiscountType.FIXED);
+    });
+
+    it('rejects zero values, percentages above 100, and invalid usage limits', async () => {
+      codesRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({ ...createDto, discount_value: 0 } as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.create({
+          ...createDto,
+          discount_type: DiscountType.PERCENTAGE,
+          discount_value: 0.5,
+        } as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.create({
+          ...createDto,
+          discount_type: DiscountType.PERCENTAGE,
+          discount_value: 101,
+        } as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.create({ ...createDto, max_uses_per_user: 6 } as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects an end date before the start date', async () => {
+      codesRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.create({
+          ...createDto,
+          valid_from: '2026-01-02T00:00:00.000Z',
+          valid_until: '2026-01-01T00:00:00.000Z',
+        } as never),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('applyDiscount — transaction enforcement', () => {
+    it('locks the code and rejects an exhausted per-user limit before recording usage', async () => {
+      const manager = {
+        findOne: jest.fn().mockResolvedValue(buildCode({ max_uses_per_user: 2 })),
+        count: jest.fn().mockResolvedValue(2),
+        create: jest.fn(),
+        save: jest.fn(),
+      };
+
+      await expect(
+        service.applyDiscount('dc-1', 'user-1', 'payment-1', 20, manager as never, 100),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('never records a discount larger than the order', async () => {
+      const manager = {
+        findOne: jest.fn().mockResolvedValue(buildCode()),
+        count: jest.fn(),
+        create: jest.fn(),
+        save: jest.fn(),
+      };
+
+      await expect(
+        service.applyDiscount('dc-1', 'user-1', 'payment-1', 101, manager as never, 100),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(manager.count).not.toHaveBeenCalled();
     });
   });
 

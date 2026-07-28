@@ -18,11 +18,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { DiscountCodesService } from '../discount-codes.service';
-import {
-  CreateDiscountCodeDto,
-  DiscountFilterDto,
-  UpdateDiscountCodeDto,
-} from '../dto';
+import { CreateDiscountCodeDto, DiscountFilterDto, UpdateDiscountCodeDto } from '../dto';
 import { DiscountCode } from '../entities';
 
 @ApiTags('Admin - Discount Codes')
@@ -61,9 +57,7 @@ export class AdminDiscountCodesController {
 
   @Get(':id')
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  public async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ data: DiscountCode }> {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<{ data: DiscountCode }> {
     const discountCode = await this.discountCodesService.findOne(id);
     return { data: discountCode };
   }
@@ -100,9 +94,7 @@ export class AdminDiscountCodesController {
 
   @Delete(':id')
   @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Code not found' })
-  public async remove(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ message: string }> {
+  public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<{ message: string }> {
     await this.discountCodesService.remove(id);
     return { message: 'Discount code deleted successfully' };
   }

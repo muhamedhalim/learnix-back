@@ -1,10 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import {
-  AdminDiscountCodesController,
-  DiscountCodesController,
-} from './controllers';
+import { AdminDiscountCodesController, DiscountCodesController } from './controllers';
 import { DiscountCodesService } from './discount-codes.service';
 import { DiscountCode, DiscountCodeUsage } from './entities';
 

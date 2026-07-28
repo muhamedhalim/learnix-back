@@ -45,18 +45,11 @@ export class DiscountCodesService {
       throw new ConflictException(biBody('Discount code already exists', 'كود الخصم موجود بالفعل'));
     }
 
-    // Validate dates
-    const validFrom = new Date(dto.valid_from);
-    const validUntil = new Date(dto.valid_until);
-
-    if (validUntil <= validFrom) {
-      throw new BadRequestException(
-        biBody(
-          'valid_until must be after valid_from',
-          'يجب أن يكون تاريخ الانتهاء بعد تاريخ البدء',
-        ),
-      );
-    }
+    const validFrom = dto.valid_from ? new Date(dto.valid_from) : new Date();
+    const validUntil = dto.valid_until ? new Date(dto.valid_until) : null;
+    this.assertDateRange(validFrom, validUntil);
+    this.assertDiscountRules(dto.discount_type, dto.discount_value, dto.max_discount_amount);
+    this.assertUsageLimits(dto.max_uses ?? 1, dto.max_uses_per_user ?? 1);
 
     const discountCode = this.discountCodesRepository.create({
       code: dto.code.toUpperCase(),
@@ -65,7 +58,9 @@ export class DiscountCodesService {
       applicable_to: dto.applicable_to,
       item_ids: dto.item_ids ?? null,
       max_uses: dto.max_uses ?? 1,
+      max_uses_per_user: dto.max_uses_per_user ?? 1,
       min_purchase_amount: dto.min_purchase_amount ?? 0,
+      max_discount_amount: dto.max_discount_amount ?? null,
       valid_from: validFrom,
       valid_until: validUntil,
       is_active: dto.is_active ?? true,
@@ -89,6 +84,18 @@ export class DiscountCodesService {
       throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
+    this.assertDiscountRules(
+      dto.discount_type ?? discountCode.discount_type,
+      dto.discount_value ?? Number(discountCode.discount_value),
+      dto.max_discount_amount === undefined
+        ? discountCode.max_discount_amount
+        : dto.max_discount_amount,
+    );
+    this.assertUsageLimits(
+      dto.max_uses ?? discountCode.max_uses,
+      dto.max_uses_per_user ?? discountCode.max_uses_per_user,
+    );
+
     // Validate dates if provided
     this.validateDateRange(dto, discountCode);
 
@@ -108,16 +115,12 @@ export class DiscountCodesService {
       const validFrom =
         dto.valid_from === undefined ? discountCode.valid_from : new Date(dto.valid_from);
       const validUntil =
-        dto.valid_until === undefined ? discountCode.valid_until : new Date(dto.valid_until);
-
-      if (validUntil <= validFrom) {
-        throw new BadRequestException(
-          biBody(
-            'valid_until must be after valid_from',
-            'يجب أن يكون تاريخ الانتهاء بعد تاريخ البدء',
-          ),
-        );
-      }
+        dto.valid_until === undefined
+          ? discountCode.valid_until
+          : dto.valid_until
+            ? new Date(dto.valid_until)
+            : null;
+      this.assertDateRange(validFrom, validUntil);
     }
   }
 
@@ -142,14 +145,20 @@ export class DiscountCodesService {
     if (dto.max_uses !== undefined) {
       updates.max_uses = dto.max_uses;
     }
+    if (dto.max_uses_per_user !== undefined) {
+      updates.max_uses_per_user = dto.max_uses_per_user;
+    }
     if (dto.min_purchase_amount !== undefined) {
       updates.min_purchase_amount = dto.min_purchase_amount;
+    }
+    if (dto.max_discount_amount !== undefined) {
+      updates.max_discount_amount = dto.max_discount_amount;
     }
     if (dto.valid_from !== undefined) {
       updates.valid_from = new Date(dto.valid_from);
     }
     if (dto.valid_until !== undefined) {
-      updates.valid_until = new Date(dto.valid_until);
+      updates.valid_until = dto.valid_until ? new Date(dto.valid_until) : null;
     }
     if (dto.is_active !== undefined) {
       updates.is_active = dto.is_active;
@@ -203,7 +212,9 @@ export class DiscountCodesService {
     }
 
     if (filter.include_expired !== true) {
-      queryBuilder.andWhere('code.valid_until >= :now', { now: new Date() });
+      queryBuilder.andWhere('(code.valid_until IS NULL OR code.valid_until >= :now)', {
+        now: new Date(),
+      });
     }
 
     if (filter.valid_from !== undefined) {
@@ -283,8 +294,22 @@ export class DiscountCodesService {
     if (now < code.valid_from) {
       return { valid: false, error: 'Discount code is not yet valid' };
     }
-    if (now > code.valid_until) {
+    if (code.valid_until !== null && now > code.valid_until) {
       return { valid: false, error: 'Discount code has expired' };
+    }
+
+    const discountValue = Number(code.discount_value);
+    const maxDiscount = code.max_discount_amount === null ? null : Number(code.max_discount_amount);
+    if (
+      !Number.isFinite(dto.amount) ||
+      dto.amount <= 0 ||
+      !Number.isFinite(discountValue) ||
+      discountValue <= 0 ||
+      (code.discount_type === DiscountType.PERCENTAGE &&
+        (discountValue < 1 || discountValue > 100)) ||
+      (maxDiscount !== null && (!Number.isFinite(maxDiscount) || maxDiscount <= 0))
+    ) {
+      return { valid: false, error: 'Discount code configuration is invalid' };
     }
 
     // Check usage limits
@@ -292,15 +317,11 @@ export class DiscountCodesService {
       return { valid: false, error: 'Discount code usage limit reached' };
     }
 
-    // Check if user already used this code
-    const existingUsage = await this.usageRepository.findOne({
-      where: {
-        discount_code_id: code.id,
-        user_id: userId,
-      },
+    const userUsageCount = await this.usageRepository.count({
+      where: { discount_code_id: code.id, user_id: userId },
     });
 
-    if (existingUsage) {
+    if (userUsageCount >= code.max_uses_per_user) {
       return {
         valid: false,
         error: 'You have already used this discount code',
@@ -339,12 +360,11 @@ export class DiscountCodesService {
 
     // Calculate discount
     let discountAmount = 0;
-    const discountValue =
-      typeof code.discount_value === 'string'
-        ? Number.parseFloat(code.discount_value)
-        : code.discount_value;
     if (code.discount_type === DiscountType.PERCENTAGE) {
       discountAmount = (dto.amount * discountValue) / 100;
+      if (maxDiscount !== null && Number.isFinite(maxDiscount)) {
+        discountAmount = Math.min(discountAmount, maxDiscount);
+      }
     } else {
       discountAmount = discountValue;
     }
@@ -372,6 +392,7 @@ export class DiscountCodesService {
     paymentId: string,
     discountAmount: number,
     manager: EntityManager,
+    orderAmount: number,
   ): Promise<void> {
     // Lock the discount code row for update
     const code = await manager.findOne(DiscountCode, {
@@ -383,10 +404,36 @@ export class DiscountCodesService {
       throw new NotFoundException(biBody('Discount code not found', 'كود الخصم غير موجود'));
     }
 
-    // Double-check usage limit with lock held
+    this.assertRedeemable(code);
+
+    if (
+      !Number.isFinite(orderAmount) ||
+      orderAmount <= 0 ||
+      !Number.isFinite(discountAmount) ||
+      discountAmount <= 0 ||
+      discountAmount > orderAmount
+    ) {
+      throw new BadRequestException(
+        biBody('Discount amount is invalid for this order', 'قيمة الخصم غير صالحة لهذا الطلب'),
+      );
+    }
+
+    // Double-check global and per-user usage limits with the code lock held.
     if (code.used_count >= code.max_uses) {
       throw new BadRequestException(
         biBody('Discount code usage limit reached', 'تم الوصول إلى الحد الأقصى لاستخدام كود الخصم'),
+      );
+    }
+
+    const userUsageCount = await manager.count(DiscountCodeUsage, {
+      where: { discount_code_id: discountCodeId, user_id: userId },
+    });
+    if (userUsageCount >= code.max_uses_per_user) {
+      throw new BadRequestException(
+        biBody(
+          "You have already reached this code's usage limit",
+          'لقد تجاوزت حد استخدام هذا الكود',
+        ),
       );
     }
 
@@ -497,5 +544,95 @@ export class DiscountCodesService {
         };
       }),
     };
+  }
+
+  private assertDateRange(validFrom: Date, validUntil: Date | null): void {
+    if (
+      !Number.isFinite(validFrom.getTime()) ||
+      (validUntil !== null && !Number.isFinite(validUntil.getTime()))
+    ) {
+      throw new BadRequestException(biBody('Invalid discount schedule', 'جدول الخصم غير صالح'));
+    }
+    if (validUntil !== null && validUntil <= validFrom) {
+      throw new BadRequestException(
+        biBody(
+          'valid_until must be after valid_from',
+          'يجب أن يكون تاريخ الانتهاء بعد تاريخ البدء',
+        ),
+      );
+    }
+  }
+
+  private assertDiscountRules(
+    type: DiscountType,
+    value: number,
+    maxDiscountAmount: number | null | undefined,
+  ): void {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new BadRequestException(
+        biBody('Discount value must be greater than zero', 'قيمة الخصم يجب أن تكون أكبر من صفر'),
+      );
+    }
+    if (type === DiscountType.PERCENTAGE && (value < 1 || value > 100)) {
+      throw new BadRequestException(
+        biBody(
+          'Percentage discount must be between 1% and 100%',
+          'يجب أن تكون نسبة الخصم بين 1% و100%',
+        ),
+      );
+    }
+    if (
+      type !== DiscountType.PERCENTAGE &&
+      maxDiscountAmount !== null &&
+      maxDiscountAmount !== undefined
+    ) {
+      throw new BadRequestException(
+        biBody(
+          'Maximum discount amount is only valid for percentage codes',
+          'الحد الأقصى للخصم متاح للنسب المئوية فقط',
+        ),
+      );
+    }
+    if (
+      maxDiscountAmount !== null &&
+      maxDiscountAmount !== undefined &&
+      (!Number.isFinite(maxDiscountAmount) || maxDiscountAmount <= 0)
+    ) {
+      throw new BadRequestException(
+        biBody(
+          'Maximum discount amount must be greater than zero',
+          'الحد الأقصى للخصم يجب أن يكون أكبر من صفر',
+        ),
+      );
+    }
+  }
+
+  private assertUsageLimits(maxUses: number, maxUsesPerUser: number): void {
+    if (
+      !Number.isSafeInteger(maxUses) ||
+      !Number.isSafeInteger(maxUsesPerUser) ||
+      maxUses < 1 ||
+      maxUsesPerUser < 1 ||
+      maxUsesPerUser > maxUses
+    ) {
+      throw new BadRequestException(
+        biBody(
+          'Per-user uses must be a positive whole number no greater than total uses',
+          'يجب أن يكون حد الاستخدام لكل مستخدم رقمًا صحيحًا موجبًا لا يتجاوز إجمالي الاستخدامات',
+        ),
+      );
+    }
+  }
+
+  private assertRedeemable(code: DiscountCode): void {
+    const now = new Date();
+    if (!code.is_active || code.deleted_at !== null) {
+      throw new BadRequestException(biBody('Discount code is inactive', 'كود الخصم غير نشط'));
+    }
+    if (now < code.valid_from || (code.valid_until !== null && now > code.valid_until)) {
+      throw new BadRequestException(
+        biBody('Discount code is outside its valid period', 'كود الخصم خارج فترة الصلاحية'),
+      );
+    }
   }
 }

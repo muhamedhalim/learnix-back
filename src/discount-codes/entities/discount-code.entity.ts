@@ -39,6 +39,9 @@ export class DiscountCode {
   @Column({ type: 'int', default: 1, name: 'max_uses' })
   max_uses!: number;
 
+  @Column({ type: 'int', default: 1, name: 'max_uses_per_user' })
+  max_uses_per_user!: number;
+
   @Column({ type: 'int', default: 0, name: 'used_count' })
   used_count!: number;
 
@@ -51,11 +54,20 @@ export class DiscountCode {
   })
   min_purchase_amount!: number;
 
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    name: 'max_discount_amount',
+  })
+  max_discount_amount!: number | null;
+
   @Column({ type: 'timestamptz', name: 'valid_from' })
   valid_from!: Date;
 
-  @Column({ type: 'timestamptz', name: 'valid_until' })
-  valid_until!: Date;
+  @Column({ type: 'timestamptz', nullable: true, name: 'valid_until' })
+  valid_until!: Date | null;
 
   @Column({ type: 'boolean', default: true, name: 'is_active' })
   is_active!: boolean;

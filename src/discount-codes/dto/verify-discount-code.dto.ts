@@ -20,7 +20,7 @@ export class VerifyDiscountCodeDto {
     example: 100,
   })
   @IsNumber()
-  @Min(0)
+  @Min(0.01)
   @Type(() => Number)
   public amount!: number;
 }

@@ -336,6 +336,7 @@ export class OrdersService {
             savedPayment.id,
             fromMinorUnits(discount.amountMinor),
             manager,
+            fromMinorUnits(product.priceMinor),
           );
         }
 

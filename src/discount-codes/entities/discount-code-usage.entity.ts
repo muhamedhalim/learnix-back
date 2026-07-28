@@ -18,7 +18,7 @@ import type { DiscountCode } from './discount-code.entity';
 @Index('IDX_discount_usage_code', ['discount_code_id'])
 @Index('IDX_discount_usage_user', ['user_id'])
 @Index('IDX_discount_usage_payment', ['payment_id'])
-@Unique('UQ_discount_code_user', ['discount_code_id', 'user_id'])
+@Unique('UQ_discount_code_payment', ['discount_code_id', 'payment_id'])
 export class DiscountCodeUsage {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
