@@ -117,7 +117,9 @@ export class CertificatePdfService {
     // glyphs at all, and PDFKit performs no Arabic contextual shaping or
     // bidi reordering on its own — both are handled ahead of time by
     // shapeArabicForPdf() before any Arabic string reaches doc.text().
-    const serif = tpl.font === 'serif' && !isArabic;
+    const serif = tpl.font === 'serif';
+    doc.registerFont('Latin', serif ? 'Times-Roman' : 'Helvetica');
+    doc.registerFont('Latin-Bold', serif ? 'Times-Bold' : 'Helvetica-Bold');
     doc.registerFont('Body', isArabic ? ARABIC_FONT_REGULAR : serif ? 'Times-Roman' : 'Helvetica');
     doc.registerFont('Body-Bold', isArabic ? ARABIC_FONT_BOLD : serif ? 'Times-Bold' : 'Helvetica-Bold');
 
@@ -131,6 +133,10 @@ export class CertificatePdfService {
     const width = doc.page.width;
     const height = doc.page.height;
     const rtlText = (text: string): string => (isArabic ? shapeArabicForPdf(text) : text);
+    const fontFor = (text: string, bold = false): string =>
+      isArabic && /[\u0600-\u06FF]/u.test(text)
+        ? bold ? 'Body-Bold' : 'Body'
+        : bold ? 'Latin-Bold' : 'Latin';
 
     // Background + fixed, pre-configured layout treatments.
     doc.rect(0, 0, width, height).fill(tpl.layout === 'modern' ? '#f8fafc' : '#ffffff');
@@ -149,18 +155,32 @@ export class CertificatePdfService {
         .stroke();
     }
 
+    /*
+     * A single measured A4 grid shared by the template preview and every
+     * issued document. It leaves dedicated bands for the brand, recipient,
+     * course/description, and footer: dashboard/editor/canvas chrome never
+     * reaches the print document.
+     */
+    const contentX = 84;
+    const contentWidth = width - contentX * 2;
+    const footerY = height - 132;
+
     // Platform branding and verification are renderer-owned, never template fields.
     // A wordmark is always rendered; the optional raster mark must never make a
     // student's certificate unavailable when an image was not packaged.
     const logo = this.readLogo(certificate.id);
     if (logo) {
       try {
-        doc.image(logo, width / 2 - 34, 48, { fit: [68, 44] });
+        doc.image(logo, width / 2 - 24, 48, { fit: [48, 32] });
       } catch (error) {
         this.logLogoFallback(certificate.id, 'logo_image_invalid', error);
       }
     }
-    doc.fillColor(accent).font('Body-Bold').fontSize(16).text('Learnix', 0, 52, { align: 'center' });
+    doc
+      .fillColor(accent)
+      .font('Latin-Bold')
+      .fontSize(15)
+      .text('Learnix', 0, 86, { align: 'center', characterSpacing: 0.4 });
 
     // Title.
     const title = isArabic ? tpl.title_ar || tpl.title : tpl.title;
@@ -168,20 +188,21 @@ export class CertificatePdfService {
     const renderedTitleSize = this.fitTextBlockSize(
       doc,
       renderedTitle,
-      'Body-Bold',
+      fontFor(renderedTitle, true),
       titleSize,
       20,
-      width * 0.82,
-      58,
+      contentWidth,
+      54,
     );
     doc
       .fillColor(accent)
-      .font('Body-Bold')
+      .font(fontFor(renderedTitle, true))
       .fontSize(renderedTitleSize)
-      .text(renderedTitle, width * 0.09, 105, {
+      .text(renderedTitle, contentX, 119, {
         align: alignment,
-        width: width * 0.82,
-        height: 58,
+        width: contentWidth,
+        height: 54,
+        lineGap: 1,
       });
 
     // Body with placeholders replaced. The formatted date always mixes a
@@ -193,64 +214,101 @@ export class CertificatePdfService {
       month: 'long',
       day: 'numeric',
     });
-    const bodyTemplate = isArabic ? tpl.body_ar || tpl.body : tpl.body;
+    const bodyTemplate = isArabic ? tpl.body_ar || DEFAULT_TEMPLATE.body_ar : tpl.body;
     const body = bodyTemplate
       .replace(/\{\{\s*student\s*\}\}/gi, certificate.student_name)
       .replace(/\{\{\s*course\s*\}\}/gi, certificate.course_title)
       .replace(/\{\{\s*date\s*\}\}/gi, issuedDate);
 
+    // The recipient is the visual centre of the certificate, never a line
+    // squeezed into surrounding copy. Two lines are allowed; the font only
+    // shrinks as far as necessary to remain inside this reserved band.
     doc
-      .fillColor('#111827')
+      .fillColor('#6b7280')
       .font('Body')
-      .fontSize(bodySize)
-      .text(rtlText(ui.certifies), 0, 182, { align: alignment });
-
-    const studentNameSize = this.fitTextSize(
+      .fontSize(11)
+      .text(rtlText(ui.certifies), contentX, 188, {
+        align: 'center',
+        width: contentWidth,
+      });
+    const studentNameSize = this.fitTextBlockSize(
       doc,
       rtlText(certificate.student_name),
-      'Body-Bold',
-      30,
-      20,
-      width * 0.78,
+      fontFor(certificate.student_name, true),
+      38,
+      18,
+      contentWidth * 0.82,
+      62,
     );
     doc
       .fillColor('#111827')
-      .font('Body-Bold')
+      .font(fontFor(certificate.student_name, true))
       .fontSize(studentNameSize)
-      .text(rtlText(certificate.student_name), width * 0.11, 212, {
-        align: alignment,
+      .text(rtlText(certificate.student_name), width * 0.09, 209, {
+        align: 'center',
         width: width * 0.78,
-        height: 42,
+        height: 62,
+        lineGap: 1,
+      });
+
+    // Course is distinct from the free-form template description so it keeps
+    // its hierarchy even when the body is long or contains placeholders.
+    const courseSize = this.fitTextBlockSize(
+      doc,
+      rtlText(certificate.course_title),
+      fontFor(certificate.course_title, true),
+      19,
+      13,
+      contentWidth * 0.78,
+      36,
+    );
+    doc
+      .fillColor(accent)
+      .font(fontFor(certificate.course_title, true))
+      .fontSize(courseSize)
+      .text(rtlText(certificate.course_title), width * 0.11, 282, {
+        align: 'center',
+        width: width * 0.78,
+        height: 36,
+        lineGap: 1,
       });
 
     const renderedBody = rtlText(body);
     const renderedBodySize = this.fitTextBlockSize(
       doc,
       renderedBody,
-      'Body',
+      fontFor(renderedBody),
       bodySize,
-      12,
-      width * 0.7,
-      62,
+      11,
+      contentWidth * 0.72,
+      54,
     );
     doc
       .fillColor('#374151')
-      .font('Body')
+      .font(fontFor(renderedBody))
       .fontSize(renderedBodySize)
-      .text(renderedBody, width * 0.15, 262, {
+      .text(renderedBody, width * 0.14, 328, {
         align: alignment,
-        width: width * 0.7,
-        height: 62,
+        width: width * 0.72,
+        height: 54,
+        lineGap: 2,
       });
 
     if (certificate.teacher_name) {
       doc
         .fillColor('#4b5563')
-        .font('Body')
-        .fontSize(11)
-        .text(rtlText(certificate.teacher_name), 0, 337, { align: alignment });
+        .font(fontFor(certificate.teacher_name))
+        .fontSize(10)
+        .text(rtlText(certificate.teacher_name), contentX, 398, {
+          align: 'center',
+          width: contentWidth,
+          height: 16,
+        });
     }
 
+    // Kept only as a legacy copy source; it is not part of the printable
+    // certificate grid and therefore must not crowd the footer.
+    if (certificate.id === '__never-render-legacy-copy__') {
     doc
       .fillColor('#6b7280')
       .font('Body')
@@ -260,58 +318,70 @@ export class CertificatePdfService {
         width: width * 0.64,
       });
 
-    // Signature (left) + issue date.
-    const baseY = height - 150;
+    }
+
+    // Footer: signature, QR verification, and document metadata occupy one
+    // aligned baseline with intentionally separate columns.
+    const signatureX = 78;
+    const signatureWidth = 210;
+    const metadataX = width - signatureX - signatureWidth;
     const signatureTitle = isArabic
       ? tpl.signature_title_ar || tpl.signature_title
       : tpl.signature_title;
     if (tpl.signature_name) {
       doc
+        .lineWidth(1)
+        .strokeColor('#9ca3af')
+        .moveTo(signatureX, footerY)
+        .lineTo(signatureX + signatureWidth, footerY)
+        .stroke();
+      doc
         .fillColor('#111827')
-        .font('Body-Bold')
-        .fontSize(14)
-        .text(rtlText(tpl.signature_name), 90, baseY, { width: 220, align: 'center' });
+        .font(fontFor(tpl.signature_name, true))
+        .fontSize(13)
+        .text(rtlText(tpl.signature_name), signatureX, footerY + 8, {
+          width: signatureWidth,
+          height: 18,
+          align: 'center',
+        });
       if (signatureTitle) {
         doc
           .fillColor('#6b7280')
-          .font('Body')
-          .fontSize(10)
-          .text(rtlText(signatureTitle), 90, baseY + 18, {
-            width: 220,
+          .font(fontFor(signatureTitle))
+          .fontSize(9)
+          .text(rtlText(signatureTitle), signatureX, footerY + 26, {
+            width: signatureWidth,
+            height: 14,
             align: 'center',
           });
       }
-      doc
-        .lineWidth(1)
-        .strokeColor('#9ca3af')
-        .moveTo(90, baseY - 6)
-        .lineTo(310, baseY - 6)
-        .stroke();
     }
 
     doc
       .fillColor('#6b7280')
       .font('Body')
-      .fontSize(11)
-      .text(rtlText(ui.issued(issuedDate)), width - 360, baseY, {
-        width: 220,
+      .fontSize(10)
+      .text(rtlText(ui.issued(issuedDate)), metadataX, footerY + 2, {
+        width: signatureWidth,
+        height: 16,
         align: 'center',
       });
-    doc.fillColor('#6b7280').fontSize(10);
+    doc.fillColor('#6b7280').fontSize(9);
     this.drawLabelValue(
       doc,
       ui.certNumber(certificate.certificate_number),
       rtlText,
-      width - 360,
-      baseY + 18,
-      { width: 220, align: 'center' },
+      metadataX,
+      footerY + 22,
+      { width: signatureWidth, align: 'center', height: 14 },
     );
 
-    // QR code + verification hint (bottom centre).
-    doc.image(qrBuffer, width / 2 - 40, height - 130, { width: 80, height: 80 });
+    // QR code + verification hint (bottom centre), safely above the inner
+    // border and isolated from the neighbouring footer columns.
+    doc.image(qrBuffer, width / 2 - 34, footerY - 5, { width: 68, height: 68 });
     doc.fillColor('#9ca3af').fontSize(8);
-    this.drawLabelValue(doc, ui.verifyAt(verifyUrl), rtlText, 0, height - 44, {
-      align: 'center',
+    this.drawLabelValue(doc, ui.verifyAt(verifyUrl), rtlText, 0, height - 58, {
+      align: 'center', width, height: 12,
     });
 
     doc.end();
@@ -334,8 +404,26 @@ export class CertificatePdfService {
     y: number,
     opts: PDFKit.Mixins.TextOptions,
   ): void {
-    doc.font('Body').text(rtlText(parts.label), x, y, { ...opts, continued: true });
-    doc.font('Helvetica').text(parts.value, { continued: false });
+    const label = rtlText(parts.label);
+    doc.font('Body');
+    const labelWidth = doc.widthOfString(label);
+    doc.font('Helvetica');
+    const valueWidth = doc.widthOfString(parts.value);
+    const availableWidth = opts.width ?? labelWidth + valueWidth;
+    const startX =
+      opts.align === 'center'
+        ? x + (availableWidth - labelWidth - valueWidth) / 2
+        : opts.align === 'right'
+          ? x + availableWidth - labelWidth - valueWidth
+          : x;
+
+    // Do not use PDFKit's `continued` with a centred text box: it recentres
+    // each fragment independently. Measured coordinates keep the two fonts
+    // adjacent for both English and Arabic labels.
+    doc.font('Body').text(label, startX, y, { ...opts, align: 'left', width: labelWidth });
+    doc
+      .font('Helvetica')
+      .text(parts.value, startX + labelWidth, y, { ...opts, align: 'left', width: valueWidth });
   }
 
   private verificationUrl(code: string): string {
@@ -359,22 +447,7 @@ export class CertificatePdfService {
     return Math.max(min, Math.min(max, value));
   }
 
-  /** Keep long Arabic and Latin names inside the fixed A4-safe area. */
-  private fitTextSize(
-    doc: PDFKit.PDFDocument,
-    text: string,
-    font: string,
-    maxSize: number,
-    minSize: number,
-    maxWidth: number,
-  ): number {
-    doc.font(font);
-    for (let size = maxSize; size >= minSize; size -= 1) {
-      if (doc.fontSize(size).widthOfString(text) <= maxWidth) return size;
-    }
-    return minSize;
-  }
-
+  /** Keep long Arabic and Latin text inside its exact fixed-A4 grid box. */
   private fitTextBlockSize(
     doc: PDFKit.PDFDocument,
     text: string,
@@ -386,7 +459,7 @@ export class CertificatePdfService {
   ): number {
     doc.font(font);
     for (let size = maxSize; size >= minSize; size -= 1) {
-      if (doc.fontSize(size).heightOfString(text, { width }) <= maxHeight) return size;
+      if (doc.fontSize(size).heightOfString(text, { width, lineGap: 2 }) <= maxHeight) return size;
     }
     return minSize;
   }
