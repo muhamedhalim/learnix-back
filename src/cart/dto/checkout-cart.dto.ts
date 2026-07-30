@@ -6,7 +6,7 @@ import { IsEnum, IsOptional, IsString } from 'class-validator';
  * Payment method types for cart checkout
  */
 export enum PaymentMethod {
-  EASYKASH = 'easykash',
+  PAYMOB = 'paymob',
   ATTENDANCE_CODE = 'attendance_code',
 }
 

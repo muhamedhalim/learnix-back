@@ -64,7 +64,12 @@ export class BooksService {
       );
     }
 
-    const book = this.booksRepository.create(Object.assign({}, dto, { teacher_id: teacherId }));
+    // The teacher-facing contract has one title. Keep the legacy localized
+    // column in sync so existing records, search, and purchase snapshots keep
+    // their current shape without a destructive schema migration.
+    const book = this.booksRepository.create(
+      Object.assign({}, dto, { teacher_id: teacherId, title_ar: dto.title }),
+    );
 
     const saved = await this.booksRepository.save(book);
     this.logger.log(`Book created: ${saved.id} by teacher ${teacherId}`);
@@ -238,6 +243,10 @@ export class BooksService {
     const oldCover = book.cover_image;
 
     Object.assign(book, dto);
+    if (dto.title != null && dto.title !== '') {
+      // See create(): title_ar remains a persistence compatibility field.
+      book.title_ar = dto.title;
+    }
     await this.booksRepository.save(book);
 
     if (dto.book_file != null && dto.book_file !== oldBookFile) {

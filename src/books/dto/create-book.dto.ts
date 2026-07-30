@@ -4,11 +4,15 @@ import { Type } from 'class-transformer';
 import { IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateBookDto {
+  @ApiProperty({
+    description: 'Book title',
+    example: 'A comprehensive guide to basic mathematics',
+    maxLength: 255,
+  })
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(255)
   public title!: string;
-
-  @MaxLength(255)
-  public title_ar!: string;
 
   @ApiPropertyOptional({
     description: 'Book description in English',
