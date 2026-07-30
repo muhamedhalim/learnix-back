@@ -35,6 +35,18 @@ export interface ProviderPaymentStatus {
   providerReference?: string;
 }
 
+/** A provider-authoritative transaction record used for recovery and refunds. */
+export interface ProviderTransactionDetails {
+  transactionId: string;
+  status: 'pending' | 'succeeded' | 'failed' | 'refunded';
+  amountMinor: number;
+  currency: string;
+  occurredAt: Date;
+  providerOrderReference: string;
+  merchantReference: string;
+  refundedAmountMinor: number;
+}
+
 export interface ProviderWebhookRequest {
   payload: unknown;
   signature?: string;
@@ -48,6 +60,8 @@ export interface ProviderWebhookEvent {
   transactionId: string;
   amountMinor: number;
   currency: string;
+  /** Provider-signed transaction timestamp, when available. */
+  occurredAt?: Date;
   outcome: 'pending' | 'succeeded' | 'failed' | 'refunded';
   message?: string;
   payload: Record<string, unknown>;
@@ -67,8 +81,23 @@ export interface PaymentGatewayConfigurationStatus {
  */
 export interface PaymentGateway {
   readonly name: string;
+  /**
+   * Registers the provider-side order. The reference must be persisted before
+   * a hosted payment session is requested, so retries cannot create a second
+   * chargeable provider order for one internal payment.
+   */
+  createCheckoutOrder(input: ProviderCheckoutInput): Promise<string>;
+  /** Creates or reissues a hosted session for an existing provider order. */
+  createCheckoutSession(
+    input: ProviderCheckoutInput,
+    providerReference: string,
+  ): Promise<ProviderCheckoutResult>;
   createCheckout(input: ProviderCheckoutInput): Promise<ProviderCheckoutResult>;
   getPaymentStatus(providerReference: string): Promise<ProviderPaymentStatus | null>;
+  getTransactionByOrderReference(
+    providerOrderReference: string,
+    merchantReference: string,
+  ): Promise<ProviderTransactionDetails | null>;
   refund(input: ProviderRefundInput): Promise<ProviderRefundResult>;
   verifyWebhook(request: ProviderWebhookRequest): boolean;
   parseWebhook(request: ProviderWebhookRequest): ProviderWebhookEvent;

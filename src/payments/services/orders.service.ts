@@ -490,47 +490,111 @@ export class OrdersService {
     amount_minor: number;
     currency: string;
   }> {
-    const order = await this.orders.findOne({ where: { id: orderId, student_id: studentId } });
-    if (!order || order.payment_channel !== PaymentChannel.GATEWAY || !order.payment_id) {
-      throw new NotFoundException(
-        biBody('Gateway order not found', 'طلب الدفع الإلكتروني غير موجود'),
-      );
-    }
-    this.assertOrderPayable(order);
-    const payment = await this.payments.findOne({ where: { id: order.payment_id } });
-    if (!payment) {
-      throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
-    }
-    const provider = this.providers.get(payment.provider);
-    try {
-      const checkout = await provider.createCheckout({
-        paymentId: payment.id,
-        orderId: order.id,
-        orderNumber: order.order_number,
-        amountMinor: order.final_amount_minor,
-        currency: order.currency,
-        billingData: dto.billing_data,
+    const claimed = await retryTransaction(this.dataSource, async (manager) => {
+      const order = await manager.findOne(Order, {
+        where: { id: orderId, student_id: studentId },
+        lock: { mode: 'pessimistic_write' },
       });
+      if (!order || order.payment_channel !== PaymentChannel.GATEWAY || !order.payment_id) {
+        throw new NotFoundException(
+          biBody('Gateway order not found', 'طلب الدفع الإلكتروني غير موجود'),
+        );
+      }
+      this.assertOrderPayable(order);
+
+      const payment = await manager.findOne(Payment, {
+        where: { id: order.payment_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payment) {
+        throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
+      }
+
+      if (payment.paymob_order_id !== null) {
+        return { order, payment, providerReference: payment.paymob_order_id };
+      }
+      if (payment.status === PaymentStatus.PROCESSING) {
+        throw new ConflictException(
+          biBody(
+            'Checkout is already being prepared',
+            '\u062c\u0627\u0631\u064a \u062a\u062c\u0647\u064a\u0632 \u0627\u0644\u062f\u0641\u0639',
+          ),
+        );
+      }
+      if (![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status)) {
+        throw new ConflictException(
+          biBody(
+            'Payment cannot be started in its current state',
+            '\u0644\u0627 \u064a\u0645\u0643\u0646 \u0628\u062f\u0621 \u0627\u0644\u062f\u0641\u0639 \u0628\u062d\u0627\u0644\u062a\u0647 \u0627\u0644\u062d\u0627\u0644\u064a\u0629',
+          ),
+        );
+      }
+
       payment.status = PaymentStatus.PROCESSING;
-      payment.provider_reference = checkout.providerReference;
-      payment.paymob_order_id = checkout.providerReference;
       payment.failure_reason = null;
-      await this.payments.save(payment);
-      return {
-        order_id: order.id,
-        order_number: order.order_number,
-        payment_id: payment.id,
-        redirect_url: checkout.redirectUrl,
-        amount_minor: order.final_amount_minor,
-        currency: order.currency,
-      };
-    } catch (error) {
-      await this.payments.update(payment.id, {
-        status: PaymentStatus.FAILED,
-        failure_reason: error instanceof Error ? error.message : 'Provider checkout failed',
+      await manager.save(Payment, payment);
+      return { order, payment, providerReference: null };
+    });
+
+    const provider = this.providers.get(claimed.payment.provider);
+    const checkoutInput = {
+      paymentId: claimed.payment.id,
+      orderId: claimed.order.id,
+      orderNumber: claimed.order.order_number,
+      amountMinor: claimed.order.final_amount_minor,
+      currency: claimed.order.currency,
+      billingData: dto.billing_data,
+    };
+
+    let providerReference = claimed.providerReference;
+    if (providerReference === null) {
+      const createdReference = await provider.createCheckoutOrder(checkoutInput);
+      providerReference = await retryTransaction(this.dataSource, async (manager) => {
+        const order = await manager.findOne(Order, {
+          where: { id: orderId, student_id: studentId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!order || order.payment_channel !== PaymentChannel.GATEWAY || !order.payment_id) {
+          throw new NotFoundException(
+            biBody('Gateway order not found', 'طلب الدفع الإلكتروني غير موجود'),
+          );
+        }
+        this.assertOrderPayable(order);
+
+        const payment = await manager.findOne(Payment, {
+          where: { id: order.payment_id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!payment) {
+          throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
+        }
+        if (payment.paymob_order_id !== null) return payment.paymob_order_id;
+        if (payment.status !== PaymentStatus.PROCESSING) {
+          throw new ConflictException(
+            biBody(
+              'Payment cannot be started in its current state',
+              '\u0644\u0627 \u064a\u0645\u0643\u0646 \u0628\u062f\u0621 \u0627\u0644\u062f\u0641\u0639 \u0628\u062d\u0627\u0644\u062a\u0647 \u0627\u0644\u062d\u0627\u0644\u064a\u0629',
+            ),
+          );
+        }
+
+        payment.provider_reference = createdReference;
+        payment.paymob_order_id = createdReference;
+        payment.failure_reason = null;
+        await manager.save(Payment, payment);
+        return createdReference;
       });
-      throw error;
     }
+
+    const checkout = await provider.createCheckoutSession(checkoutInput, providerReference);
+    return {
+      order_id: claimed.order.id,
+      order_number: claimed.order.order_number,
+      payment_id: claimed.payment.id,
+      redirect_url: checkout.redirectUrl,
+      amount_minor: claimed.order.final_amount_minor,
+      currency: claimed.order.currency,
+    };
   }
 
   public async getStudentOrder(

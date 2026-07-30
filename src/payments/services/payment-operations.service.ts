@@ -17,12 +17,17 @@ import {
   Order,
   OrderStatus,
   Payment,
+  PaymentAuditLog,
   PaymentDomainEvent,
   PaymentStatus,
   Refund,
+  RefundStatus,
   Settlement,
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
+import { PaymentFinalizationService } from './payment-finalization.service';
+import { PaymentsService } from './payments.service';
+import { RefundsService } from './refunds.service';
 import { SettlementsService } from './settlements.service';
 
 @Injectable()
@@ -41,6 +46,9 @@ export class PaymentOperationsService {
     private readonly settlements: SettlementsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly providers: PaymentProviderRegistry,
+    private readonly finalizer: PaymentFinalizationService,
+    private readonly paymentService: PaymentsService,
+    private readonly refunds: RefundsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -52,32 +60,216 @@ export class PaymentOperationsService {
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   public async reconcileGatewayAttempts(): Promise<void> {
-    const attempts = await this.payments
-      .createQueryBuilder('payment')
-      .where('payment.status = :status', { status: PaymentStatus.PROCESSING })
-      .andWhere('payment.order_id IS NOT NULL')
-      .andWhere('payment.provider IS NOT NULL')
-      .andWhere('payment.provider_reference IS NOT NULL')
-      .orderBy('payment.created_at', 'ASC')
-      .take(100)
-      .getMany();
-    for (const payment of attempts) {
+    let lastCreatedAt: Date | null = null;
+    let lastId: string | null = null;
+    for (;;) {
+      const query = this.payments
+        .createQueryBuilder('payment')
+        .where('payment.status IN (:...statuses)', {
+          statuses: [PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.EXPIRED],
+        })
+        .andWhere('payment.order_id IS NOT NULL')
+        .andWhere('payment.provider IS NOT NULL')
+        .andWhere('(payment.paymob_order_id IS NOT NULL OR payment.provider_reference IS NOT NULL)')
+        .andWhere(
+          "(payment.failure_reason IS NULL OR payment.failure_reason NOT LIKE 'reconciliation_quarantine:%')",
+        )
+        .orderBy('payment.created_at', 'ASC')
+        .addOrderBy('payment.id', 'ASC')
+        .take(100);
+      if (lastCreatedAt !== null && lastId !== null) {
+        query.andWhere(
+          '(payment.created_at > :lastCreatedAt OR (payment.created_at = :lastCreatedAt AND payment.id > :lastId))',
+          { lastCreatedAt, lastId },
+        );
+      }
+      const attempts = await query.getMany();
+      if (attempts.length === 0) {
+        await this.reconcileStuckRefunds();
+        return;
+      }
+      for (const payment of attempts) await this.reconcilePayment(payment);
+      const last = attempts.at(-1);
+      if (!last) {
+        await this.reconcileStuckRefunds();
+        return;
+      }
+      lastCreatedAt = last.created_at;
+      lastId = last.id;
+      if (attempts.length < 100) {
+        await this.reconcileStuckRefunds();
+        return;
+      }
+    }
+  }
+
+  private async reconcileStuckRefunds(): Promise<void> {
+    const candidates = await this.dataSource.getRepository(Refund).find({
+      where: { status: RefundStatus.PROCESSING },
+      order: { created_at: 'ASC' },
+      take: 100,
+    });
+    for (const refund of candidates) {
       try {
-        const status = await this.providers
+        if (!refund.payment_id) continue;
+        const payment = await this.payments.findOne({ where: { id: refund.payment_id } });
+        if (!payment?.provider || !payment.order_id) continue;
+        const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+        if (!providerOrderReference) continue;
+        const details = await this.providers
           .get(payment.provider)
-          .getPaymentStatus(payment.provider_reference as string);
-        if (status === null) continue;
-        // A status inquiry is deliberately advisory. Success/refund still flows
-        // through a signed webhook; unresolved mismatches remain visible in the
-        // reconciliation report rather than being auto-finalized from polling.
+          .getTransactionByOrderReference(providerOrderReference, payment.id);
+        if (!details) continue;
+        if (
+          details.providerOrderReference !== providerOrderReference ||
+          details.merchantReference !== payment.id ||
+          details.amountMinor !== refund.amount_minor ||
+          details.currency.toUpperCase() !== refund.currency.toUpperCase()
+        ) {
+          await this.quarantinePayment(payment, details);
+          continue;
+        }
+        if (details.status === 'refunded') {
+          await this.refunds.completeProviderNotification(
+            payment.id,
+            details.transactionId,
+            details.amountMinor,
+            details.currency,
+          );
+        } else if (refund.updated_at.getTime() < Date.now() - 15 * 60_000) {
+          this.logger.error(
+            `Gateway refund ${refund.id} is still processing after fifteen minutes`,
+          );
+        }
       } catch (error) {
-        this.logger.warn(
-          `Gateway reconciliation failed for payment ${payment.id}: ${
+        this.logger.error(
+          `Gateway refund reconciliation failed for ${refund.id}: ${
             error instanceof Error ? error.message : 'unknown error'
           }`,
         );
       }
     }
+  }
+
+  private async reconcilePayment(payment: Payment): Promise<void> {
+    try {
+      const provider = this.providers.get(payment.provider!);
+      const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+      if (!providerOrderReference) return;
+      const details = await provider.getTransactionByOrderReference(
+        providerOrderReference,
+        payment.id,
+      );
+      if (!details) return;
+      if (
+        details.providerOrderReference !== providerOrderReference ||
+        details.merchantReference !== payment.id ||
+        details.amountMinor !== payment.amount_minor ||
+        details.currency.toUpperCase() !== payment.currency.toUpperCase()
+      ) {
+        await this.quarantinePayment(payment, details);
+        return;
+      }
+      const verification = {
+        verifiedAmountMinor: details.amountMinor,
+        verifiedCurrency: details.currency,
+        verifiedOccurredAt: details.occurredAt,
+      };
+      if (details.status === 'succeeded') {
+        if (!payment.order_id) return;
+        await this.finalizer.finalizeSuccessfulPayment({
+          orderId: payment.order_id,
+          paymentId: payment.id,
+          sourceReference: details.transactionId,
+          actorId: null,
+          ...verification,
+        });
+        return;
+      }
+      if (details.status === 'refunded') {
+        await this.paymentService.processSuccessfulPayment(payment.id, {
+          amountCents: details.amountMinor,
+          currency: details.currency,
+          transactionId: details.transactionId,
+          occurredAt: details.occurredAt,
+        });
+        await this.refunds.completeProviderNotification(
+          payment.id,
+          details.transactionId,
+          details.amountMinor,
+          details.currency,
+        );
+        return;
+      }
+      if (details.status === 'failed') {
+        await this.paymentService.processFailedPayment(
+          payment.id,
+          'Provider reconciliation reported failure',
+          {
+            amountCents: details.amountMinor,
+            currency: details.currency,
+            transactionId: details.transactionId,
+          },
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Gateway reconciliation failed for payment ${payment.id}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private async quarantinePayment(
+    payment: Payment,
+    details: {
+      transactionId: string;
+      amountMinor: number;
+      currency: string;
+      providerOrderReference: string;
+      merchantReference: string;
+    },
+  ): Promise<void> {
+    const reason = `reconciliation_quarantine: provider transaction ${details.transactionId} does not match payment`;
+    await retryTransaction(this.dataSource, async (manager) => {
+      const locked = await manager.findOne(Payment, {
+        where: { id: payment.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked || locked.failure_reason?.startsWith('reconciliation_quarantine:')) return;
+      locked.failure_reason = reason;
+      await manager.save(Payment, locked);
+      await manager.insert(PaymentAuditLog, {
+        actor_id: null,
+        action: 'payment_reconciliation_quarantined',
+        resource_type: 'payment',
+        resource_id: locked.id,
+        details: {
+          provider_transaction_id: details.transactionId,
+          provider_amount_minor: details.amountMinor,
+          provider_currency: details.currency,
+          provider_order_reference: details.providerOrderReference,
+          provider_merchant_reference: details.merchantReference,
+        },
+        ip_address: null,
+      });
+      await manager
+        .createQueryBuilder()
+        .insert()
+        .into(PaymentDomainEvent)
+        .values({
+          event_name: 'payment.reconciliation_alert',
+          dedupe_key: `payment:${locked.id}:reconciliation-quarantine`,
+          payload: { payment_id: locked.id, reason },
+          published_at: null,
+          attempts: 0,
+          last_error: null,
+        } as never)
+        .orIgnore()
+        .execute();
+    });
+    this.logger.error(`Payment ${payment.id} quarantined during provider reconciliation`);
   }
 
   public async expireOrders(limit = 500): Promise<number> {

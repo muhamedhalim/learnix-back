@@ -198,6 +198,44 @@ describe('PaymentFinalizationService', () => {
     expect(savedCompatibilityPurchases).toHaveLength(0);
   });
 
+  it('fulfills a provider-verified success received after local checkout expiry', async () => {
+    order.status = OrderStatus.EXPIRED;
+
+    await expect(
+      service.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: 'gateway-late-success',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+          verifiedOccurredAt: new Date('2026-01-01T00:00:00Z'),
+        },
+        manager,
+      ),
+    ).resolves.toMatchObject({ alreadyFinalized: false });
+
+    expect(order.status).toBe(OrderStatus.PAID);
+    expect(payment.status).toBe(PaymentStatus.COMPLETED);
+  });
+
+  it('does not reopen an expired order without trusted gateway financial facts', async () => {
+    order.status = OrderStatus.EXPIRED;
+
+    await expect(
+      service.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: 'gateway-late-success',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+        },
+        manager,
+      ),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
   it('creates an active entitlement and compatibility purchase when manual proof is approved', async () => {
     order.payment_channel = PaymentChannel.MANUAL;
 

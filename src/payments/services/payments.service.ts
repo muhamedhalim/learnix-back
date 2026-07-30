@@ -47,6 +47,8 @@ export interface PaymentVerificationContext {
   amountCents: number;
   currency: string;
   transactionId?: string;
+  /** Trusted provider timestamp used by the late-success recovery policy. */
+  occurredAt?: Date;
 }
 
 const PAYMENT_SORT_COLUMN_BY_FIELD: Readonly<Record<PaymentSortField, string>> = {
@@ -255,6 +257,9 @@ export class PaymentsService {
         ? {
             verifiedAmountMinor: verification.amountCents,
             verifiedCurrency: verification.currency,
+            ...(verification.occurredAt === undefined
+              ? {}
+              : { verifiedOccurredAt: verification.occurredAt }),
           }
         : {}),
     });

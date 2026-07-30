@@ -55,6 +55,8 @@ export interface FinalizePaymentInput {
   manualSubmissionId?: string;
   verifiedAmountMinor?: number;
   verifiedCurrency?: string;
+  /** Only a signed/reconciled gateway fact may reopen a locally expired order. */
+  verifiedOccurredAt?: Date;
 }
 
 export interface FinalizationResult {
@@ -135,13 +137,18 @@ export class PaymentFinalizationService {
       return { order, payment, entitlement: existing, alreadyFinalized: true };
     }
 
+    const lateGatewaySuccess =
+      order.status === OrderStatus.EXPIRED &&
+      order.payment_channel === PaymentChannel.GATEWAY &&
+      input.verifiedAmountMinor !== undefined &&
+      input.verifiedCurrency !== undefined &&
+      input.verifiedOccurredAt instanceof Date &&
+      Number.isFinite(input.verifiedOccurredAt.getTime());
     if (
-      [
-        OrderStatus.CANCELLED,
-        OrderStatus.EXPIRED,
-        OrderStatus.REFUNDED,
-        OrderStatus.PARTIALLY_REFUNDED,
-      ].includes(order.status)
+      [OrderStatus.CANCELLED, OrderStatus.REFUNDED, OrderStatus.PARTIALLY_REFUNDED].includes(
+        order.status,
+      ) ||
+      (order.status === OrderStatus.EXPIRED && !lateGatewaySuccess)
     ) {
       throw new UnprocessableEntityException(
         biBody(

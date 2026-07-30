@@ -15,6 +15,11 @@ describe('GatewayWebhookService', () => {
       events.set(event.provider_event_id, event);
       return Promise.resolve(event);
     }),
+    update: jest.fn((criteria: { id: string }, values: Partial<GatewayWebhookEvent>) => {
+      const event = [...events.values()].find((candidate) => candidate.id === criteria.id);
+      if (event) Object.assign(event, values, { updated_at: new Date() });
+      return Promise.resolve({ affected: event ? 1 : 0 });
+    }),
     createQueryBuilder: jest.fn(() => {
       let value: Partial<GatewayWebhookEvent>;
       const chain = {
@@ -45,6 +50,16 @@ describe('GatewayWebhookService', () => {
     processSuccessfulPayment: jest.fn(),
     processFailedPayment: jest.fn(),
     processRefundedPayment: jest.fn(),
+  };
+  const dataSource = {
+    transaction: jest.fn(async (work: (manager: typeof manager) => unknown) => work(manager)),
+  };
+  const manager = {
+    createQueryBuilder: (...args: unknown[]) => repository.createQueryBuilder(...(args as [])),
+    findOne: (_entity: unknown, options: { where: { provider_event_id: string } }) =>
+      repository.findOne(options),
+    save: (entityOrEvent: unknown, maybeEvent?: GatewayWebhookEvent) =>
+      repository.save((maybeEvent ?? entityOrEvent) as GatewayWebhookEvent),
   };
 
   let service: GatewayWebhookService;
@@ -85,6 +100,7 @@ describe('GatewayWebhookService', () => {
     payments.processRefundedPayment.mockResolvedValue(undefined);
     service = new GatewayWebhookService(
       repository as never,
+      dataSource as never,
       payments as unknown as PaymentsService,
     );
   });
@@ -105,6 +121,25 @@ describe('GatewayWebhookService', () => {
     });
   });
 
+  it('claims a concurrent webhook replay before any second financial side effect', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const startedProcessing = new Promise<void>((resolve) => (started = resolve));
+    payments.processSuccessfulPayment.mockImplementation(() => {
+      started();
+      return new Promise<void>((resolve) => (release = resolve));
+    });
+    const webhook = callback('succeeded', 'concurrent-event');
+    const first = service.process(webhook);
+    await startedProcessing;
+    const replay = await service.process(webhook);
+
+    expect(replay).toMatchObject({ status: 'pending' });
+    expect(payments.processSuccessfulPayment).toHaveBeenCalledTimes(1);
+    release();
+    await expect(first).resolves.toMatchObject({ status: 'success' });
+  });
+
   it('rejects amount, currency, provider, or checkout-order mismatches before side effects', async () => {
     const mismatches: ProviderWebhookEvent[] = [
       { ...callback('succeeded', 'amount'), amountMinor: 9_999 },
@@ -123,13 +158,13 @@ describe('GatewayWebhookService', () => {
     expect(payments.processRefundedPayment).not.toHaveBeenCalled();
   });
 
-  it('does not let an out-of-order failure overwrite a completed payment', async () => {
+  it('delegates an out-of-order failure to the locked payment state machine', async () => {
     payments.getPaymentByMerchantOrderId.mockResolvedValue(payment(PaymentStatus.COMPLETED));
 
     await expect(service.process(callback('failed'))).resolves.toMatchObject({
-      status: 'success',
+      status: 'failed',
     });
-    expect(payments.processFailedPayment).not.toHaveBeenCalled();
+    expect(payments.processFailedPayment).toHaveBeenCalledTimes(1);
   });
 
   it('maps a refund callback to the existing refund finalization flow', async () => {
@@ -138,14 +173,15 @@ describe('GatewayWebhookService', () => {
     await expect(service.process(callback('refunded'))).resolves.toMatchObject({
       status: 'refunded',
     });
+    expect(payments.processSuccessfulPayment).toHaveBeenCalledTimes(1);
     expect(payments.processRefundedPayment).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a void before completion as a failed payment without granting access', async () => {
+  it('serializes a refund that arrives before a success callback through finalization then refund', async () => {
     await expect(service.process(callback('refunded'))).resolves.toMatchObject({
-      status: 'failed',
+      status: 'refunded',
     });
-    expect(payments.processFailedPayment).toHaveBeenCalledTimes(1);
-    expect(payments.processRefundedPayment).not.toHaveBeenCalled();
+    expect(payments.processSuccessfulPayment).toHaveBeenCalledTimes(1);
+    expect(payments.processRefundedPayment).toHaveBeenCalledTimes(1);
   });
 });

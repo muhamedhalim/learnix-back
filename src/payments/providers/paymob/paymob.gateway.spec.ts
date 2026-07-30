@@ -147,6 +147,71 @@ describe('PaymobGateway', () => {
     });
   });
 
+  it('reissues a hosted checkout session for an existing Paymob order without registering another order', async () => {
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ token: 'auth-token' }))
+      .mockResolvedValueOnce(response({ token: 'payment-key' }));
+    const gateway = new PaymobGateway(config());
+
+    await expect(gateway.createCheckoutSession(checkoutInput(), '555')).resolves.toEqual({
+      redirectUrl:
+        'https://accept.paymob.test/api/acceptance/iframes/123?payment_token=payment-key',
+      providerReference: '555',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://accept.paymob.test/api/auth/tokens');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://accept.paymob.test/api/acceptance/payment_keys',
+    );
+    const keyRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<
+      string,
+      unknown
+    >;
+    expect(keyRequest).toMatchObject({ order_id: 555, amount_cents: 10_000 });
+  });
+
+  it('retrieves and validates transaction-level details by Paymob order and merchant reference', async () => {
+    const fetchMock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ token: 'auth-token' }))
+      .mockResolvedValueOnce(response(transaction()));
+    const gateway = new PaymobGateway(config());
+
+    await expect(gateway.getTransactionByOrderReference('555', 'payment-1')).resolves.toEqual({
+      transactionId: '123',
+      status: 'succeeded',
+      amountMinor: 10_000,
+      currency: 'EGP',
+      occurredAt: new Date('2026-01-01T00:00:00Z'),
+      providerOrderReference: '555',
+      merchantReference: 'payment-1',
+      refundedAmountMinor: 0,
+    });
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://accept.paymob.test/api/ecommerce/orders/transaction_inquiry',
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      auth_token: 'auth-token',
+      merchant_order_id: 'payment-1',
+      order_id: 555,
+    });
+  });
+
+  it('fails closed when transaction inquiry does not bind to the requested order and merchant reference', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ token: 'auth-token' }))
+      .mockResolvedValueOnce(
+        response(transaction({ order: { id: 556, merchant_order_id: 'other' } })),
+      );
+    const gateway = new PaymobGateway(config());
+
+    await expect(gateway.getTransactionByOrderReference('555', 'payment-1')).resolves.toBeNull();
+  });
+
   it('fails closed when any required setting is missing', async () => {
     const gateway = new PaymobGateway(config({ PAYMOB_SECRET_KEY: '' }));
     await expect(gateway.createCheckout(checkoutInput())).rejects.toBeInstanceOf(
@@ -190,7 +255,7 @@ describe('PaymobGateway', () => {
 
   it.each([
     [{ is_refunded: true }, 'refunded'],
-    [{ is_voided: true }, 'refunded'],
+    [{ is_voided: true }, 'failed'],
     [{ success: false, pending: true }, 'pending'],
     [{ success: false, error_occured: true }, 'failed'],
   ])('maps provider state %j to %s', (state, expected) => {

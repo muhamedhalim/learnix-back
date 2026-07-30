@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -42,13 +43,11 @@ import { PaymentProviderRegistry } from './payment-provider-registry.service';
 
 @Injectable()
 export class RefundsService {
+  private readonly logger = new Logger(RefundsService.name);
+
   constructor(
     @InjectRepository(Refund)
     private readonly refunds: Repository<Refund>,
-    @InjectRepository(Order)
-    private readonly orders: Repository<Order>,
-    @InjectRepository(Payment)
-    private readonly payments: Repository<Payment>,
     private readonly dataSource: DataSource,
     private readonly providers: PaymentProviderRegistry,
   ) {}
@@ -120,6 +119,8 @@ export class RefundsService {
   }
 
   public async processGateway(refundId: string, adminId: string): Promise<Refund> {
+    return this.processGatewayClaimed(refundId, adminId);
+    /* legacy implementation retained below as an unreachable compatibility reference
     const refund = await this.refunds.findOne({ where: { id: refundId } });
     if (!refund || refund.channel !== PaymentChannel.GATEWAY || !refund.payment_id) {
       throw new NotFoundException(
@@ -165,7 +166,122 @@ export class RefundsService {
         true,
       );
     }
-    return (await this.refunds.findOne({ where: { id: refund.id } })) ?? refund;
+    return (await this.refunds.findOne({ where: { id: refund.id } })) ?? refund; */
+  }
+
+  private async processGatewayClaimed(refundId: string, adminId: string): Promise<Refund> {
+    const claimed = await retryTransaction(this.dataSource, async (manager) => {
+      const refund = await manager.findOne(Refund, {
+        where: { id: refundId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!refund || refund.channel !== PaymentChannel.GATEWAY || !refund.payment_id) {
+        throw new NotFoundException(biBody('Gateway refund not found', 'Gateway refund not found'));
+      }
+      if (refund.status === RefundStatus.SUCCEEDED)
+        return { refund, payment: null, retrying: false };
+      const payment = await manager.findOne(Payment, {
+        where: { id: refund.payment_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payment?.provider || !payment.provider_reference) {
+        throw new ConflictException(
+          biBody(
+            'Payment has no reconcilable provider reference',
+            'Payment has no reconcilable provider reference',
+          ),
+        );
+      }
+      const claimedAt = refund.metadata?.['gateway_claimed_at'];
+      const activeClaim =
+        refund.status === RefundStatus.PROCESSING &&
+        typeof claimedAt === 'string' &&
+        Date.parse(claimedAt) > Date.now() - 5 * 60_000;
+      if (activeClaim) {
+        throw new ConflictException(
+          biBody(
+            'Gateway refund is already being processed',
+            'Gateway refund is already being processed',
+          ),
+        );
+      }
+      const retrying = refund.status === RefundStatus.PROCESSING;
+      refund.status = RefundStatus.PROCESSING;
+      refund.approved_by = adminId;
+      refund.metadata = {
+        ...(refund.metadata ?? {}),
+        gateway_claimed_at: new Date().toISOString(),
+        gateway_idempotency_key: `refund-${refund.id}`,
+        ...(retrying ? { gateway_retry_after_status_inquiry: true } : {}),
+      };
+      await manager.save(Refund, refund);
+      return { refund, payment, retrying };
+    });
+    if (claimed.payment === null) return claimed.refund;
+    const { refund, payment } = claimed;
+    const provider = this.providers.get(payment.provider);
+    if (!provider.supportsRefunds()) {
+      throw new ConflictException(
+        biBody(
+          'Configured gateway does not support API refunds',
+          'Configured gateway does not support API refunds',
+        ),
+      );
+    }
+    const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+    if (claimed.retrying && providerOrderReference) {
+      const details = await provider.getTransactionByOrderReference(
+        providerOrderReference,
+        payment.id,
+      );
+      if (details?.status === 'refunded') {
+        return this.completeProviderNotification(
+          payment.id,
+          details.transactionId,
+          details.amountMinor,
+          details.currency,
+        );
+      }
+      if (details?.status !== 'succeeded') {
+        throw new ConflictException(
+          biBody(
+            'Gateway refund outcome is ambiguous; reconciliation is required before retry',
+            'Gateway refund outcome is ambiguous; reconciliation is required before retry',
+          ),
+        );
+      }
+    }
+    try {
+      const providerResult = await provider.refund({
+        providerReference: payment.provider_reference!,
+        amountMinor: refund.amount_minor,
+        currency: refund.currency,
+        idempotencyKey: `refund-${refund.id}`,
+      });
+      if (providerResult.status === 'succeeded') {
+        return this.complete(
+          refund.id,
+          {
+            external_method: payment.provider!,
+            external_reference: providerResult.providerReference,
+          },
+          adminId,
+          true,
+        );
+      }
+      return (await this.refunds.findOne({ where: { id: refund.id } })) ?? refund;
+    } catch (error) {
+      await this.refunds.update(refund.id, {
+        metadata: {
+          ...(refund.metadata ?? {}),
+          gateway_last_error:
+            error instanceof Error ? error.message : 'Gateway refund request failed',
+          gateway_last_error_at: new Date().toISOString(),
+        },
+      });
+      this.logger.error(`Gateway refund ${refund.id} has an ambiguous provider outcome`);
+      throw error;
+    }
   }
 
   public async complete(
@@ -262,6 +378,13 @@ export class RefundsService {
     amountMinor: number,
     currency: string,
   ): Promise<Refund> {
+    return this.completeProviderNotificationLocked(
+      paymentId,
+      externalReference,
+      amountMinor,
+      currency,
+    );
+    /* legacy implementation retained below as an unreachable compatibility reference
     const payment = await this.payments.findOne({ where: { id: paymentId } });
     if (!payment?.order_id) {
       throw new NotFoundException(
@@ -334,6 +457,97 @@ export class RefundsService {
         external_reference: externalReference,
       },
       refund.requested_by,
+      true,
+    ); */
+  }
+
+  private async completeProviderNotificationLocked(
+    paymentId: string,
+    externalReference: string,
+    amountMinor: number,
+    currency: string,
+  ): Promise<Refund> {
+    const prepared = await retryTransaction(this.dataSource, async (manager) => {
+      const payment = await manager.findOne(Payment, {
+        where: { id: paymentId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payment?.order_id) {
+        throw new NotFoundException(
+          biBody('Canonical payment order not found', 'Canonical payment order not found'),
+        );
+      }
+      const order = await manager.findOne(Order, {
+        where: { id: payment.order_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) throw new NotFoundException(biBody('Order not found', 'Order not found'));
+      const remaining = order.final_amount_minor - order.refunded_amount_minor;
+      if (
+        order.status !== OrderStatus.PAID ||
+        amountMinor !== remaining ||
+        currency.toUpperCase() !== order.currency.toUpperCase()
+      ) {
+        throw new BadRequestException(
+          biBody(
+            'Provider refund does not match the remaining paid order amount and currency',
+            'Provider refund does not match the remaining paid order amount and currency',
+          ),
+        );
+      }
+      const refund = await manager.findOne(Refund, {
+        where: {
+          order_id: order.id,
+          status: In([RefundStatus.REQUESTED, RefundStatus.APPROVED, RefundStatus.PROCESSING]),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (refund) {
+        if (
+          refund.amount_minor !== amountMinor ||
+          refund.currency.toUpperCase() !== currency.toUpperCase()
+        ) {
+          throw new BadRequestException(
+            biBody(
+              'Provider refund does not match the pending refund',
+              'Provider refund does not match the pending refund',
+            ),
+          );
+        }
+        refund.status = RefundStatus.PROCESSING;
+        refund.external_method = payment.provider;
+        refund.external_reference = externalReference;
+        await manager.save(Refund, refund);
+        return { refund, provider: payment.provider ?? 'gateway' };
+      }
+      const created = await manager.save(
+        Refund,
+        manager.create(Refund, {
+          order_id: order.id,
+          payment_id: payment.id,
+          channel: PaymentChannel.GATEWAY,
+          amount_minor: amountMinor,
+          currency: order.currency,
+          status: RefundStatus.PROCESSING,
+          reason_code: 'provider_refund',
+          reason: 'Provider reported a completed refund',
+          internal_note: null,
+          external_method: payment.provider,
+          external_reference: externalReference,
+          proof_file_key: null,
+          requested_by: order.student_id,
+          approved_by: null,
+          completed_by: null,
+          completed_at: null,
+          metadata: { provider_notification: true },
+        }),
+      );
+      return { refund: created, provider: payment.provider ?? 'gateway' };
+    });
+    return this.complete(
+      prepared.refund.id,
+      { external_method: prepared.provider, external_reference: externalReference },
+      prepared.refund.requested_by,
       true,
     );
   }

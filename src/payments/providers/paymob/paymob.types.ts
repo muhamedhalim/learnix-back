@@ -50,6 +50,24 @@ export interface PaymobOrderResponse {
   payment_status?: unknown;
 }
 
+export interface PaymobTransactionInquiryResponse {
+  id?: unknown;
+  amount_cents?: unknown;
+  currency?: unknown;
+  success?: unknown;
+  pending?: unknown;
+  error_occured?: unknown;
+  is_refunded?: unknown;
+  is_voided?: unknown;
+  refunded_amount_cents?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  order?: {
+    id?: unknown;
+    merchant_order_id?: unknown;
+  };
+}
+
 export interface PaymobPaymentKeyResponse {
   token?: unknown;
 }

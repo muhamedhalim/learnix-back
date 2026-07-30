@@ -2,19 +2,21 @@ import type { ExecutionContext } from '@nestjs/common';
 import { ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { PaymentsWebhookController } from '../../payments/controllers/payments-webhook.controller';
 import { CsrfGuard } from './csrf.guard';
 
 function buildContext(
   request: Record<string, unknown>,
   response: Record<string, unknown> = {},
+  handler: unknown = () => undefined,
 ): ExecutionContext {
   return {
     switchToHttp: () => ({
       getRequest: () => request,
       getResponse: () => response,
     }),
-    getHandler: () => (() => undefined) as unknown,
-    getClass: () => (class {} as unknown),
+    getHandler: () => handler,
+    getClass: () => class {} as unknown,
   } as unknown as ExecutionContext;
 }
 
@@ -113,6 +115,21 @@ describe('CsrfGuard', () => {
     };
 
     expect(guard.canActivate(buildContext(request))).toBe(true);
+  });
+
+  it.each([
+    ['payments webhook', PaymentsWebhookController.prototype.handleWebhook],
+    ['payments callback', PaymentsWebhookController.prototype.handleCallback],
+  ])('allows the %s POST to reach its HMAC validation without browser CSRF', (_, handler) => {
+    const request = {
+      method: 'POST',
+      url: '/api/v1/payments/webhook',
+      signedCookies: {},
+      headers: {},
+      ip: '127.0.0.1',
+    };
+
+    expect(guard.canActivate(buildContext(request, {}, handler))).toBe(true);
   });
 
   it('rejects a POST when cookie and header are both present but differ (same length)', () => {

@@ -119,16 +119,20 @@ describe('RefundsService — financial validation', () => {
   });
 
   it('rejects a provider refund whose amount or currency differs from the paid order', async () => {
-    payments.findOne.mockResolvedValue({
-      id: 'payment-1',
-      order_id: 'order-1',
-      provider: 'configured-gateway',
-    } as Payment);
-    orders.findOne.mockResolvedValue(paidOrder());
+    manager.findOne.mockImplementation((entity: unknown) => {
+      if (entity === Payment)
+        return Promise.resolve({
+          id: 'payment-1',
+          order_id: 'order-1',
+          provider: 'configured-gateway',
+        } as Payment);
+      if (entity === Order) return Promise.resolve(paidOrder());
+      return Promise.resolve(null);
+    });
 
     await expect(
       service.completeProviderNotification('payment-1', 'provider-refund-1', 9_999, 'EGP'),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(refunds.findOne).toHaveBeenCalled();
+    expect(manager.findOne).toHaveBeenCalled();
   });
 });

@@ -10,6 +10,7 @@ import type {
   ProviderCheckoutResult,
   PaymentGatewayConfigurationStatus,
   ProviderPaymentStatus,
+  ProviderTransactionDetails,
   ProviderRefundInput,
   ProviderRefundResult,
   ProviderWebhookEvent,
@@ -21,6 +22,7 @@ import type {
   PaymobOrderResponse,
   PaymobPaymentKeyResponse,
   PaymobRefundResponse,
+  PaymobTransactionInquiryResponse,
 } from './paymob.types';
 
 const CURRENCY = 'EGP';
@@ -53,7 +55,10 @@ export class PaymobGateway implements PaymentGateway {
     this.assertConfigured();
     if (input.currency.toUpperCase() !== CURRENCY) {
       throw new InternalServerErrorException(
-        biBody('Payment currency is not supported', 'عملة الدفع غير مدعومة'),
+        biBody(
+          'Payment currency is not supported',
+          '\u0639\u0645\u0644\u0629 \u0627\u0644\u062f\u0641\u0639 \u063a\u064a\u0631 \u0645\u062f\u0639\u0648\u0645\u0629',
+        ),
       );
     }
 
@@ -65,15 +70,45 @@ export class PaymobGateway implements PaymentGateway {
       providerOrderId,
       input,
     );
-    const redirectUrl =
-      `${this.apiBaseUrl}/acceptance/iframes/${encodeURIComponent(this.iframeId)}` +
-      `?payment_token=${encodeURIComponent(paymentKey)}`;
+    return this.checkoutResult(input.paymentId, providerOrderId, paymentKey);
+  }
 
-    this.logger.log(`Gateway checkout created for payment ${input.paymentId}`);
-    return {
-      redirectUrl,
-      providerReference: String(providerOrderId),
-    };
+  public async createCheckoutOrder(input: ProviderCheckoutInput): Promise<string> {
+    this.assertConfigured();
+    if (input.currency.toUpperCase() !== CURRENCY) {
+      throw new InternalServerErrorException(
+        biBody('Payment currency is not supported', 'عملة الدفع غير مدعومة'),
+      );
+    }
+
+    const authToken = await this.getAuthToken();
+    const providerOrderId = await this.registerOrder(authToken, input.amountMinor, input.paymentId);
+    return String(providerOrderId);
+  }
+
+  public async createCheckoutSession(
+    input: ProviderCheckoutInput,
+    providerReference: string,
+  ): Promise<ProviderCheckoutResult> {
+    this.assertConfigured();
+    if (input.currency.toUpperCase() !== CURRENCY) {
+      throw new InternalServerErrorException(
+        biBody('Payment currency is not supported', 'Ø¹Ù…Ù„Ø© Ø§Ù„Ø¯ÙØ¹ ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ…Ø©'),
+      );
+    }
+    const providerOrderId = this.parsePositiveInteger(providerReference);
+    if (providerOrderId === null) {
+      throw this.unavailable('provider order reference is invalid');
+    }
+
+    const authToken = await this.getAuthToken();
+    const paymentKey = await this.getPaymentKey(
+      authToken,
+      input.amountMinor,
+      providerOrderId,
+      input,
+    );
+    return this.checkoutResult(input.paymentId, providerOrderId, paymentKey);
   }
 
   public async getPaymentStatus(providerReference: string): Promise<ProviderPaymentStatus | null> {
@@ -109,6 +144,70 @@ export class PaymobGateway implements PaymentGateway {
       ...(amountMinor === undefined ? {} : { amountMinor }),
       ...(currency === undefined ? {} : { currency }),
       providerReference,
+    };
+  }
+
+  /**
+   * Paymob's transaction-inquiry endpoint resolves a gateway order to its
+   * actual transaction record. Recovery must use this record rather than
+   * treating the Paymob order ID as a transaction ID.
+   */
+  public async getTransactionByOrderReference(
+    providerOrderReference: string,
+    merchantReference: string,
+  ): Promise<ProviderTransactionDetails | null> {
+    this.assertConfigured();
+    const providerOrderId = this.parsePositiveInteger(providerOrderReference);
+    if (providerOrderId === null || merchantReference === '') return null;
+    const authToken = await this.getAuthToken();
+    const response = await this.request(
+      `${this.apiBaseUrl}/ecommerce/orders/transaction_inquiry`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auth_token: authToken,
+          merchant_order_id: merchantReference,
+          order_id: providerOrderId,
+        }),
+      },
+      'transaction inquiry',
+    );
+    const data = (await response.json()) as PaymobTransactionInquiryResponse;
+    const transactionId = this.parseUnknownPositiveInteger(data.id);
+    const amountMinor = this.optionalNonNegativeInteger(data.amount_cents);
+    const currency = typeof data.currency === 'string' ? data.currency.toUpperCase() : null;
+    const responseOrderId = this.parseUnknownPositiveInteger(data.order?.id);
+    const responseMerchantReference = data.order?.merchant_order_id;
+    const timestamp = this.parseProviderTimestamp(data.updated_at ?? data.created_at);
+    if (
+      transactionId === null ||
+      amountMinor === undefined ||
+      currency === null ||
+      responseOrderId === null ||
+      responseMerchantReference !== merchantReference ||
+      timestamp === null
+    ) {
+      return null;
+    }
+    const refundedAmountMinor = this.optionalNonNegativeInteger(data.refunded_amount_cents) ?? 0;
+    const status: ProviderTransactionDetails['status'] =
+      data.is_refunded === true || refundedAmountMinor >= amountMinor
+        ? 'refunded'
+        : data.success === true && data.pending !== true && data.error_occured !== true
+          ? 'succeeded'
+          : data.pending === true
+            ? 'pending'
+            : 'failed';
+    return {
+      transactionId,
+      status,
+      amountMinor,
+      currency,
+      occurredAt: timestamp,
+      providerOrderReference: responseOrderId,
+      merchantReference,
+      refundedAmountMinor,
     };
   }
 
@@ -210,6 +309,21 @@ export class PaymobGateway implements PaymentGateway {
 
   public supportsSplitSettlement(): boolean {
     return false;
+  }
+
+  private checkoutResult(
+    paymentId: string,
+    providerOrderId: number,
+    paymentKey: string,
+  ): ProviderCheckoutResult {
+    const redirectUrl =
+      `${this.apiBaseUrl}/acceptance/iframes/${encodeURIComponent(this.iframeId)}` +
+      `?payment_token=${encodeURIComponent(paymentKey)}`;
+    this.logger.log(`Gateway checkout created for payment ${paymentId}`);
+    return {
+      redirectUrl,
+      providerReference: String(providerOrderId),
+    };
   }
 
   private async getAuthToken(): Promise<string> {
@@ -341,6 +455,18 @@ export class PaymobGateway implements PaymentGateway {
     if (!/^\d+$/u.test(value)) return null;
     const parsed = Number(value);
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private parseUnknownPositiveInteger(value: unknown): string | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+      ? String(value)
+      : null;
+  }
+
+  private parseProviderTimestamp(value: unknown): Date | null {
+    if (typeof value !== 'string') return null;
+    const timestamp = new Date(value);
+    return Number.isNaN(timestamp.getTime()) ? null : timestamp;
   }
 
   private isPositiveIntegerString(value: string): boolean {

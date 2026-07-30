@@ -143,9 +143,10 @@ export function mapPaymobWebhook(
     throw new BadRequestException('Payment gateway integration does not match');
   }
 
-  const outcome =
-    transaction.isRefunded || transaction.isVoided
-      ? 'refunded'
+  const outcome = transaction.isRefunded
+    ? 'refunded'
+    : transaction.isVoided
+      ? 'failed'
       : transaction.pending
         ? 'pending'
         : transaction.success && !transaction.errorOccurred
@@ -171,6 +172,7 @@ export function mapPaymobWebhook(
     transactionId: String(transaction.id),
     amountMinor: transaction.amountMinor,
     currency: transaction.currency,
+    occurredAt: new Date(transaction.createdAt),
     outcome,
     ...(transaction.message === undefined ? {} : { message: transaction.message }),
     payload: {

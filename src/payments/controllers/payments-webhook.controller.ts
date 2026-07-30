@@ -2,6 +2,7 @@ import { Body, Controller, Inject, Post, Query, UnauthorizedException } from '@n
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
+import { SkipCsrf } from '../../common/guards/csrf.guard';
 import { biBody } from '../../i18n/error-translator.util';
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
 import {
@@ -21,6 +22,7 @@ export class PaymentsWebhookController {
   ) {}
 
   @Post()
+  @SkipCsrf()
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
   public async handleWebhook(
     @Body() payload: unknown,
@@ -38,6 +40,7 @@ export class PaymentsWebhookController {
   }
 
   @Post('callback')
+  @SkipCsrf()
   @ApiOperation({ summary: 'Alternative payment gateway callback URL' })
   public async handleCallback(
     @Body() payload: unknown,
