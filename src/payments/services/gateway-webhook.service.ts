@@ -1,12 +1,9 @@
-import { createHash } from 'node:crypto';
-
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
-import { GatewayWebhookEvent, PaymentStatus } from '../entities';
-import { toMinorUnits } from '../money.util';
+import { GatewayWebhookEvent, Payment, PaymentStatus } from '../entities';
+import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentsService } from './payments.service';
 
 export interface GatewayWebhookResponse {
@@ -26,86 +23,94 @@ export class GatewayWebhookService {
     private readonly payments: PaymentsService,
   ) {}
 
-  public async processEasyKash(dto: EasyKashWebhookDto): Promise<GatewayWebhookResponse> {
-    const providerEventId = this.providerEventId(dto);
+  public async process(webhook: ProviderWebhookEvent): Promise<GatewayWebhookResponse> {
     const existing = await this.events.findOne({
-      where: { provider: 'easykash', provider_event_id: providerEventId },
+      where: {
+        provider: webhook.provider,
+        provider_event_id: webhook.providerEventId,
+      },
     });
     if (existing?.status === 'processed') {
       return {
         status: 'already_processed',
         ...(existing.payment_id ? { payment_id: existing.payment_id } : {}),
-        transaction_id: dto.easykashRef,
+        transaction_id: webhook.transactionId,
       };
     }
-    const payment = await this.payments.getPaymentByMerchantOrderId(dto.customerReference);
+
+    const payment = await this.payments.getPaymentByMerchantOrderId(webhook.merchantReference);
     if (!payment) {
-      await this.upsertEvent(dto, providerEventId, null, 'failed', 'Payment not found');
+      await this.upsertEvent(webhook, null, 'failed', 'Payment not found');
       throw new NotFoundException('Payment not found');
     }
-    const event = await this.upsertEvent(dto, providerEventId, payment.id, 'processing', null);
-    const status = dto.status.toUpperCase();
+    this.assertWebhookMatchesPayment(webhook, payment);
+
+    const event = await this.upsertEvent(webhook, payment.id, 'processing', null);
     let result: GatewayWebhookResponse;
     try {
       const verification = {
-        amountCents: toMinorUnits(dto.Amount),
-        currency: 'EGP',
-        transactionId: dto.easykashRef,
+        amountCents: webhook.amountMinor,
+        currency: webhook.currency,
+        transactionId: webhook.transactionId,
       };
-      if (['PAID', 'DELIVERED'].includes(status)) {
+      if (webhook.outcome === 'succeeded') {
         await this.payments.processSuccessfulPayment(payment.id, verification);
         result = {
           status: 'success',
           message: 'Payment completed, access granted',
           payment_id: payment.id,
-          transaction_id: dto.easykashRef,
+          transaction_id: webhook.transactionId,
         };
-      } else if (
-        status === 'REFUNDED' ||
-        (status === 'CANCELED' && payment.status === PaymentStatus.COMPLETED)
-      ) {
-        await this.payments.processRefundedPayment(payment.id, verification);
-        result = {
-          status: 'refunded',
-          message: 'Payment refunded',
-          payment_id: payment.id,
-          transaction_id: dto.easykashRef,
-        };
-      } else if (['NEW', 'PENDING', 'PROCESSING'].includes(status)) {
+      } else if (webhook.outcome === 'refunded') {
+        if (payment.status === PaymentStatus.COMPLETED) {
+          await this.payments.processRefundedPayment(payment.id, verification);
+          result = {
+            status: 'refunded',
+            message: 'Payment refunded',
+            payment_id: payment.id,
+            transaction_id: webhook.transactionId,
+          };
+        } else {
+          await this.payments.processFailedPayment(
+            payment.id,
+            webhook.message ?? 'Payment voided',
+            verification,
+          );
+          result = {
+            status: 'failed',
+            message: webhook.message ?? 'Payment voided',
+            payment_id: payment.id,
+            transaction_id: webhook.transactionId,
+          };
+        }
+      } else if (webhook.outcome === 'pending') {
         result = {
           status: 'pending',
           message: 'Payment pending verification',
           payment_id: payment.id,
-          transaction_id: dto.easykashRef,
+          transaction_id: webhook.transactionId,
         };
-      } else if (['FAILED', 'DECLINED', 'EXPIRED', 'CANCELED'].includes(status)) {
-        if (payment.status === PaymentStatus.COMPLETED) {
-          result = {
-            status: 'success',
-            message: 'Ignored an out-of-order failure for a completed payment',
-            payment_id: payment.id,
-            transaction_id: dto.easykashRef,
-          };
-        } else {
-          await this.payments.processFailedPayment(payment.id, dto.status, verification);
-          result = {
-            status: 'failed',
-            message: dto.status,
-            payment_id: payment.id,
-            transaction_id: dto.easykashRef,
-          };
-        }
-      } else {
-        // Unknown provider states are held for reconciliation. Treating an
-        // unfamiliar state as a decline could release discounts or close a
-        // legitimate payment prematurely.
+      } else if (payment.status === PaymentStatus.COMPLETED) {
         result = {
-          status: 'pending',
-          message: `Unrecognized provider status: ${dto.status}`,
+          status: 'success',
+          message: 'Ignored an out-of-order failure for a completed payment',
           payment_id: payment.id,
-          transaction_id: dto.easykashRef,
+          transaction_id: webhook.transactionId,
+        };
+      } else {
+        await this.payments.processFailedPayment(
+          payment.id,
+          webhook.message ?? 'Payment declined',
+          verification,
+        );
+        result = {
+          status: 'failed',
+          message: webhook.message ?? 'Payment declined',
+          payment_id: payment.id,
+          transaction_id: webhook.transactionId,
         };
       }
+
       event.status = 'processed';
       event.processed_at = new Date();
       event.error_message = null;
@@ -115,14 +120,42 @@ export class GatewayWebhookService {
       event.status = 'failed';
       event.error_message = error instanceof Error ? error.message : 'Unknown webhook error';
       await this.events.save(event);
-      this.logger.error(`EasyKash webhook ${dto.easykashRef} failed: ${event.error_message}`);
+      this.logger.error(
+        `Gateway webhook transaction ${webhook.transactionId} failed: ${event.error_message}`,
+      );
       throw error;
     }
   }
 
+  private assertWebhookMatchesPayment(webhook: ProviderWebhookEvent, payment: Payment): void {
+    const expectedAmount = payment.amount_minor ?? Math.round(Number(payment.final_amount) * 100);
+    if (webhook.amountMinor !== expectedAmount) {
+      throw new BadRequestException('Webhook amount does not match payment amount');
+    }
+    if (webhook.currency.toUpperCase() !== payment.currency.toUpperCase()) {
+      throw new BadRequestException('Webhook currency does not match payment currency');
+    }
+    if (payment.provider !== webhook.provider) {
+      throw new BadRequestException('Webhook provider does not match payment provider');
+    }
+
+    // The existing schema retains the original checkout-order reference in the
+    // legacy-named column after finalization replaces provider_reference with
+    // the transaction reference used by refunds and ledger reconciliation.
+    const checkoutOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+    if (
+      checkoutOrderReference !== null &&
+      checkoutOrderReference !== webhook.providerOrderReference
+    ) {
+      throw new BadRequestException('Webhook order does not match payment order');
+    }
+    if (webhook.transactionId === '') {
+      throw new BadRequestException('Webhook transaction reference is missing');
+    }
+  }
+
   private async upsertEvent(
-    dto: EasyKashWebhookDto,
-    providerEventId: string,
+    webhook: ProviderWebhookEvent,
     paymentId: string | null,
     status: string,
     error: string | null,
@@ -132,27 +165,21 @@ export class GatewayWebhookService {
       .insert()
       .into(GatewayWebhookEvent)
       .values({
-        provider: 'easykash',
-        provider_event_id: providerEventId,
+        provider: webhook.provider,
+        provider_event_id: webhook.providerEventId,
         payment_id: paymentId,
         status,
-        payload: {
-          ProductCode: dto.ProductCode,
-          Amount: dto.Amount,
-          ProductType: dto.ProductType,
-          PaymentMethod: dto.PaymentMethod,
-          status: dto.status,
-          easykashRef: dto.easykashRef,
-          customerReference: dto.customerReference,
-          ...(dto.Timestamp !== undefined ? { Timestamp: dto.Timestamp } : {}),
-        },
+        payload: webhook.payload as never,
         error_message: error,
         processed_at: null,
       })
       .orIgnore()
       .execute();
     const event = await this.events.findOne({
-      where: { provider: 'easykash', provider_event_id: providerEventId },
+      where: {
+        provider: webhook.provider,
+        provider_event_id: webhook.providerEventId,
+      },
     });
     if (!event) throw new Error('Failed to persist gateway webhook event');
     if (event.status !== 'processed') {
@@ -162,22 +189,5 @@ export class GatewayWebhookService {
       await this.events.save(event);
     }
     return event;
-  }
-
-  private providerEventId(dto: EasyKashWebhookDto): string {
-    // EasyKash's reference identifies the payment, not an individual state
-    // transition. Include the signed transition fields so NEW -> PAID is
-    // processed while exact retries of either callback are deduplicated.
-    const transition = [
-      dto.easykashRef,
-      dto.customerReference,
-      dto.status.toUpperCase(),
-      dto.Amount,
-      dto.ProductCode,
-      dto.ProductType,
-      dto.PaymentMethod,
-    ].join('\u001f');
-    const digest = createHash('sha256').update(transition).digest('hex');
-    return digest;
   }
 }

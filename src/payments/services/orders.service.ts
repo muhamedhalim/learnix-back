@@ -249,6 +249,7 @@ export class OrdersService {
     }
 
     const commission = this.commissions.calculate(finalAmountMinor);
+    const gatewayName = this.providers.getDefault().name;
     const idempotencyKey =
       dto.idempotency_key ??
       `order-${studentId}-${dto.item_type}-${dto.item_id}-${randomBytes(8).toString('hex')}`;
@@ -274,7 +275,7 @@ export class OrdersService {
           currency: EGP_CURRENCY,
           payment_channel: dto.payment_channel,
           payment_method:
-            dto.payment_channel === PaymentChannel.GATEWAY ? 'easykash' : (method?.id ?? null),
+            dto.payment_channel === PaymentChannel.GATEWAY ? gatewayName : (method?.id ?? null),
           status: OrderStatus.AWAITING_PAYMENT,
           discount_code_id: discount.id,
           activation_code_id: null,
@@ -312,7 +313,7 @@ export class OrdersService {
           amount_minor: finalAmountMinor,
           currency: EGP_CURRENCY,
           channel: dto.payment_channel,
-          provider: dto.payment_channel === PaymentChannel.GATEWAY ? 'easykash' : null,
+          provider: dto.payment_channel === PaymentChannel.GATEWAY ? gatewayName : null,
           provider_reference: null,
           status: PaymentStatus.PENDING,
           payment_method:

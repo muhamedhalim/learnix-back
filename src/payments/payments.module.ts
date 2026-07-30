@@ -34,10 +34,11 @@ import {
   Settlement,
   SettlementEntry,
 } from './entities';
+import { PAYMENT_GATEWAY } from './providers/payment-gateway.interface';
+import { PaymobGateway } from './providers/paymob/paymob.gateway';
 // Services
 import { CommissionService } from './services/commission.service';
 import { EntitlementsService } from './services/entitlements.service';
-import { EasyKashService } from './services/easykash.service';
 import { GatewayWebhookService } from './services/gateway-webhook.service';
 import { ManualPaymentsService } from './services/manual-payments.service';
 import { OrdersService } from './services/orders.service';
@@ -88,7 +89,11 @@ import { SettlementsService } from './services/settlements.service';
   ],
   providers: [
     PaymentsService,
-    EasyKashService,
+    PaymobGateway,
+    {
+      provide: PAYMENT_GATEWAY,
+      useExisting: PaymobGateway,
+    },
     PaymentProviderRegistry,
     CommissionService,
     OrdersService,
@@ -102,7 +107,7 @@ import { SettlementsService } from './services/settlements.service';
   ],
   exports: [
     PaymentsService,
-    EasyKashService,
+    PAYMENT_GATEWAY,
     CommissionService,
     OrdersService,
     EntitlementsService,

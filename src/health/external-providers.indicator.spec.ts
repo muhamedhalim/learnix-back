@@ -2,21 +2,24 @@ import type { ConfigService } from '@nestjs/config';
 import type { DataSource } from 'typeorm';
 
 import type { MailService } from '../mail/mail.service';
+import type { PaymentGateway } from '../payments/providers/payment-gateway.interface';
 import { ExternalProvidersHealthIndicator } from './indicators/external-providers.indicator';
 
 describe('ExternalProvidersHealthIndicator', () => {
+  const paymentGateway = (
+    status = { enabled: false, configured: false, endpoint: '' },
+  ): PaymentGateway =>
+    ({
+      name: 'configured-gateway',
+      getConfigurationStatus: jest.fn().mockReturnValue(status),
+    }) as unknown as PaymentGateway;
+
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
   it('reports installed but incomplete providers as misconfigured', async () => {
-    const config = {
-      get: jest
-        .fn()
-        .mockImplementation((key: string) =>
-          key === 'EASYKASH_API_KEY' ? 'configured-key' : undefined,
-        ),
-    } as unknown as ConfigService;
+    const config = { get: jest.fn() } as unknown as ConfigService;
     const mail = {
       getHealthStatus: jest.fn().mockReturnValue({
         state: 'disabled',
@@ -31,11 +34,16 @@ describe('ExternalProvidersHealthIndicator', () => {
       }),
     } as unknown as MailService;
     const dataSource = { query: jest.fn() } as unknown as DataSource;
-    const indicator = new ExternalProvidersHealthIndicator(config, mail, dataSource);
+    const indicator = new ExternalProvidersHealthIndicator(
+      config,
+      mail,
+      dataSource,
+      paymentGateway({ enabled: true, configured: false, endpoint: '' }),
+    );
     const results = await indicator.check();
-    expect(results.find((result) => result.id === 'easykash')).toMatchObject({
+    expect(results.find((result) => result.id === 'payment-gateway')).toMatchObject({
       status: 'misconfigured',
-      errorCode: 'EASYKASH_NOT_CONFIGURED',
+      errorCode: 'PAYMENT_GATEWAY_NOT_CONFIGURED',
     });
   });
 
@@ -63,7 +71,12 @@ describe('ExternalProvidersHealthIndicator', () => {
       }),
     } as unknown as MailService;
     const dataSource = { query: jest.fn() } as unknown as DataSource;
-    const indicator = new ExternalProvidersHealthIndicator(config, mail, dataSource);
+    const indicator = new ExternalProvidersHealthIndicator(
+      config,
+      mail,
+      dataSource,
+      paymentGateway(),
+    );
     const results = await indicator.check();
     expect(results.find((result) => result.id === 'frontend-web')?.status).toBe('down');
     expect(results.find((result) => result.id === 'jwt-authentication')?.status).toBe('healthy');
@@ -93,9 +106,14 @@ describe('ExternalProvidersHealthIndicator', () => {
           lastFailureAt: null,
         }),
       } as unknown as MailService;
-      const indicator = new ExternalProvidersHealthIndicator(config, mail, {
-        query: jest.fn(),
-      } as unknown as DataSource);
+      const indicator = new ExternalProvidersHealthIndicator(
+        config,
+        mail,
+        {
+          query: jest.fn(),
+        } as unknown as DataSource,
+        paymentGateway(),
+      );
       const result = (await indicator.check()).find(
         (component) => component.id === 'mailersend-email',
       );
@@ -123,9 +141,14 @@ describe('ExternalProvidersHealthIndicator', () => {
         lastFailureAt: null,
       }),
     } as unknown as MailService;
-    const results = await new ExternalProvidersHealthIndicator(config, mail, {
-      query: jest.fn(),
-    } as unknown as DataSource).check();
+    const results = await new ExternalProvidersHealthIndicator(
+      config,
+      mail,
+      {
+        query: jest.fn(),
+      } as unknown as DataSource,
+      paymentGateway(),
+    ).check();
     for (const id of ['firebase', 'meta-whatsapp', 'twilio-sms', 'sentry']) {
       expect(results.find((result) => result.id === id)?.status).toBe('disabled');
     }
@@ -150,9 +173,14 @@ describe('ExternalProvidersHealthIndicator', () => {
         lastFailureAt: null,
       }),
     } as unknown as MailService;
-    const results = await new ExternalProvidersHealthIndicator(config, mail, {
-      query: jest.fn(),
-    } as unknown as DataSource).check();
+    const results = await new ExternalProvidersHealthIndicator(
+      config,
+      mail,
+      {
+        query: jest.fn(),
+      } as unknown as DataSource,
+      paymentGateway(),
+    ).check();
     expect(results.find((result) => result.id === 'sentry')).toMatchObject({
       status: 'misconfigured',
       required: false,

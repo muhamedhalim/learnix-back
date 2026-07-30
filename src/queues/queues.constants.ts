@@ -11,7 +11,7 @@ import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connect
  * Each queue processes a specific type of background job
  */
 export const QUEUE_NAMES = {
-  /** Payment webhook fulfillment (EasyKash callbacks) */
+  /** Payment webhook fulfillment */
   WEBHOOK_FULFILLMENT: 'webhook-fulfillment',
 
   /** Email notifications (confirmations, alerts) */

@@ -1,11 +1,14 @@
-import { Body, Controller, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Inject, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
-import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
-import { EasyKashService } from '../services/easykash.service';
+import {
+  PAYMENT_GATEWAY,
+  type PaymentGateway,
+  type ProviderWebhookRequest,
+} from '../providers/payment-gateway.interface';
 import { GatewayWebhookResponse, GatewayWebhookService } from '../services/gateway-webhook.service';
 
 @ApiTags('Payments - Webhook')
@@ -13,27 +16,33 @@ import { GatewayWebhookResponse, GatewayWebhookService } from '../services/gatew
 @SkipThrottle()
 export class PaymentsWebhookController {
   constructor(
-    private readonly easyKash: EasyKashService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
     private readonly webhooks: GatewayWebhookService,
   ) {}
 
   @Post()
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
-  public async handleEasyKashWebhook(
-    @Body() dto: EasyKashWebhookDto,
+  public async handleWebhook(
+    @Body() payload: unknown,
+    @Query('hmac') signature?: string,
   ): Promise<GatewayWebhookResponse> {
-    if (!this.easyKash.verifyHmac(dto, dto.signatureHash)) {
+    const request: ProviderWebhookRequest = {
+      payload,
+      ...(signature === undefined ? {} : { signature }),
+    };
+    if (!this.gateway.verifyWebhook(request)) {
       performanceMetrics.recordFailure('webhook');
       throw new UnauthorizedException(biBody('Invalid HMAC signature', 'توقيع HMAC غير صالح'));
     }
-    return this.webhooks.processEasyKash(dto);
+    return this.webhooks.process(this.gateway.parseWebhook(request));
   }
 
   @Post('callback')
-  @ApiOperation({ summary: 'Alternative EasyKash callback URL' })
-  public async handleEasyKashCallback(
-    @Body() dto: EasyKashWebhookDto,
+  @ApiOperation({ summary: 'Alternative payment gateway callback URL' })
+  public async handleCallback(
+    @Body() payload: unknown,
+    @Query('hmac') signature?: string,
   ): Promise<GatewayWebhookResponse> {
-    return this.handleEasyKashWebhook(dto);
+    return this.handleWebhook(payload, signature);
   }
 }

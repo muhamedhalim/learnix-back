@@ -141,9 +141,7 @@ export class PaymentsService {
     );
   }
 
-  /**
-   * Purchase a package - initiates payment with EasyKash
-   */
+  /** Purchase a package through the configured payment gateway. */
   public async purchasePackage(dto: PurchasePackageDto, userId: string): Promise<PaymentResponse> {
     return this.purchaseThroughCanonicalOrder(
       ItemType.PACKAGE,
@@ -155,9 +153,7 @@ export class PaymentsService {
     );
   }
 
-  /**
-   * Purchase a book - initiates payment with EasyKash
-   */
+  /** Purchase a book through the configured payment gateway. */
   public async purchaseBook(dto: PurchaseBookPaymentDto, userId: string): Promise<PaymentResponse> {
     return this.purchaseThroughCanonicalOrder(
       ItemType.BOOK,

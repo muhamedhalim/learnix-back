@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 
@@ -7,6 +7,10 @@ import { DataSource } from 'typeorm';
 
 import { MailService } from '../../mail/mail.service';
 import { isSentryEnabled } from '../../observability/sentry';
+import {
+  PAYMENT_GATEWAY,
+  type PaymentGateway,
+} from '../../payments/providers/payment-gateway.interface';
 import type { HealthIndicator } from '../health-indicator.interface';
 import { errorCode, sanitiseMessage } from '../health-sanitizer.util';
 import type { HealthCategory, HealthComponentResult } from '../health.types';
@@ -30,6 +34,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     private readonly config: ConfigService,
     private readonly mail: MailService,
     @InjectDataSource() private readonly dataSource: DataSource,
+    @Inject(PAYMENT_GATEWAY) private readonly paymentGateway: PaymentGateway,
   ) {}
 
   public async check(force = false): Promise<HealthComponentResult[]> {
@@ -40,7 +45,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       this.checkFrontend(),
       this.checkAuthentication(),
       this.checkEmail(),
-      this.checkEasyKash(),
+      this.checkPaymentGateway(),
       this.checkFirebase(),
       this.checkWhatsApp(),
       this.checkTwilio(),
@@ -201,44 +206,42 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     });
   }
 
-  private async checkEasyKash(): Promise<HealthComponentResult> {
+  private async checkPaymentGateway(): Promise<HealthComponentResult> {
     const startedAt = Date.now();
-    const apiUrl = this.config.get<string>('EASYKASH_API_URL') ?? '';
-    const apiKey = this.config.get<string>('EASYKASH_API_KEY') ?? '';
-    const hmac = this.config.get<string>('EASYKASH_HMAC_SECRET') ?? '';
-    if (apiUrl === '' && apiKey === '' && hmac === '') {
+    const configuration = this.paymentGateway.getConfigurationStatus();
+    if (!configuration.enabled) {
       return this.misconfigured(
-        'easykash',
-        'EasyKash payments',
+        'payment-gateway',
+        'Payment gateway',
         'provider',
         startedAt,
-        'EasyKash is installed but not configured.',
+        'The payment gateway is installed but not configured.',
         true,
       );
     }
-    if (apiUrl === '' || apiKey === '' || hmac === '') {
+    if (!configuration.configured) {
       return this.misconfigured(
-        'easykash',
-        'EasyKash payments',
+        'payment-gateway',
+        'Payment gateway',
         'provider',
         startedAt,
-        'EasyKash configuration is incomplete.',
+        'The payment gateway configuration is incomplete.',
         true,
       );
     }
 
-    const probe = await this.probe(apiUrl, { method: 'HEAD' }, false);
-    const recent = await this.recentProviderTraffic('easykash');
+    const probe = await this.probe(configuration.endpoint, { method: 'HEAD' }, false);
+    const recent = await this.recentProviderTraffic(this.paymentGateway.name);
     const result = this.fromProbe({
-      id: 'easykash',
-      name: 'EasyKash payments',
+      id: 'payment-gateway',
+      name: 'Payment gateway',
       category: 'provider',
       purpose: 'Hosted checkout and payment webhooks',
       startedAt,
       probe,
       metadata: {
-        environment: this.environmentForUrl(apiUrl),
-        origin: this.safeOrigin(apiUrl),
+        environment: this.environmentForUrl(configuration.endpoint),
+        origin: this.safeOrigin(configuration.endpoint),
         authenticationValidity:
           recent.successes > 0 ? 'verified_by_recent_webhook' : 'not_safely_testable',
         recentSuccesses: recent.successes,
@@ -258,7 +261,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     }
     if (
       this.config.get<string>('NODE_ENV') === 'production' &&
-      this.environmentForUrl(apiUrl) !== 'production'
+      this.environmentForUrl(configuration.endpoint) !== 'production'
     ) {
       result.status = 'warning';
       result.warnings.push(

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { EasyKashWebhookDto } from '../dto/easykash-webhook.dto';
-import { GatewayWebhookEvent, PaymentStatus } from '../entities';
+import { GatewayWebhookEvent, Payment, PaymentStatus } from '../entities';
+import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { GatewayWebhookService } from './gateway-webhook.service';
 import { PaymentsService } from './payments.service';
 
@@ -49,24 +49,37 @@ describe('GatewayWebhookService', () => {
 
   let service: GatewayWebhookService;
 
-  const callback = (status: string, amount = '100.00'): EasyKashWebhookDto => ({
-    ProductCode: 'product',
-    Amount: amount,
-    ProductType: 'Direct Pay',
-    PaymentMethod: 'Card',
-    status,
-    easykashRef: 'provider-payment-1',
-    customerReference: 'payment-1',
-    signatureHash: 'verified-by-controller',
+  const payment = (status = PaymentStatus.PROCESSING): Payment =>
+    ({
+      id: 'payment-1',
+      status,
+      amount_minor: 10_000,
+      final_amount: 100,
+      currency: 'EGP',
+      provider: 'configured-gateway',
+      provider_reference: 'provider-order-1',
+      paymob_order_id: 'provider-order-1',
+    }) as Payment;
+
+  const callback = (
+    outcome: ProviderWebhookEvent['outcome'],
+    eventId = `event-${outcome}`,
+  ): ProviderWebhookEvent => ({
+    provider: 'configured-gateway',
+    providerEventId: eventId,
+    merchantReference: 'payment-1',
+    providerOrderReference: 'provider-order-1',
+    transactionId: 'provider-transaction-1',
+    amountMinor: 10_000,
+    currency: 'EGP',
+    outcome,
+    payload: { transaction_id: 1 },
   });
 
   beforeEach(() => {
     events.clear();
     jest.clearAllMocks();
-    payments.getPaymentByMerchantOrderId.mockResolvedValue({
-      id: 'payment-1',
-      status: PaymentStatus.PROCESSING,
-    });
+    payments.getPaymentByMerchantOrderId.mockResolvedValue(payment());
     payments.processSuccessfulPayment.mockResolvedValue(undefined);
     payments.processFailedPayment.mockResolvedValue(undefined);
     payments.processRefundedPayment.mockResolvedValue(undefined);
@@ -76,42 +89,63 @@ describe('GatewayWebhookService', () => {
     );
   });
 
-  it('processes NEW then PAID for the same provider payment, but deduplicates an exact retry', async () => {
-    await expect(service.processEasyKash(callback('NEW'))).resolves.toMatchObject({
-      status: 'pending',
-    });
-    await expect(service.processEasyKash(callback('PAID'))).resolves.toMatchObject({
-      status: 'success',
-    });
-    await expect(service.processEasyKash(callback('PAID'))).resolves.toMatchObject({
+  it('processes a successful callback once and deduplicates the exact retry', async () => {
+    const webhook = callback('succeeded');
+    await expect(service.process(webhook)).resolves.toMatchObject({ status: 'success' });
+    await expect(service.process(webhook)).resolves.toMatchObject({
       status: 'already_processed',
     });
 
-    expect(events.size).toBe(2);
+    expect(events.size).toBe(1);
     expect(payments.processSuccessfulPayment).toHaveBeenCalledTimes(1);
     expect(payments.processSuccessfulPayment).toHaveBeenCalledWith('payment-1', {
       amountCents: 10_000,
       currency: 'EGP',
-      transactionId: 'provider-payment-1',
+      transactionId: 'provider-transaction-1',
     });
   });
 
-  it('rejects a malformed signed amount before financial finalization', async () => {
-    await expect(service.processEasyKash(callback('PAID', '1e3'))).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+  it('rejects amount, currency, provider, or checkout-order mismatches before side effects', async () => {
+    const mismatches: ProviderWebhookEvent[] = [
+      { ...callback('succeeded', 'amount'), amountMinor: 9_999 },
+      { ...callback('succeeded', 'currency'), currency: 'USD' },
+      { ...callback('succeeded', 'provider'), provider: 'other' },
+      {
+        ...callback('succeeded', 'order'),
+        providerOrderReference: 'different-order',
+      },
+    ];
+    for (const webhook of mismatches) {
+      await expect(service.process(webhook)).rejects.toBeInstanceOf(BadRequestException);
+    }
     expect(payments.processSuccessfulPayment).not.toHaveBeenCalled();
+    expect(payments.processFailedPayment).not.toHaveBeenCalled();
+    expect(payments.processRefundedPayment).not.toHaveBeenCalled();
   });
 
-  it('does not let an out-of-order failure overwrite an already completed payment', async () => {
-    payments.getPaymentByMerchantOrderId.mockResolvedValue({
-      id: 'payment-1',
-      status: PaymentStatus.COMPLETED,
-    });
+  it('does not let an out-of-order failure overwrite a completed payment', async () => {
+    payments.getPaymentByMerchantOrderId.mockResolvedValue(payment(PaymentStatus.COMPLETED));
 
-    await expect(service.processEasyKash(callback('FAILED'))).resolves.toMatchObject({
+    await expect(service.process(callback('failed'))).resolves.toMatchObject({
       status: 'success',
     });
     expect(payments.processFailedPayment).not.toHaveBeenCalled();
+  });
+
+  it('maps a refund callback to the existing refund finalization flow', async () => {
+    payments.getPaymentByMerchantOrderId.mockResolvedValue(payment(PaymentStatus.COMPLETED));
+
+    await expect(service.process(callback('refunded'))).resolves.toMatchObject({
+      status: 'refunded',
+    });
+    expect(payments.processRefundedPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a void before completion as a failed payment without granting access', async () => {
+    await expect(service.process(callback('refunded'))).resolves.toMatchObject({
+      status: 'failed',
+    });
+    expect(payments.processFailedPayment).toHaveBeenCalledTimes(1);
+    expect(payments.processRefundedPayment).not.toHaveBeenCalled();
   });
 });

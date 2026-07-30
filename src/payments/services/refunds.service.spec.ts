@@ -122,7 +122,7 @@ describe('RefundsService — financial validation', () => {
     payments.findOne.mockResolvedValue({
       id: 'payment-1',
       order_id: 'order-1',
-      provider: 'easykash',
+      provider: 'configured-gateway',
     } as Payment);
     orders.findOne.mockResolvedValue(paidOrder());
 

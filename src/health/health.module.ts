@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLog } from '../activity-logs/entities';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { PaymentsModule } from '../payments/payments.module';
 import { User } from '../users/entities/user.entity';
 import { HealthAlertRule, HealthErrorGroup, HealthIncident, HealthMetric } from './entities';
 import { HealthAlertService } from './health-alert.service';
@@ -29,6 +30,7 @@ import { StorageHealthIndicator } from './indicators/storage.indicator';
 @Module({
   imports: [
     NotificationsModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       HealthMetric,
       HealthIncident,

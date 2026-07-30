@@ -1,19 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { biBody } from '../../i18n/error-translator.util';
-import type { PaymentProvider } from '../providers/payment-provider.interface';
-import { EasyKashService } from './easykash.service';
+import { PAYMENT_GATEWAY, type PaymentGateway } from '../providers/payment-gateway.interface';
 
 @Injectable()
 export class PaymentProviderRegistry {
-  private readonly providers: ReadonlyMap<string, PaymentProvider>;
+  private readonly providers: ReadonlyMap<string, PaymentGateway>;
 
-  constructor(easyKash: EasyKashService) {
-    this.providers = new Map([[easyKash.name, easyKash]]);
+  constructor(@Inject(PAYMENT_GATEWAY) private readonly defaultGateway: PaymentGateway) {
+    this.providers = new Map([[defaultGateway.name, defaultGateway]]);
   }
 
-  public get(name?: string | null): PaymentProvider {
-    const providerName = name ?? 'easykash';
+  public get(name?: string | null): PaymentGateway {
+    const providerName = name ?? this.defaultGateway.name;
     const provider = this.providers.get(providerName);
     if (!provider) {
       throw new NotFoundException(
@@ -21,6 +20,10 @@ export class PaymentProviderRegistry {
       );
     }
     return provider;
+  }
+
+  public getDefault(): PaymentGateway {
+    return this.defaultGateway;
   }
 
   public list(): Array<{

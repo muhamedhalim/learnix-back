@@ -86,7 +86,7 @@ export class HealthOrchestratorService {
           'frontend-web',
           'jwt-authentication',
           'mailersend-email',
-          'easykash',
+          'payment-gateway',
           'firebase',
           'meta-whatsapp',
           'twilio-sms',
