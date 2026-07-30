@@ -31,6 +31,7 @@ import {
   PaymentAuditLog,
   PaymentDomainEvent,
   Refund,
+  RefundAttempt,
   Settlement,
   SettlementEntry,
 } from './entities';
@@ -65,6 +66,7 @@ import { SettlementsService } from './services/settlements.service';
       ManualPaymentMethod,
       ManualPaymentSubmission,
       Refund,
+      RefundAttempt,
       Settlement,
       SettlementEntry,
       GatewayWebhookEvent,

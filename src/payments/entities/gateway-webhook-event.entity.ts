@@ -12,6 +12,7 @@ import {
   unique: true,
 })
 @Index('IDX_gateway_webhook_status_created', ['status', 'created_at'])
+@Index('IDX_gateway_webhook_lease', ['status', 'next_retry_at', 'lease_expires_at'])
 export class GatewayWebhookEvent {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -33,6 +34,33 @@ export class GatewayWebhookEvent {
 
   @Column({ type: 'text', nullable: true, name: 'error_message' })
   error_message!: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'lease_token' })
+  lease_token!: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true, name: 'claimed_by' })
+  claimed_by!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'claimed_at' })
+  claimed_at!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'lease_expires_at' })
+  lease_expires_at!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'heartbeat_at' })
+  heartbeat_at!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'next_retry_at' })
+  next_retry_at!: Date | null;
+
+  @Column({ type: 'integer', default: 0, name: 'attempt_count' })
+  attempt_count!: number;
+
+  @Column({ type: 'integer', default: 8, name: 'max_attempts' })
+  max_attempts!: number;
+
+  @Column({ type: 'text', nullable: true, name: 'last_error' })
+  last_error!: string | null;
 
   @Column({ type: 'timestamptz', nullable: true, name: 'processed_at' })
   processed_at!: Date | null;

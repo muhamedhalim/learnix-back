@@ -37,6 +37,7 @@ import {
   PaymentDomainEvent,
   PaymentStatus,
   Refund,
+  RefundAttempt,
   RefundStatus,
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
@@ -48,6 +49,8 @@ export class RefundsService {
   constructor(
     @InjectRepository(Refund)
     private readonly refunds: Repository<Refund>,
+    @InjectRepository(RefundAttempt)
+    private readonly refundAttempts: Repository<RefundAttempt>,
     private readonly dataSource: DataSource,
     private readonly providers: PaymentProviderRegistry,
   ) {}
@@ -138,6 +141,12 @@ export class RefundsService {
     }
     const provider = this.providers.get(payment.provider);
     if (!provider.supportsRefunds()) {
+      await this.refundAttempts.update(attempt.id, {
+        status: 'failed_definitive',
+        completed_at: new Date(),
+        lease_expires_at: null,
+        last_error: 'Configured gateway does not support refunds',
+      });
       throw new ConflictException(
         biBody(
           'Configured gateway does not support API refunds; record an externally confirmed refund instead',
@@ -178,8 +187,7 @@ export class RefundsService {
       if (!refund || refund.channel !== PaymentChannel.GATEWAY || !refund.payment_id) {
         throw new NotFoundException(biBody('Gateway refund not found', 'Gateway refund not found'));
       }
-      if (refund.status === RefundStatus.SUCCEEDED)
-        return { refund, payment: null, retrying: false };
+      if (refund.status === RefundStatus.SUCCEEDED) return { refund, payment: null, attempt: null };
       const payment = await manager.findOne(Payment, {
         where: { id: refund.payment_id },
         lock: { mode: 'pessimistic_write' },
@@ -192,12 +200,21 @@ export class RefundsService {
           ),
         );
       }
-      const claimedAt = refund.metadata?.['gateway_claimed_at'];
-      const activeClaim =
-        refund.status === RefundStatus.PROCESSING &&
-        typeof claimedAt === 'string' &&
-        Date.parse(claimedAt) > Date.now() - 5 * 60_000;
-      if (activeClaim) {
+      const activeAttempt = await manager
+        .createQueryBuilder(RefundAttempt, 'attempt')
+        .where('attempt.refund_id = :refundId', { refundId: refund.id })
+        .andWhere("attempt.status IN ('claimed', 'sending', 'reconciliation_required')")
+        .setLock('pessimistic_write')
+        .getOne();
+      if (activeAttempt) {
+        if (activeAttempt.status === 'reconciliation_required') {
+          throw new ConflictException(
+            biBody(
+              'Gateway refund outcome is ambiguous and requires provider confirmation or a reviewed retry',
+              'Gateway refund outcome is ambiguous and requires provider confirmation or a reviewed retry',
+            ),
+          );
+        }
         throw new ConflictException(
           biBody(
             'Gateway refund is already being processed',
@@ -205,20 +222,37 @@ export class RefundsService {
           ),
         );
       }
-      const retrying = refund.status === RefundStatus.PROCESSING;
+      const sequence = await manager
+        .createQueryBuilder(RefundAttempt, 'attempt')
+        .select('COALESCE(MAX(attempt.attempt_number), 0)', 'number')
+        .where('attempt.refund_id = :refundId', { refundId: refund.id })
+        .getRawOne<{ number: string }>();
+      const now = new Date();
+      const attempt = manager.create(RefundAttempt, {
+        refund_id: refund.id,
+        attempt_number: Number(sequence?.number ?? 0) + 1,
+        idempotency_key: `refund:${refund.id}:attempt:${Number(sequence?.number ?? 0) + 1}`,
+        status: 'claimed',
+        provider_request_reference: payment.provider_reference,
+        provider_refund_id: null,
+        claimed_by: `admin:${adminId}`,
+        claimed_at: now,
+        lease_expires_at: new Date(now.getTime() + 5 * 60_000),
+        started_at: now,
+        completed_at: null,
+        next_retry_at: null,
+        attempt_count: 1,
+        last_error: null,
+      });
       refund.status = RefundStatus.PROCESSING;
       refund.approved_by = adminId;
-      refund.metadata = {
-        ...(refund.metadata ?? {}),
-        gateway_claimed_at: new Date().toISOString(),
-        gateway_idempotency_key: `refund-${refund.id}`,
-        ...(retrying ? { gateway_retry_after_status_inquiry: true } : {}),
-      };
       await manager.save(Refund, refund);
-      return { refund, payment, retrying };
+      await manager.save(RefundAttempt, attempt);
+      return { refund, payment, attempt };
     });
     if (claimed.payment === null) return claimed.refund;
-    const { refund, payment } = claimed;
+    const { refund, payment, attempt } = claimed;
+    if (!attempt) return refund;
     const provider = this.providers.get(payment.provider);
     if (!provider.supportsRefunds()) {
       throw new ConflictException(
@@ -228,37 +262,25 @@ export class RefundsService {
         ),
       );
     }
-    const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
-    if (claimed.retrying && providerOrderReference) {
-      const details = await provider.getTransactionByOrderReference(
-        providerOrderReference,
-        payment.id,
-      );
-      if (details?.status === 'refunded') {
-        return this.completeProviderNotification(
-          payment.id,
-          details.transactionId,
-          details.amountMinor,
-          details.currency,
-        );
-      }
-      if (details?.status !== 'succeeded') {
-        throw new ConflictException(
-          biBody(
-            'Gateway refund outcome is ambiguous; reconciliation is required before retry',
-            'Gateway refund outcome is ambiguous; reconciliation is required before retry',
-          ),
-        );
-      }
-    }
     try {
+      await this.refundAttempts.update(
+        { id: attempt.id, status: 'claimed' },
+        { status: 'sending', started_at: new Date() },
+      );
       const providerResult = await provider.refund({
         providerReference: payment.provider_reference!,
         amountMinor: refund.amount_minor,
         currency: refund.currency,
-        idempotencyKey: `refund-${refund.id}`,
+        idempotencyKey: attempt.idempotency_key,
       });
       if (providerResult.status === 'succeeded') {
+        await this.refundAttempts.update(attempt.id, {
+          status: 'succeeded',
+          provider_refund_id: providerResult.providerReference,
+          completed_at: new Date(),
+          lease_expires_at: null,
+          last_error: null,
+        });
         return this.complete(
           refund.id,
           {
@@ -269,15 +291,23 @@ export class RefundsService {
           true,
         );
       }
+      await this.refundAttempts.update(attempt.id, {
+        status: 'reconciliation_required',
+        provider_refund_id: providerResult.providerReference,
+        lease_expires_at: null,
+        next_retry_at: null,
+        last_error: 'Provider accepted refund but did not confirm completion',
+      });
       return (await this.refunds.findOne({ where: { id: refund.id } })) ?? refund;
     } catch (error) {
-      await this.refunds.update(refund.id, {
-        metadata: {
-          ...(refund.metadata ?? {}),
-          gateway_last_error:
-            error instanceof Error ? error.message : 'Gateway refund request failed',
-          gateway_last_error_at: new Date().toISOString(),
-        },
+      const errorMessage = error instanceof Error ? error.message : 'Gateway refund request failed';
+      // The available inquiry describes the original payment transaction. It
+      // cannot prove a refund did not occur, so an ambiguous call is fail-closed.
+      await this.refundAttempts.update(attempt.id, {
+        status: 'reconciliation_required',
+        lease_expires_at: null,
+        next_retry_at: null,
+        last_error: errorMessage,
       });
       this.logger.error(`Gateway refund ${refund.id} has an ambiguous provider outcome`);
       throw error;

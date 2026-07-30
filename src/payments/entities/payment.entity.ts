@@ -22,6 +22,10 @@ import { PaymentStatus } from './payment-status.enum';
 @Index('IDX_payments_item_type', ['item_type'])
 @Index('IDX_payments_created_at', ['created_at'])
 @Index('IDX_payments_user_status', ['user_id', 'status'])
+@Index('IDX_payments_reconciliation_retry', [
+  'reconciliation_status',
+  'reconciliation_next_retry_at',
+])
 @Index('UQ_payments_order_id', ['order_id'], { unique: true, where: '"order_id" IS NOT NULL' })
 // Guarantees at most one in-flight (pending/processing) payment per user+item,
 // so concurrent "Pay" clicks / refresh-during-payment cannot open two gateway
@@ -127,6 +131,33 @@ export class Payment {
 
   @Column({ type: 'text', nullable: true, name: 'failure_reason' })
   failure_reason!: string | null;
+
+  @Column({ type: 'varchar', length: 40, default: 'pending', name: 'reconciliation_status' })
+  reconciliation_status!: string;
+
+  @Column({ type: 'integer', default: 0, name: 'reconciliation_attempt_count' })
+  reconciliation_attempt_count!: number;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_last_attempted_at' })
+  reconciliation_last_attempted_at!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_next_retry_at' })
+  reconciliation_next_retry_at!: Date | null;
+
+  @Column({ type: 'text', nullable: true, name: 'reconciliation_last_provider_error' })
+  reconciliation_last_provider_error!: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'reconciliation_quarantine_reason' })
+  reconciliation_quarantine_reason!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_quarantined_at' })
+  reconciliation_quarantined_at!: Date | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'reconciliation_claim_token' })
+  reconciliation_claim_token!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_lease_expires_at' })
+  reconciliation_lease_expires_at!: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true, name: 'completed_at' })
   completed_at!: Date | null;

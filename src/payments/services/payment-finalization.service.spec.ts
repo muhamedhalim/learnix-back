@@ -67,6 +67,7 @@ describe('PaymentFinalizationService', () => {
       status: OrderStatus.AWAITING_PAYMENT,
       paid_at: null,
       payment_channel: PaymentChannel.GATEWAY,
+      expires_at: new Date(Date.now() - 1_000),
     });
     Object.assign(payment, {
       status: PaymentStatus.PROCESSING,
@@ -138,7 +139,15 @@ describe('PaymentFinalizationService', () => {
     manager = managerShape as unknown as EntityManager;
     service = new PaymentFinalizationService(
       { manager } as DataSource,
-      { get: jest.fn().mockReturnValue('7') } as unknown as ConfigService,
+      {
+        get: jest.fn((key: string) =>
+          key === 'TEACHER_EARNING_HOLD_DAYS'
+            ? '7'
+            : key === 'PAYMENT_CAPTURE_GRACE_SECONDS'
+              ? '300'
+              : '120',
+        ),
+      } as unknown as ConfigService,
     );
   });
 
@@ -209,7 +218,7 @@ describe('PaymentFinalizationService', () => {
           sourceReference: 'gateway-late-success',
           verifiedAmountMinor: 10_000,
           verifiedCurrency: 'EGP',
-          verifiedOccurredAt: new Date('2026-01-01T00:00:00Z'),
+          verifiedOccurredAt: new Date(order.expires_at.getTime() - 1_000),
         },
         manager,
       ),
@@ -234,6 +243,26 @@ describe('PaymentFinalizationService', () => {
         manager,
       ),
     ).rejects.toBeInstanceOf(UnprocessableEntityException);
+  });
+
+  it('does not fulfill a capture outside the configured grace period', async () => {
+    order.status = OrderStatus.EXPIRED;
+    order.expires_at = new Date(Date.now() - 301_000);
+
+    await expect(
+      service.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: 'gateway-too-late',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+          verifiedOccurredAt: new Date(order.expires_at.getTime() + 301_000),
+        },
+        manager,
+      ),
+    ).rejects.toBeInstanceOf(UnprocessableEntityException);
+    expect(entitlement).toBeNull();
   });
 
   it('creates an active entitlement and compatibility purchase when manual proof is approved', async () => {

@@ -286,6 +286,22 @@ export class EnvironmentVariables {
   @IsOptional()
   public PAYMOB_BASE_URL?: string;
 
+  /** Trusted provider capture time may arrive shortly after local expiry. */
+  @IsNumber()
+  @Min(0)
+  @Max(86_400)
+  @IsOptional()
+  @Type(() => Number)
+  public PAYMENT_CAPTURE_GRACE_SECONDS = 300;
+
+  /** Maximum accepted future clock skew for a provider-issued capture time. */
+  @IsNumber()
+  @Min(0)
+  @Max(3_600)
+  @IsOptional()
+  @Type(() => Number)
+  public PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS = 120;
+
   // SMTP / Email delivery (optional — when unset, password-reset emails are
   // logged instead of sent, and the reset token is returned in the response in
   // non-production environments so the flow remains testable).
@@ -422,6 +438,16 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
 
   validateProductionPublicOrigins(config);
+
+  if (validatedConfig.NODE_ENV === Environment.Production) {
+    for (const key of ['PAYMENT_CAPTURE_GRACE_SECONDS', 'PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS']) {
+      if (config[key] === undefined || config[key] === '') {
+        throw new Error(
+          `Environment validation failed: ${key} must be explicitly configured in production.`,
+        );
+      }
+    }
+  }
 
   return validatedConfig;
 }

@@ -14,6 +14,10 @@ import { RefundStatus } from './refund-status.enum';
 @Entity('refunds')
 @Index('IDX_refunds_order_status', ['order_id', 'status'])
 @Index('IDX_refunds_status_created', ['status', 'created_at'])
+@Index('IDX_refunds_reconciliation_retry', [
+  'reconciliation_status',
+  'reconciliation_next_retry_at',
+])
 export class Refund {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -72,6 +76,33 @@ export class Refund {
 
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  @Column({ type: 'varchar', length: 40, default: 'pending', name: 'reconciliation_status' })
+  reconciliation_status!: string;
+
+  @Column({ type: 'integer', default: 0, name: 'reconciliation_attempt_count' })
+  reconciliation_attempt_count!: number;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_last_attempted_at' })
+  reconciliation_last_attempted_at!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_next_retry_at' })
+  reconciliation_next_retry_at!: Date | null;
+
+  @Column({ type: 'text', nullable: true, name: 'reconciliation_last_provider_error' })
+  reconciliation_last_provider_error!: string | null;
+
+  @Column({ type: 'text', nullable: true, name: 'reconciliation_quarantine_reason' })
+  reconciliation_quarantine_reason!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_quarantined_at' })
+  reconciliation_quarantined_at!: Date | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'reconciliation_claim_token' })
+  reconciliation_claim_token!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'reconciliation_lease_expires_at' })
+  reconciliation_lease_expires_at!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;

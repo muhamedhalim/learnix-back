@@ -20,6 +20,7 @@ export * from './payment.entity';
 export * from './payment-method.enum';
 export * from './payment-status.enum';
 export * from './refund-status.enum';
+export * from './refund-attempt.entity';
 export * from './refund.entity';
 export * from './settlement-entry.entity';
 export * from './settlement-status.enum';

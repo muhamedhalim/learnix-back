@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, LessThan, Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
@@ -104,63 +105,130 @@ export class PaymentOperationsService {
   }
 
   private async reconcileStuckRefunds(): Promise<void> {
-    const candidates = await this.dataSource.getRepository(Refund).find({
-      where: { status: RefundStatus.PROCESSING },
-      order: { created_at: 'ASC' },
-      take: 100,
-    });
-    for (const refund of candidates) {
-      try {
-        if (!refund.payment_id) continue;
-        const payment = await this.payments.findOne({ where: { id: refund.payment_id } });
-        if (!payment?.provider || !payment.order_id) continue;
-        const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
-        if (!providerOrderReference) continue;
-        const details = await this.providers
-          .get(payment.provider)
-          .getTransactionByOrderReference(providerOrderReference, payment.id);
-        if (!details) continue;
-        if (
-          details.providerOrderReference !== providerOrderReference ||
-          details.merchantReference !== payment.id ||
-          details.amountMinor !== refund.amount_minor ||
-          details.currency.toUpperCase() !== refund.currency.toUpperCase()
-        ) {
-          await this.quarantinePayment(payment, details);
-          continue;
-        }
-        if (details.status === 'refunded') {
-          await this.refunds.completeProviderNotification(
-            payment.id,
-            details.transactionId,
-            details.amountMinor,
-            details.currency,
-          );
-        } else if (refund.updated_at.getTime() < Date.now() - 15 * 60_000) {
-          this.logger.error(
-            `Gateway refund ${refund.id} is still processing after fifteen minutes`,
-          );
-        }
-      } catch (error) {
-        this.logger.error(
-          `Gateway refund reconciliation failed for ${refund.id}: ${
-            error instanceof Error ? error.message : 'unknown error'
-          }`,
+    let cursorCreatedAt: Date | null = null;
+    let cursorId: string | null = null;
+    for (;;) {
+      const query = this.dataSource
+        .getRepository(Refund)
+        .createQueryBuilder('refund')
+        .where('refund.status = :status', { status: RefundStatus.PROCESSING })
+        .andWhere("refund.reconciliation_status IN ('pending', 'retry_scheduled')")
+        .andWhere(
+          '(refund.reconciliation_next_retry_at IS NULL OR refund.reconciliation_next_retry_at <= :now)',
+          { now: new Date() },
+        )
+        .orderBy('refund.created_at', 'ASC')
+        .addOrderBy('refund.id', 'ASC')
+        .take(100);
+      if (cursorCreatedAt && cursorId) {
+        query.andWhere(
+          '(refund.created_at > :cursorCreatedAt OR (refund.created_at = :cursorCreatedAt AND refund.id > :cursorId))',
+          { cursorCreatedAt, cursorId },
         );
       }
+      const candidates = await query.getMany();
+      if (candidates.length === 0) return;
+      for (const refund of candidates) await this.reconcileRefund(refund.id);
+      const last = candidates.at(-1)!;
+      cursorCreatedAt = last.created_at;
+      cursorId = last.id;
+      if (candidates.length < 100) return;
     }
   }
 
-  private async reconcilePayment(payment: Payment): Promise<void> {
+  private async reconcileRefund(refundId: string): Promise<void> {
+    const claimed = await retryTransaction(this.dataSource, async (manager) => {
+      const refund = await manager.findOne(Refund, {
+        where: { id: refundId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !refund ||
+        refund.status !== RefundStatus.PROCESSING ||
+        refund.reconciliation_status === 'quarantined' ||
+        (refund.reconciliation_lease_expires_at &&
+          refund.reconciliation_lease_expires_at.getTime() > Date.now())
+      ) {
+        return null;
+      }
+      refund.reconciliation_claim_token = randomUUID();
+      refund.reconciliation_lease_expires_at = new Date(Date.now() + 5 * 60_000);
+      refund.reconciliation_last_attempted_at = new Date();
+      refund.reconciliation_attempt_count += 1;
+      refund.reconciliation_status = 'processing';
+      await manager.save(refund);
+      return refund;
+    });
+    if (!claimed) return;
+
+    // Paymob's currently integrated inquiry is transaction-level for the
+    // original charge, not a refund-attempt status endpoint. It cannot prove
+    // that a particular refund was not processed; do not dispatch or complete
+    // a refund from it. A signed refund callback/manual reviewed action is
+    // required to resolve this state.
+    const message = 'Provider refund-level confirmation is required; automatic resend is disabled';
+    await retryTransaction(this.dataSource, async (manager) => {
+      const refund = await manager.findOne(Refund, {
+        where: { id: claimed.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!refund || refund.reconciliation_claim_token !== claimed.reconciliation_claim_token)
+        return;
+      refund.reconciliation_status = 'reconciliation_required';
+      refund.reconciliation_last_provider_error = message;
+      refund.reconciliation_lease_expires_at = null;
+      refund.reconciliation_claim_token = null;
+      refund.reconciliation_next_retry_at = null;
+      await manager.save(refund);
+      await manager
+        .createQueryBuilder()
+        .insert()
+        .into(PaymentDomainEvent)
+        .values({
+          event_name: 'refund.reconciliation_required',
+          dedupe_key: `refund:${refund.id}:reconciliation-required`,
+          payload: { refund_id: refund.id, payment_id: refund.payment_id, reason: message },
+          published_at: null,
+          attempts: 0,
+          last_error: null,
+        } as never)
+        .orIgnore()
+        .execute();
+      await manager.insert(PaymentAuditLog, {
+        actor_id: null,
+        action: 'refund_reconciliation_required',
+        resource_type: 'refund',
+        resource_id: refund.id,
+        details: { reason: message },
+        ip_address: null,
+      });
+    });
+  }
+
+  private async reconcilePayment(candidate: Payment): Promise<void> {
+    const payment = await this.claimPaymentReconciliation(candidate.id);
+    if (!payment) return;
     try {
       const provider = this.providers.get(payment.provider!);
       const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
-      if (!providerOrderReference) return;
+      if (!providerOrderReference) {
+        await this.schedulePaymentReconciliationRetry(
+          payment,
+          'Payment is missing a provider order reference',
+        );
+        return;
+      }
       const details = await provider.getTransactionByOrderReference(
         providerOrderReference,
         payment.id,
       );
-      if (!details) return;
+      if (!details) {
+        await this.schedulePaymentReconciliationRetry(
+          payment,
+          'Provider did not return transaction details',
+        );
+        return;
+      }
       if (
         details.providerOrderReference !== providerOrderReference ||
         details.merchantReference !== payment.id ||
@@ -176,7 +244,13 @@ export class PaymentOperationsService {
         verifiedOccurredAt: details.occurredAt,
       };
       if (details.status === 'succeeded') {
-        if (!payment.order_id) return;
+        if (!payment.order_id) {
+          await this.schedulePaymentReconciliationRetry(
+            payment,
+            'Payment is missing an internal order',
+          );
+          return;
+        }
         await this.finalizer.finalizeSuccessfulPayment({
           orderId: payment.order_id,
           paymentId: payment.id,
@@ -184,6 +258,7 @@ export class PaymentOperationsService {
           actorId: null,
           ...verification,
         });
+        await this.finishPaymentReconciliation(payment);
         return;
       }
       if (details.status === 'refunded') {
@@ -199,6 +274,7 @@ export class PaymentOperationsService {
           details.amountMinor,
           details.currency,
         );
+        await this.finishPaymentReconciliation(payment);
         return;
       }
       if (details.status === 'failed') {
@@ -212,12 +288,94 @@ export class PaymentOperationsService {
           },
         );
       }
+      await this.finishPaymentReconciliation(payment);
     } catch (error) {
+      await this.schedulePaymentReconciliationRetry(
+        payment,
+        error instanceof Error ? error.message : 'Unknown provider reconciliation error',
+      );
       this.logger.error(
         `Gateway reconciliation failed for payment ${payment.id}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );
+    }
+  }
+
+  private async claimPaymentReconciliation(paymentId: string): Promise<Payment | null> {
+    return retryTransaction(this.dataSource, async (manager) => {
+      const payment = await manager.findOne(Payment, {
+        where: { id: paymentId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (
+        !payment ||
+        payment.reconciliation_status === 'quarantined' ||
+        (payment.reconciliation_next_retry_at &&
+          payment.reconciliation_next_retry_at.getTime() > Date.now()) ||
+        (payment.reconciliation_lease_expires_at &&
+          payment.reconciliation_lease_expires_at.getTime() > Date.now())
+      ) {
+        return null;
+      }
+      payment.reconciliation_claim_token = randomUUID();
+      payment.reconciliation_lease_expires_at = new Date(Date.now() + 5 * 60_000);
+      payment.reconciliation_last_attempted_at = new Date();
+      payment.reconciliation_attempt_count += 1;
+      payment.reconciliation_status = 'processing';
+      await manager.save(payment);
+      return payment;
+    });
+  }
+
+  private async finishPaymentReconciliation(payment: Payment): Promise<void> {
+    await this.payments.update(
+      { id: payment.id, reconciliation_claim_token: payment.reconciliation_claim_token! },
+      {
+        reconciliation_status: 'reconciled',
+        reconciliation_claim_token: null,
+        reconciliation_lease_expires_at: null,
+        reconciliation_next_retry_at: null,
+        reconciliation_last_provider_error: null,
+      },
+    );
+  }
+
+  private async schedulePaymentReconciliationRetry(payment: Payment, error: string): Promise<void> {
+    const attempts = payment.reconciliation_attempt_count;
+    const nextRetryAt = new Date(
+      Date.now() + Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7)),
+    );
+    await this.payments.update(
+      { id: payment.id, reconciliation_claim_token: payment.reconciliation_claim_token! },
+      {
+        reconciliation_status: 'retry_scheduled',
+        reconciliation_claim_token: null,
+        reconciliation_lease_expires_at: null,
+        reconciliation_next_retry_at: nextRetryAt,
+        reconciliation_last_provider_error: error,
+      },
+    );
+    if (attempts >= 3) {
+      await this.dataSource
+        .createQueryBuilder()
+        .insert()
+        .into(PaymentDomainEvent)
+        .values({
+          event_name: 'payment.reconciliation_stuck',
+          dedupe_key: `payment:${payment.id}:reconciliation-stuck`,
+          payload: {
+            payment_id: payment.id,
+            attempts,
+            error,
+            next_retry_at: nextRetryAt.toISOString(),
+          },
+          published_at: null,
+          attempts: 0,
+          last_error: null,
+        } as never)
+        .orIgnore()
+        .execute();
     }
   }
 
@@ -239,6 +397,12 @@ export class PaymentOperationsService {
       });
       if (!locked || locked.failure_reason?.startsWith('reconciliation_quarantine:')) return;
       locked.failure_reason = reason;
+      locked.reconciliation_status = 'quarantined';
+      locked.reconciliation_quarantine_reason = reason;
+      locked.reconciliation_quarantined_at = new Date();
+      locked.reconciliation_claim_token = null;
+      locked.reconciliation_lease_expires_at = null;
+      locked.reconciliation_next_retry_at = null;
       await manager.save(Payment, locked);
       await manager.insert(PaymentAuditLog, {
         actor_id: null,

@@ -70,6 +70,8 @@ export interface FinalizationResult {
 export class PaymentFinalizationService {
   private readonly logger = new Logger(PaymentFinalizationService.name);
   private readonly refundHoldDays: number;
+  private readonly captureGraceSeconds: number;
+  private readonly providerClockSkewSeconds: number;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -78,6 +80,14 @@ export class PaymentFinalizationService {
     this.refundHoldDays = Math.max(
       0,
       Number.parseInt(config.get<string>('TEACHER_EARNING_HOLD_DAYS') ?? '7', 10),
+    );
+    this.captureGraceSeconds = Math.max(
+      0,
+      Number.parseInt(config.get<string>('PAYMENT_CAPTURE_GRACE_SECONDS') ?? '300', 10),
+    );
+    this.providerClockSkewSeconds = Math.max(
+      0,
+      Number.parseInt(config.get<string>('PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS') ?? '120', 10),
     );
   }
 
@@ -137,13 +147,7 @@ export class PaymentFinalizationService {
       return { order, payment, entitlement: existing, alreadyFinalized: true };
     }
 
-    const lateGatewaySuccess =
-      order.status === OrderStatus.EXPIRED &&
-      order.payment_channel === PaymentChannel.GATEWAY &&
-      input.verifiedAmountMinor !== undefined &&
-      input.verifiedCurrency !== undefined &&
-      input.verifiedOccurredAt instanceof Date &&
-      Number.isFinite(input.verifiedOccurredAt.getTime());
+    const lateGatewaySuccess = this.isEligibleLateGatewayCapture(order, input);
     if (
       [OrderStatus.CANCELLED, OrderStatus.REFUNDED, OrderStatus.PARTIALLY_REFUNDED].includes(
         order.status,
@@ -199,6 +203,29 @@ export class PaymentFinalizationService {
 
     this.logger.log(`Finalized order ${order.order_number} through ${order.payment_channel}`);
     return { order, payment, entitlement, alreadyFinalized: false };
+  }
+
+  /**
+   * Local callback receipt time is deliberately excluded.  A signed webhook
+   * timestamp or verified provider inquiry is the only accepted capture fact.
+   */
+  private isEligibleLateGatewayCapture(order: Order, input: FinalizePaymentInput): boolean {
+    if (
+      order.status !== OrderStatus.EXPIRED ||
+      order.payment_channel !== PaymentChannel.GATEWAY ||
+      input.verifiedAmountMinor === undefined ||
+      input.verifiedCurrency === undefined ||
+      !(input.verifiedOccurredAt instanceof Date) ||
+      !Number.isFinite(input.verifiedOccurredAt.getTime())
+    ) {
+      return false;
+    }
+    const capturedAt = input.verifiedOccurredAt.getTime();
+    const now = Date.now();
+    if (capturedAt > now + this.providerClockSkewSeconds * 1_000) return false;
+    const expiresAt = order.expires_at?.getTime();
+    if (!expiresAt) return false;
+    return capturedAt <= expiresAt + this.captureGraceSeconds * 1_000;
   }
 
   private assertVerifiedFinancials(
