@@ -7,6 +7,7 @@ import { DataSource } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+import { FINANCE_PERMISSIONS } from '../payments/finance-permissions';
 
 export type AdminInitOutcome = 'created' | 'already_exists' | 'skipped_missing_env';
 
@@ -84,6 +85,7 @@ export class AdminInitializationService {
           phone: '01099999999',
           password_hash,
           role: UserRole.ADMIN,
+          finance_permissions: [...FINANCE_PERMISSIONS],
           status: UserStatus.APPROVED,
           is_active: true,
         });

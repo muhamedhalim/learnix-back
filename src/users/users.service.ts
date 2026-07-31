@@ -45,6 +45,7 @@ export class UsersService {
         'phone',
         'is_active',
         'role',
+        'finance_permissions',
         'created_at',
         'profile_picture_url',
       ],
@@ -112,6 +113,9 @@ export class UsersService {
       phone: user.phone,
       is_active: user.is_active,
       role: user.role,
+      // Finance permissions are administrative data. Only the admin UI needs
+      // them, and non-admin profiles must never receive administrative grants.
+      finance_permissions: user.role === UserRole.ADMIN ? user.finance_permissions : [],
       profile_picture_url: user.profile_picture_url,
       profile_picture_thumbnail_url: user.profile_picture_thumbnail_url,
       created_at: user.created_at,

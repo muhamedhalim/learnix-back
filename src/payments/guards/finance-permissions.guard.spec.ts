@@ -37,4 +37,15 @@ describe('FinancePermissionsGuard', () => {
     const guard = new FinancePermissionsGuard(reflector as never, users as never);
     await expect(guard.canActivate(context())).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('rejects non-admin roles even if a corrupted row contains finance permissions', async () => {
+    reflector.getAllAndOverride.mockReturnValue(['reports.view']);
+    users.findOne.mockResolvedValue({
+      id: 'teacher-1',
+      role: 'teacher',
+      finance_permissions: ['reports.view'],
+    });
+    const guard = new FinancePermissionsGuard(reflector as never, users as never);
+    await expect(guard.canActivate(context('teacher-1'))).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });
