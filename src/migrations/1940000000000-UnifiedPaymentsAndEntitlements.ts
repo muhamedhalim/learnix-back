@@ -134,7 +134,7 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
           'Legacy purchase'
         ),
         CASE p."item_type"::text
-          WHEN 'lesson' THEN (SELECT l."title_ar" FROM "lessons" l WHERE l."id" = p."item_id")
+          WHEN 'lesson' THEN (SELECT l."title" FROM "lessons" l WHERE l."id" = p."item_id")
           WHEN 'package' THEN (SELECT lp."title_ar" FROM "lesson_packages" lp WHERE lp."id" = p."item_id")
           WHEN 'book' THEN (SELECT b."title_ar" FROM "books" b WHERE b."id" = p."item_id")
         END,
