@@ -200,6 +200,9 @@ export class SettlementsService {
             ), 0)`,
               { reservingStatuses: RESERVING_SETTLEMENT_STATUSES },
             );
+          if (dto.currency) {
+            query.andWhere('entry.currency = :currency', { currency: dto.currency.toUpperCase() });
+          }
           if (dto.ledger_entry_ids?.length) {
             query.andWhere('entry.id IN (:...entryIds)', { entryIds: dto.ledger_entry_ids });
           }
@@ -406,7 +409,7 @@ export class SettlementsService {
           ),
         );
       }
-      throw error;
+      this.rethrowFinancialConstraint(error);
     }
   }
 
@@ -443,7 +446,8 @@ export class SettlementsService {
     if (!candidate) {
       throw new NotFoundException(biBody('Settlement not found', 'Settlement not found'));
     }
-    return retryTransaction(
+    try {
+      return await retryTransaction(
       this.dataSource,
       async (manager) => {
         await acquireTeacherFinancialLock(manager, candidate.teacher_id);
@@ -454,7 +458,22 @@ export class SettlementsService {
             biBody('Transfer reference is required', 'مرجع التحويل مطلوب'),
           );
         }
-        const executionFingerprint = this.executionFingerprint(settlement, transferReference, dto);
+        const transferMethod = dto.transfer_method?.trim() || settlement.payment_method.trim();
+        if (!transferMethod) {
+          throw new BadRequestException(
+            biBody('Transfer method is required', 'Transfer method is required'),
+          );
+        }
+        const transferDate = dto.transfer_date ? new Date(dto.transfer_date) : new Date();
+        if (Number.isNaN(transferDate.getTime())) {
+          throw new BadRequestException(biBody('Transfer date is invalid', 'Transfer date is invalid'));
+        }
+        const executionFingerprint = this.executionFingerprint(
+          settlement,
+          transferReference,
+          dto,
+          transferMethod,
+        );
         const executionKey = this.normalizedExecutionKey(dto.idempotency_key, executionFingerprint);
         const keyOwner = await manager.findOne(Settlement, {
           where: { execution_idempotency_key: executionKey },
@@ -579,10 +598,11 @@ export class SettlementsService {
         }
         settlement.status = SettlementStatus.PAID;
         settlement.transfer_reference = transferReference;
+        settlement.payment_method = transferMethod;
         settlement.execution_idempotency_key = executionKey;
         settlement.execution_fingerprint = executionFingerprint;
         settlement.paid_by = adminId;
-        settlement.paid_at = new Date();
+        settlement.paid_at = transferDate;
         if (dto.notes?.trim()) settlement.notes = dto.notes.trim();
         await manager.save(Settlement, settlement);
         const syntheticOrderId = await this.firstOrderId(manager, settlement.id);
@@ -662,6 +682,8 @@ export class SettlementsService {
         await manager.insert(FinancialLedgerEntry, settlementEntries as never);
         await this.audit(manager, adminId, 'settlement_paid', settlement, {
           transfer_reference: settlement.transfer_reference,
+          transfer_method: settlement.payment_method,
+          transfer_date: settlement.paid_at.toISOString(),
           execution_idempotency_key: executionKey,
         });
         await this.event(manager, 'settlement.completed', `settlement:${settlement.id}:paid`, {
@@ -683,8 +705,11 @@ export class SettlementsService {
         );
         return settlement;
       },
-      { isolationLevel: 'SERIALIZABLE' },
-    );
+        { isolationLevel: 'SERIALIZABLE' },
+      );
+    } catch (error) {
+      this.rethrowFinancialConstraint(error);
+    }
   }
 
   public async list(
@@ -697,6 +722,16 @@ export class SettlementsService {
     const teacherId = forcedTeacherId ?? filter.teacher_id;
     if (teacherId) query.where('settlement.teacher_id = :teacherId', { teacherId });
     if (filter.status) query.andWhere('settlement.status = :status', { status: filter.status });
+    if (filter.currency)
+      query.andWhere('settlement.currency = :currency', { currency: filter.currency.toUpperCase() });
+    if (filter.fiscal_period)
+      query.andWhere('settlement.fiscal_period = :fiscalPeriod', { fiscalPeriod: filter.fiscal_period });
+    if (filter.search) {
+      query.andWhere(
+        `(settlement.settlement_number ILIKE :search OR settlement.transfer_reference ILIKE :search OR settlement.teacher_id::text ILIKE :search)`,
+        { search: `%${filter.search.trim()}%` },
+      );
+    }
     const [data, total] = await query
       .orderBy('settlement.created_at', 'DESC')
       .skip((page - 1) * limit)
@@ -713,6 +748,86 @@ export class SettlementsService {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
       },
+    };
+  }
+
+  /** Admin/teacher settlement inspection projection; ledger and audit evidence is read-only. */
+  public async details(settlementId: string, forcedTeacherId?: string): Promise<Record<string, unknown>> {
+    const settlement = await this.settlements.findOne({ where: { id: settlementId } });
+    if (!settlement || (forcedTeacherId && settlement.teacher_id !== forcedTeacherId)) {
+      throw new NotFoundException(biBody('Settlement not found', 'Settlement not found'));
+    }
+    const allocations = await this.dataSource.query(`
+      SELECT membership.id, membership.amount_minor, membership.created_at,
+             entry.id AS ledger_entry_id, entry.order_id, entry.account, entry.entry_type,
+             entry.direction, entry.currency, entry.reference, entry.status, entry.available_at
+      FROM teacher_settlement_entries membership
+      JOIN financial_ledger_entries entry ON entry.id = membership.ledger_entry_id
+      WHERE membership.settlement_id = $1 ORDER BY membership.created_at ASC, membership.id ASC
+    `, [settlementId]);
+    const ledgerEntries = await this.ledger.find({
+      where: { settlement_id: settlementId },
+      order: { created_at: 'ASC', id: 'ASC' },
+    });
+    const auditHistory = await this.dataSource.getRepository(PaymentAuditLog).find({
+      where: { resource_type: 'settlement', resource_id: settlementId },
+      order: { created_at: 'ASC', id: 'ASC' },
+    });
+    return { settlement, allocations, ledger_entries: ledgerEntries, audit_history: auditHistory };
+  }
+
+  /** Ledger-source balance projection used by the manual payroll queue. */
+  public async teacherBalances(filter: SettlementFilterDto): Promise<{ data: Record<string, unknown>[]; meta: PaginationMeta }> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const params: unknown[] = [];
+    let condition = "WHERE user_record.role = 'teacher'";
+    if (filter.teacher_id) {
+      params.push(filter.teacher_id);
+      condition += ` AND user_record.id = $${params.length}`;
+    }
+    if (filter.search?.trim()) {
+      params.push(`%${filter.search.trim()}%`);
+      condition += ` AND (user_record.name ILIKE $${params.length} OR user_record.email ILIKE $${params.length})`;
+    }
+    const base = `
+      FROM users user_record
+      JOIN (
+        SELECT teacher_id, currency,
+          SUM(CASE WHEN account = 'teacher_payable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END) AS pending_minor,
+          SUM(CASE WHEN account = 'teacher_payable_available' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END) AS ledger_available_minor
+        FROM financial_ledger_entries
+        WHERE teacher_id IS NOT NULL
+        GROUP BY teacher_id, currency
+      ) balance ON balance.teacher_id = user_record.id
+      LEFT JOIN (
+        SELECT settlement.teacher_id, settlement.currency, SUM(membership.amount_minor) AS reserved_minor
+        FROM teacher_settlements settlement
+        JOIN teacher_settlement_entries membership ON membership.settlement_id = settlement.id
+        WHERE settlement.status IN ('draft', 'approved')
+        GROUP BY settlement.teacher_id, settlement.currency
+      ) reserved ON reserved.teacher_id = balance.teacher_id AND reserved.currency = balance.currency
+      LEFT JOIN (
+        SELECT teacher_id, currency, SUM(payout_amount_minor) AS paid_minor
+        FROM teacher_settlements WHERE status = 'paid'
+        GROUP BY teacher_id, currency
+      ) paid ON paid.teacher_id = balance.teacher_id AND paid.currency = balance.currency
+      ${condition}`;
+    const countRows = await this.dataSource.query(`SELECT COUNT(*)::int AS count ${base}`, params);
+    const paginationParams = [...params, limit, (page - 1) * limit];
+    const rows = await this.dataSource.query(`
+      SELECT user_record.id AS teacher_id, user_record.name AS teacher_name, user_record.email AS teacher_email,
+        balance.currency, balance.pending_minor::text AS pending_minor,
+        GREATEST(balance.ledger_available_minor - COALESCE(reserved.reserved_minor, 0), 0)::text AS available_minor,
+        COALESCE(reserved.reserved_minor, 0)::text AS reserved_minor,
+        COALESCE(paid.paid_minor, 0)::text AS paid_minor
+      ${base}
+      ORDER BY user_record.name ASC, balance.currency ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `, paginationParams);
+    const total = Number(countRows[0]?.count ?? 0);
+    return {
+      data: rows,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPrevPage: page > 1 },
     };
   }
 
@@ -921,6 +1036,7 @@ export class SettlementsService {
       receivable_offset_minor: dto.receivable_offset_minor ?? 0,
       payment_method: dto.payment_method.trim().toLowerCase(),
       fiscal_period: this.fiscalPeriod(dto.fiscal_period),
+      currency: dto.currency?.trim().toUpperCase() ?? null,
     });
     return createHash('sha256').update(payload).digest('hex');
   }
@@ -941,6 +1057,7 @@ export class SettlementsService {
     settlement: Settlement,
     transferReference: string,
     dto: PaySettlementDto,
+    transferMethod: string,
   ): string {
     return createHash('sha256')
       .update(
@@ -948,7 +1065,7 @@ export class SettlementsService {
           settlement_id: settlement.id,
           transfer_reference: this.normalizedTransferReference(transferReference),
           notes: dto.notes?.trim() ?? '',
-          payment_method: settlement.payment_method.trim().toLowerCase(),
+          payment_method: transferMethod.toLowerCase(),
           currency: settlement.currency,
           payout_amount_minor: settlement.payout_amount_minor,
         }),
@@ -958,6 +1075,31 @@ export class SettlementsService {
 
   private normalizedExecutionKey(key: string | undefined, fingerprint: string): string {
     return key?.trim() || `legacy:v1:execute:${fingerprint}`;
+  }
+
+  /** Never leak PostgreSQL constraint names through the manual-payroll API. */
+  private rethrowFinancialConstraint(error: unknown): never {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+    if (code === '23505') {
+      throw new ConflictException(
+        biBody(
+          'A matching transfer, request key, or active logical payout already exists',
+          'A matching transfer, request key, or active logical payout already exists',
+        ),
+      );
+    }
+    if (code === '23514') {
+      throw new BadRequestException(
+        biBody(
+          'Settlement allocations do not satisfy the available-balance rules',
+          'Settlement allocations do not satisfy the available-balance rules',
+        ),
+      );
+    }
+    throw error;
   }
 
   private async closeWithoutPayment(

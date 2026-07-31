@@ -399,6 +399,12 @@ export class CreateSettlementDto {
   @Length(7, 7)
   public fiscal_period?: string;
 
+  /** Selects a single ledger currency for multi-currency teachers. */
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  public currency?: string;
+
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
@@ -444,6 +450,16 @@ export class PaySettlementDto {
   @Length(8, 120)
   public idempotency_key?: string;
 
+  /** Manual-transfer metadata; new admin workflow always supplies these. */
+  @IsOptional()
+  @IsString()
+  @Length(2, 100)
+  public transfer_method?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public transfer_date?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
@@ -465,4 +481,19 @@ export class SettlementFilterDto extends Pagination20Dto {
   @IsOptional()
   @IsUUID('4')
   public teacher_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  public currency?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(7, 7)
+  public fiscal_period?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  public search?: string;
 }

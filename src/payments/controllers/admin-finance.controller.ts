@@ -175,6 +175,18 @@ export class AdminFinanceController {
     return this.settlements.list(filter);
   }
 
+  @Get('settlements/teacher-balances')
+  @FinancePermissions('settlements.view')
+  public async teacherBalances(@Query() filter: SettlementFilterDto) {
+    return await this.settlements.teacherBalances(filter);
+  }
+
+  @Get('settlements/:id')
+  @FinancePermissions('settlements.view')
+  public async settlementDetails(@Param('id', ParseUUIDPipe) id: string) {
+    return { data: await this.settlements.details(id) };
+  }
+
   @Post('settlements/:id/approve')
   @FinancePermissions('settlements.approve')
   public async approveSettlement(
