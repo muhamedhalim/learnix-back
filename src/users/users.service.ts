@@ -93,6 +93,7 @@ export class UsersService {
         'phone',
         'is_active',
         'role',
+        'finance_permissions',
         'profile_picture_url',
         'profile_picture_thumbnail_url',
         'created_at',
