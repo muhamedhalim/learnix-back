@@ -67,6 +67,9 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
       WHERE "status" IN ('awaiting_payment','payment_submitted','under_review')
     `);
 
+    // Complete the payments/orders relationship before either table is backfilled.
+    // This avoids PostgreSQL pending FK trigger events when a later ALTER TABLE
+    // targets a table that has already been changed in the same transaction.
     await q.query(`ALTER TYPE "payments_payment_method_enum" ADD VALUE IF NOT EXISTS 'manual'`);
     await q.query(`ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "order_id" uuid`);
     await q.query(`ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "amount_minor" bigint`);
@@ -78,15 +81,32 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
       `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "provider_reference" varchar(255)`,
     );
     await q.query(`ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "completed_at" timestamptz`);
-    await q.query(`ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "currency" char(3)`);
-    await q.query(`UPDATE "payments" SET "currency" = COALESCE("currency", 'EGP')`);
-    await q.query(`ALTER TABLE "payments" ALTER COLUMN "currency" SET DEFAULT 'EGP'`);
-    await q.query(`ALTER TABLE "payments" ALTER COLUMN "currency" SET NOT NULL`);
     await q.query(
-      `UPDATE "payments" SET "amount_minor" = ROUND("final_amount" * 100)::bigint WHERE "amount_minor" IS NULL`,
+      `ALTER TABLE "payments" ADD COLUMN IF NOT EXISTS "currency" char(3) NOT NULL DEFAULT 'EGP'`,
     );
     await q.query(
       `ALTER TABLE "payments" ADD CONSTRAINT "CHK_payments_amount_minor_nonnegative" CHECK ("amount_minor" IS NULL OR "amount_minor" >= 0)`,
+    );
+    await q.query(
+      `ALTER TABLE "payments" ADD CONSTRAINT "FK_payments_order" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT`,
+    );
+    await q.query(
+      `CREATE UNIQUE INDEX "UQ_payments_order_id" ON "payments" ("order_id") WHERE "order_id" IS NOT NULL`,
+    );
+    await q.query(
+      `ALTER TABLE "orders" ADD CONSTRAINT "FK_orders_payment" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED`,
+    );
+    // activation_code_id is nullable and no legacy source populates it during
+    // this migration, so every pre-backfill value is NULL and therefore valid.
+    await q.query(
+      `ALTER TABLE "orders" ADD CONSTRAINT "FK_orders_activation_code" FOREIGN KEY ("activation_code_id") REFERENCES "attendance_codes"("id") ON DELETE RESTRICT`,
+    );
+    await q.query(
+      `CREATE UNIQUE INDEX "UQ_orders_activation_code" ON "orders" ("activation_code_id") WHERE "activation_code_id" IS NOT NULL`,
+    );
+
+    await q.query(
+      `UPDATE "payments" SET "amount_minor" = ROUND("final_amount" * 100)::bigint WHERE "amount_minor" IS NULL`,
     );
 
     await q.query(`
@@ -166,15 +186,6 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
       FROM "orders" o
       WHERE o."metadata"->>'legacy_payment_id' = p."id"::text
     `);
-    await q.query(
-      `ALTER TABLE "payments" ADD CONSTRAINT "FK_payments_order" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT`,
-    );
-    await q.query(
-      `CREATE UNIQUE INDEX "UQ_payments_order_id" ON "payments" ("order_id") WHERE "order_id" IS NOT NULL`,
-    );
-    await q.query(
-      `ALTER TABLE "orders" ADD CONSTRAINT "FK_orders_payment" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED`,
-    );
     await q.query(
       `UPDATE "orders" o SET "payment_id" = p."id" FROM "payments" p WHERE p."order_id" = o."id"`,
     );
@@ -541,6 +552,9 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
     );
     await q.query(`ALTER TABLE "attendance_codes" ADD COLUMN IF NOT EXISTS "metadata" jsonb`);
     await q.query(
+      `CREATE UNIQUE INDEX "UQ_attendance_codes_lookup_hash" ON "attendance_codes" ("lookup_hash") WHERE "lookup_hash" IS NOT NULL`,
+    );
+    await q.query(
       `UPDATE "attendance_codes" SET "lookup_hash" = encode(digest(upper("code"), 'sha256'), 'hex') WHERE "lookup_hash" IS NULL`,
     );
     await q.query(`
@@ -562,16 +576,6 @@ export class UnifiedPaymentsAndEntitlements1940000000000 implements MigrationInt
           'collection_party_requires_review', true
         )
     `);
-    await q.query(
-      `CREATE UNIQUE INDEX "UQ_attendance_codes_lookup_hash" ON "attendance_codes" ("lookup_hash") WHERE "lookup_hash" IS NOT NULL`,
-    );
-    await q.query(
-      `ALTER TABLE "orders" ADD CONSTRAINT "FK_orders_activation_code" FOREIGN KEY ("activation_code_id") REFERENCES "attendance_codes"("id") ON DELETE RESTRICT`,
-    );
-    await q.query(
-      `CREATE UNIQUE INDEX "UQ_orders_activation_code" ON "orders" ("activation_code_id") WHERE "activation_code_id" IS NOT NULL`,
-    );
-
     await q.query(
       `ALTER TABLE "code_batches" ADD COLUMN IF NOT EXISTS "teacher_id" uuid REFERENCES "users"("id") ON DELETE RESTRICT`,
     );
