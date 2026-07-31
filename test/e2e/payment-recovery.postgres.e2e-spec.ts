@@ -5,6 +5,7 @@ import { AddPaymentRecoveryState2050000000000 } from '../../src/migrations/20500
 import { AddFinancePermissions2051000000000 } from '../../src/migrations/2051000000000-AddFinancePermissions';
 import { AddSettlementEntryAllocation2052000000000 } from '../../src/migrations/2052000000000-AddSettlementEntryAllocation';
 import { AddPaymentOutboxLeases2053000000000 } from '../../src/migrations/2053000000000-AddPaymentOutboxLeases';
+import { HardenTeacherPayoutStageOne2054000000000 } from '../../src/migrations/2054000000000-HardenTeacherPayoutStageOne';
 import { createE2EApp, resetDatabase } from './fixtures';
 
 /**
@@ -22,6 +23,10 @@ describe('payment recovery PostgreSQL guarantees', () => {
     await runner.connect();
     try {
       await new AddPaymentRecoveryState2050000000000().up(runner);
+      await new AddFinancePermissions2051000000000().up(runner);
+      await new AddSettlementEntryAllocation2052000000000().up(runner);
+      await new AddPaymentOutboxLeases2053000000000().up(runner);
+      await new HardenTeacherPayoutStageOne2054000000000().up(runner);
     } finally {
       await runner.release();
     }
@@ -116,6 +121,7 @@ describe('payment recovery PostgreSQL guarantees', () => {
       new AddFinancePermissions2051000000000(),
       new AddSettlementEntryAllocation2052000000000(),
       new AddPaymentOutboxLeases2053000000000(),
+      new HardenTeacherPayoutStageOne2054000000000(),
     ];
     const runner = dataSource.createQueryRunner();
     await runner.connect();
@@ -126,8 +132,9 @@ describe('payment recovery PostgreSQL guarantees', () => {
         WHERE (table_name = 'users' AND column_name = 'finance_permissions')
            OR (table_name = 'teacher_settlement_entries' AND column_name = 'amount_minor')
            OR (table_name = 'payment_domain_events' AND column_name = 'lease_token')
+           OR (table_name = 'teacher_settlements' AND column_name = 'idempotency_key')
       `)) as Array<{ table_name: string; column_name: string }>;
-      expect(upColumns).toHaveLength(3);
+      expect(upColumns).toHaveLength(4);
       for (const migration of [...migrations].reverse()) await migration.down(runner);
       for (const migration of migrations) await migration.up(runner);
       const afterUp = (await runner.query(
@@ -137,5 +144,33 @@ describe('payment recovery PostgreSQL guarantees', () => {
     } finally {
       await runner.release();
     }
+  });
+
+  it('enforces stage-one payout uniqueness and restricts financial user foreign keys', async () => {
+    const indexes = (await dataSource.query(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'teacher_settlements'
+    `)) as Array<{ indexname: string }>;
+    expect(indexes.map((row) => row.indexname)).toEqual(
+      expect.arrayContaining([
+        'UQ_teacher_settlements_idempotency_key',
+        'UQ_teacher_settlements_paid_reference_normalized',
+      ]),
+    );
+    const fks = (await dataSource.query(`
+      SELECT c.conrelid::regclass::text AS table_name, c.confdeltype
+      FROM pg_constraint c
+      WHERE c.contype = 'f'
+        AND c.confrelid = 'users'::regclass
+        AND c.conrelid IN (
+          'orders'::regclass,
+          'payments'::regclass,
+          'financial_ledger_entries'::regclass,
+          'teacher_settlements'::regclass
+        )
+    `)) as Array<{ table_name: string; confdeltype: string }>;
+    expect(fks).not.toHaveLength(0);
+    expect(fks.every((fk) => fk.confdeltype === 'r')).toBe(true);
   });
 });

@@ -12,6 +12,7 @@ import { SettlementStatus } from './settlement-status.enum';
 
 @Entity('teacher_settlements')
 @Index('UQ_teacher_settlements_number', ['settlement_number'], { unique: true })
+@Index('UQ_teacher_settlements_idempotency_key', ['idempotency_key'], { unique: true })
 @Index('IDX_teacher_settlements_teacher_status', ['teacher_id', 'status'])
 export class Settlement {
   @PrimaryGeneratedColumn('uuid')
@@ -19,6 +20,14 @@ export class Settlement {
 
   @Column({ type: 'varchar', length: 40, name: 'settlement_number' })
   settlement_number!: string;
+
+  /** Durable request key for create retries; never recycled across settlements. */
+  @Column({ type: 'varchar', length: 120, name: 'idempotency_key' })
+  idempotency_key!: string;
+
+  /** SHA-256 of the request semantics, used to reject key reuse with a different payload. */
+  @Column({ type: 'char', length: 64, name: 'idempotency_fingerprint' })
+  idempotency_fingerprint!: string;
 
   @Column({ type: 'uuid', name: 'teacher_id' })
   teacher_id!: string;

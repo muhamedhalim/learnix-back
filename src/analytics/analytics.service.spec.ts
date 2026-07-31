@@ -19,7 +19,9 @@ function queryBuilder<T>(result: Promise<T>): jest.Mocked<Partial<SelectQueryBui
   const builder: jest.Mocked<Partial<SelectQueryBuilder<unknown>>> = {
     select: jest.fn(),
     addSelect: jest.fn(),
+    innerJoin: jest.fn(),
     where: jest.fn(),
+    andWhere: jest.fn(),
     setParameters: jest.fn(),
     withDeleted: jest.fn(),
     getRawOne: jest.fn().mockReturnValue(result),
@@ -27,7 +29,9 @@ function queryBuilder<T>(result: Promise<T>): jest.Mocked<Partial<SelectQueryBui
 
   builder.select!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
   builder.addSelect!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
+  builder.innerJoin!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
   builder.where!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
+  builder.andWhere!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
   builder.setParameters!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
   builder.withDeleted!.mockReturnValue(builder as SelectQueryBuilder<unknown>);
   return builder;

@@ -44,7 +44,10 @@ import { TeachersService } from '../teachers.service';
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminTeachersController {
-  constructor(private readonly teachersService: TeachersService, private readonly accountDeletion: AccountDeletionService) {}
+  constructor(
+    private readonly teachersService: TeachersService,
+    private readonly accountDeletion: AccountDeletionService,
+  ) {}
 
   /**
    * Get all teachers with optional filtering
@@ -119,8 +122,7 @@ export class AdminTeachersController {
   @Get('pending')
   @ApiOperation({
     summary: 'Get pending teachers',
-    description:
-      'Returns a paginated list of teachers awaiting approval. Admin only.',
+    description: 'Returns a paginated list of teachers awaiting approval. Admin only.',
   })
   @ApiQuery({
     name: 'page',
@@ -138,13 +140,8 @@ export class AdminTeachersController {
     status: HttpStatus.OK,
     description: 'List of pending teachers',
   })
-  public async findPending(
-    @Query() pagination: Pagination20Dto,
-  ): Promise<unknown> {
-    return await this.teachersService.findPendingTeachers(
-      pagination.page,
-      pagination.limit,
-    );
+  public async findPending(@Query() pagination: Pagination20Dto): Promise<unknown> {
+    return await this.teachersService.findPendingTeachers(pagination.page, pagination.limit);
   }
 
   /**
@@ -155,9 +152,7 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  public async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return await this.teachersService.findTeacherById(id);
   }
 
@@ -169,9 +164,7 @@ export class AdminTeachersController {
     status: HttpStatus.NOT_FOUND,
     description: 'Teacher not found',
   })
-  public async getStats(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
+  public async getStats(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     const stats = await this.teachersService.getTeacherStats(id);
     return {
       stats,
@@ -202,10 +195,7 @@ export class AdminTeachersController {
     description: 'User is already a teacher',
   })
   public async promote(@Body() dto: PromoteTeacherDto): Promise<unknown> {
-    const teacher = await this.teachersService.promoteStudentToTeacher(
-      dto.user_id,
-      dto,
-    );
+    const teacher = await this.teachersService.promoteStudentToTeacher(dto.user_id, dto);
     return {
       message: 'Student promoted to teacher successfully',
       data: teacher,
@@ -239,10 +229,7 @@ export class AdminTeachersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveTeacherDto,
   ): Promise<unknown> {
-    const teacher = await this.teachersService.approveTeacher(
-      id,
-      approveDto.notes,
-    );
+    const teacher = await this.teachersService.approveTeacher(id, approveDto.notes);
     return {
       message: 'Teacher approved successfully',
       teacher,
@@ -291,17 +278,27 @@ export class AdminTeachersController {
 
   @Get(':id/deletion-preview')
   @ApiOperation({ summary: 'Preview permanent teacher account deletion' })
-  public async deletionPreview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload): Promise<{ data: unknown }> {
+  public async deletionPreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: unknown }> {
     return { data: await this.accountDeletion.preview(id, UserRole.TEACHER, user.userId) };
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Permanently delete a teacher and all dependent data' })
+  @ApiOperation({ summary: 'Permanently delete a teacher only when no financial history exists' })
   public async permanentlyDelete(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: HardDeleteAccountDto,
     @GetUser() user: JwtPayload,
   ): Promise<{ data: unknown }> {
-    return { data: await this.accountDeletion.permanentlyDelete(id, UserRole.TEACHER, user.userId, dto.reason) };
+    return {
+      data: await this.accountDeletion.permanentlyDelete(
+        id,
+        UserRole.TEACHER,
+        user.userId,
+        dto.reason,
+      ),
+    };
   }
 }

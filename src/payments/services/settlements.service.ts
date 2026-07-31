@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -24,6 +24,7 @@ import {
   LedgerEntryStatus,
   LedgerEntryType,
   Order,
+  OrderStatus,
   PaymentAuditLog,
   PaymentChannel,
   PaymentDomainEvent,
@@ -35,6 +36,12 @@ import {
 interface SumRow {
   value: string | null;
 }
+
+const RESERVING_SETTLEMENT_STATUSES = [
+  SettlementStatus.DRAFT,
+  SettlementStatus.APPROVED,
+  SettlementStatus.PAID,
+] as const;
 
 /**
  * Teacher-safe wallet projection.  This deliberately contains only balances
@@ -96,192 +103,253 @@ export class SettlementsService {
   }
 
   public async create(dto: CreateSettlementDto, adminId: string): Promise<Settlement> {
-    return retryTransaction(
-      this.dataSource,
-      async (manager) => {
-        // Lock the complete available-payable account before selecting earnings.
-        // Refund reversals are debit entries in this same account, so settlement
-        // eligibility is always capped by the net outstanding liability.
-        const payableEntries = await manager
-          .getRepository(FinancialLedgerEntry)
-          .createQueryBuilder('payable')
-          .setLock('pessimistic_write')
-          .where('payable.teacher_id = :teacherId', { teacherId: dto.teacher_id })
-          .andWhere('payable.account = :account', { account: 'teacher_payable_available' })
-          .getMany();
-        const query = manager
-          .getRepository(FinancialLedgerEntry)
-          .createQueryBuilder('entry')
-          .setLock('pessimistic_write')
-          .where('entry.teacher_id = :teacherId', { teacherId: dto.teacher_id })
-          .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
-          .andWhere('entry.entry_type = :entryType', {
-            entryType: LedgerEntryType.TEACHER_EARNING_AVAILABLE,
-          })
-          .andWhere('entry.direction = :direction', { direction: LedgerDirection.CREDIT })
-          .andWhere(
-            `NOT EXISTS (
+    const idempotencyKey = this.normalizedIdempotencyKey(dto.idempotency_key);
+    const idempotencyFingerprint = this.createFingerprint(dto);
+    try {
+      return await retryTransaction(
+        this.dataSource,
+        async (manager) => {
+          const existing = await manager.findOne(Settlement, {
+            where: { idempotency_key: idempotencyKey },
+          });
+          if (existing) {
+            if (existing.idempotency_fingerprint !== idempotencyFingerprint) {
+              throw new ConflictException(
+                biBody(
+                  'Idempotency key was already used with a different settlement request',
+                  'تم استخدام مفتاح منع التكرار مسبقاً مع طلب تسوية مختلف',
+                ),
+              );
+            }
+            return existing;
+          }
+          // Lock the complete available-payable account before selecting earnings.
+          // Refund reversals are debit entries in this same account, so settlement
+          // eligibility is always capped by the net outstanding liability.
+          const payableEntries = await manager
+            .getRepository(FinancialLedgerEntry)
+            .createQueryBuilder('payable')
+            .setLock('pessimistic_write')
+            .where('payable.teacher_id = :teacherId', { teacherId: dto.teacher_id })
+            .andWhere('payable.account = :account', { account: 'teacher_payable_available' })
+            .getMany();
+          const query = manager
+            .getRepository(FinancialLedgerEntry)
+            .createQueryBuilder('entry')
+            .setLock('pessimistic_write')
+            .where('entry.teacher_id = :teacherId', { teacherId: dto.teacher_id })
+            .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
+            .andWhere('entry.entry_type = :entryType', {
+              entryType: LedgerEntryType.TEACHER_EARNING_AVAILABLE,
+            })
+            .andWhere('entry.direction = :direction', { direction: LedgerDirection.CREDIT })
+            .andWhere(
+              `NOT EXISTS (
             SELECT 1 FROM financial_ledger_entries reversal
             WHERE reversal.order_id = entry.order_id
               AND reversal.entry_type = :earningReversal
           )`,
-            { earningReversal: LedgerEntryType.TEACHER_EARNING_REVERSAL },
-          )
-          .andWhere(
-            `entry.amount_minor > COALESCE((
+              { earningReversal: LedgerEntryType.TEACHER_EARNING_REVERSAL },
+            )
+            .andWhere(
+              `entry.amount_minor > COALESCE((
               SELECT SUM(membership.amount_minor)
               FROM teacher_settlement_entries membership
+              INNER JOIN teacher_settlements reserved_settlement
+                ON reserved_settlement.id = membership.settlement_id
               WHERE membership.ledger_entry_id = entry.id
+                AND reserved_settlement.status IN (:...reservingStatuses)
             ), 0)`,
+              { reservingStatuses: RESERVING_SETTLEMENT_STATUSES },
+            );
+          if (dto.ledger_entry_ids?.length) {
+            query.andWhere('entry.id IN (:...entryIds)', { entryIds: dto.ledger_entry_ids });
+          }
+          let entries = await query.orderBy('entry.created_at', 'ASC').getMany();
+          if (entries.length === 0) {
+            throw new ConflictException(
+              biBody(
+                'No available earnings are eligible for settlement',
+                'لا توجد أرباح متاحة مؤهلة للتسوية',
+              ),
+            );
+          }
+          if (
+            dto.ledger_entry_ids?.length &&
+            entries.length !== new Set(dto.ledger_entry_ids).size
+          ) {
+            throw new ConflictException(
+              biBody(
+                'One or more ledger entries are unavailable or already settled',
+                'قيد أو أكثر غير متاح أو تمت تسويته',
+              ),
+            );
+          }
+          const currency = entries[0]?.currency ?? 'EGP';
+          if (entries.some((entry) => entry.currency !== currency)) {
+            throw new BadRequestException(
+              biBody(
+                'Settlement entries must use one currency',
+                'يجب أن تستخدم قيود التسوية عملة واحدة',
+              ),
+            );
+          }
+          const netAvailable = payableEntries
+            .filter((entry) => entry.currency === currency)
+            .reduce(
+              (sum, entry) =>
+                sum +
+                (entry.direction === LedgerDirection.CREDIT
+                  ? entry.amount_minor
+                  : -entry.amount_minor),
+              0,
+            );
+          if (netAvailable <= 0) {
+            throw new ConflictException(
+              biBody(
+                'Teacher has no positive net payable balance',
+                'Teacher has no positive net payable balance',
+              ),
+            );
+          }
+          const existingAllocations = await manager
+            .getRepository(SettlementEntry)
+            .createQueryBuilder('membership')
+            .innerJoin(
+              Settlement,
+              'reserved_settlement',
+              'reserved_settlement.id = membership.settlement_id',
+            )
+            .select('membership.ledger_entry_id', 'ledger_entry_id')
+            .addSelect('COALESCE(SUM(membership.amount_minor), 0)', 'allocated_minor')
+            .where('membership.ledger_entry_id IN (:...entryIds)', {
+              entryIds: entries.map((entry) => entry.id),
+            })
+            .andWhere('reserved_settlement.status IN (:...reservingStatuses)', {
+              reservingStatuses: RESERVING_SETTLEMENT_STATUSES,
+            })
+            .groupBy('membership.ledger_entry_id')
+            .getRawMany<{ ledger_entry_id: string; allocated_minor: string }>();
+          const allocatedByEntry = new Map(
+            existingAllocations.map((row) => [row.ledger_entry_id, Number(row.allocated_minor)]),
           );
-        if (dto.ledger_entry_ids?.length) {
-          query.andWhere('entry.id IN (:...entryIds)', { entryIds: dto.ledger_entry_ids });
-        }
-        let entries = await query.orderBy('entry.created_at', 'ASC').getMany();
-        if (entries.length === 0) {
-          throw new ConflictException(
-            biBody(
-              'No available earnings are eligible for settlement',
-              'لا توجد أرباح متاحة مؤهلة للتسوية',
-            ),
-          );
-        }
-        if (dto.ledger_entry_ids?.length && entries.length !== new Set(dto.ledger_entry_ids).size) {
-          throw new ConflictException(
-            biBody(
-              'One or more ledger entries are unavailable or already settled',
-              'قيد أو أكثر غير متاح أو تمت تسويته',
-            ),
-          );
-        }
-        const currency = entries[0]?.currency ?? 'EGP';
-        if (entries.some((entry) => entry.currency !== currency)) {
-          throw new BadRequestException(
-            biBody(
-              'Settlement entries must use one currency',
-              'يجب أن تستخدم قيود التسوية عملة واحدة',
-            ),
-          );
-        }
-        const netAvailable = payableEntries
-          .filter((entry) => entry.currency === currency)
-          .reduce(
-            (sum, entry) =>
-              sum +
-              (entry.direction === LedgerDirection.CREDIT
-                ? entry.amount_minor
-                : -entry.amount_minor),
-            0,
-          );
-        if (netAvailable <= 0) {
-          throw new ConflictException(
-            biBody(
-              'Teacher has no positive net payable balance',
-              'Teacher has no positive net payable balance',
-            ),
-          );
-        }
-        const existingAllocations = await manager
-          .getRepository(SettlementEntry)
-          .createQueryBuilder('membership')
-          .select('membership.ledger_entry_id', 'ledger_entry_id')
-          .addSelect('COALESCE(SUM(membership.amount_minor), 0)', 'allocated_minor')
-          .where('membership.ledger_entry_id IN (:...entryIds)', {
-            entryIds: entries.map((entry) => entry.id),
-          })
-          .groupBy('membership.ledger_entry_id')
-          .getRawMany<{ ledger_entry_id: string; allocated_minor: string }>();
-        const allocatedByEntry = new Map(
-          existingAllocations.map((row) => [row.ledger_entry_id, Number(row.allocated_minor)]),
-        );
-        let remainingNet = netAvailable;
-        const allocations: Array<{ entry: FinancialLedgerEntry; amountMinor: number }> = [];
-        for (const entry of entries) {
-          if (remainingNet <= 0) break;
-          const availableForEntry = entry.amount_minor - (allocatedByEntry.get(entry.id) ?? 0);
-          const amountMinor = Math.min(availableForEntry, remainingNet);
-          if (amountMinor <= 0) continue;
-          allocations.push({ entry, amountMinor });
-          remainingNet -= amountMinor;
-        }
-        const gross = allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
-        if (gross <= 0 || gross > netAvailable) {
-          throw new ConflictException(
-            biBody(
-              'Settlement exceeds the teacher net payable balance',
-              'Settlement exceeds the teacher net payable balance',
-            ),
-          );
-        }
-        const deductions = dto.deductions_minor ?? 0;
-        const receivableOffset = dto.receivable_offset_minor ?? 0;
-        const outstandingReceivable = await this.accountBalanceWithManager(
-          manager,
-          dto.teacher_id,
-          'platform_receivable',
-        );
-        if (receivableOffset > outstandingReceivable) {
-          throw new BadRequestException(
-            biBody(
-              'Receivable offset exceeds outstanding receivable',
-              'مقاصة المديونية تتجاوز الرصيد المستحق',
-            ),
-          );
-        }
-        const payout = gross - deductions - receivableOffset;
-        if (payout < this.minimumPayoutMinor) {
-          throw new BadRequestException(
-            biBody(
-              `Settlement payout must be at least ${String(this.minimumPayoutMinor)} minor units`,
-              'قيمة التسوية أقل من الحد الأدنى للصرف',
-            ),
-          );
-        }
-        const settlement = await manager.save(
-          Settlement,
-          manager.create(Settlement, {
-            settlement_number: this.generateNumber(),
-            teacher_id: dto.teacher_id,
-            gross_amount_minor: gross,
-            deductions_minor: deductions,
-            receivable_offset_minor: receivableOffset,
-            payout_amount_minor: payout,
+          const requestedGross = dto.amount_minor ?? netAvailable;
+          if (requestedGross > netAvailable) {
+            throw new ConflictException(
+              biBody(
+                'Settlement exceeds the teacher available balance',
+                'قيمة التسوية تتجاوز الرصيد المتاح للمعلم',
+              ),
+            );
+          }
+          let remainingNet = requestedGross;
+          const allocations: Array<{ entry: FinancialLedgerEntry; amountMinor: number }> = [];
+          for (const entry of entries) {
+            if (remainingNet <= 0) break;
+            const availableForEntry = entry.amount_minor - (allocatedByEntry.get(entry.id) ?? 0);
+            const amountMinor = Math.min(availableForEntry, remainingNet);
+            if (amountMinor <= 0) continue;
+            allocations.push({ entry, amountMinor });
+            remainingNet -= amountMinor;
+          }
+          const gross = allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
+          if (gross <= 0 || gross !== requestedGross || gross > netAvailable) {
+            throw new ConflictException(
+              biBody(
+                'Settlement exceeds the teacher net payable balance',
+                'Settlement exceeds the teacher net payable balance',
+              ),
+            );
+          }
+          const deductions = dto.deductions_minor ?? 0;
+          const receivableOffset = dto.receivable_offset_minor ?? 0;
+          const outstandingReceivable = await this.accountBalanceWithManager(
+            manager,
+            dto.teacher_id,
+            'platform_receivable',
             currency,
-            status: SettlementStatus.DRAFT,
-            payment_method: dto.payment_method,
-            transfer_reference: null,
-            proof_file_key: null,
-            notes: dto.notes?.trim() ?? null,
-            initiated_by: adminId,
-            approved_by: null,
-            paid_by: null,
-            paid_at: null,
-          }),
-        );
-        await manager.insert(
-          SettlementEntry,
-          allocations.map(({ entry, amountMinor }) => ({
+          );
+          if (receivableOffset > outstandingReceivable) {
+            throw new BadRequestException(
+              biBody(
+                'Receivable offset exceeds outstanding receivable',
+                'مقاصة المديونية تتجاوز الرصيد المستحق',
+              ),
+            );
+          }
+          const payout = gross - deductions - receivableOffset;
+          if (payout < this.minimumPayoutMinor) {
+            throw new BadRequestException(
+              biBody(
+                `Settlement payout must be at least ${String(this.minimumPayoutMinor)} minor units`,
+                'قيمة التسوية أقل من الحد الأدنى للصرف',
+              ),
+            );
+          }
+          const settlement = await manager.save(
+            Settlement,
+            manager.create(Settlement, {
+              settlement_number: this.generateNumber(),
+              idempotency_key: idempotencyKey,
+              idempotency_fingerprint: idempotencyFingerprint,
+              teacher_id: dto.teacher_id,
+              gross_amount_minor: gross,
+              deductions_minor: deductions,
+              receivable_offset_minor: receivableOffset,
+              payout_amount_minor: payout,
+              currency,
+              status: SettlementStatus.DRAFT,
+              payment_method: dto.payment_method,
+              transfer_reference: null,
+              proof_file_key: null,
+              notes: dto.notes?.trim() ?? null,
+              initiated_by: adminId,
+              approved_by: null,
+              paid_by: null,
+              paid_at: null,
+            }),
+          );
+          await manager.insert(
+            SettlementEntry,
+            allocations.map(({ entry, amountMinor }) => ({
+              settlement_id: settlement.id,
+              ledger_entry_id: entry.id,
+              amount_minor: amountMinor,
+            })),
+          );
+          await this.audit(manager, adminId, 'settlement_created', settlement, {
+            ledger_entry_ids: allocations.map(({ entry }) => entry.id),
+            allocated_amounts_minor: allocations.map(({ entry, amountMinor }) => ({
+              ledger_entry_id: entry.id,
+              amount_minor: amountMinor,
+            })),
+          });
+          await this.event(manager, 'settlement.created', `settlement:${settlement.id}:created`, {
             settlement_id: settlement.id,
-            ledger_entry_id: entry.id,
-            amount_minor: amountMinor,
-          })),
+            teacher_id: settlement.teacher_id,
+            payout_amount_minor: settlement.payout_amount_minor,
+          });
+          return settlement;
+        },
+        { isolationLevel: 'SERIALIZABLE' },
+      );
+    } catch (error) {
+      // A concurrent retry can reach the unique index after its initial lookup.
+      // Resolve only the exact same logical request; never silently accept key reuse.
+      const existing = await this.settlements.findOne({
+        where: { idempotency_key: idempotencyKey },
+      });
+      if (existing) {
+        if (existing.idempotency_fingerprint === idempotencyFingerprint) return existing;
+        throw new ConflictException(
+          biBody(
+            'Idempotency key was already used with a different settlement request',
+            'تم استخدام مفتاح منع التكرار مسبقاً مع طلب تسوية مختلف',
+          ),
         );
-        await this.audit(manager, adminId, 'settlement_created', settlement, {
-          ledger_entry_ids: allocations.map(({ entry }) => entry.id),
-          allocated_amounts_minor: allocations.map(({ entry, amountMinor }) => ({
-            ledger_entry_id: entry.id,
-            amount_minor: amountMinor,
-          })),
-        });
-        await this.event(manager, 'settlement.created', `settlement:${settlement.id}:created`, {
-          settlement_id: settlement.id,
-          teacher_id: settlement.teacher_id,
-          payout_amount_minor: settlement.payout_amount_minor,
-        });
-        return settlement;
-      },
-      { isolationLevel: 'SERIALIZABLE' },
-    );
+      }
+      throw error;
+    }
   }
 
   public async approve(settlementId: string, adminId: string): Promise<Settlement> {
@@ -317,7 +385,26 @@ export class SettlementsService {
       this.dataSource,
       async (manager) => {
         const settlement = await this.lock(manager, settlementId);
-        if (settlement.status === SettlementStatus.PAID) return settlement;
+        const transferReference = dto.transfer_reference.trim();
+        if (!transferReference) {
+          throw new BadRequestException(
+            biBody('Transfer reference is required', 'مرجع التحويل مطلوب'),
+          );
+        }
+        if (settlement.status === SettlementStatus.PAID) {
+          if (
+            settlement.transfer_reference &&
+            settlement.transfer_reference.trim().toLowerCase() === transferReference.toLowerCase()
+          ) {
+            return settlement;
+          }
+          throw new ConflictException(
+            biBody(
+              'A paid settlement cannot be overwritten with a different transfer reference',
+              'لا يمكن استبدال مرجع تحويل لتسوية مدفوعة',
+            ),
+          );
+        }
         if (settlement.status !== SettlementStatus.APPROVED) {
           throw new ConflictException(
             biBody('Settlement must be approved before payment', 'يجب اعتماد التسوية قبل الدفع'),
@@ -368,10 +455,19 @@ export class SettlementsService {
             ),
           );
         }
-        const netAvailable = await this.accountBalanceWithManager(
-          manager,
-          settlement.teacher_id,
-          'teacher_payable_available',
+        const payableEntries = await manager
+          .getRepository(FinancialLedgerEntry)
+          .createQueryBuilder('entry')
+          .setLock('pessimistic_write')
+          .where('entry.teacher_id = :teacherId', { teacherId: settlement.teacher_id })
+          .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
+          .andWhere('entry.currency = :currency', { currency: settlement.currency })
+          .getMany();
+        const netAvailable = payableEntries.reduce(
+          (sum, entry) =>
+            sum +
+            (entry.direction === LedgerDirection.CREDIT ? entry.amount_minor : -entry.amount_minor),
+          0,
         );
         if (netAvailable < settlement.gross_amount_minor) {
           throw new ConflictException(
@@ -381,8 +477,23 @@ export class SettlementsService {
             ),
           );
         }
+        const duplicateReference = await manager
+          .getRepository(Settlement)
+          .createQueryBuilder('paid_settlement')
+          .setLock('pessimistic_read')
+          .where('paid_settlement.status = :status', { status: SettlementStatus.PAID })
+          .andWhere('LOWER(BTRIM(paid_settlement.transfer_reference)) = LOWER(BTRIM(:reference))', {
+            reference: transferReference,
+          })
+          .andWhere('paid_settlement.id != :id', { id: settlement.id })
+          .getOne();
+        if (duplicateReference) {
+          throw new ConflictException(
+            biBody('Transfer reference has already been used', 'تم استخدام مرجع التحويل مسبقاً'),
+          );
+        }
         settlement.status = SettlementStatus.PAID;
-        settlement.transfer_reference = dto.transfer_reference.trim();
+        settlement.transfer_reference = transferReference;
         settlement.paid_by = adminId;
         settlement.paid_at = new Date();
         if (dto.notes?.trim()) settlement.notes = dto.notes.trim();
@@ -517,6 +628,18 @@ export class SettlementsService {
     };
   }
 
+  /**
+   * Terminal draft/approved records retain their audit trail but release every
+   * allocation immediately because selection only reserves active/paid rows.
+   */
+  public async cancel(settlementId: string, adminId: string): Promise<Settlement> {
+    return this.closeWithoutPayment(settlementId, adminId, SettlementStatus.CANCELLED);
+  }
+
+  public async reject(settlementId: string, adminId: string): Promise<Settlement> {
+    return this.closeWithoutPayment(settlementId, adminId, SettlementStatus.REJECTED);
+  }
+
   public async releaseAvailableEarnings(limit = 500): Promise<number> {
     const due = await this.ledger
       .createQueryBuilder('entry')
@@ -549,7 +672,32 @@ export class SettlementsService {
           where: { id: entry.id },
           lock: { mode: 'pessimistic_write' },
         });
-        if (!locked) return;
+        if (
+          !locked ||
+          locked.entry_type !== LedgerEntryType.TEACHER_EARNING_PENDING ||
+          locked.direction !== LedgerDirection.CREDIT ||
+          !locked.available_at ||
+          locked.available_at > new Date()
+        ) {
+          return;
+        }
+        // Serialize against refunds through the order row before releasing a
+        // held balance. A later refund is still represented as a ledger
+        // reversal; a completed refund is never released as available.
+        const order = await manager.findOne(Order, {
+          where: { id: locked.order_id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!order || ![OrderStatus.PAID, OrderStatus.PARTIALLY_REFUNDED].includes(order.status)) {
+          return;
+        }
+        const reversed = await manager.exists(FinancialLedgerEntry, {
+          where: {
+            order_id: locked.order_id,
+            entry_type: LedgerEntryType.TEACHER_EARNING_REVERSAL,
+          },
+        });
+        if (reversed) return;
         const exists = await manager.findOne(FinancialLedgerEntry, {
           where: { reference: `release:${locked.id}:available` },
         });
@@ -614,16 +762,21 @@ export class SettlementsService {
     return released;
   }
 
-  private async accountBalance(teacherId: string, account: string): Promise<number> {
-    return this.accountBalanceWithManager(this.dataSource.manager, teacherId, account);
+  private async accountBalance(
+    teacherId: string,
+    account: string,
+    currency?: string,
+  ): Promise<number> {
+    return this.accountBalanceWithManager(this.dataSource.manager, teacherId, account, currency);
   }
 
   private async accountBalanceWithManager(
     manager: EntityManager,
     teacherId: string,
     account: string,
+    currency?: string,
   ): Promise<number> {
-    const result = await manager
+    const query = manager
       .getRepository(FinancialLedgerEntry)
       .createQueryBuilder('entry')
       .select(
@@ -631,8 +784,9 @@ export class SettlementsService {
         'value',
       )
       .where('entry.teacher_id = :teacherId', { teacherId })
-      .andWhere('entry.account = :account', { account })
-      .getRawOne<SumRow>();
+      .andWhere('entry.account = :account', { account });
+    if (currency) query.andWhere('entry.currency = :currency', { currency });
+    const result = await query.getRawOne<SumRow>();
     return Number(result?.value ?? 0);
   }
 
@@ -698,6 +852,57 @@ export class SettlementsService {
   private generateNumber(): string {
     const day = new Date().toISOString().slice(0, 10).replaceAll('-', '');
     return `ST-${day}-${randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+
+  private normalizedIdempotencyKey(key?: string): string {
+    const normalized = key?.trim();
+    // Legacy clients keep their API contract, while every persisted settlement
+    // still has a non-null, database-unique key.
+    return normalized || `legacy:${randomUUID()}`;
+  }
+
+  private createFingerprint(dto: CreateSettlementDto): string {
+    const payload = JSON.stringify({
+      teacher_id: dto.teacher_id,
+      ledger_entry_ids: [...(dto.ledger_entry_ids ?? [])].sort(),
+      amount_minor: dto.amount_minor ?? null,
+      deductions_minor: dto.deductions_minor ?? 0,
+      receivable_offset_minor: dto.receivable_offset_minor ?? 0,
+      payment_method: dto.payment_method.trim().toLowerCase(),
+    });
+    return createHash('sha256').update(payload).digest('hex');
+  }
+
+  private async closeWithoutPayment(
+    settlementId: string,
+    adminId: string,
+    targetStatus: SettlementStatus.CANCELLED | SettlementStatus.REJECTED,
+  ): Promise<Settlement> {
+    return retryTransaction(this.dataSource, async (manager) => {
+      const settlement = await this.lock(manager, settlementId);
+      if (settlement.status === targetStatus) return settlement;
+      if (![SettlementStatus.DRAFT, SettlementStatus.APPROVED].includes(settlement.status)) {
+        throw new ConflictException(
+          biBody(
+            'Only a draft or approved settlement can be cancelled or rejected',
+            'يمكن إلغاء أو رفض التسوية المسودة أو المعتمدة فقط',
+          ),
+        );
+      }
+      settlement.status = targetStatus;
+      await manager.save(Settlement, settlement);
+      await this.audit(manager, adminId, `settlement_${targetStatus}`, settlement, {});
+      await this.event(
+        manager,
+        `settlement.${targetStatus}`,
+        `settlement:${settlement.id}:${targetStatus}`,
+        {
+          settlement_id: settlement.id,
+          teacher_id: settlement.teacher_id,
+        },
+      );
+      return settlement;
+    });
   }
 
   private async audit(

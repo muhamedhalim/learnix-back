@@ -24,6 +24,7 @@ import {
   Refund,
   RefundStatus,
   Settlement,
+  SettlementStatus,
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
 import { PaymentFinalizationService } from './payment-finalization.service';
@@ -262,7 +263,8 @@ export class PaymentOperationsService {
         where: { id: refund.id },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token) return;
+      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token)
+        return;
       locked.reconciliation_status = 'retry_scheduled';
       locked.reconciliation_claim_token = null;
       locked.reconciliation_lease_expires_at = null;
@@ -300,7 +302,8 @@ export class PaymentOperationsService {
         where: { id: refund.id },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token) return;
+      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token)
+        return;
       locked.reconciliation_status = 'reconciliation_required';
       locked.reconciliation_last_provider_error = reason;
       locked.reconciliation_claim_token = null;
@@ -784,6 +787,17 @@ export class PaymentOperationsService {
       failedWebhooks,
       approvedManualWithoutPaidOrder,
       unknownCollectionOrders,
+      overduePendingEarnings,
+      releasedEarningsWithRefund,
+      settlementOverallocations,
+      settlementAllocationMismatches,
+      uncoveredActiveSettlements,
+      invalidPaidSettlements,
+      duplicateSettlementReferences,
+      duplicateSettlementKeys,
+      refundConservationIssues,
+      negativeAvailableBalances,
+      financialOrphans,
     ] = await Promise.all([
       this.orders
         .createQueryBuilder('order')
@@ -861,6 +875,142 @@ export class PaymentOperationsService {
         .select(['order.id', 'order.order_number', 'order.payment_channel'])
         .take(100)
         .getMany(),
+      this.dataSource.query(`
+        SELECT pending.id, pending.teacher_id, pending.currency, pending.amount_minor, pending.available_at
+        FROM financial_ledger_entries pending
+        WHERE pending.entry_type = 'teacher_earning_pending'
+          AND pending.direction = 'credit'
+          AND pending.available_at <= NOW()
+          AND NOT EXISTS (
+            SELECT 1 FROM financial_ledger_entries released
+            WHERE released.reference = 'release:' || pending.id::text || ':available'
+          )
+        ORDER BY pending.available_at ASC
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT pending.id, pending.order_id, pending.teacher_id
+        FROM financial_ledger_entries pending
+        WHERE pending.entry_type = 'teacher_earning_pending'
+          AND pending.direction = 'credit'
+          AND EXISTS (
+            SELECT 1 FROM financial_ledger_entries released
+            WHERE released.reference = 'release:' || pending.id::text || ':available'
+          )
+          AND EXISTS (
+            SELECT 1 FROM financial_ledger_entries reversal
+            WHERE reversal.order_id = pending.order_id
+              AND reversal.entry_type = 'teacher_earning_reversal'
+          )
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT membership.ledger_entry_id, SUM(membership.amount_minor)::text AS allocated_minor,
+               MAX(earning.amount_minor)::text AS earning_minor
+        FROM teacher_settlement_entries membership
+        INNER JOIN teacher_settlements settlement ON settlement.id = membership.settlement_id
+        INNER JOIN financial_ledger_entries earning ON earning.id = membership.ledger_entry_id
+        WHERE settlement.status IN ('draft', 'approved', 'paid')
+        GROUP BY membership.ledger_entry_id
+        HAVING SUM(membership.amount_minor) > MAX(earning.amount_minor)
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT settlement.id, settlement.gross_amount_minor,
+               COALESCE(SUM(membership.amount_minor), 0)::text AS allocated_minor
+        FROM teacher_settlements settlement
+        LEFT JOIN teacher_settlement_entries membership ON membership.settlement_id = settlement.id
+        WHERE settlement.status IN ('draft', 'approved', 'paid')
+        GROUP BY settlement.id
+        HAVING COALESCE(SUM(membership.amount_minor), 0) <> settlement.gross_amount_minor
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT settlement.id, settlement.teacher_id, settlement.currency, settlement.gross_amount_minor
+        FROM teacher_settlements settlement
+        WHERE settlement.status IN ('draft', 'approved')
+          AND settlement.gross_amount_minor > COALESCE((
+            SELECT SUM(CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END)
+            FROM financial_ledger_entries entry
+            WHERE entry.teacher_id = settlement.teacher_id
+              AND entry.currency = settlement.currency
+              AND entry.account = 'teacher_payable_available'
+          ), 0)
+        LIMIT 100
+      `),
+      this.dataSource
+        .getRepository(Settlement)
+        .createQueryBuilder('settlement')
+        .where('settlement.status = :paid', { paid: SettlementStatus.PAID })
+        .andWhere(
+          `(
+            settlement.transfer_reference IS NULL
+            OR BTRIM(settlement.transfer_reference) = ''
+            OR settlement.paid_by IS NULL
+            OR settlement.paid_at IS NULL
+          )`,
+        )
+        .select([
+          'settlement.id',
+          'settlement.transfer_reference',
+          'settlement.paid_by',
+          'settlement.paid_at',
+        ])
+        .take(100)
+        .getMany(),
+      this.dataSource.query(`
+        SELECT lower(btrim(transfer_reference)) AS transfer_reference, COUNT(*)::int AS count
+        FROM teacher_settlements
+        WHERE status = 'paid' AND transfer_reference IS NOT NULL
+        GROUP BY lower(btrim(transfer_reference))
+        HAVING COUNT(*) > 1
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT idempotency_key, COUNT(*)::int AS count
+        FROM teacher_settlements
+        GROUP BY idempotency_key
+        HAVING COUNT(*) > 1
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT refund.order_id, SUM(refund.amount_minor)::text AS succeeded_refunds_minor,
+               MAX("order".refunded_amount_minor)::text AS order_refunded_minor,
+               MAX("order".final_amount_minor)::text AS order_final_minor
+        FROM refunds refund
+        INNER JOIN orders "order" ON "order".id = refund.order_id
+        WHERE refund.status = 'succeeded'
+        GROUP BY refund.order_id
+        HAVING SUM(refund.amount_minor) > MAX("order".final_amount_minor)
+            OR SUM(refund.amount_minor) <> MAX("order".refunded_amount_minor)
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT teacher_id, currency,
+               SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END)::text AS balance_minor
+        FROM financial_ledger_entries
+        WHERE account = 'teacher_payable_available'
+        GROUP BY teacher_id, currency
+        HAVING SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END) < 0
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT 'financial_ledger_entries.order_id' AS relation, entry.id
+        FROM financial_ledger_entries entry
+        LEFT JOIN orders "order" ON "order".id = entry.order_id
+        WHERE "order".id IS NULL
+        UNION ALL
+        SELECT 'refunds.order_id' AS relation, refund.id
+        FROM refunds refund
+        LEFT JOIN orders "order" ON "order".id = refund.order_id
+        WHERE "order".id IS NULL
+        UNION ALL
+        SELECT 'teacher_settlement_entries.ledger_entry_id' AS relation, membership.id
+        FROM teacher_settlement_entries membership
+        LEFT JOIN financial_ledger_entries entry ON entry.id = membership.ledger_entry_id
+        WHERE entry.id IS NULL
+        LIMIT 100
+      `),
     ]);
     return {
       generated_at: new Date().toISOString(),
@@ -872,23 +1022,45 @@ export class PaymentOperationsService {
       failed_gateway_webhooks: failedWebhooks,
       approved_manual_submissions_without_paid_order: approvedManualWithoutPaidOrder,
       paid_orders_with_unknown_collection_party: unknownCollectionOrders,
+      overdue_pending_earnings: overduePendingEarnings,
+      released_earnings_with_refund: releasedEarningsWithRefund,
+      settlement_overallocations: settlementOverallocations,
+      settlement_allocation_mismatches: settlementAllocationMismatches,
+      active_settlements_not_covered_by_available_balance: uncoveredActiveSettlements,
+      paid_settlements_missing_execution_details: invalidPaidSettlements,
+      duplicate_settlement_transfer_references: duplicateSettlementReferences,
+      duplicate_settlement_idempotency_keys: duplicateSettlementKeys,
+      refund_conservation_issues: refundConservationIssues,
+      negative_teacher_available_balances: negativeAvailableBalances,
+      financial_orphans: financialOrphans,
     };
   }
 
   public async financialReport(filter: OrderFilterDto): Promise<Record<string, unknown>> {
     const applyFilters = (query: ReturnType<Repository<Order>['createQueryBuilder']>) => {
-      query.where('1 = 1');
+      // Canonical paid orders are the sole sales source. The payment join
+      // excludes stale orders that were incorrectly marked paid without a
+      // finalized payment, and paid_at is the financial recognition timestamp.
+      query
+        .innerJoin(
+          Payment,
+          'payment',
+          'payment.id = order.payment_id AND payment.status = :completedPaymentStatus',
+          { completedPaymentStatus: PaymentStatus.COMPLETED },
+        )
+        .where('order.status = :paidOrderStatus', { paidOrderStatus: OrderStatus.PAID })
+        .andWhere('order.paid_at IS NOT NULL');
       if (filter.teacher_id)
         query.andWhere('order.teacher_id = :teacherId', { teacherId: filter.teacher_id });
       if (filter.item_type)
         query.andWhere('order.item_type = :itemType', { itemType: filter.item_type });
       if (filter.channel)
         query.andWhere('order.payment_channel = :channel', { channel: filter.channel });
-      if (filter.status) query.andWhere('order.status = :status', { status: filter.status });
+      if (filter.status && filter.status !== OrderStatus.PAID) query.andWhere('1 = 0');
       if (filter.currency)
         query.andWhere('order.currency = :currency', { currency: filter.currency.toUpperCase() });
-      if (filter.from) query.andWhere('order.created_at >= :from', { from: filter.from });
-      if (filter.to) query.andWhere('order.created_at <= :to', { to: filter.to });
+      if (filter.from) query.andWhere('order.paid_at >= :from', { from: filter.from });
+      if (filter.to) query.andWhere('order.paid_at <= :to', { to: filter.to });
       return query;
     };
     const [

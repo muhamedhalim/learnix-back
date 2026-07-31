@@ -16,6 +16,8 @@ import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { Payment } from '../payments/entities/payment.entity';
 import { PaymentStatus } from '../payments/entities/payment-status.enum';
+import { Order } from '../payments/entities/order.entity';
+import { OrderStatus } from '../payments/entities/order-status.enum';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { User } from '../users/entities/user.entity';
 import { biBody } from '../i18n/error-translator.util';
@@ -141,33 +143,33 @@ export class AnalyticsService {
         ttlMs: 60_000,
       },
       async () => {
-      const [userCounts, contentCounts, revenue] = await Promise.all([
-        this.getAdminUserCounts(),
-        this.getAdminContentCounts(),
-        this.getAdminRevenue(),
-      ]);
+        const [userCounts, contentCounts, revenue] = await Promise.all([
+          this.getAdminUserCounts(),
+          this.getAdminContentCounts(),
+          this.getAdminRevenue(),
+        ]);
 
-      return {
-        totalStudents: this.toNumber(userCounts.total_students),
-        pendingStudents: this.toNumber(userCounts.pending_students),
-        approvedStudents: this.toNumber(userCounts.approved_students),
-        totalTeachers: this.toNumber(userCounts.total_teachers),
-        pendingTeachers: this.toNumber(userCounts.pending_teachers),
-        approvedTeachers: this.toNumber(userCounts.approved_teachers),
-        totalLessons: this.toNumber(contentCounts.total_lessons),
-        totalBooks: this.toNumber(contentCounts.total_books),
-        totalExams: this.toNumber(contentCounts.total_exams),
-        totalRevenue: this.toNumber(revenue.total_revenue),
-        revenueToday: this.toNumber(revenue.revenue_today),
-        revenueThisMonth: this.toNumber(revenue.revenue_this_month),
-        revenueLastMonth: this.toNumber(revenue.revenue_last_month),
-        revenueThisQuarter: this.toNumber(revenue.revenue_this_quarter),
-        revenueBySource: {
-          lessons: this.toNumber(revenue.lesson_revenue),
-          packages: this.toNumber(revenue.package_revenue),
-          books: this.toNumber(revenue.book_revenue),
-        },
-      };
+        return {
+          totalStudents: this.toNumber(userCounts.total_students),
+          pendingStudents: this.toNumber(userCounts.pending_students),
+          approvedStudents: this.toNumber(userCounts.approved_students),
+          totalTeachers: this.toNumber(userCounts.total_teachers),
+          pendingTeachers: this.toNumber(userCounts.pending_teachers),
+          approvedTeachers: this.toNumber(userCounts.approved_teachers),
+          totalLessons: this.toNumber(contentCounts.total_lessons),
+          totalBooks: this.toNumber(contentCounts.total_books),
+          totalExams: this.toNumber(contentCounts.total_exams),
+          totalRevenue: this.toNumber(revenue.total_revenue),
+          revenueToday: this.toNumber(revenue.revenue_today),
+          revenueThisMonth: this.toNumber(revenue.revenue_this_month),
+          revenueLastMonth: this.toNumber(revenue.revenue_last_month),
+          revenueThisQuarter: this.toNumber(revenue.revenue_this_quarter),
+          revenueBySource: {
+            lessons: this.toNumber(revenue.lesson_revenue),
+            packages: this.toNumber(revenue.package_revenue),
+            books: this.toNumber(revenue.book_revenue),
+          },
+        };
       },
     );
   }
@@ -236,38 +238,42 @@ export class AnalyticsService {
 
     const row = await this.paymentsRepository
       .createQueryBuilder('payment')
-      .select('COALESCE(SUM(payment.final_amount), 0)', 'total_revenue')
+      .innerJoin(Order, 'order', 'order.id = payment.order_id')
+      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total_revenue')
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startToday), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startToday), 0) / 100.0',
         'revenue_today',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startMonth), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startMonth), 0) / 100.0',
         'revenue_this_month',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startLastMonth AND payment.created_at < :startMonth), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startLastMonth AND order.paid_at < :startMonth), 0) / 100.0',
         'revenue_last_month',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.created_at >= :startQuarter), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startQuarter), 0) / 100.0',
         'revenue_this_quarter',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :lessonType), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :lessonType), 0) / 100.0',
         'lesson_revenue',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :packageType), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :packageType), 0) / 100.0',
         'package_revenue',
       )
       .addSelect(
-        'COALESCE(SUM(payment.final_amount) FILTER (WHERE payment.item_type = :bookType), 0)',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :bookType), 0) / 100.0',
         'book_revenue',
       )
       .where('payment.status = :completedStatus')
+      .andWhere('order.status = :paidOrderStatus')
+      .andWhere('order.paid_at IS NOT NULL')
       .setParameters({
         completedStatus: PaymentStatus.COMPLETED,
+        paidOrderStatus: OrderStatus.PAID,
         lessonType: ItemType.LESSON,
         packageType: ItemType.PACKAGE,
         bookType: ItemType.BOOK,
@@ -311,7 +317,10 @@ export class AnalyticsService {
   /**
    * Get teacher dashboard statistics with caching (5-min TTL)
    */
-  public async getTeacherDashboard(teacherId: string, tenant?: string): Promise<TeacherDashboardDto> {
+  public async getTeacherDashboard(
+    teacherId: string,
+    tenant?: string,
+  ): Promise<TeacherDashboardDto> {
     return await this.applicationCache.getOrCompute(
       {
         family: 'teacher_dashboard',
@@ -322,92 +331,91 @@ export class AnalyticsService {
         ttlMs: 30_000,
       },
       async () => {
+        // Count teacher's content
+        const totalLessons = await this.lessonsRepository.count({
+          where: { teacher_id: teacherId, deleted_at: IsNull() },
+        });
 
-    // Count teacher's content
-    const totalLessons = await this.lessonsRepository.count({
-      where: { teacher_id: teacherId, deleted_at: IsNull() },
-    });
+        const totalBooks = await this.booksRepository.count({
+          where: { teacher_id: teacherId, deleted_at: IsNull() },
+        });
 
-    const totalBooks = await this.booksRepository.count({
-      where: { teacher_id: teacherId, deleted_at: IsNull() },
-    });
+        const totalExams = await this.examsRepository.count({
+          where: { teacher_id: teacherId, deleted_at: IsNull() },
+        });
 
-    const totalExams = await this.examsRepository.count({
-      where: { teacher_id: teacherId, deleted_at: IsNull() },
-    });
+        // Count unique students who purchased from this teacher
+        const lessonStudents = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .innerJoin('lp.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .select('COUNT(DISTINCT lp.student_id)', 'count')
+          .getRawOne<CountResult>();
 
-    // Count unique students who purchased from this teacher
-    const lessonStudents = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .select('COUNT(DISTINCT lp.student_id)', 'count')
-      .getRawOne<CountResult>();
+        const totalStudents = Number.parseInt(lessonStudents?.count ?? '0', 10);
 
-    const totalStudents = Number.parseInt(lessonStudents?.count ?? '0', 10);
+        // Calculate revenue from lesson and package purchases
+        const lessonRevenue = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .innerJoin('lp.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .select('SUM(lp.price_paid)', 'total')
+          .getRawOne<SumResult>();
 
-    // Calculate revenue from lesson and package purchases
-    const lessonRevenue = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<SumResult>();
+        const packageRevenue = await this.packagePurchasesRepository
+          .createQueryBuilder('pp')
+          .innerJoin('pp.package', 'package')
+          .innerJoin('package.items', 'items')
+          .innerJoin('items.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .select('SUM(pp.price_paid)', 'total')
+          .getRawOne<SumResult>();
 
-    const packageRevenue = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('pp.package', 'package')
-      .innerJoin('package.items', 'items')
-      .innerJoin('items.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
+        const revenue =
+          Number.parseFloat(lessonRevenue?.total ?? '0') +
+          Number.parseFloat(packageRevenue?.total ?? '0');
 
-    const revenue =
-      Number.parseFloat(lessonRevenue?.total ?? '0') +
-      Number.parseFloat(packageRevenue?.total ?? '0');
+        // Calculate revenue this month
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
 
-    // Calculate revenue this month
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+        const lessonRevenueThisMonth = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .innerJoin('lp.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .andWhere('lp.created_at >= :start', { start: startOfMonth })
+          .select('SUM(lp.price_paid)', 'total')
+          .getRawOne<SumResult>();
 
-    const lessonRevenueThisMonth = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('lp.created_at >= :start', { start: startOfMonth })
-      .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<SumResult>();
+        const packageRevenueThisMonth = await this.packagePurchasesRepository
+          .createQueryBuilder('pp')
+          .innerJoin('pp.package', 'package')
+          .innerJoin('package.items', 'items')
+          .innerJoin('items.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .andWhere('pp.created_at >= :start', { start: startOfMonth })
+          .select('SUM(pp.price_paid)', 'total')
+          .getRawOne<SumResult>();
 
-    const packageRevenueThisMonth = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('pp.package', 'package')
-      .innerJoin('package.items', 'items')
-      .innerJoin('items.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('pp.created_at >= :start', { start: startOfMonth })
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
+        const revenueThisMonth =
+          Number.parseFloat(lessonRevenueThisMonth?.total ?? '0') +
+          Number.parseFloat(packageRevenueThisMonth?.total ?? '0');
 
-    const revenueThisMonth =
-      Number.parseFloat(lessonRevenueThisMonth?.total ?? '0') +
-      Number.parseFloat(packageRevenueThisMonth?.total ?? '0');
+        // TODO: Implement ratings when ratings system is added
+        const averageRating = null;
+        const totalReviews = 0;
 
-    // TODO: Implement ratings when ratings system is added
-    const averageRating = null;
-    const totalReviews = 0;
-
-    const stats: TeacherDashboardDto = {
-      totalLessons,
-      totalBooks,
-      totalExams,
-      totalStudents,
-      revenue,
-      revenueThisMonth,
-      averageRating,
-      totalReviews,
-    };
+        const stats: TeacherDashboardDto = {
+          totalLessons,
+          totalBooks,
+          totalExams,
+          totalStudents,
+          revenue,
+          revenueThisMonth,
+          averageRating,
+          totalReviews,
+        };
 
         return stats;
       },
@@ -417,7 +425,10 @@ export class AnalyticsService {
   /**
    * Get student dashboard statistics with caching (5-min TTL)
    */
-  public async getStudentDashboard(studentId: string, tenant?: string): Promise<StudentDashboardDto> {
+  public async getStudentDashboard(
+    studentId: string,
+    tenant?: string,
+  ): Promise<StudentDashboardDto> {
     return await this.applicationCache.getOrCompute(
       {
         family: 'student_dashboard',
@@ -428,72 +439,71 @@ export class AnalyticsService {
         ttlMs: 30_000,
       },
       async () => {
+        // Count purchased lessons
+        const purchasedLessons = await this.lessonPurchasesRepository.count({
+          where: { student_id: studentId, revoked_at: IsNull() },
+        });
 
-    // Count purchased lessons
-    const purchasedLessons = await this.lessonPurchasesRepository.count({
-      where: { student_id: studentId, revoked_at: IsNull() },
-    });
+        // Count attended lessons (where access_granted_at is not null)
+        const attendedLessons = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .where('lp.student_id = :studentId', { studentId })
+          .andWhere('lp.revoked_at IS NULL')
+          .andWhere('lp.access_granted_at IS NOT NULL')
+          .getCount();
 
-    // Count attended lessons (where access_granted_at is not null)
-    const attendedLessons = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .where('lp.student_id = :studentId', { studentId })
-      .andWhere('lp.revoked_at IS NULL')
-      .andWhere('lp.access_granted_at IS NOT NULL')
-      .getCount();
+        // Count books owned
+        const booksOwned = await this.bookPurchasesRepository.count({
+          where: { student_id: studentId, revoked_at: IsNull() },
+        });
 
-    // Count books owned
-    const booksOwned = await this.bookPurchasesRepository.count({
-      where: { student_id: studentId, revoked_at: IsNull() },
-    });
+        // Count exams completed (fully graded)
+        const examsCompleted = await this.examAttemptsRepository.count({
+          where: {
+            student_id: studentId,
+            state: AttemptState.GRADED,
+          },
+        });
 
-    // Count exams completed (fully graded)
-    const examsCompleted = await this.examAttemptsRepository.count({
-      where: {
-        student_id: studentId,
-        state: AttemptState.GRADED,
-      },
-    });
+        // Count exams submitted but still awaiting grading
+        const examsInProgress = await this.examAttemptsRepository.count({
+          where: {
+            student_id: studentId,
+            state: In([AttemptState.SUBMITTED, AttemptState.GRADING]),
+          },
+        });
 
-    // Count exams submitted but still awaiting grading
-    const examsInProgress = await this.examAttemptsRepository.count({
-      where: {
-        student_id: studentId,
-        state: In([AttemptState.SUBMITTED, AttemptState.GRADING]),
-      },
-    });
+        // Calculate average total score across graded attempts
+        const avgScore = await this.examAttemptsRepository
+          .createQueryBuilder('ea')
+          .where('ea.student_id = :studentId', { studentId })
+          .andWhere('ea.state = :state', { state: AttemptState.GRADED })
+          .andWhere('ea.score_total IS NOT NULL')
+          .select('AVG(ea.score_total)', 'avg')
+          .getRawOne<AvgResult>();
 
-    // Calculate average total score across graded attempts
-    const avgScore = await this.examAttemptsRepository
-      .createQueryBuilder('ea')
-      .where('ea.student_id = :studentId', { studentId })
-      .andWhere('ea.state = :state', { state: AttemptState.GRADED })
-      .andWhere('ea.score_total IS NOT NULL')
-      .select('AVG(ea.score_total)', 'avg')
-      .getRawOne<AvgResult>();
+        const averageScore =
+          avgScore?.avg !== null && avgScore?.avg !== undefined
+            ? Number.parseFloat(avgScore.avg)
+            : null;
 
-    const averageScore =
-      avgScore?.avg !== null && avgScore?.avg !== undefined
-        ? Number.parseFloat(avgScore.avg)
-        : null;
+        // Count lessons with active access (not expired)
+        const now = new Date();
+        const activeAccessCount = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .where('lp.student_id = :studentId', { studentId })
+          .andWhere('lp.access_expires_at > :now', { now })
+          .getCount();
 
-    // Count lessons with active access (not expired)
-    const now = new Date();
-    const activeAccessCount = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .where('lp.student_id = :studentId', { studentId })
-      .andWhere('lp.access_expires_at > :now', { now })
-      .getCount();
-
-    const stats: StudentDashboardDto = {
-      purchasedLessons,
-      attendedLessons,
-      booksOwned,
-      examsCompleted,
-      examsInProgress,
-      averageScore,
-      activeAccessCount,
-    };
+        const stats: StudentDashboardDto = {
+          purchasedLessons,
+          attendedLessons,
+          booksOwned,
+          examsCompleted,
+          examsInProgress,
+          averageScore,
+          activeAccessCount,
+        };
 
         return stats;
       },
@@ -532,83 +542,82 @@ export class AnalyticsService {
         ttlMs: 30_000,
       },
       async () => {
+        // Count direct purchases
+        const directPurchases = await this.lessonPurchasesRepository.count({
+          where: { lesson_id: lessonId },
+        });
 
-    // Count direct purchases
-    const directPurchases = await this.lessonPurchasesRepository.count({
-      where: { lesson_id: lessonId },
-    });
+        // Count package purchases (via lesson_package_items join)
+        const packagePurchasesResult = await this.packagePurchasesRepository
+          .createQueryBuilder('pp')
+          .innerJoin('lesson_packages', 'lp', 'lp.id = pp.package_id')
+          .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = lp.id')
+          .where('lpi.lesson_id = :lessonId', { lessonId })
+          .select('COUNT(DISTINCT pp.id)', 'count')
+          .getRawOne<CountResult>();
 
-    // Count package purchases (via lesson_package_items join)
-    const packagePurchasesResult = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('lesson_packages', 'lp', 'lp.id = pp.package_id')
-      .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = lp.id')
-      .where('lpi.lesson_id = :lessonId', { lessonId })
-      .select('COUNT(DISTINCT pp.id)', 'count')
-      .getRawOne<CountResult>();
+        const packagePurchases = Number.parseInt(packagePurchasesResult?.count ?? '0', 10);
+        const totalPurchases = directPurchases + packagePurchases;
 
-    const packagePurchases = Number.parseInt(packagePurchasesResult?.count ?? '0', 10);
-    const totalPurchases = directPurchases + packagePurchases;
+        // Count total views (lesson sessions)
+        const totalViews = await this.lessonSessionsRepository.count({
+          where: { lesson_id: lessonId },
+        });
 
-    // Count total views (lesson sessions)
-    const totalViews = await this.lessonSessionsRepository.count({
-      where: { lesson_id: lessonId },
-    });
+        // Calculate average watch time
+        const avgWatchTimeResult = await this.lessonSessionsRepository
+          .createQueryBuilder('ls')
+          .where('ls.lesson_id = :lessonId', { lessonId })
+          .select('AVG(ls.duration_seconds)', 'avg')
+          .getRawOne<AvgResult>();
 
-    // Calculate average watch time
-    const avgWatchTimeResult = await this.lessonSessionsRepository
-      .createQueryBuilder('ls')
-      .where('ls.lesson_id = :lessonId', { lessonId })
-      .select('AVG(ls.duration_seconds)', 'avg')
-      .getRawOne<AvgResult>();
+        const averageWatchTimeSeconds = Number.parseFloat(avgWatchTimeResult?.avg ?? '0');
 
-    const averageWatchTimeSeconds = Number.parseFloat(avgWatchTimeResult?.avg ?? '0');
+        // Calculate completion rate (sessions with 90%+ video progress)
+        const completedSessions = await this.lessonSessionsRepository
+          .createQueryBuilder('ls')
+          .where('ls.lesson_id = :lessonId', { lessonId })
+          .andWhere('ls.video_progress_percent >= 90')
+          .getCount();
 
-    // Calculate completion rate (sessions with 90%+ video progress)
-    const completedSessions = await this.lessonSessionsRepository
-      .createQueryBuilder('ls')
-      .where('ls.lesson_id = :lessonId', { lessonId })
-      .andWhere('ls.video_progress_percent >= 90')
-      .getCount();
+        const completionRate =
+          totalViews > 0 ? Math.round((completedSessions / totalViews) * 100 * 100) / 100 : 0;
 
-    const completionRate =
-      totalViews > 0 ? Math.round((completedSessions / totalViews) * 100 * 100) / 100 : 0;
+        const { directRevenue, packageRevenue } = await this.calculateLessonRevenue(lessonId);
+        const totalRevenue = directRevenue + packageRevenue;
 
-    const { directRevenue, packageRevenue } = await this.calculateLessonRevenue(lessonId);
-    const totalRevenue = directRevenue + packageRevenue;
+        // Calculate average rating
+        const avgRatingResult = await this.lessonReviewsRepository
+          .createQueryBuilder('lr')
+          .where('lr.lesson_id = :lessonId', { lessonId })
+          .select('AVG(lr.rating)', 'avg')
+          .getRawOne<AvgResult>();
 
-    // Calculate average rating
-    const avgRatingResult = await this.lessonReviewsRepository
-      .createQueryBuilder('lr')
-      .where('lr.lesson_id = :lessonId', { lessonId })
-      .select('AVG(lr.rating)', 'avg')
-      .getRawOne<AvgResult>();
+        const averageRating =
+          avgRatingResult?.avg !== null && avgRatingResult?.avg !== undefined
+            ? Math.round(Number.parseFloat(avgRatingResult.avg) * 100) / 100
+            : null;
 
-    const averageRating =
-      avgRatingResult?.avg !== null && avgRatingResult?.avg !== undefined
-        ? Math.round(Number.parseFloat(avgRatingResult.avg) * 100) / 100
-        : null;
+        // Count total reviews
+        const totalReviews = await this.lessonReviewsRepository.count({
+          where: { lesson_id: lessonId },
+        });
 
-    // Count total reviews
-    const totalReviews = await this.lessonReviewsRepository.count({
-      where: { lesson_id: lessonId },
-    });
-
-    const analytics: LessonAnalyticsDto = {
-      lesson_id: lessonId,
-      total_purchases: totalPurchases,
-      total_views: totalViews,
-      average_watch_time_seconds: Math.round(averageWatchTimeSeconds),
-      completion_rate: completionRate,
-      revenue: totalRevenue,
-      average_rating: averageRating,
-      total_reviews: totalReviews,
-      revenue_breakdown: {
-        direct_purchases: directRevenue,
-        package_purchases: packageRevenue,
-      },
-      calculated_at: new Date(),
-    };
+        const analytics: LessonAnalyticsDto = {
+          lesson_id: lessonId,
+          total_purchases: totalPurchases,
+          total_views: totalViews,
+          average_watch_time_seconds: Math.round(averageWatchTimeSeconds),
+          completion_rate: completionRate,
+          revenue: totalRevenue,
+          average_rating: averageRating,
+          total_reviews: totalReviews,
+          revenue_breakdown: {
+            direct_purchases: directRevenue,
+            package_purchases: packageRevenue,
+          },
+          calculated_at: new Date(),
+        };
 
         return analytics;
       },
@@ -650,10 +659,7 @@ export class AnalyticsService {
    * Get analytics for a specific exam with caching (5-min TTL)
    * Includes submissions, scores, pass rate, and per-question analysis
    */
-  public async getExamAnalytics(
-    principal: JwtPayload,
-    examId: string,
-  ): Promise<ExamAnalyticsDto> {
+  public async getExamAnalytics(principal: JwtPayload, examId: string): Promise<ExamAnalyticsDto> {
     // Verify and authorize before reading or populating cache.
     const exam = await this.examsRepository.findOne({
       where: { id: examId, deleted_at: IsNull() },
@@ -676,25 +682,24 @@ export class AnalyticsService {
         ttlMs: 15_000,
       },
       async () => {
+        const [attemptStats, questionAnalysis] = await Promise.all([
+          this.getExamAttemptStats(examId, exam.passing_marks, exam.total_marks),
+          this.analyzeExamQuestions(examId),
+        ]);
 
-    const [attemptStats, questionAnalysis] = await Promise.all([
-      this.getExamAttemptStats(examId, exam.passing_marks, exam.total_marks),
-      this.analyzeExamQuestions(examId),
-    ]);
-
-    const analytics: ExamAnalyticsDto = {
-      exam_id: examId,
-      total_submissions: attemptStats.totalSubmissions,
-      in_progress_count: attemptStats.inProgressCount,
-      pending_grading_count: attemptStats.pendingGradingCount,
-      average_score: attemptStats.averageScore,
-      highest_score: attemptStats.highestScore,
-      lowest_score: attemptStats.lowestScore,
-      pass_rate: attemptStats.passRate,
-      question_analysis: questionAnalysis,
-      score_distribution: attemptStats.scoreDistribution,
-      calculated_at: new Date(),
-    };
+        const analytics: ExamAnalyticsDto = {
+          exam_id: examId,
+          total_submissions: attemptStats.totalSubmissions,
+          in_progress_count: attemptStats.inProgressCount,
+          pending_grading_count: attemptStats.pendingGradingCount,
+          average_score: attemptStats.averageScore,
+          highest_score: attemptStats.highestScore,
+          lowest_score: attemptStats.lowestScore,
+          pass_rate: attemptStats.passRate,
+          question_analysis: questionAnalysis,
+          score_distribution: attemptStats.scoreDistribution,
+          calculated_at: new Date(),
+        };
 
         return analytics;
       },

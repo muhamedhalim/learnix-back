@@ -5,7 +5,6 @@ import { Between, IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
-import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
@@ -13,7 +12,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
+import { ItemType, Order, OrderStatus, PaymentStatus } from '../payments/entities';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { TeacherFollowUpService } from '../teacher-follow-up/teacher-follow-up.service';
@@ -34,10 +33,6 @@ import type {
 /**
  * Type definitions for raw query results
  */
-interface SumResult {
-  total: string | null;
-}
-
 interface CountResult {
   count: string | null;
 }
@@ -56,6 +51,12 @@ interface DateRange {
   endDate: Date;
 }
 
+interface RevenueMinorRow {
+  lessons_minor: string | null;
+  packages_minor: string | null;
+  books_minor: string | null;
+}
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -69,10 +70,8 @@ export class ReportsService {
     private readonly examsRepository: Repository<Exam>,
     @InjectRepository(LessonPurchase)
     private readonly lessonPurchasesRepository: Repository<LessonPurchase>,
-    @InjectRepository(PackagePurchase)
-    private readonly packagePurchasesRepository: Repository<PackagePurchase>,
-    @InjectRepository(BookPurchase)
-    private readonly bookPurchasesRepository: Repository<BookPurchase>,
+    @InjectRepository(Order)
+    private readonly ordersRepository: Repository<Order>,
     @InjectRepository(ExamAttempt)
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
     @InjectRepository(LessonSession)
@@ -107,29 +106,28 @@ export class ReportsService {
         ttlMs: 30_000,
       },
       async () => {
+        const range = { startDate, endDate };
+        const [revenue, students, lessons, exams, followUp] = await Promise.all([
+          this.getTeacherRevenueStats(teacherId, range),
+          this.getTeacherStudentStats(teacherId, range),
+          this.getTeacherLessonStats(teacherId, range),
+          this.getTeacherExamStats(teacherId, range),
+          this.teacherFollowUp.getAnalyticsSummary(teacherId),
+        ]);
 
-    const range = { startDate, endDate };
-    const [revenue, students, lessons, exams, followUp] = await Promise.all([
-      this.getTeacherRevenueStats(teacherId, range),
-      this.getTeacherStudentStats(teacherId, range),
-      this.getTeacherLessonStats(teacherId, range),
-      this.getTeacherExamStats(teacherId, range),
-      this.teacherFollowUp.getAnalyticsSummary(teacherId),
-    ]);
-
-    const report: TeacherReportDto = {
-      period: {
-        from: this.formatDay(startDate),
-        to: this.formatDay(endDate),
-      },
-      revenue,
-      students,
-      lessons,
-      exams,
-      guardians: followUp.guardians,
-      notifications: followUp.notifications,
-      riskStudentCount: followUp.riskStudentCount,
-    };
+        const report: TeacherReportDto = {
+          period: {
+            from: this.formatDay(startDate),
+            to: this.formatDay(endDate),
+          },
+          revenue,
+          students,
+          lessons,
+          exams,
+          guardians: followUp.guardians,
+          notifications: followUp.notifications,
+          riskStudentCount: followUp.riskStudentCount,
+        };
 
         return report;
       },
@@ -149,32 +147,31 @@ export class ReportsService {
         ttlMs: 30_000,
       },
       async () => {
+        const subjects = await this.subjectsRepository.find({
+          where: { deleted_at: IsNull() },
+        });
 
-    const subjects = await this.subjectsRepository.find({
-      where: { deleted_at: IsNull() },
-    });
+        const progressRecords = await this.lessonProgressRepository.find({
+          where: { student_id: studentId },
+          relations: ['lesson'],
+        });
 
-    const progressRecords = await this.lessonProgressRepository.find({
-      where: { student_id: studentId },
-      relations: ['lesson'],
-    });
+        const scoreBySubject = await this.buildScoreBySubjectMap(studentId);
+        const subjectProgress = await this.calculateAllSubjectProgress(
+          subjects,
+          progressRecords,
+          scoreBySubject,
+        );
 
-    const scoreBySubject = await this.buildScoreBySubjectMap(studentId);
-    const subjectProgress = await this.calculateAllSubjectProgress(
-      subjects,
-      progressRecords,
-      scoreBySubject,
-    );
+        const { overallProgress, strengths, needsImprovement } =
+          this.analyzeStudentProgress(subjectProgress);
 
-    const { overallProgress, strengths, needsImprovement } =
-      this.analyzeStudentProgress(subjectProgress);
-
-    const report: StudentProgressReportDto = {
-      overallProgress,
-      subjects: subjectProgress,
-      strengths,
-      needsImprovement,
-    };
+        const report: StudentProgressReportDto = {
+          overallProgress,
+          subjects: subjectProgress,
+          strengths,
+          needsImprovement,
+        };
 
         return report;
       },
@@ -195,25 +192,24 @@ export class ReportsService {
         ttlMs: 60_000,
       },
       async () => {
+        const range = { startDate, endDate };
+        const [users, revenue, content, engagement] = await Promise.all([
+          this.getPlatformUserStats(range),
+          this.getPlatformRevenueStats(range),
+          this.getPlatformContentStats(),
+          this.getPlatformEngagementStats(range),
+        ]);
 
-    const range = { startDate, endDate };
-    const [users, revenue, content, engagement] = await Promise.all([
-      this.getPlatformUserStats(range),
-      this.getPlatformRevenueStats(range),
-      this.getPlatformContentStats(),
-      this.getPlatformEngagementStats(range),
-    ]);
-
-    const report: PlatformReportDto = {
-      period: {
-        from: this.formatDay(startDate),
-        to: this.formatDay(endDate),
-      },
-      users,
-      revenue,
-      content,
-      engagement,
-    };
+        const report: PlatformReportDto = {
+          period: {
+            from: this.formatDay(startDate),
+            to: this.formatDay(endDate),
+          },
+          users,
+          revenue,
+          content,
+          engagement,
+        };
 
         return report;
       },
@@ -227,45 +223,13 @@ export class ReportsService {
     range: DateRange,
   ): Promise<RevenueBreakdownDto> {
     const { startDate, endDate } = range;
-
-    const lessonRevenue = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('lp.created_at BETWEEN :start AND :end', {
-        start: startDate,
-        end: endDate,
-      })
-      .select('SUM(lp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const packageRevenue = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('pp.package', 'package')
-      .innerJoin('package.items', 'items')
-      .innerJoin('items.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('pp.created_at BETWEEN :start AND :end', {
-        start: startDate,
-        end: endDate,
-      })
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const bookRevenue = await this.bookPurchasesRepository
-      .createQueryBuilder('bp')
-      .innerJoin('bp.book', 'book')
-      .where('book.teacher_id = :teacherId', { teacherId })
-      .andWhere('bp.purchased_at BETWEEN :start AND :end', {
-        start: startDate,
-        end: endDate,
-      })
-      .select('SUM(bp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    const lessons = Number.parseFloat(lessonRevenue?.total ?? '0');
-    const packages = Number.parseFloat(packageRevenue?.total ?? '0');
-    const books = Number.parseFloat(bookRevenue?.total ?? '0');
+    const row = await this.paidOrderRevenueQuery()
+      .andWhere('order.teacher_id = :teacherId', { teacherId })
+      .andWhere('order.paid_at BETWEEN :start AND :end', { start: startDate, end: endDate })
+      .getRawOne<RevenueMinorRow>();
+    const lessons = this.majorFromMinor(row?.lessons_minor);
+    const packages = this.majorFromMinor(row?.packages_minor);
+    const books = this.majorFromMinor(row?.books_minor);
 
     return { total: lessons + packages + books, lessons, books, packages };
   }
@@ -555,37 +519,12 @@ export class ReportsService {
     packagesRevenue: number;
   }> {
     const { startDate, endDate } = range;
-
-    const [lessonRevenue, packageRevenue, bookRevenue] = await Promise.all([
-      this.lessonPurchasesRepository
-        .createQueryBuilder('lp')
-        .where('lp.created_at BETWEEN :start AND :end', {
-          start: startDate,
-          end: endDate,
-        })
-        .select('SUM(lp.price_paid)', 'total')
-        .getRawOne<SumResult>(),
-      this.packagePurchasesRepository
-        .createQueryBuilder('pp')
-        .where('pp.created_at BETWEEN :start AND :end', {
-          start: startDate,
-          end: endDate,
-        })
-        .select('SUM(pp.price_paid)', 'total')
-        .getRawOne<SumResult>(),
-      this.bookPurchasesRepository
-        .createQueryBuilder('bp')
-        .where('bp.purchased_at BETWEEN :start AND :end', {
-          start: startDate,
-          end: endDate,
-        })
-        .select('SUM(bp.price_paid)', 'total')
-        .getRawOne<SumResult>(),
-    ]);
-
-    const lessonsRevenue = Number.parseFloat(lessonRevenue?.total ?? '0');
-    const packagesRevenue = Number.parseFloat(packageRevenue?.total ?? '0');
-    const booksRevenue = Number.parseFloat(bookRevenue?.total ?? '0');
+    const row = await this.paidOrderRevenueQuery()
+      .andWhere('order.paid_at BETWEEN :start AND :end', { start: startDate, end: endDate })
+      .getRawOne<RevenueMinorRow>();
+    const lessonsRevenue = this.majorFromMinor(row?.lessons_minor);
+    const packagesRevenue = this.majorFromMinor(row?.packages_minor);
+    const booksRevenue = this.majorFromMinor(row?.books_minor);
 
     return {
       totalRevenue: lessonsRevenue + packagesRevenue + booksRevenue,
@@ -593,6 +532,43 @@ export class ReportsService {
       booksRevenue,
       packagesRevenue,
     };
+  }
+
+  /** Canonical financial revenue: finalized paid orders, minor units, paid_at. */
+  private paidOrderRevenueQuery() {
+    return this.ordersRepository
+      .createQueryBuilder('order')
+      .select(
+        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :lessonType), 0)`,
+        'lessons_minor',
+      )
+      .addSelect(
+        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :packageType), 0)`,
+        'packages_minor',
+      )
+      .addSelect(
+        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :bookType), 0)`,
+        'books_minor',
+      )
+      .where('order.status = :paidStatus', { paidStatus: OrderStatus.PAID })
+      .andWhere('order.paid_at IS NOT NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM payments finalized_payment
+          WHERE finalized_payment.id = order.payment_id
+            AND finalized_payment.status = :completedPaymentStatus
+        )`,
+      )
+      .setParameters({
+        lessonType: ItemType.LESSON,
+        packageType: ItemType.PACKAGE,
+        bookType: ItemType.BOOK,
+        completedPaymentStatus: PaymentStatus.COMPLETED,
+      });
+  }
+
+  private majorFromMinor(value: string | null | undefined): number {
+    return Number(value ?? 0) / 100;
   }
 
   private async getPlatformContentStats(): Promise<{

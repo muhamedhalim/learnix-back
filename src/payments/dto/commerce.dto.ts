@@ -387,10 +387,23 @@ export class CreateSettlementDto {
   @IsUUID('4')
   public teacher_id!: string;
 
+  /** Optional only for legacy callers; new callers must reuse this value on retries. */
+  @IsOptional()
+  @IsString()
+  @Length(8, 120)
+  public idempotency_key?: string;
+
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
   public ledger_entry_ids?: string[];
+
+  /** Defaults to the eligible available balance; supplied values enable partial allocation. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  public amount_minor?: number;
 
   @IsOptional()
   @Type(() => Number)

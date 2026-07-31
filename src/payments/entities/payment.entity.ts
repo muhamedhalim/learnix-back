@@ -44,7 +44,8 @@ export class Payment {
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  // Financial payment history must survive account archival/deletion attempts.
+  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
