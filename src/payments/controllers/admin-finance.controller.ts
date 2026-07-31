@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -21,6 +22,7 @@ import {
   CreateManualPaymentMethodDto,
   CreateRefundDto,
   CreateSettlementDto,
+  FinancialReportFilterDto,
   ManualSubmissionFilterDto,
   OrderFilterDto,
   PaySettlementDto,
@@ -38,6 +40,7 @@ import { OrdersService } from '../services/orders.service';
 import { PaymentOperationsService } from '../services/payment-operations.service';
 import { RefundsService } from '../services/refunds.service';
 import { SettlementsService } from '../services/settlements.service';
+import type { Response } from 'express';
 
 @ApiTags('Admin - Unified Finance')
 @Controller('admin/finance')
@@ -233,7 +236,23 @@ export class AdminFinanceController {
   }
 
   @Get('reports')
-  public async reports(@Query() filter: OrderFilterDto) {
+  @FinancePermissions('reports.view')
+  public async reports(@Query() filter: FinancialReportFilterDto) {
     return { data: await this.operations.financialReport(filter) };
+  }
+
+  @Get('reports/reconciliation-warnings')
+  @FinancePermissions('reconciliation.review')
+  public async reportReconciliationWarnings() {
+    return { data: await this.operations.reportReconciliationWarnings() };
+  }
+
+  @Get('reports/export')
+  @FinancePermissions('reports.export')
+  public async exportReports(@Query() filter: FinancialReportFilterDto, @Res() response: Response) {
+    const csv = await this.operations.financialReportCsv(filter);
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', 'attachment; filename="financial-report.csv"');
+    response.send(csv);
   }
 }

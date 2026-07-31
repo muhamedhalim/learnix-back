@@ -5,6 +5,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -496,4 +497,46 @@ export class SettlementFilterDto extends Pagination20Dto {
   @IsString()
   @MaxLength(120)
   public search?: string;
+}
+
+/** Canonical paid-order reporting filter. Dates always apply to orders.paid_at. */
+export class FinancialReportFilterDto extends Pagination20Dto {
+  @IsOptional()
+  @IsDateString()
+  public from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public to?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(3, 3)
+  public currency?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  public teacher_id?: string;
+
+  @IsOptional()
+  @IsEnum(ItemType)
+  public item_type?: ItemType;
+
+  @IsOptional()
+  @IsEnum(SettlementStatus)
+  public settlement_status?: SettlementStatus;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  public payment_method?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  public search?: string;
+
+  @IsOptional()
+  @IsIn(['day', 'week', 'month', 'quarter'])
+  public group_by?: 'day' | 'week' | 'month' | 'quarter';
 }

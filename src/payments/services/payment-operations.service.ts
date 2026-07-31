@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { AttendanceCode } from '../../attendance-codes/entities/attendance-code.entity';
-import { OrderFilterDto } from '../dto';
+import { FinancialReportFilterDto, OrderFilterDto } from '../dto';
 import {
   Entitlement,
   FinancialLedgerEntry,
@@ -1249,7 +1249,313 @@ export class PaymentOperationsService {
     };
   }
 
-  public async financialReport(filter: OrderFilterDto): Promise<Record<string, unknown>> {
+  /**
+   * Canonical admin financial dashboard. Revenue recognition is deliberately
+   * limited to paid orders with completed payments and orders.paid_at.
+   * Amounts remain PostgreSQL minor-unit numerics serialized as strings.
+   */
+  public async financialReport(filter: FinancialReportFilterDto): Promise<Record<string, unknown>> {
+    const bounds = this.financialReportBounds(filter);
+    const results = await Promise.allSettled([
+      this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
+        const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+        return this.dataSource.query(`
+          WITH ${current}, ${previous},
+          sales AS (
+            SELECT currency, COUNT(*)::text AS order_count,
+              COALESCE(SUM(final_amount_minor), 0)::text AS gross_revenue_minor,
+              COALESCE(SUM(platform_commission_minor), 0)::text AS platform_revenue_minor,
+              COALESCE(SUM(teacher_earning_minor), 0)::text AS teacher_earnings_minor,
+              COALESCE(ROUND(AVG(final_amount_minor)), 0)::text AS average_order_value_minor
+            FROM current_orders GROUP BY currency
+          ),
+          prior_sales AS (
+            SELECT currency, COALESCE(SUM(final_amount_minor), 0)::text AS gross_revenue_minor
+            FROM previous_orders GROUP BY currency
+          ),
+          returns AS (
+            SELECT o.currency, COALESCE(SUM(o.refunded_amount_minor), 0)::text AS refunds_minor,
+              COALESCE(SUM(ROUND(o.platform_commission_minor::numeric * o.refunded_amount_minor / NULLIF(o.final_amount_minor, 0))), 0)::text AS platform_refunds_minor,
+              COALESCE(SUM(ROUND(o.teacher_earning_minor::numeric * o.refunded_amount_minor / NULLIF(o.final_amount_minor, 0))), 0)::text AS teacher_refunds_minor
+            FROM current_orders o WHERE o.refunded_amount_minor > 0
+            GROUP BY o.currency
+          ),
+          ledger AS (
+            SELECT entry.currency,
+              COALESCE(SUM(CASE WHEN entry.account = 'teacher_payable' THEN CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END), 0)::text AS pending_minor,
+              COALESCE(SUM(CASE WHEN entry.account = 'teacher_payable_available' THEN CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END), 0)::text AS available_minor
+            FROM financial_ledger_entries entry WHERE ${ledgerWhere}
+            GROUP BY entry.currency
+          ),
+          reserved AS (
+            SELECT settlement.currency, COALESCE(SUM(membership.amount_minor), 0)::text AS reserved_minor
+            FROM teacher_settlements settlement
+            INNER JOIN teacher_settlement_entries membership ON membership.settlement_id = settlement.id
+            WHERE settlement.status IN ('draft', 'approved') AND ${settlementWhere}
+            GROUP BY settlement.currency
+          ),
+          paid AS (
+            SELECT settlement.currency, COALESCE(SUM(settlement.payout_amount_minor), 0)::text AS paid_to_teachers_minor
+            FROM teacher_settlements settlement
+            WHERE settlement.status = 'paid' AND settlement.paid_at >= $1 AND settlement.paid_at < $2 AND ${settlementWhere}
+            GROUP BY settlement.currency
+          ),
+          currencies AS (
+            SELECT currency FROM sales UNION SELECT currency FROM ledger UNION SELECT currency FROM reserved UNION SELECT currency FROM paid
+          )
+          SELECT currency,
+            COALESCE(sales.order_count, '0') AS order_count,
+            COALESCE(sales.gross_revenue_minor, '0') AS gross_revenue_minor,
+            COALESCE(sales.platform_revenue_minor, '0') AS platform_revenue_minor,
+            COALESCE(sales.teacher_earnings_minor, '0') AS teacher_earnings_minor,
+            COALESCE(returns.refunds_minor, '0') AS refunds_minor,
+            COALESCE(returns.platform_refunds_minor, '0') AS platform_refunds_minor,
+            COALESCE(returns.teacher_refunds_minor, '0') AS teacher_refunds_minor,
+            COALESCE(ledger.available_minor, '0') AS available_for_payout_minor,
+            COALESCE(reserved.reserved_minor, '0') AS reserved_in_settlements_minor,
+            COALESCE(ledger.pending_minor, '0') AS pending_held_minor,
+            COALESCE(paid.paid_to_teachers_minor, '0') AS paid_to_teachers_minor,
+            GREATEST(COALESCE(ledger.pending_minor::bigint, 0) + COALESCE(ledger.available_minor::bigint, 0) - COALESCE(reserved.reserved_minor::bigint, 0), 0)::text AS outstanding_teacher_payables_minor,
+            (COALESCE(sales.platform_revenue_minor::bigint, 0) - COALESCE(returns.platform_refunds_minor::bigint, 0))::text AS net_revenue_minor,
+            COALESCE(sales.average_order_value_minor, '0') AS average_order_value_minor,
+            (COALESCE(sales.gross_revenue_minor::bigint, 0) - COALESCE(prior_sales.gross_revenue_minor::bigint, 0))::text AS revenue_change_minor,
+            CASE WHEN COALESCE(prior_sales.gross_revenue_minor::bigint, 0) = 0 THEN NULL
+              ELSE ROUND((COALESCE(sales.gross_revenue_minor::numeric, 0) - prior_sales.gross_revenue_minor::numeric) * 10000 / prior_sales.gross_revenue_minor::numeric)::text END AS revenue_growth_bps
+          FROM currencies
+          LEFT JOIN sales USING (currency) LEFT JOIN prior_sales USING (currency) LEFT JOIN returns USING (currency)
+          LEFT JOIN ledger USING (currency) LEFT JOIN reserved USING (currency) LEFT JOIN paid USING (currency)
+          ORDER BY currency ASC
+        `, params);
+      }),
+      this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
+        const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+        const limitIndex = params.push(Math.min(filter.limit ?? 20, 100));
+        const offsetIndex = params.push(((filter.page ?? 1) - 1) * Math.min(filter.limit ?? 20, 100));
+        return this.dataSource.query(`
+          WITH ${current}, ${previous},
+          sales AS (
+            SELECT teacher_id, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
+              COALESCE(SUM(platform_commission_minor),0)::text AS platform_commission_minor,
+              COALESCE(SUM(teacher_earning_minor),0)::text AS teacher_entitlement_minor,
+              COALESCE(ROUND(AVG(final_amount_minor)),0)::text AS average_order_value_minor
+            FROM current_orders WHERE teacher_id IS NOT NULL GROUP BY teacher_id, currency
+          ), prior AS (
+            SELECT teacher_id, currency, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor
+            FROM previous_orders WHERE teacher_id IS NOT NULL GROUP BY teacher_id, currency
+          ), returns AS (
+            SELECT o.teacher_id, o.currency, COALESCE(SUM(o.refunded_amount_minor),0)::text AS refunds_minor
+            FROM current_orders o WHERE o.teacher_id IS NOT NULL AND o.refunded_amount_minor > 0 GROUP BY o.teacher_id, o.currency
+          ), ledger AS (
+            SELECT entry.teacher_id, entry.currency,
+              COALESCE(SUM(CASE WHEN entry.account='teacher_payable' THEN CASE WHEN entry.direction='credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END),0)::text AS pending_minor,
+              COALESCE(SUM(CASE WHEN entry.account='teacher_payable_available' THEN CASE WHEN entry.direction='credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END),0)::text AS available_minor
+            FROM financial_ledger_entries entry WHERE ${ledgerWhere} GROUP BY entry.teacher_id, entry.currency
+          ), reserved AS (
+            SELECT settlement.teacher_id, settlement.currency, COALESCE(SUM(membership.amount_minor),0)::text AS reserved_minor
+            FROM teacher_settlements settlement INNER JOIN teacher_settlement_entries membership ON membership.settlement_id=settlement.id
+            WHERE settlement.status IN ('draft','approved') AND ${settlementWhere} GROUP BY settlement.teacher_id, settlement.currency
+          ), paid AS (
+            SELECT settlement.teacher_id, settlement.currency, COALESCE(SUM(settlement.payout_amount_minor),0)::text AS paid_minor,
+              MAX(settlement.paid_at) AS last_settlement_date
+            FROM teacher_settlements settlement WHERE settlement.status='paid' AND settlement.paid_at >= $1 AND settlement.paid_at < $2 AND ${settlementWhere}
+            GROUP BY settlement.teacher_id, settlement.currency
+          ), active AS (
+            SELECT settlement.teacher_id, settlement.currency, MAX(settlement.status) AS active_settlement_status
+            FROM teacher_settlements settlement WHERE settlement.status IN ('draft','approved') AND ${settlementWhere}
+            GROUP BY settlement.teacher_id, settlement.currency
+          ), teachers AS (
+            SELECT teacher_id, currency FROM sales UNION SELECT teacher_id, currency FROM ledger UNION SELECT teacher_id, currency FROM reserved
+          )
+          SELECT teachers.teacher_id, teacher.name AS teacher_name, teacher.email AS teacher_email, teachers.currency,
+            COALESCE(sales.order_count,'0') AS order_count, COALESCE(sales.gross_sales_minor,'0') AS gross_sales_minor,
+            COALESCE(sales.platform_commission_minor,'0') AS platform_commission_minor,
+            COALESCE(sales.teacher_entitlement_minor,'0') AS teacher_entitlement_minor,
+            COALESCE(returns.refunds_minor,'0') AS refunds_minor, COALESCE(ledger.pending_minor,'0') AS pending_minor,
+            COALESCE(ledger.available_minor,'0') AS available_minor, COALESCE(reserved.reserved_minor,'0') AS reserved_minor,
+            COALESCE(paid.paid_minor,'0') AS paid_minor,
+            GREATEST(COALESCE(ledger.pending_minor::bigint,0)+COALESCE(ledger.available_minor::bigint,0)-COALESCE(reserved.reserved_minor::bigint,0),0)::text AS remaining_payable_minor,
+            paid.last_settlement_date, active.active_settlement_status, COALESCE(sales.average_order_value_minor,'0') AS average_order_value_minor,
+            (COALESCE(sales.gross_sales_minor::bigint,0)-COALESCE(prior.gross_sales_minor::bigint,0))::text AS revenue_change_minor,
+            CASE WHEN COALESCE(prior.gross_sales_minor::bigint,0)=0 THEN NULL ELSE ROUND((COALESCE(sales.gross_sales_minor::numeric,0)-prior.gross_sales_minor::numeric)*10000/prior.gross_sales_minor::numeric)::text END AS revenue_growth_bps,
+            COUNT(*) OVER()::text AS total_count
+          FROM teachers INNER JOIN users teacher ON teacher.id=teachers.teacher_id
+          LEFT JOIN sales USING (teacher_id,currency) LEFT JOIN prior USING (teacher_id,currency) LEFT JOIN returns USING (teacher_id,currency)
+          LEFT JOIN ledger USING (teacher_id,currency) LEFT JOIN reserved USING (teacher_id,currency) LEFT JOIN paid USING (teacher_id,currency) LEFT JOIN active USING (teacher_id,currency)
+          ORDER BY COALESCE(sales.gross_sales_minor::bigint,0) DESC, teacher.name ASC
+          LIMIT $${limitIndex} OFFSET $${offsetIndex}
+        `, params);
+      }),
+      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
+        const bucket = filter.group_by ?? 'day';
+        return this.dataSource.query(`
+          WITH ${current}
+          SELECT date_trunc('${bucket}', paid_at) AS period, currency, COUNT(*)::text AS order_count,
+            COALESCE(SUM(final_amount_minor),0)::text AS gross_revenue_minor,
+            COALESCE(SUM(platform_commission_minor),0)::text AS platform_revenue_minor,
+            COALESCE(SUM(teacher_earning_minor),0)::text AS teacher_earnings_minor
+          FROM current_orders GROUP BY date_trunc('${bucket}', paid_at), currency ORDER BY period ASC, currency ASC
+        `, params);
+      }),
+      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => this.dataSource.query(`
+        WITH ${current}
+        SELECT item_type, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
+          COALESCE(SUM(platform_commission_minor),0)::text AS platform_revenue_minor,
+          COALESCE(SUM(teacher_earning_minor),0)::text AS teacher_entitlement_minor,
+          COALESCE(SUM(refunded_amount_minor),0)::text AS refunds_minor,
+          (COALESCE(SUM(final_amount_minor),0)-COALESCE(SUM(refunded_amount_minor),0))::text AS net_revenue_minor
+        FROM current_orders GROUP BY item_type,currency ORDER BY SUM(final_amount_minor) DESC
+      `, params)),
+      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => this.dataSource.query(`
+        WITH ${current}
+        SELECT item_type, item_id, product_title_snapshot, currency, COUNT(*)::text AS order_count,
+          COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor
+        FROM current_orders GROUP BY item_type, item_id, product_title_snapshot, currency
+        ORDER BY SUM(final_amount_minor) DESC LIMIT 50
+      `, params)),
+      this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+        return this.dataSource.query(`
+          SELECT settlement.currency, settlement.status, COUNT(*)::text AS settlement_count,
+            COALESCE(SUM(settlement.payout_amount_minor),0)::text AS payout_minor,
+            COALESCE(ROUND(AVG(settlement.payout_amount_minor)),0)::text AS average_payout_minor,
+            COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (settlement.paid_at-settlement.created_at)))),0)::text AS average_payment_seconds
+          FROM teacher_settlements settlement WHERE ${settlementWhere}
+          GROUP BY settlement.currency, settlement.status ORDER BY settlement.currency, settlement.status
+        `, params);
+      }),
+      filter.teacher_id
+        ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+          const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+          return this.dataSource.query(`
+            SELECT entry.id, entry.currency, entry.account, entry.direction, entry.amount_minor::text AS amount_minor,
+              entry.entry_type, entry.reference, entry.created_at
+            FROM financial_ledger_entries entry WHERE ${ledgerWhere}
+            ORDER BY entry.created_at DESC, entry.id DESC LIMIT 50
+          `, params);
+        })
+        : Promise.resolve([]),
+      filter.teacher_id
+        ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+          const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+          return this.dataSource.query(`
+            SELECT settlement.id, settlement.settlement_number, settlement.currency, settlement.status,
+              settlement.payout_amount_minor::text AS payout_amount_minor, settlement.paid_at, settlement.created_at
+            FROM teacher_settlements settlement WHERE ${settlementWhere}
+            ORDER BY settlement.created_at DESC, settlement.id DESC LIMIT 50
+          `, params);
+        })
+        : Promise.resolve([]),
+    ]);
+    const value = <T>(index: number, fallback: T): T => {
+      const result = results[index];
+      if (!result || result.status !== 'fulfilled') return fallback;
+      return result.value as T;
+    };
+    const widgetErrors = results.flatMap((result, index) => result.status === 'rejected'
+      ? [{ widget: ['summary', 'teacher_receivables', 'revenue_trends', 'product_breakdown', 'top_products', 'settlement_analytics', 'ledger_movements', 'settlement_history'][index] }]
+      : []);
+    const summary = value<Array<Record<string, unknown>>>(0, []);
+    const teacherRows = value<Array<Record<string, unknown>>>(1, []);
+    const trends = value<Array<Record<string, unknown>>>(2, []);
+    const products = value<Array<Record<string, unknown>>>(3, []);
+    const topProducts = value<Array<Record<string, unknown>>>(4, []);
+    const settlementRows = value<Array<Record<string, unknown>>>(5, []);
+    const ledgerMovements = value<Array<Record<string, unknown>>>(6, []);
+    const settlementHistory = value<Array<Record<string, unknown>>>(7, []);
+    const page = filter.page ?? 1;
+    const limit = Math.min(filter.limit ?? 20, 100);
+    const total = Number.parseInt(String((teacherRows as Array<Record<string, unknown>>)[0]?.['total_count'] ?? '0'), 10);
+    return {
+      generated_at: new Date().toISOString(),
+      period: { from: bounds.start.toISOString(), to: bounds.end.toISOString(), previous_from: bounds.previousStart.toISOString(), previous_to: bounds.previousEnd.toISOString(), group_by: filter.group_by ?? 'day' },
+      filters: filter,
+      summary,
+      teachers: { data: teacherRows, meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPrevPage: page > 1 } },
+      trends,
+      product_breakdown: products,
+      top_products: topProducts,
+      settlement_analytics: settlementRows,
+      ledger_movements: ledgerMovements,
+      settlement_history: settlementHistory,
+      widget_errors: widgetErrors,
+    };
+  }
+
+  public async financialReportCsv(filter: FinancialReportFilterDto): Promise<string> {
+    const report = await this.financialReport({ ...filter, page: 1, limit: 100 });
+    const summary = report['summary'] as Array<Record<string, unknown>>;
+    const teachers = (report['teachers'] as { data: Array<Record<string, unknown>> }).data;
+    const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const lines = [
+      ['Generated at', report['generated_at']],
+      ['Period', (report['period'] as Record<string, unknown>)['from'], (report['period'] as Record<string, unknown>)['to']],
+      [],
+      ['Currency', 'Gross revenue minor', 'Platform revenue minor', 'Teacher earnings minor', 'Refunds minor', 'Available payout minor', 'Reserved minor', 'Paid to teachers minor', 'Outstanding minor', 'Net revenue minor'],
+      ...summary.map((row) => [row['currency'], row['gross_revenue_minor'], row['platform_revenue_minor'], row['teacher_earnings_minor'], row['refunds_minor'], row['available_for_payout_minor'], row['reserved_in_settlements_minor'], row['paid_to_teachers_minor'], row['outstanding_teacher_payables_minor'], row['net_revenue_minor']]),
+      [],
+      ['Teacher', 'Currency', 'Gross sales minor', 'Orders', 'Platform commission minor', 'Teacher entitlement minor', 'Refunds minor', 'Pending minor', 'Available minor', 'Reserved minor', 'Paid minor', 'Remaining payable minor'],
+      ...teachers.map((row) => [row['teacher_name'], row['currency'], row['gross_sales_minor'], row['order_count'], row['platform_commission_minor'], row['teacher_entitlement_minor'], row['refunds_minor'], row['pending_minor'], row['available_minor'], row['reserved_minor'], row['paid_minor'], row['remaining_payable_minor']]),
+    ];
+    return lines.map((line) => line.map(escape).join(',')).join('\n');
+  }
+
+  private financialReportBounds(filter: FinancialReportFilterDto): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
+    const start = filter.from ? new Date(`${filter.from}T00:00:00.000Z`) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = filter.to ? new Date(`${filter.to}T00:00:00.000Z`) : new Date();
+    if (filter.to) end.setUTCDate(end.getUTCDate() + 1);
+    const duration = end.getTime() - start.getTime();
+    return { start, end, previousStart: new Date(start.getTime() - duration), previousEnd: new Date(start) };
+  }
+
+  private paidOrdersCte(filter: FinancialReportFilterDto, start: Date, end: Date, params: unknown[], name: string): string {
+    const push = (value: unknown) => { params.push(value); return `$${params.length}`; };
+    const conditions = ["o.status = 'paid'", "payment.status = 'completed'", 'o.paid_at IS NOT NULL', `o.paid_at >= ${push(start)}`, `o.paid_at < ${push(end)}`];
+    if (filter.currency) conditions.push(`o.currency = ${push(filter.currency.toUpperCase())}`);
+    if (filter.teacher_id) conditions.push(`o.teacher_id = ${push(filter.teacher_id)}`);
+    if (filter.item_type) conditions.push(`o.item_type = ${push(filter.item_type)}`);
+    if (filter.payment_method) conditions.push(`o.payment_method = ${push(filter.payment_method)}`);
+    if (filter.search?.trim()) {
+      const search = push(`%${filter.search.trim()}%`);
+      conditions.push(`(o.product_title_snapshot ILIKE ${search} OR EXISTS (SELECT 1 FROM users search_teacher WHERE search_teacher.id=o.teacher_id AND (search_teacher.name ILIKE ${search} OR search_teacher.email ILIKE ${search})))`);
+    }
+    return `${name} AS (SELECT o.id,o.teacher_id,o.currency,o.item_type,o.item_id,o.final_amount_minor,o.refunded_amount_minor,o.platform_commission_minor,o.teacher_earning_minor,o.paid_at,o.product_title_snapshot FROM orders o INNER JOIN payments payment ON payment.id=o.payment_id WHERE ${conditions.join(' AND ')})`;
+  }
+
+  private async runFinancialReportQuery<T>(filter: FinancialReportFilterDto, bounds: { start: Date; end: Date; previousStart: Date; previousEnd: Date }, run: (input: { current: string; previous: string; params: unknown[] }) => Promise<T>): Promise<T> {
+    const params: unknown[] = [];
+    const current = this.paidOrdersCte(filter, bounds.start, bounds.end, params, 'current_orders');
+    const previous = this.paidOrdersCte(filter, bounds.previousStart, bounds.previousEnd, params, 'previous_orders');
+    return run({ current, previous, params });
+  }
+
+  private reportLedgerWhere(filter: FinancialReportFilterDto, params: unknown[], alias: string): string {
+    const clauses = [`${alias}.teacher_id IS NOT NULL`];
+    if (filter.currency) { params.push(filter.currency.toUpperCase()); clauses.push(`${alias}.currency = $${params.length}`); }
+    if (filter.teacher_id) { params.push(filter.teacher_id); clauses.push(`${alias}.teacher_id = $${params.length}`); }
+    return clauses.join(' AND ');
+  }
+
+  private reportSettlementWhere(filter: FinancialReportFilterDto, params: unknown[], alias: string): string {
+    const clauses = ['1 = 1'];
+    if (filter.currency) { params.push(filter.currency.toUpperCase()); clauses.push(`${alias}.currency = $${params.length}`); }
+    if (filter.teacher_id) { params.push(filter.teacher_id); clauses.push(`${alias}.teacher_id = $${params.length}`); }
+    if (filter.settlement_status) { params.push(filter.settlement_status); clauses.push(`${alias}.status = $${params.length}`); }
+    return clauses.join(' AND ');
+  }
+
+  public async reportReconciliationWarnings(): Promise<Array<Record<string, unknown>>> {
+    const report = await this.reconciliationReport();
+    const severityByKey: Record<string, 'critical' | 'warning'> = {
+      negative_teacher_available_balances: 'critical', over_allocated_settlement_entries: 'critical', settlement_ledger_posting_mismatches: 'critical', payout_clearing_journal_completeness_issues: 'critical',
+    };
+    return Object.entries(report)
+      .filter(([, value]) => Array.isArray(value) && value.length > 0)
+      .map(([type, value]) => ({ type, severity: severityByKey[type] ?? 'warning', detected_at: new Date().toISOString(), affected_count: (value as unknown[]).length, samples: (value as unknown[]).slice(0, 5) }));
+  }
+
+  public async legacyFinancialReport(filter: OrderFilterDto): Promise<Record<string, unknown>> {
     const applyFilters = (query: ReturnType<Repository<Order>['createQueryBuilder']>) => {
       // Canonical paid orders are the sole sales source. The payment join
       // excludes stale orders that were incorrectly marked paid without a

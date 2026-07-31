@@ -8,6 +8,8 @@ export const FINANCE_PERMISSIONS = [
   'settlements.pay',
   'settlements.reject',
   'settlements.cancel',
+  'reports.view',
+  'reports.export',
   'reconciliation.run',
   'reconciliation.review',
 ] as const;
