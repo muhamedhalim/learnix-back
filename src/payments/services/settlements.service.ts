@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -11,12 +11,20 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
-import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import {
+  acquireTeacherFinancialLock,
+  retryTransaction,
+} from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
-import { CreateSettlementDto, PaySettlementDto, SettlementFilterDto } from '../dto';
+import {
+  CreateSettlementDto,
+  PaySettlementDto,
+  SettlementFilterDto,
+  SettlementTerminalDto,
+} from '../dto';
 import {
   CollectionParty,
   FinancialLedgerEntry,
@@ -49,6 +57,20 @@ const RESERVING_SETTLEMENT_STATUSES = [
  * totals are an admin-finance concern and must never leave the teacher API.
  */
 export interface TeacherWalletSummary {
+  /** Legacy flat values are present only where exactly one currency exists. */
+  currency: string | null;
+  pending_balance_minor: number | null;
+  available_balance_minor: number | null;
+  lifetime_earnings_minor: number | null;
+  paid_out_minor: number | null;
+  refunded_reversed_minor: number | null;
+  teacher_collected_sales_minor: number | null;
+  outstanding_platform_receivable_minor: number | null;
+  next_settlement_date: null;
+  balances: TeacherWalletCurrencySummary[];
+}
+
+export interface TeacherWalletCurrencySummary {
   currency: string;
   pending_balance_minor: number;
   available_balance_minor: number;
@@ -57,7 +79,6 @@ export interface TeacherWalletSummary {
   refunded_reversed_minor: number;
   teacher_collected_sales_minor: number;
   outstanding_platform_receivable_minor: number;
-  next_settlement_date: null;
 }
 
 @Injectable()
@@ -79,32 +100,56 @@ export class SettlementsService {
   }
 
   public async getTeacherWallet(teacherId: string): Promise<TeacherWalletSummary> {
-    const [pending, available, lifetime, paid, reversed, teacherCollected, receivable] =
-      await Promise.all([
-        this.accountBalance(teacherId, 'teacher_payable'),
-        this.accountBalance(teacherId, 'teacher_payable_available'),
-        this.lifetimeEarnings(teacherId),
-        this.entryNet(teacherId, LedgerEntryType.PAYOUT),
-        this.entryNet(teacherId, LedgerEntryType.TEACHER_EARNING_REVERSAL),
-        this.entryNet(teacherId, LedgerEntryType.TEACHER_COLLECTED_SALE),
-        this.accountBalance(teacherId, 'platform_receivable'),
-      ]);
+    const rows = await this.ledger.query<
+      Array<{
+        currency: string;
+        pending_balance_minor: string;
+        available_balance_minor: string;
+        lifetime_earnings_minor: string;
+        paid_out_minor: string;
+        refunded_reversed_minor: string;
+        teacher_collected_sales_minor: string;
+        outstanding_platform_receivable_minor: string;
+      }>
+    >(`
+      SELECT currency,
+        COALESCE(SUM(CASE WHEN account = 'teacher_payable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS pending_balance_minor,
+        COALESCE(SUM(CASE WHEN account = 'teacher_payable_available' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS available_balance_minor,
+        COALESCE(SUM(CASE WHEN entry_type = 'payout' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS paid_out_minor,
+        COALESCE(SUM(CASE WHEN entry_type = 'teacher_earning_reversal' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS refunded_reversed_minor,
+        COALESCE(SUM(CASE WHEN entry_type = 'teacher_collected_sale' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS teacher_collected_sales_minor,
+        COALESCE(SUM(CASE WHEN account = 'platform_receivable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS outstanding_platform_receivable_minor,
+        COALESCE(SUM(CASE WHEN direction = 'credit' AND (entry_type = 'teacher_earning_pending' OR (entry_type = 'teacher_earning_available' AND reference LIKE 'order:%')) THEN amount_minor ELSE 0 END), 0)::text AS lifetime_earnings_minor
+      FROM financial_ledger_entries WHERE teacher_id = $1 GROUP BY currency ORDER BY currency ASC
+    `, [teacherId]);
+    const balances = rows.map((row) => ({
+      currency: String(row.currency),
+      pending_balance_minor: Number(row.pending_balance_minor ?? 0),
+      available_balance_minor: Number(row.available_balance_minor ?? 0),
+      lifetime_earnings_minor: Number(row.lifetime_earnings_minor ?? 0),
+      paid_out_minor: Math.abs(Number(row.paid_out_minor ?? 0)),
+      refunded_reversed_minor: Math.abs(Number(row.refunded_reversed_minor ?? 0)),
+      teacher_collected_sales_minor: Number(row.teacher_collected_sales_minor ?? 0),
+      outstanding_platform_receivable_minor: Number(row.outstanding_platform_receivable_minor ?? 0),
+    }));
+    const legacy = balances.length === 1 ? balances[0] : null;
     return {
-      currency: 'EGP',
-      pending_balance_minor: pending,
-      available_balance_minor: available,
-      lifetime_earnings_minor: lifetime,
-      paid_out_minor: Math.abs(paid),
-      refunded_reversed_minor: Math.abs(reversed),
-      teacher_collected_sales_minor: teacherCollected,
-      outstanding_platform_receivable_minor: receivable,
+      currency: legacy?.currency ?? null,
+      pending_balance_minor: legacy?.pending_balance_minor ?? null,
+      available_balance_minor: legacy?.available_balance_minor ?? null,
+      lifetime_earnings_minor: legacy?.lifetime_earnings_minor ?? null,
+      paid_out_minor: legacy?.paid_out_minor ?? null,
+      refunded_reversed_minor: legacy?.refunded_reversed_minor ?? null,
+      teacher_collected_sales_minor: legacy?.teacher_collected_sales_minor ?? null,
+      outstanding_platform_receivable_minor: legacy?.outstanding_platform_receivable_minor ?? null,
       next_settlement_date: null,
+      balances,
     };
   }
 
   public async create(dto: CreateSettlementDto, adminId: string): Promise<Settlement> {
-    const idempotencyKey = this.normalizedIdempotencyKey(dto.idempotency_key);
     const idempotencyFingerprint = this.createFingerprint(dto);
+    const idempotencyKey = this.normalizedIdempotencyKey(dto.idempotency_key, idempotencyFingerprint);
     try {
       return await retryTransaction(
         this.dataSource,
@@ -123,20 +168,13 @@ export class SettlementsService {
             }
             return existing;
           }
+          await acquireTeacherFinancialLock(manager, dto.teacher_id);
           // Lock the complete available-payable account before selecting earnings.
           // Refund reversals are debit entries in this same account, so settlement
           // eligibility is always capped by the net outstanding liability.
-          const payableEntries = await manager
-            .getRepository(FinancialLedgerEntry)
-            .createQueryBuilder('payable')
-            .setLock('pessimistic_write')
-            .where('payable.teacher_id = :teacherId', { teacherId: dto.teacher_id })
-            .andWhere('payable.account = :account', { account: 'teacher_payable_available' })
-            .getMany();
           const query = manager
             .getRepository(FinancialLedgerEntry)
             .createQueryBuilder('entry')
-            .setLock('pessimistic_write')
             .where('entry.teacher_id = :teacherId', { teacherId: dto.teacher_id })
             .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
             .andWhere('entry.entry_type = :entryType', {
@@ -185,6 +223,23 @@ export class SettlementsService {
               ),
             );
           }
+          // The advisory lock is acquired first. Lock all affected orders before
+          // locking ledger rows, so this follows the shared financial lock order.
+          for (const orderId of [...new Set(entries.map((entry) => entry.order_id))].sort()) {
+            await manager.findOne(Order, {
+              where: { id: orderId },
+              lock: { mode: 'pessimistic_write' },
+            });
+          }
+          entries = await query.setLock('pessimistic_write').getMany();
+          const payableEntries = await manager
+            .getRepository(FinancialLedgerEntry)
+            .createQueryBuilder('payable')
+            .setLock('pessimistic_write')
+            .where('payable.teacher_id = :teacherId', { teacherId: dto.teacher_id })
+            .andWhere('payable.account = :account', { account: 'teacher_payable_available' })
+            .orderBy('payable.id', 'ASC')
+            .getMany();
           const currency = entries[0]?.currency ?? 'EGP';
           if (entries.some((entry) => entry.currency !== currency)) {
             throw new BadRequestException(
@@ -298,9 +353,12 @@ export class SettlementsService {
               receivable_offset_minor: receivableOffset,
               payout_amount_minor: payout,
               currency,
+              fiscal_period: this.fiscalPeriod(dto.fiscal_period),
               status: SettlementStatus.DRAFT,
               payment_method: dto.payment_method,
               transfer_reference: null,
+              execution_idempotency_key: null,
+              execution_fingerprint: null,
               proof_file_key: null,
               notes: dto.notes?.trim() ?? null,
               initiated_by: adminId,
@@ -381,9 +439,14 @@ export class SettlementsService {
     dto: PaySettlementDto,
     adminId: string,
   ): Promise<Settlement> {
+    const candidate = await this.settlements.findOne({ where: { id: settlementId } });
+    if (!candidate) {
+      throw new NotFoundException(biBody('Settlement not found', 'Settlement not found'));
+    }
     return retryTransaction(
       this.dataSource,
       async (manager) => {
+        await acquireTeacherFinancialLock(manager, candidate.teacher_id);
         const settlement = await this.lock(manager, settlementId);
         const transferReference = dto.transfer_reference.trim();
         if (!transferReference) {
@@ -391,13 +454,35 @@ export class SettlementsService {
             biBody('Transfer reference is required', 'مرجع التحويل مطلوب'),
           );
         }
+        const executionFingerprint = this.executionFingerprint(settlement, transferReference, dto);
+        const executionKey = this.normalizedExecutionKey(dto.idempotency_key, executionFingerprint);
+        const keyOwner = await manager.findOne(Settlement, {
+          where: { execution_idempotency_key: executionKey },
+          lock: { mode: 'pessimistic_read' },
+        });
+        if (keyOwner && keyOwner.id !== settlement.id) {
+          throw new ConflictException(
+            biBody(
+              'Execution idempotency key belongs to a different settlement',
+              'Execution idempotency key belongs to a different settlement',
+            ),
+          );
+        }
         if (settlement.status === SettlementStatus.PAID) {
-          if (
-            settlement.transfer_reference &&
-            settlement.transfer_reference.trim().toLowerCase() === transferReference.toLowerCase()
-          ) {
+          if (settlement.execution_fingerprint === executionFingerprint) {
             return settlement;
           }
+          // Historical executions predate the fingerprint. Preserve their API
+          // replay behaviour only when every mutable request property matches.
+          if (
+            !dto.idempotency_key &&
+            settlement.execution_idempotency_key?.startsWith('legacy-execution:') &&
+            settlement.transfer_reference &&
+            this.normalizedTransferReference(settlement.transfer_reference) ===
+              this.normalizedTransferReference(transferReference) &&
+            (settlement.notes?.trim() ?? '') === (dto.notes?.trim() ?? '')
+          )
+            return settlement;
           throw new ConflictException(
             biBody(
               'A paid settlement cannot be overwritten with a different transfer reference',
@@ -494,6 +579,8 @@ export class SettlementsService {
         }
         settlement.status = SettlementStatus.PAID;
         settlement.transfer_reference = transferReference;
+        settlement.execution_idempotency_key = executionKey;
+        settlement.execution_fingerprint = executionFingerprint;
         settlement.paid_by = adminId;
         settlement.paid_at = new Date();
         if (dto.notes?.trim()) settlement.notes = dto.notes.trim();
@@ -575,6 +662,7 @@ export class SettlementsService {
         await manager.insert(FinancialLedgerEntry, settlementEntries as never);
         await this.audit(manager, adminId, 'settlement_paid', settlement, {
           transfer_reference: settlement.transfer_reference,
+          execution_idempotency_key: executionKey,
         });
         await this.event(manager, 'settlement.completed', `settlement:${settlement.id}:paid`, {
           settlement_id: settlement.id,
@@ -632,12 +720,20 @@ export class SettlementsService {
    * Terminal draft/approved records retain their audit trail but release every
    * allocation immediately because selection only reserves active/paid rows.
    */
-  public async cancel(settlementId: string, adminId: string): Promise<Settlement> {
-    return this.closeWithoutPayment(settlementId, adminId, SettlementStatus.CANCELLED);
+  public async cancel(
+    settlementId: string,
+    dto: SettlementTerminalDto,
+    adminId: string,
+  ): Promise<Settlement> {
+    return this.closeWithoutPayment(settlementId, dto.reason, adminId, SettlementStatus.CANCELLED);
   }
 
-  public async reject(settlementId: string, adminId: string): Promise<Settlement> {
-    return this.closeWithoutPayment(settlementId, adminId, SettlementStatus.REJECTED);
+  public async reject(
+    settlementId: string,
+    dto: SettlementTerminalDto,
+    adminId: string,
+  ): Promise<Settlement> {
+    return this.closeWithoutPayment(settlementId, dto.reason, adminId, SettlementStatus.REJECTED);
   }
 
   public async releaseAvailableEarnings(limit = 500): Promise<number> {
@@ -668,6 +764,11 @@ export class SettlementsService {
     let released = 0;
     for (const entry of due) {
       await retryTransaction(this.dataSource, async (manager) => {
+        await acquireTeacherFinancialLock(manager, entry.teacher_id);
+        const order = await manager.findOne(Order, {
+          where: { id: entry.order_id },
+          lock: { mode: 'pessimistic_write' },
+        });
         const locked = await manager.findOne(FinancialLedgerEntry, {
           where: { id: entry.id },
           lock: { mode: 'pessimistic_write' },
@@ -681,13 +782,6 @@ export class SettlementsService {
         ) {
           return;
         }
-        // Serialize against refunds through the order row before releasing a
-        // held balance. A later refund is still represented as a ledger
-        // reversal; a completed refund is never released as available.
-        const order = await manager.findOne(Order, {
-          where: { id: locked.order_id },
-          lock: { mode: 'pessimistic_write' },
-        });
         if (!order || ![OrderStatus.PAID, OrderStatus.PARTIALLY_REFUNDED].includes(order.status)) {
           return;
         }
@@ -762,14 +856,6 @@ export class SettlementsService {
     return released;
   }
 
-  private async accountBalance(
-    teacherId: string,
-    account: string,
-    currency?: string,
-  ): Promise<number> {
-    return this.accountBalanceWithManager(this.dataSource.manager, teacherId, account, currency);
-  }
-
   private async accountBalanceWithManager(
     manager: EntityManager,
     teacherId: string,
@@ -787,42 +873,6 @@ export class SettlementsService {
       .andWhere('entry.account = :account', { account });
     if (currency) query.andWhere('entry.currency = :currency', { currency });
     const result = await query.getRawOne<SumRow>();
-    return Number(result?.value ?? 0);
-  }
-
-  private async entryNet(teacherId: string, type: LedgerEntryType): Promise<number> {
-    const result = await this.ledger
-      .createQueryBuilder('entry')
-      .select(
-        `COALESCE(SUM(CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END), 0)`,
-        'value',
-      )
-      .where('entry.teacher_id = :teacherId', { teacherId })
-      .andWhere('entry.entry_type = :type', { type })
-      .getRawOne<SumRow>();
-    return Number(result?.value ?? 0);
-  }
-
-  private async lifetimeEarnings(teacherId: string): Promise<number> {
-    const result = await this.ledger
-      .createQueryBuilder('entry')
-      .select('COALESCE(SUM(entry.amount_minor), 0)', 'value')
-      .where('entry.teacher_id = :teacherId', { teacherId })
-      .andWhere('entry.direction = :credit', { credit: LedgerDirection.CREDIT })
-      .andWhere(
-        `(
-          entry.entry_type = :pending
-          OR (
-            entry.entry_type = :available
-            AND entry.reference LIKE 'order:%'
-          )
-        )`,
-        {
-          pending: LedgerEntryType.TEACHER_EARNING_PENDING,
-          available: LedgerEntryType.TEACHER_EARNING_AVAILABLE,
-        },
-      )
-      .getRawOne<SumRow>();
     return Number(result?.value ?? 0);
   }
 
@@ -854,11 +904,12 @@ export class SettlementsService {
     return `ST-${day}-${randomBytes(4).toString('hex').toUpperCase()}`;
   }
 
-  private normalizedIdempotencyKey(key?: string): string {
+  private normalizedIdempotencyKey(key: string | undefined, fingerprint: string): string {
     const normalized = key?.trim();
-    // Legacy clients keep their API contract, while every persisted settlement
-    // still has a non-null, database-unique key.
-    return normalized || `legacy:${randomUUID()}`;
+    // Legacy callers keep their route, but new requests are never protected by
+    // a random server-generated key. The deterministic fallback makes a retry
+    // replay-safe; callers creating a distinct operation must send their own key.
+    return normalized || `legacy:v1:${fingerprint}`;
   }
 
   private createFingerprint(dto: CreateSettlementDto): string {
@@ -869,16 +920,58 @@ export class SettlementsService {
       deductions_minor: dto.deductions_minor ?? 0,
       receivable_offset_minor: dto.receivable_offset_minor ?? 0,
       payment_method: dto.payment_method.trim().toLowerCase(),
+      fiscal_period: this.fiscalPeriod(dto.fiscal_period),
     });
     return createHash('sha256').update(payload).digest('hex');
   }
 
+  private fiscalPeriod(value?: string): string {
+    const period = value?.trim() || new Date().toISOString().slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+      throw new BadRequestException(biBody('Fiscal period must be YYYY-MM', 'Fiscal period must be YYYY-MM'));
+    }
+    return period;
+  }
+
+  private normalizedTransferReference(reference: string): string {
+    return reference.trim().toLowerCase();
+  }
+
+  private executionFingerprint(
+    settlement: Settlement,
+    transferReference: string,
+    dto: PaySettlementDto,
+  ): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          settlement_id: settlement.id,
+          transfer_reference: this.normalizedTransferReference(transferReference),
+          notes: dto.notes?.trim() ?? '',
+          payment_method: settlement.payment_method.trim().toLowerCase(),
+          currency: settlement.currency,
+          payout_amount_minor: settlement.payout_amount_minor,
+        }),
+      )
+      .digest('hex');
+  }
+
+  private normalizedExecutionKey(key: string | undefined, fingerprint: string): string {
+    return key?.trim() || `legacy:v1:execute:${fingerprint}`;
+  }
+
   private async closeWithoutPayment(
     settlementId: string,
+    reason: string,
     adminId: string,
     targetStatus: SettlementStatus.CANCELLED | SettlementStatus.REJECTED,
   ): Promise<Settlement> {
+    const candidate = await this.settlements.findOne({ where: { id: settlementId } });
+    if (!candidate) {
+      throw new NotFoundException(biBody('Settlement not found', 'Settlement not found'));
+    }
     return retryTransaction(this.dataSource, async (manager) => {
+      await acquireTeacherFinancialLock(manager, candidate.teacher_id);
       const settlement = await this.lock(manager, settlementId);
       if (settlement.status === targetStatus) return settlement;
       if (![SettlementStatus.DRAFT, SettlementStatus.APPROVED].includes(settlement.status)) {
@@ -891,7 +984,9 @@ export class SettlementsService {
       }
       settlement.status = targetStatus;
       await manager.save(Settlement, settlement);
-      await this.audit(manager, adminId, `settlement_${targetStatus}`, settlement, {});
+      await this.audit(manager, adminId, `settlement_${targetStatus}`, settlement, {
+        reason: reason.trim(),
+      });
       await this.event(
         manager,
         `settlement.${targetStatus}`,
@@ -899,6 +994,7 @@ export class SettlementsService {
         {
           settlement_id: settlement.id,
           teacher_id: settlement.teacher_id,
+          reason: reason.trim(),
         },
       );
       return settlement;

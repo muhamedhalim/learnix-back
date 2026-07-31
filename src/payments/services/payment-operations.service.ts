@@ -12,6 +12,7 @@ import { OrderFilterDto } from '../dto';
 import {
   Entitlement,
   FinancialLedgerEntry,
+  FinancialMaintenanceRun,
   GatewayWebhookEvent,
   ManualPaymentSubmission,
   ManualPaymentSubmissionStatus,
@@ -43,6 +44,8 @@ export class PaymentOperationsService {
     private readonly events: Repository<PaymentDomainEvent>,
     @InjectRepository(Payment)
     private readonly payments: Repository<Payment>,
+    @InjectRepository(FinancialMaintenanceRun)
+    private readonly maintenanceRuns: Repository<FinancialMaintenanceRun>,
     private readonly dataSource: DataSource,
     private readonly discounts: DiscountCodesService,
     private readonly settlements: SettlementsService,
@@ -55,9 +58,135 @@ export class PaymentOperationsService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   public async runMaintenance(): Promise<void> {
-    await this.expireOrders();
-    await this.settlements.releaseAvailableEarnings();
-    await this.publishOutbox();
+    const guard = this.dataSource.createQueryRunner();
+    await guard.connect();
+    try {
+      const result = (await guard.query(
+        `SELECT pg_try_advisory_lock(hashtext($1)) AS acquired`,
+        ['finance-maintenance-v1'],
+      )) as Array<{ acquired: boolean }>;
+      if (!result[0]?.acquired) {
+        this.logger.log(JSON.stringify({ finance_maintenance: 'skipped', reason: 'worker_lock_held' }));
+        return;
+      }
+      // Each task is deliberately isolated. A failed order expiry must not
+      // block earned-fund release or the outbox, and the PostgreSQL session
+      // lock prevents another worker from running the same cycle concurrently.
+      await this.runMonitoredMaintenanceTask('expire_orders', () => this.expireOrders());
+      await this.runMonitoredMaintenanceTask('release_held_earnings', () =>
+        this.settlements.releaseAvailableEarnings(),
+      );
+      await this.runMonitoredMaintenanceTask('publish_outbox', () => this.publishOutbox());
+    } finally {
+      try {
+        await guard.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['finance-maintenance-v1']);
+      } finally {
+        await guard.release();
+      }
+    }
+  }
+
+  private async runMonitoredMaintenanceTask(
+    taskName: string,
+    task: () => Promise<number>,
+  ): Promise<void> {
+    const startedAt = new Date();
+    let run: FinancialMaintenanceRun | null = null;
+    try {
+      run = await this.maintenanceRuns.save(this.maintenanceRuns.create({
+        task_name: taskName,
+        worker_id: `finance:${process.pid}`,
+        status: 'running',
+        started_at: startedAt,
+        finished_at: null,
+        duration_ms: 0,
+        processed_count: 0,
+        released_count: 0,
+        error_count: 0,
+        error_message: null,
+      }));
+    } catch (error) {
+      this.logger.error(`Unable to start finance maintenance monitor for ${taskName}`, error);
+    }
+    try {
+      const processed = await task();
+      if (run) {
+        run.status = 'succeeded';
+        run.finished_at = new Date();
+        run.duration_ms = run.finished_at.getTime() - startedAt.getTime();
+        run.processed_count = processed;
+        run.released_count = taskName === 'release_held_earnings' ? processed : 0;
+        try {
+          await this.maintenanceRuns.save(run);
+        } catch (monitorError) {
+          this.logger.error(`Unable to complete finance maintenance monitor for ${taskName}`, monitorError);
+        }
+      }
+      this.logger.log(
+        JSON.stringify({
+          finance_maintenance: taskName,
+          status: run?.status ?? 'succeeded',
+          duration_ms: run?.duration_ms ?? Date.now() - startedAt.getTime(),
+          processed_count: processed,
+          released_count: taskName === 'release_held_earnings' ? processed : 0,
+          error_count: 0,
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown maintenance failure';
+      if (run) {
+        run.status = 'failed';
+        run.finished_at = new Date();
+        run.duration_ms = run.finished_at.getTime() - startedAt.getTime();
+        run.error_count = 1;
+        run.error_message = message;
+        try {
+          await this.maintenanceRuns.save(run);
+        } catch (monitorError) {
+          this.logger.error(`Unable to fail finance maintenance monitor for ${taskName}`, monitorError);
+        }
+      }
+      this.logger.error(
+        JSON.stringify({
+          finance_maintenance: taskName,
+          status: run?.status ?? 'failed',
+          duration_ms: run?.duration_ms ?? Date.now() - startedAt.getTime(),
+          processed_count: 0,
+          released_count: 0,
+          error_count: 1,
+          error: message,
+        }),
+      );
+      try {
+        await this.emitRepeatedMaintenanceFailureAlert(taskName, message);
+      } catch (alertError) {
+        this.logger.error(`Unable to emit finance maintenance alert for ${taskName}`, alertError);
+      }
+    }
+  }
+
+  private async emitRepeatedMaintenanceFailureAlert(taskName: string, error: string): Promise<void> {
+    const recent = await this.maintenanceRuns
+      .createQueryBuilder('run')
+      .where('run.task_name = :taskName', { taskName })
+      .orderBy('run.started_at', 'DESC')
+      .take(3)
+      .getMany();
+    if (recent.length !== 3 || recent.some((run) => run.status !== 'failed')) return;
+    await this.dataSource
+      .createQueryBuilder()
+      .insert()
+      .into(PaymentDomainEvent)
+      .values({
+        event_name: 'finance.maintenance.repeated_failure',
+        dedupe_key: `finance-maintenance:${taskName}:${Math.floor(Date.now() / 3_600_000)}`,
+        payload: { task_name: taskName, error, failures: 3 },
+        published_at: null,
+        attempts: 0,
+        last_error: null,
+      } as never)
+      .orIgnore()
+      .execute();
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -1012,6 +1141,82 @@ export class PaymentOperationsService {
         LIMIT 100
       `),
     ]);
+    const [
+      releasePairIntegrityIssues,
+      payoutClearingJournalIssues,
+      teacherBalanceRollforwardIssues,
+      staleTerminalReservations,
+      archivedTeacherFinancialExposure,
+      invalidCurrencyMixing,
+      duplicatePayoutFingerprints,
+      settlementLedgerPostingMismatches,
+    ] = await Promise.all([
+      this.dataSource.query(`
+        SELECT pending.id, pending.order_id, pending.amount_minor, pending.currency
+        FROM financial_ledger_entries pending
+        WHERE pending.entry_type = 'teacher_earning_pending' AND pending.direction = 'credit'
+          AND EXISTS (SELECT 1 FROM financial_ledger_entries available WHERE available.reference = 'release:' || pending.id::text || ':available')
+          AND NOT EXISTS (SELECT 1 FROM financial_ledger_entries debit WHERE debit.reference = 'release:' || pending.id::text || ':pending'
+                            AND debit.amount_minor = pending.amount_minor AND debit.currency = pending.currency AND debit.direction = 'debit')
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT settlement.id, settlement.currency, settlement.gross_amount_minor, settlement.payout_amount_minor
+        FROM teacher_settlements settlement
+        WHERE settlement.status = 'paid' AND (
+          NOT EXISTS (SELECT 1 FROM financial_ledger_entries entry WHERE entry.reference = 'settlement:' || settlement.id::text || ':liability'
+                      AND entry.direction = 'debit' AND entry.amount_minor = settlement.gross_amount_minor AND entry.currency = settlement.currency)
+          OR NOT EXISTS (SELECT 1 FROM financial_ledger_entries entry WHERE entry.reference = 'settlement:' || settlement.id::text || ':payout'
+                         AND entry.direction = 'credit' AND entry.amount_minor = settlement.payout_amount_minor AND entry.currency = settlement.currency)
+        ) LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT teacher_id, currency, SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END)::text AS closing_balance_minor
+        FROM financial_ledger_entries
+        WHERE account IN ('teacher_payable','teacher_payable_available')
+        GROUP BY teacher_id, currency
+        HAVING SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END) < 0
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT settlement.id, settlement.status, membership.id AS settlement_entry_id
+        FROM teacher_settlements settlement JOIN teacher_settlement_entries membership ON membership.settlement_id = settlement.id
+        WHERE settlement.status IN ('cancelled','rejected')
+          AND EXISTS (SELECT 1 FROM financial_ledger_entries entry WHERE entry.settlement_id = settlement.id
+                      AND entry.entry_type IN ('settlement_liability_clearing','payout'))
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT user_record.id AS teacher_id, entry.currency,
+          SUM(CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END)::text AS open_balance_minor
+        FROM users user_record JOIN financial_ledger_entries entry ON entry.teacher_id = user_record.id
+        WHERE (user_record.deleted_at IS NOT NULL OR user_record.is_active = false)
+        GROUP BY user_record.id, entry.currency
+        HAVING SUM(CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END) <> 0
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT 'settlement_allocation' AS relation, membership.id
+        FROM teacher_settlement_entries membership JOIN teacher_settlements settlement ON settlement.id = membership.settlement_id
+        JOIN financial_ledger_entries entry ON entry.id = membership.ledger_entry_id WHERE settlement.currency <> entry.currency
+        UNION ALL
+        SELECT 'refund_order', refund.id FROM refunds refund JOIN orders "order" ON "order".id = refund.order_id
+        WHERE refund.currency <> "order".currency
+        LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT teacher_id, fiscal_period, currency, payout_amount_minor, array_agg(id) AS settlement_ids
+        FROM teacher_settlements WHERE status IN ('draft','approved','paid')
+        GROUP BY teacher_id, fiscal_period, currency, payout_amount_minor HAVING COUNT(*) > 1 LIMIT 100
+      `),
+      this.dataSource.query(`
+        SELECT settlement.id, settlement.gross_amount_minor, COALESCE(SUM(CASE WHEN entry.entry_type = 'settlement_liability_clearing' THEN entry.amount_minor ELSE 0 END), 0)::text AS clearing_minor
+        FROM teacher_settlements settlement LEFT JOIN financial_ledger_entries entry ON entry.settlement_id = settlement.id
+        WHERE settlement.status = 'paid' GROUP BY settlement.id
+        HAVING COALESCE(SUM(CASE WHEN entry.entry_type = 'settlement_liability_clearing' THEN entry.amount_minor ELSE 0 END), 0) <> settlement.gross_amount_minor
+        LIMIT 100
+      `),
+    ]);
     return {
       generated_at: new Date().toISOString(),
       paid_orders_without_entitlement: paidWithoutEntitlement,
@@ -1033,6 +1238,14 @@ export class PaymentOperationsService {
       refund_conservation_issues: refundConservationIssues,
       negative_teacher_available_balances: negativeAvailableBalances,
       financial_orphans: financialOrphans,
+      release_debit_credit_pair_integrity_issues: releasePairIntegrityIssues,
+      payout_clearing_journal_completeness_issues: payoutClearingJournalIssues,
+      teacher_opening_closing_balance_rollforward_issues: teacherBalanceRollforwardIssues,
+      stale_terminal_reservations: staleTerminalReservations,
+      archived_teacher_financial_exposure: archivedTeacherFinancialExposure,
+      invalid_currency_mixing: invalidCurrencyMixing,
+      duplicate_payout_fingerprints: duplicatePayoutFingerprints,
+      settlement_ledger_posting_mismatches: settlementLedgerPostingMismatches,
     };
   }
 

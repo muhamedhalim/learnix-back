@@ -344,63 +344,30 @@ export class AnalyticsService {
           where: { teacher_id: teacherId, deleted_at: IsNull() },
         });
 
-        // Count unique students who purchased from this teacher
-        const lessonStudents = await this.lessonPurchasesRepository
-          .createQueryBuilder('lp')
-          .innerJoin('lp.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .select('COUNT(DISTINCT lp.student_id)', 'count')
+        // Financial dashboard facts are sourced only from confirmed paid orders.
+        const paidStudents = await this.canonicalPaidOrderQuery(teacherId)
+          .select('COUNT(DISTINCT order.student_id)', 'count')
           .getRawOne<CountResult>();
 
-        const totalStudents = Number.parseInt(lessonStudents?.count ?? '0', 10);
+        const totalStudents = Number.parseInt(paidStudents?.count ?? '0', 10);
 
-        // Calculate revenue from lesson and package purchases
-        const lessonRevenue = await this.lessonPurchasesRepository
-          .createQueryBuilder('lp')
-          .innerJoin('lp.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .select('SUM(lp.price_paid)', 'total')
+        const paidRevenue = await this.canonicalPaidOrderQuery(teacherId)
+          .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
           .getRawOne<SumResult>();
 
-        const packageRevenue = await this.packagePurchasesRepository
-          .createQueryBuilder('pp')
-          .innerJoin('pp.package', 'package')
-          .innerJoin('package.items', 'items')
-          .innerJoin('items.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .select('SUM(pp.price_paid)', 'total')
-          .getRawOne<SumResult>();
-
-        const revenue =
-          Number.parseFloat(lessonRevenue?.total ?? '0') +
-          Number.parseFloat(packageRevenue?.total ?? '0');
+        const revenue = Number.parseFloat(paidRevenue?.total ?? '0');
 
         // Calculate revenue this month
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const lessonRevenueThisMonth = await this.lessonPurchasesRepository
-          .createQueryBuilder('lp')
-          .innerJoin('lp.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .andWhere('lp.created_at >= :start', { start: startOfMonth })
-          .select('SUM(lp.price_paid)', 'total')
+        const paidRevenueThisMonth = await this.canonicalPaidOrderQuery(teacherId)
+          .andWhere('order.paid_at >= :start', { start: startOfMonth })
+          .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
           .getRawOne<SumResult>();
 
-        const packageRevenueThisMonth = await this.packagePurchasesRepository
-          .createQueryBuilder('pp')
-          .innerJoin('pp.package', 'package')
-          .innerJoin('package.items', 'items')
-          .innerJoin('items.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .andWhere('pp.created_at >= :start', { start: startOfMonth })
-          .select('SUM(pp.price_paid)', 'total')
-          .getRawOne<SumResult>();
-
-        const revenueThisMonth =
-          Number.parseFloat(lessonRevenueThisMonth?.total ?? '0') +
-          Number.parseFloat(packageRevenueThisMonth?.total ?? '0');
+        const revenueThisMonth = Number.parseFloat(paidRevenueThisMonth?.total ?? '0');
 
         // TODO: Implement ratings when ratings system is added
         const averageRating = null;
@@ -631,28 +598,37 @@ export class AnalyticsService {
     directRevenue: number;
     packageRevenue: number;
   }> {
-    // Calculate revenue from direct purchases
-    const directRevenueResult = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .where('lp.lesson_id = :lessonId', { lessonId })
-      .select('SUM(lp.price_paid)', 'total')
+    const directRevenueResult = await this.canonicalPaidOrderQuery()
+      .andWhere('order.item_type = :lessonType', { lessonType: ItemType.LESSON })
+      .andWhere('order.item_id = :lessonId', { lessonId })
+      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
       .getRawOne<SumResult>();
 
     const directRevenue = Number.parseFloat(directRevenueResult?.total ?? '0');
 
-    // Calculate revenue from package purchases (proportional based on lesson price in package)
-    const packageRevenueResult = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('lesson_packages', 'lp', 'lp.id = pp.package_id')
-      .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = lp.id')
-      .where('lpi.lesson_id = :lessonId', { lessonId })
-      .select('SUM(pp.price_paid)', 'total')
-      .getRawOne<SumResult>();
-
-    // Estimate package revenue contribution (total package revenue / items in package)
-    const packageRevenue = Number.parseFloat(packageRevenueResult?.total ?? '0');
+    // A package order is a package-level sale. The canonical ledger/order model
+    // has no approved per-lesson allocation, so it is deliberately excluded
+    // instead of duplicating its gross amount across every lesson it contains.
+    const packageRevenue = 0;
 
     return { directRevenue, packageRevenue };
+  }
+
+  /** Confirmed paid order + completed payment + paid_at is the only revenue source. */
+  private canonicalPaidOrderQuery(teacherId?: string) {
+    const query = this.paymentsRepository.manager
+      .getRepository(Order)
+      .createQueryBuilder('order')
+      .innerJoin(
+        Payment,
+        'payment',
+        'payment.id = order.payment_id AND payment.status = :completedPaymentStatus',
+        { completedPaymentStatus: PaymentStatus.COMPLETED },
+      )
+      .where('order.status = :paidOrderStatus', { paidOrderStatus: OrderStatus.PAID })
+      .andWhere('order.paid_at IS NOT NULL');
+    if (teacherId) query.andWhere('order.teacher_id = :teacherId', { teacherId });
+    return query;
   }
 
   /**

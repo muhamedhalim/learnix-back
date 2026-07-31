@@ -78,6 +78,7 @@ describe('PaymentFinalizationService', () => {
     savedCompatibilityPurchases = [];
 
     const managerShape = {
+      query: jest.fn().mockResolvedValue(undefined),
       findOne: jest.fn((entity: unknown) => {
         if (entity === Order) return Promise.resolve(order);
         if (entity === Payment) return Promise.resolve(payment);

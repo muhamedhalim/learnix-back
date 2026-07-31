@@ -8,25 +8,23 @@ describe('SettlementsService teacher wallet', () => {
   it('uses teacher-owned ledger balances and never serializes platform-collected sales', async () => {
     const service = new SettlementsService(
       {} as Repository<never>,
-      {} as Repository<never>,
+      {
+        query: jest.fn().mockResolvedValue([
+          {
+            currency: 'EGP',
+            pending_balance_minor: '1000',
+            available_balance_minor: '2000',
+            lifetime_earnings_minor: '4000',
+            paid_out_minor: '-500',
+            refunded_reversed_minor: '-200',
+            teacher_collected_sales_minor: '700',
+            outstanding_platform_receivable_minor: '300',
+          },
+        ]),
+      } as unknown as Repository<never>,
       { manager: {} } as DataSource,
       { get: jest.fn().mockReturnValue('10000') } as unknown as ConfigService,
     );
-    jest
-      .spyOn(service as never, 'accountBalance')
-      .mockImplementation(
-        async (_teacherId: string, account: string) =>
-          ({ teacher_payable: 1_000, teacher_payable_available: 2_000, platform_receivable: 300 })[
-            account
-          ] ?? 0,
-      );
-    jest.spyOn(service as never, 'lifetimeEarnings').mockResolvedValue(4_000);
-    jest
-      .spyOn(service as never, 'entryNet')
-      .mockResolvedValueOnce(-500)
-      .mockResolvedValueOnce(-200)
-      .mockResolvedValueOnce(700);
-
     const result = await service.getTeacherWallet('teacher-a');
 
     expect(result).toEqual({
@@ -39,8 +37,46 @@ describe('SettlementsService teacher wallet', () => {
       teacher_collected_sales_minor: 700,
       outstanding_platform_receivable_minor: 300,
       next_settlement_date: null,
+      balances: [
+        {
+          currency: 'EGP',
+          pending_balance_minor: 1_000,
+          available_balance_minor: 2_000,
+          lifetime_earnings_minor: 4_000,
+          paid_out_minor: 500,
+          refunded_reversed_minor: 200,
+          teacher_collected_sales_minor: 700,
+          outstanding_platform_receivable_minor: 300,
+        },
+      ],
     });
     expect(result).not.toHaveProperty('platform_collected_sales_minor');
+  });
+
+  it('does not combine balances from different currencies into a legacy total', async () => {
+    const service = new SettlementsService(
+      {} as Repository<never>,
+      {
+        query: jest.fn().mockResolvedValue([
+          {
+            currency: 'EGP', pending_balance_minor: '0', available_balance_minor: '100', lifetime_earnings_minor: '100', paid_out_minor: '0', refunded_reversed_minor: '0', teacher_collected_sales_minor: '0', outstanding_platform_receivable_minor: '0',
+          },
+          {
+            currency: 'USD', pending_balance_minor: '0', available_balance_minor: '200', lifetime_earnings_minor: '200', paid_out_minor: '0', refunded_reversed_minor: '0', teacher_collected_sales_minor: '0', outstanding_platform_receivable_minor: '0',
+          },
+        ]),
+      } as unknown as Repository<never>,
+      { manager: {} } as DataSource,
+      { get: jest.fn().mockReturnValue('10000') } as unknown as ConfigService,
+    );
+    await expect(service.getTeacherWallet('teacher-a')).resolves.toMatchObject({
+      currency: null,
+      available_balance_minor: null,
+      balances: expect.arrayContaining([
+        expect.objectContaining({ currency: 'EGP', available_balance_minor: 100 }),
+        expect.objectContaining({ currency: 'USD', available_balance_minor: 200 }),
+      ]),
+    });
   });
 });
 
@@ -69,6 +105,7 @@ describe('SettlementsService stage-one safeguards', () => {
       status: SettlementStatus.DRAFT,
     };
     const manager = {
+      query: jest.fn().mockResolvedValue(undefined),
       findOne: jest.fn().mockResolvedValue(settlement),
       save: jest.fn().mockResolvedValue(settlement),
       insert: jest.fn().mockResolvedValue(undefined),
@@ -81,13 +118,15 @@ describe('SettlementsService stage-one safeguards', () => {
       manager,
     };
     const service = new SettlementsService(
-      {} as Repository<never>,
+      { findOne: jest.fn().mockResolvedValue(settlement) } as unknown as Repository<never>,
       {} as Repository<never>,
       dataSource as unknown as DataSource,
       config,
     );
 
-    await expect(service.cancel('settlement-1', 'admin-1')).resolves.toMatchObject({
+    await expect(
+      service.cancel('settlement-1', { reason: 'duplicate request' }, 'admin-1'),
+    ).resolves.toMatchObject({
       status: SettlementStatus.CANCELLED,
     });
     expect(manager.save).toHaveBeenCalledWith(expect.anything(), settlement);
@@ -119,6 +158,7 @@ describe('SettlementsService stage-one safeguards', () => {
     dueBuilder.orderBy.mockReturnValue(dueBuilder);
     dueBuilder.take.mockReturnValue(dueBuilder);
     const manager = {
+      query: jest.fn().mockResolvedValue(undefined),
       findOne: jest.fn((entity: unknown) =>
         entity === Object ? undefined : Promise.resolve(entity ? dueEntry : undefined),
       ),
@@ -126,10 +166,10 @@ describe('SettlementsService stage-one safeguards', () => {
       insert: jest.fn().mockResolvedValue(undefined),
       createQueryBuilder: jest.fn().mockReturnValue(insertBuilder()),
     };
-    // The service asks for the ledger entry first and then locks its order.
+    // Shared financial lock order is teacher advisory, order, then ledger.
     manager.findOne
-      .mockResolvedValueOnce(dueEntry)
       .mockResolvedValueOnce({ id: 'order-1', status: OrderStatus.PAID })
+      .mockResolvedValueOnce(dueEntry)
       .mockResolvedValueOnce(null);
     const dataSource = {
       transaction: jest.fn((...args: unknown[]) =>

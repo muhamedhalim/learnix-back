@@ -65,6 +65,18 @@ export class Settlement {
   @Column({ type: 'char', length: 3 })
   currency!: string;
 
+  /** Calendar period used by the database duplicate-logical-payout guard. */
+  @Column({
+    type: 'char',
+    length: 7,
+    name: 'fiscal_period',
+    // The production migration supplies the non-null database default. Keeping
+    // metadata nullable lets disposable synchronize-based test schemas start
+    // before that guarded migration applies.
+    nullable: true,
+  })
+  fiscal_period!: string;
+
   @Column({ type: 'varchar', length: 30, default: SettlementStatus.DRAFT })
   status!: SettlementStatus;
 
@@ -73,6 +85,12 @@ export class Settlement {
 
   @Column({ type: 'varchar', length: 180, nullable: true, name: 'transfer_reference' })
   transfer_reference!: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true, name: 'execution_idempotency_key' })
+  execution_idempotency_key!: string | null;
+
+  @Column({ type: 'char', length: 64, nullable: true, name: 'execution_fingerprint' })
+  execution_fingerprint!: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true, name: 'proof_file_key' })
   proof_file_key!: string | null;

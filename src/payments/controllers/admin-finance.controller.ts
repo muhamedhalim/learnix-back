@@ -28,6 +28,7 @@ import {
   RejectManualPaymentDto,
   ReviewManualPaymentDto,
   SettlementFilterDto,
+  SettlementTerminalDto,
   UpdateManualPaymentMethodDto,
 } from '../dto';
 import { ManualPaymentsService } from '../services/manual-payments.service';
@@ -169,6 +170,7 @@ export class AdminFinanceController {
   }
 
   @Get('settlements')
+  @FinancePermissions('settlements.view')
   public async listSettlements(@Query() filter: SettlementFilterDto) {
     return this.settlements.list(filter);
   }
@@ -190,6 +192,26 @@ export class AdminFinanceController {
     @GetUser() user: JwtPayload,
   ) {
     return { data: await this.settlements.markPaid(id, dto, user.userId) };
+  }
+
+  @Post('settlements/:id/reject')
+  @FinancePermissions('settlements.reject')
+  public async rejectSettlement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SettlementTerminalDto,
+    @GetUser() user: JwtPayload,
+  ) {
+    return { data: await this.settlements.reject(id, dto, user.userId) };
+  }
+
+  @Post('settlements/:id/cancel')
+  @FinancePermissions('settlements.cancel')
+  public async cancelSettlement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SettlementTerminalDto,
+    @GetUser() user: JwtPayload,
+  ) {
+    return { data: await this.settlements.cancel(id, dto, user.userId) };
   }
 
   @Get('reconciliation')

@@ -166,6 +166,22 @@ export class AccountDeletionService {
         UNION ALL
         SELECT 'teacher_settlements' AS table, COUNT(*)::int AS count
         FROM teacher_settlements WHERE teacher_id = $1
+        UNION ALL
+        SELECT 'refunds' AS table, COUNT(*)::int AS count
+        FROM refunds refund
+        JOIN orders "order" ON "order".id = refund.order_id
+        WHERE "order".teacher_id = $1 OR "order".student_id = $1
+        UNION ALL
+        SELECT 'teacher_settlement_entries' AS table, COUNT(*)::int AS count
+        FROM teacher_settlement_entries membership
+        JOIN teacher_settlements settlement ON settlement.id = membership.settlement_id
+        WHERE settlement.teacher_id = $1
+        UNION ALL
+        SELECT 'payment_audit_logs' AS table, COUNT(*)::int AS count
+        FROM payment_audit_logs WHERE actor_id = $1
+        UNION ALL
+        SELECT 'audit_logs' AS table, COUNT(*)::int AS count
+        FROM audit_logs WHERE target_id = $1
       `,
       [userId],
     );

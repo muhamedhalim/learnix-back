@@ -11,7 +11,10 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Book } from '../../books/entities/book.entity';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
-import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import {
+  acquireTeacherFinancialLock,
+  retryTransaction,
+} from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Notification } from '../../notifications/entities/notification.entity';
@@ -57,6 +60,10 @@ export class RefundsService {
 
   public async request(dto: CreateRefundDto, adminId: string): Promise<Refund> {
     return retryTransaction(this.dataSource, async (manager) => {
+      await acquireTeacherFinancialLock(
+        manager,
+        await this.teacherIdForOrder(manager, dto.order_id),
+      );
       const order = await manager.findOne(Order, {
         where: { id: dto.order_id },
         lock: { mode: 'pessimistic_write' },
@@ -330,6 +337,15 @@ export class RefundsService {
     transactionManager?: EntityManager,
   ): Promise<Refund> {
     const execute = async (manager: EntityManager): Promise<Refund> => {
+      const requested = await manager.findOne(Refund, { where: { id: refundId } });
+      if (!requested)
+        throw new NotFoundException(
+          biBody('Refund not found', 'Ø·Ù„Ø¨ Ø§Ù„Ø§Ø³ØªØ±Ø¯Ø§Ø¯ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯'),
+        );
+      await acquireTeacherFinancialLock(
+        manager,
+        await this.teacherIdForOrder(manager, requested.order_id),
+      );
       const refund = await manager.findOne(Refund, {
         where: { id: refundId },
         lock: { mode: 'pessimistic_write' },
@@ -518,6 +534,16 @@ export class RefundsService {
     transactionManager?: EntityManager,
   ): Promise<Refund> {
     const prepare = async (manager: EntityManager) => {
+      const paymentContext = await manager.findOne(Payment, { where: { id: paymentId } });
+      if (!paymentContext?.order_id) {
+        throw new NotFoundException(
+          biBody('Canonical payment order not found', 'Canonical payment order not found'),
+        );
+      }
+      await acquireTeacherFinancialLock(
+        manager,
+        await this.teacherIdForOrder(manager, paymentContext.order_id),
+      );
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
         lock: { mode: 'pessimistic_write' },
@@ -708,10 +734,12 @@ export class RefundsService {
     };
     const originalEarning = await manager.findOne(FinancialLedgerEntry, {
       where: { reference: `order:${order.id}:teacher-earning` },
+      lock: { mode: 'pessimistic_write' },
     });
     const releasedEarning = originalEarning
       ? await manager.findOne(FinancialLedgerEntry, {
           where: { reference: `release:${originalEarning.id}:available` },
+          lock: { mode: 'pessimistic_write' },
         })
       : null;
     const payableAccount =
@@ -803,6 +831,11 @@ export class RefundsService {
         .orIgnore()
         .execute();
     }
+  }
+
+  private async teacherIdForOrder(manager: EntityManager, orderId: string): Promise<string | null> {
+    const order = await manager.findOne(Order, { where: { id: orderId } });
+    return order?.teacher_id ?? null;
   }
 
   private async notification(manager: EntityManager, order: Order, refund: Refund): Promise<void> {

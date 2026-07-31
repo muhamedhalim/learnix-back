@@ -3,6 +3,31 @@ import { Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
 
 /**
+ * Financial mutations that can affect a teacher's payable balance must acquire
+ * locks in this order: (1) this transaction-scoped teacher advisory lock,
+ * (2) their settlement/refund state row when one exists, (3) order rows in
+ * ascending UUID order, and (4) ledger rows in ascending UUID order.
+ *
+ * The advisory lock is the cross-table serialization point. It keeps refund,
+ * settlement, and scheduled-release flows from acquiring their later row locks
+ * in conflicting orders while retaining normal PostgreSQL transactions.
+ */
+export const TEACHER_FINANCIAL_LOCK_ORDER =
+  'teacher advisory -> settlement/refund -> orders (ascending id) -> ledger (ascending id)' as const;
+
+/** Acquire a PostgreSQL transaction-scoped lock for one teacher's finances. */
+export async function acquireTeacherFinancialLock(
+  manager: EntityManager,
+  teacherId: string | null | undefined,
+): Promise<void> {
+  if (!teacherId) return;
+  await manager.query(
+    "SELECT pg_advisory_xact_lock(hashtextextended('teacher-finance:' || $1::text, 0))",
+    [teacherId],
+  );
+}
+
+/**
  * Configuration options for transaction retry utility.
  */
 export interface TransactionRetryOptions {
@@ -27,11 +52,7 @@ export interface TransactionRetryOptions {
    * Transaction isolation level (default: database default)
    * Options: 'READ UNCOMMITTED', 'READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE'
    */
-  isolationLevel?:
-    | 'READ UNCOMMITTED'
-    | 'READ COMMITTED'
-    | 'REPEATABLE READ'
-    | 'SERIALIZABLE';
+  isolationLevel?: 'READ UNCOMMITTED' | 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
 }
 
 /**
@@ -124,8 +145,7 @@ export async function retryTransaction<T>(
       if (!deadlockCheck.isDeadlock || attempt === maxRetries) {
         // Not a deadlock or no more retries left
         if (deadlockCheck.isDeadlock && attempt === maxRetries) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
           logger.error(
             `Transaction failed after ${String(maxRetries + 1)} attempts due to persistent deadlocks. ` +
               `Last error: ${errorMessage}`,
@@ -163,9 +183,7 @@ function extractErrorMessage(error: unknown): string {
   }
 
   const errorObj = error as Record<string, unknown>;
-  const driverError = errorObj['driverError'] as
-    | Record<string, unknown>
-    | undefined;
+  const driverError = errorObj['driverError'] as Record<string, unknown> | undefined;
 
   if (typeof errorObj['message'] === 'string') {
     return errorObj['message'];
@@ -187,9 +205,7 @@ function extractErrorCode(error: unknown): string | number | undefined {
   }
 
   const errorObj = error as Record<string, unknown>;
-  const driverError = errorObj['driverError'] as
-    | Record<string, unknown>
-    | undefined;
+  const driverError = errorObj['driverError'] as Record<string, unknown> | undefined;
 
   return (errorObj['code'] ?? driverError?.['code'] ?? errorObj['errno']) as
     | string
@@ -214,10 +230,7 @@ function checkDeadlockError(error: unknown): DeadlockCheckResult {
   const DEADLOCK_ERROR_CODE = '40P01';
   const SERIALIZATION_FAILURE_CODE = '40001';
 
-  if (
-    errorCode === DEADLOCK_ERROR_CODE ||
-    errorCode === SERIALIZATION_FAILURE_CODE
-  ) {
+  if (errorCode === DEADLOCK_ERROR_CODE || errorCode === SERIALIZATION_FAILURE_CODE) {
     return {
       isDeadlock: true,
       errorCode: typeof errorCode === 'string' ? errorCode : String(errorCode),

@@ -2,6 +2,7 @@ export * from './collection-party.enum';
 export * from './entitlement-status.enum';
 export * from './entitlement.entity';
 export * from './financial-ledger-entry.entity';
+export * from './financial-maintenance-run.entity';
 export * from './gateway-webhook-event.entity';
 export * from './item-type.enum';
 export * from './ledger.enums';

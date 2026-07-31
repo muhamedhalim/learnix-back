@@ -6,6 +6,7 @@ import { AddFinancePermissions2051000000000 } from '../../src/migrations/2051000
 import { AddSettlementEntryAllocation2052000000000 } from '../../src/migrations/2052000000000-AddSettlementEntryAllocation';
 import { AddPaymentOutboxLeases2053000000000 } from '../../src/migrations/2053000000000-AddPaymentOutboxLeases';
 import { HardenTeacherPayoutStageOne2054000000000 } from '../../src/migrations/2054000000000-HardenTeacherPayoutStageOne';
+import { HardenTeacherPayoutP1P2205600000000 } from '../../src/migrations/2056000000000-HardenTeacherPayoutP1P2';
 import { createE2EApp, resetDatabase } from './fixtures';
 
 /**
@@ -27,6 +28,7 @@ describe('payment recovery PostgreSQL guarantees', () => {
       await new AddSettlementEntryAllocation2052000000000().up(runner);
       await new AddPaymentOutboxLeases2053000000000().up(runner);
       await new HardenTeacherPayoutStageOne2054000000000().up(runner);
+      await new HardenTeacherPayoutP1P2205600000000().up(runner);
     } finally {
       await runner.release();
     }
@@ -122,6 +124,7 @@ describe('payment recovery PostgreSQL guarantees', () => {
       new AddSettlementEntryAllocation2052000000000(),
       new AddPaymentOutboxLeases2053000000000(),
       new HardenTeacherPayoutStageOne2054000000000(),
+      new HardenTeacherPayoutP1P2205600000000(),
     ];
     const runner = dataSource.createQueryRunner();
     await runner.connect();
@@ -133,8 +136,9 @@ describe('payment recovery PostgreSQL guarantees', () => {
            OR (table_name = 'teacher_settlement_entries' AND column_name = 'amount_minor')
            OR (table_name = 'payment_domain_events' AND column_name = 'lease_token')
            OR (table_name = 'teacher_settlements' AND column_name = 'idempotency_key')
+           OR (table_name = 'teacher_settlements' AND column_name = 'fiscal_period')
       `)) as Array<{ table_name: string; column_name: string }>;
-      expect(upColumns).toHaveLength(4);
+      expect(upColumns).toHaveLength(5);
       for (const migration of [...migrations].reverse()) await migration.down(runner);
       for (const migration of migrations) await migration.up(runner);
       const afterUp = (await runner.query(
@@ -156,6 +160,8 @@ describe('payment recovery PostgreSQL guarantees', () => {
       expect.arrayContaining([
         'UQ_teacher_settlements_idempotency_key',
         'UQ_teacher_settlements_paid_reference_normalized',
+        'uq_teacher_settlements_execution_idempotency_key',
+        'uq_teacher_settlements_active_logical_payout',
       ]),
     );
     const fks = (await dataSource.query(`
@@ -172,5 +178,12 @@ describe('payment recovery PostgreSQL guarantees', () => {
     `)) as Array<{ table_name: string; confdeltype: string }>;
     expect(fks).not.toHaveLength(0);
     expect(fks.every((fk) => fk.confdeltype === 'r')).toBe(true);
+  });
+
+  it('prevents direct PostgreSQL allocation override and preserves the trigger after migration restart', async () => {
+    const triggers = (await dataSource.query(`
+      SELECT tgname FROM pg_trigger WHERE tgrelid = 'teacher_settlement_entries'::regclass AND NOT tgisinternal
+    `)) as Array<{ tgname: string }>;
+    expect(triggers.map((trigger) => trigger.tgname)).toContain('trg_enforce_teacher_settlement_allocation');
   });
 });

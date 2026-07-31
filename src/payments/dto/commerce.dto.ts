@@ -393,6 +393,12 @@ export class CreateSettlementDto {
   @Length(8, 120)
   public idempotency_key?: string;
 
+  /** New callers provide a fiscal period; legacy callers receive a deterministic default. */
+  @IsOptional()
+  @IsString()
+  @Length(7, 7)
+  public fiscal_period?: string;
+
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
@@ -432,10 +438,23 @@ export class PaySettlementDto {
   @Length(2, 180)
   public transfer_reference!: string;
 
+  /** Optional only for legacy endpoint compatibility; fallback is deterministic. */
+  @IsOptional()
+  @IsString()
+  @Length(8, 120)
+  public idempotency_key?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
   public notes?: string;
+}
+
+/** Required immutable audit reason for a terminal, unpaid settlement decision. */
+export class SettlementTerminalDto {
+  @IsString()
+  @Length(2, 2000)
+  public reason!: string;
 }
 
 export class SettlementFilterDto extends Pagination20Dto {

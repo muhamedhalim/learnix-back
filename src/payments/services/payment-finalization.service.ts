@@ -16,7 +16,10 @@ import {
 import { Book } from '../../books/entities/book.entity';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { computeAccessExpiresAt } from '../../common/utils/lesson-access.util';
-import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import {
+  acquireTeacherFinancialLock,
+  retryTransaction,
+} from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Notification } from '../../notifications/entities/notification.entity';
@@ -105,6 +108,11 @@ export class PaymentFinalizationService {
     manager: EntityManager,
     input: FinalizePaymentInput,
   ): Promise<FinalizationResult> {
+    const orderContext = await manager.findOne(Order, { where: { id: input.orderId } });
+    if (!orderContext) {
+      throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
+    }
+    await acquireTeacherFinancialLock(manager, orderContext.teacher_id);
     const order = await manager.findOne(Order, {
       where: { id: input.orderId },
       lock: { mode: 'pessimistic_write' },

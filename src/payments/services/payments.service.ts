@@ -732,20 +732,10 @@ export class PaymentsService {
    * Get revenue statistics (admin)
    */
   public async getRevenueStatistics(fromDate?: Date, toDate?: Date): Promise<RevenueStatistics> {
-    const queryBuilder = this.paymentsRepository
-      .createQueryBuilder('payment')
-      .select('SUM(payment.final_amount)', 'total_revenue')
-      .addSelect('COUNT(*)', 'total_payments')
-      .addSelect('SUM(payment.discount_amount)', 'total_discounts')
-      .where('payment.status = :status', { status: PaymentStatus.COMPLETED });
-
-    if (fromDate !== undefined) {
-      queryBuilder.andWhere('payment.created_at >= :fromDate', { fromDate });
-    }
-
-    if (toDate !== undefined) {
-      queryBuilder.andWhere('payment.created_at <= :toDate', { toDate });
-    }
+    const queryBuilder = this.canonicalPaidOrderRevenueQuery(fromDate, toDate)
+      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total_revenue')
+      .addSelect('COUNT(order.id)', 'total_payments')
+      .addSelect('COALESCE(SUM(order.discount_amount_minor), 0) / 100.0', 'total_discounts');
 
     const result = (await queryBuilder.getRawOne<RevenueRawResult>()) ?? {
       total_revenue: null,
@@ -778,30 +768,11 @@ export class PaymentsService {
     fromDate?: string,
 
     toDate?: string,
-  ): SelectQueryBuilder<LessonPurchase> {
-    const query = this.lessonPurchasesRepository
-
-      .createQueryBuilder('lp')
-
-      .innerJoin('lp.lesson', 'lesson')
-
-      .innerJoin('lp.payment', 'payment')
-
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-
-      .andWhere('payment.status = :status', {
-        status: PaymentStatus.COMPLETED,
-      });
-
-    if (fromDate !== undefined && fromDate !== '') {
-      query.andWhere('payment.created_at >= :fromDate', { fromDate });
-    }
-
-    if (toDate !== undefined && toDate !== '') {
-      query.andWhere('payment.created_at <= :toDate', { toDate });
-    }
-
-    return query;
+  ): SelectQueryBuilder<Order> {
+    return this.canonicalPaidOrderRevenueQuery(
+      fromDate === '' ? undefined : fromDate,
+      toDate === '' ? undefined : toDate,
+    ).andWhere('order.teacher_id = :teacherId', { teacherId });
   }
 
   /**
@@ -853,7 +824,7 @@ export class PaymentsService {
 
     const totalResult = (await totalQuery
 
-      .select('SUM(lp.price_paid)', 'total')
+      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
 
       .getRawOne<TeacherRevenueTotalRaw>()) ?? { total: null };
 
@@ -879,11 +850,11 @@ export class PaymentsService {
 
     const periodResults = await periodQuery
 
-      .select(`TO_CHAR(payment.created_at, '${dateFormat}')`, 'period')
+      .select(`TO_CHAR(order.paid_at, '${dateFormat}')`, 'period')
 
-      .addSelect('SUM(lp.price_paid)', 'revenue')
+      .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'revenue')
 
-      .addSelect('COUNT(lp.id)', 'sales')
+      .addSelect('COUNT(order.id)', 'sales')
 
       .groupBy('period')
 
@@ -903,15 +874,17 @@ export class PaymentsService {
 
     const topLessons = await topLessonsQuery
 
-      .select('lesson.id', 'lesson_id')
+      .andWhere('order.item_type = :lessonType', { lessonType: ItemType.LESSON })
 
-      .addSelect('lesson.title', 'lesson_title')
+      .select('order.item_id', 'lesson_id')
 
-      .addSelect('SUM(lp.price_paid)', 'revenue')
+      .addSelect('MAX(order.product_title_snapshot)', 'lesson_title')
 
-      .addSelect('COUNT(lp.id)', 'sales')
+      .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'revenue')
 
-      .groupBy('lesson.id, lesson.title')
+      .addSelect('COUNT(order.id)', 'sales')
+
+      .groupBy('order.item_id')
 
       .orderBy('revenue', 'DESC')
 
@@ -956,20 +929,16 @@ export class PaymentsService {
       avg_price: number;
     }>;
   }> {
-    const results = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .innerJoin('lp.lesson', 'lesson')
-      .innerJoin('lp.payment', 'payment')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('payment.status = :status', { status: PaymentStatus.COMPLETED })
+    const results = await this.getTeacherRevenueBaseQuery(teacherId)
+      .andWhere('order.item_type = :lessonType', { lessonType: ItemType.LESSON })
       .select([
-        'lesson.id AS lesson_id',
-        'lesson.title AS lesson_title',
-        'COUNT(lp.id) AS purchase_count',
-        'SUM(lp.price_paid) AS total_revenue',
-        'AVG(lp.price_paid) AS avg_price',
+        'order.item_id AS lesson_id',
+        'MAX(order.product_title_snapshot) AS lesson_title',
+        'COUNT(order.id) AS purchase_count',
+        'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
+        'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
-      .groupBy('lesson.id, lesson.title')
+      .groupBy('order.item_id')
       .orderBy('total_revenue', 'DESC')
       .getRawMany<TeacherRevenueByLessonRaw>();
 
@@ -996,24 +965,16 @@ export class PaymentsService {
       avg_price: number;
     }>;
   }> {
-    // Package purchases are linked to lesson_packages
-    // We need to check if any lesson in the package belongs to this teacher
-    const results = await this.packagePurchasesRepository
-      .createQueryBuilder('pp')
-      .innerJoin('pp.package', 'package')
-      .innerJoin('pp.payment', 'payment')
-      .innerJoin('package.items', 'item')
-      .innerJoin('item.lesson', 'lesson')
-      .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('payment.status = :status', { status: PaymentStatus.COMPLETED })
+    const results = await this.getTeacherRevenueBaseQuery(teacherId)
+      .andWhere('order.item_type = :packageType', { packageType: ItemType.PACKAGE })
       .select([
-        'package.id AS package_id',
-        'package.title AS package_title',
-        'COUNT(DISTINCT pp.id) AS purchase_count',
-        'SUM(pp.price_paid) AS total_revenue',
-        'AVG(pp.price_paid) AS avg_price',
+        'order.item_id AS package_id',
+        'MAX(order.product_title_snapshot) AS package_title',
+        'COUNT(order.id) AS purchase_count',
+        'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
+        'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
-      .groupBy('package.id, package.title')
+      .groupBy('order.item_id')
       .orderBy('total_revenue', 'DESC')
       .getRawMany<TeacherRevenueByPackageRaw>();
 
@@ -1026,5 +987,26 @@ export class PaymentsService {
         avg_price: Number(p.avg_price),
       })),
     };
+  }
+
+  /**
+   * The canonical revenue source for every financial statistic in this service:
+   * a confirmed paid order, its completed payment, and order.paid_at.
+   */
+  private canonicalPaidOrderRevenueQuery(fromDate?: Date | string, toDate?: Date | string) {
+    const query = this.dataSource
+      .getRepository(Order)
+      .createQueryBuilder('order')
+      .innerJoin(
+        Payment,
+        'payment',
+        'payment.id = order.payment_id AND payment.status = :completedPaymentStatus',
+        { completedPaymentStatus: PaymentStatus.COMPLETED },
+      )
+      .where('order.status = :paidOrderStatus', { paidOrderStatus: OrderStatus.PAID })
+      .andWhere('order.paid_at IS NOT NULL');
+    if (fromDate !== undefined) query.andWhere('order.paid_at >= :fromDate', { fromDate });
+    if (toDate !== undefined) query.andWhere('order.paid_at <= :toDate', { toDate });
+    return query;
   }
 }

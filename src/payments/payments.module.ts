@@ -22,6 +22,7 @@ import { TeacherPaymentsController } from './controllers/teacher-payments.contro
 import {
   Entitlement,
   FinancialLedgerEntry,
+  FinancialMaintenanceRun,
   GatewayWebhookEvent,
   LessonPurchase,
   ManualPaymentMethod,
@@ -66,6 +67,7 @@ import { SettlementsService } from './services/settlements.service';
       Order,
       Entitlement,
       FinancialLedgerEntry,
+      FinancialMaintenanceRun,
       ManualPaymentMethod,
       ManualPaymentSubmission,
       Refund,

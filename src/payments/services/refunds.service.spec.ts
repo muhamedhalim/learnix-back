@@ -18,6 +18,7 @@ describe('RefundsService — financial validation', () => {
     save: jest.Mock;
     create: jest.Mock;
     insert: jest.Mock;
+    query: jest.Mock;
     createQueryBuilder: jest.Mock;
   };
 
@@ -52,6 +53,7 @@ describe('RefundsService — financial validation', () => {
       ),
       create: jest.fn((_entity: unknown, value: unknown) => value),
       insert: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue(undefined),
       createQueryBuilder: jest.fn(() => insertQuery),
     };
     const dataSource = {
