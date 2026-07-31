@@ -11,6 +11,8 @@ const baseProductionConfig: Record<string, unknown> = {
   BACKEND_URL: 'https://api.example.test',
   PUBLIC_MEDIA_BASE_URL: 'https://media.example.test',
   CORS_ORIGINS: 'https://learn.example.test,https://admin.example.test',
+  PAYMENT_CAPTURE_GRACE_SECONDS: '300',
+  PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS: '120',
 };
 
 describe('production environment URL validation', () => {
@@ -18,12 +20,14 @@ describe('production environment URL validation', () => {
     expect(() => validate(baseProductionConfig)).not.toThrow();
   });
 
-  it.each(['FRONTEND_URL', 'BACKEND_URL', 'CORS_ORIGINS'])
-  ('fails startup when %s is missing', (variable) => {
-    const config = { ...baseProductionConfig };
-    delete config[variable];
-    expect(() => validate(config)).toThrow(new RegExp(variable));
-  });
+  it.each(['FRONTEND_URL', 'BACKEND_URL', 'CORS_ORIGINS'])(
+    'fails startup when %s is missing',
+    (variable) => {
+      const config = { ...baseProductionConfig };
+      delete config[variable];
+      expect(() => validate(config)).toThrow(new RegExp(variable));
+    },
+  );
 
   it.each([
     ['FRONTEND_URL', 'http://learn.example.test'],
@@ -36,11 +40,28 @@ describe('production environment URL validation', () => {
   });
 
   it('rejects wildcard or mismatched credentialed CORS origins', () => {
-    expect(() =>
-      validate({ ...baseProductionConfig, CORS_ORIGINS: '*' }),
-    ).toThrow(/wildcard/i);
+    expect(() => validate({ ...baseProductionConfig, CORS_ORIGINS: '*' })).toThrow(/wildcard/i);
     expect(() =>
       validate({ ...baseProductionConfig, CORS_ORIGINS: 'https://other.example.test' }),
     ).toThrow(/include FRONTEND_URL/i);
   });
+
+  it.each([
+    'http://accept.paymob.com',
+    'https://attacker.example',
+    'https://key@accept.paymob.com',
+    'https://accept.paymob.com/?redirect=https://attacker.example',
+    'not a url',
+  ])('rejects unsafe PAYMOB_BASE_URL=%s', (url) => {
+    expect(() => validate({ ...baseProductionConfig, PAYMOB_BASE_URL: url })).toThrow(
+      /PAYMOB_BASE_URL/i,
+    );
+  });
+
+  it.each(['https://accept.paymob.com', 'https://accept.paymobsolutions.com/api'])(
+    'accepts allowlisted PAYMOB_BASE_URL=%s',
+    (url) => {
+      expect(() => validate({ ...baseProductionConfig, PAYMOB_BASE_URL: url })).not.toThrow();
+    },
+  );
 });

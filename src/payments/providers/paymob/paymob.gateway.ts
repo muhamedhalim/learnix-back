@@ -1,8 +1,14 @@
 import * as crypto from 'node:crypto';
 
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { validatePaymobBaseUrl } from '../../../config/env.validation';
 import { biBody } from '../../../i18n/error-translator.util';
 import type {
   PaymentGateway,
@@ -40,6 +46,7 @@ export class PaymobGateway implements PaymentGateway {
   private readonly webhookSecret: string;
   private readonly baseUrl: string;
   private readonly apiBaseUrl: string;
+  private readonly expectedLive: boolean;
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('PAYMOB_API_KEY') ?? '';
@@ -48,7 +55,12 @@ export class PaymobGateway implements PaymentGateway {
     this.iframeId = this.config.get<string>('PAYMOB_IFRAME_ID') ?? '';
     this.webhookSecret = this.config.get<string>('PAYMOB_WEBHOOK_SECRET') ?? '';
     this.baseUrl = (this.config.get<string>('PAYMOB_BASE_URL') ?? '').replace(/\/+$/u, '');
+    validatePaymobBaseUrl(this.baseUrl);
     this.apiBaseUrl = this.baseUrl.endsWith('/api') ? this.baseUrl : `${this.baseUrl}/api`;
+    const configuredMode = this.config.get<'test' | 'live'>('PAYMOB_EXPECTED_MODE');
+    this.expectedLive =
+      configuredMode === 'live' ||
+      (configuredMode === undefined && this.config.get<string>('NODE_ENV') === 'production');
   }
 
   public async createCheckout(input: ProviderCheckoutInput): Promise<ProviderCheckoutResult> {
@@ -191,6 +203,7 @@ export class PaymobGateway implements PaymentGateway {
       return null;
     }
     const refundedAmountMinor = this.optionalNonNegativeInteger(data.refunded_amount_cents) ?? 0;
+    this.assertProviderMode(data.is_live);
     const status: ProviderTransactionDetails['status'] =
       data.is_refunded === true || refundedAmountMinor >= amountMinor
         ? 'refunded'
@@ -208,6 +221,7 @@ export class PaymobGateway implements PaymentGateway {
       providerOrderReference: responseOrderId,
       merchantReference,
       refundedAmountMinor,
+      ...(typeof data.is_live === 'boolean' ? { isLive: data.is_live } : {}),
     };
   }
 
@@ -277,7 +291,17 @@ export class PaymobGateway implements PaymentGateway {
         biBody('Payment service unavailable', 'خدمة الدفع غير متاحة حالياً'),
       );
     }
-    return mapPaymobWebhook(parsePaymobWebhook(request), this.name, integrationId);
+    const event = mapPaymobWebhook(parsePaymobWebhook(request), this.name, integrationId);
+    this.assertProviderMode(event.isLive);
+    return event;
+  }
+
+  private assertProviderMode(value: unknown): void {
+    if (typeof value !== 'boolean' || value !== this.expectedLive) {
+      throw new BadRequestException(
+        'Payment gateway transaction mode does not match the configured environment',
+      );
+    }
   }
 
   public getConfigurationStatus(): PaymentGatewayConfigurationStatus {

@@ -56,11 +56,4 @@ export class QuizAnalyticsController {
     return { data };
   }
 
-  @Get('admin')
-  @Roles('admin')
-  @ApiOperation({ summary: 'Platform-wide quiz analytics (admin)' })
-  public async admin(): Promise<{ data: unknown }> {
-    const data = await this.quizAnalyticsService.getAdminAnalytics();
-    return { data };
-  }
 }

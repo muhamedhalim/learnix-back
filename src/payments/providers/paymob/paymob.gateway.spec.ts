@@ -15,7 +15,7 @@ function config(overrides: Partial<Record<string, string>> = {}): ConfigService 
     PAYMOB_CARD_INTEGRATION_ID: '999',
     PAYMOB_IFRAME_ID: '123',
     PAYMOB_WEBHOOK_SECRET: WEBHOOK_SECRET,
-    PAYMOB_BASE_URL: 'https://accept.paymob.test',
+    PAYMOB_BASE_URL: 'https://accept.paymob.com',
     ...overrides,
   };
   return { get: (key: string) => values[key] } as ConfigService;
@@ -39,6 +39,7 @@ function transaction(overrides: Partial<Record<string, unknown>> = {}): Record<s
     integration_id: 999,
     owner: 1,
     created_at: '2026-01-01T00:00:00Z',
+    is_live: false,
     source_data: { pan: '2345', sub_type: 'MasterCard', type: 'card' },
     order: { id: 555, merchant_order_id: 'payment-1' },
     ...overrides,
@@ -126,15 +127,15 @@ describe('PaymobGateway', () => {
 
     await expect(gateway.createCheckout(checkoutInput())).resolves.toEqual({
       redirectUrl:
-        'https://accept.paymob.test/api/acceptance/iframes/123?payment_token=payment-key',
+        'https://accept.paymob.com/api/acceptance/iframes/123?payment_token=payment-key',
       providerReference: '555',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://accept.paymob.test/api/auth/tokens');
-    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://accept.paymob.test/api/ecommerce/orders');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://accept.paymob.com/api/auth/tokens');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://accept.paymob.com/api/ecommerce/orders');
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      'https://accept.paymob.test/api/acceptance/payment_keys',
+      'https://accept.paymob.com/api/acceptance/payment_keys',
     );
     const orderRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<
       string,
@@ -156,14 +157,14 @@ describe('PaymobGateway', () => {
 
     await expect(gateway.createCheckoutSession(checkoutInput(), '555')).resolves.toEqual({
       redirectUrl:
-        'https://accept.paymob.test/api/acceptance/iframes/123?payment_token=payment-key',
+        'https://accept.paymob.com/api/acceptance/iframes/123?payment_token=payment-key',
       providerReference: '555',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://accept.paymob.test/api/auth/tokens');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://accept.paymob.com/api/auth/tokens');
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      'https://accept.paymob.test/api/acceptance/payment_keys',
+      'https://accept.paymob.com/api/acceptance/payment_keys',
     );
     const keyRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as Record<
       string,
@@ -188,10 +189,11 @@ describe('PaymobGateway', () => {
       providerOrderReference: '555',
       merchantReference: 'payment-1',
       refundedAmountMinor: 0,
+      isLive: false,
     });
 
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      'https://accept.paymob.test/api/ecommerce/orders/transaction_inquiry',
+      'https://accept.paymob.com/api/ecommerce/orders/transaction_inquiry',
     );
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       auth_token: 'auth-token',
@@ -284,7 +286,7 @@ describe('PaymobGateway', () => {
       status: 'succeeded',
     });
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
-      'https://accept.paymob.test/api/acceptance/void_refund/refund',
+      'https://accept.paymob.com/api/acceptance/void_refund/refund',
     );
   });
 });

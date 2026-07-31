@@ -128,10 +128,11 @@ export class SettlementsService {
             { earningReversal: LedgerEntryType.TEACHER_EARNING_REVERSAL },
           )
           .andWhere(
-            `NOT EXISTS (
-            SELECT 1 FROM teacher_settlement_entries membership
-            WHERE membership.ledger_entry_id = entry.id
-          )`,
+            `entry.amount_minor > COALESCE((
+              SELECT SUM(membership.amount_minor)
+              FROM teacher_settlement_entries membership
+              WHERE membership.ledger_entry_id = entry.id
+            ), 0)`,
           );
         if (dto.ledger_entry_ids?.length) {
           query.andWhere('entry.id IN (:...entryIds)', { entryIds: dto.ledger_entry_ids });
@@ -180,15 +181,30 @@ export class SettlementsService {
             ),
           );
         }
-        if (!dto.ledger_entry_ids?.length) {
-          let selectedGross = 0;
-          entries = entries.filter((entry) => {
-            if (selectedGross + entry.amount_minor > netAvailable) return false;
-            selectedGross += entry.amount_minor;
-            return true;
-          });
+        const existingAllocations = await manager
+          .getRepository(SettlementEntry)
+          .createQueryBuilder('membership')
+          .select('membership.ledger_entry_id', 'ledger_entry_id')
+          .addSelect('COALESCE(SUM(membership.amount_minor), 0)', 'allocated_minor')
+          .where('membership.ledger_entry_id IN (:...entryIds)', {
+            entryIds: entries.map((entry) => entry.id),
+          })
+          .groupBy('membership.ledger_entry_id')
+          .getRawMany<{ ledger_entry_id: string; allocated_minor: string }>();
+        const allocatedByEntry = new Map(
+          existingAllocations.map((row) => [row.ledger_entry_id, Number(row.allocated_minor)]),
+        );
+        let remainingNet = netAvailable;
+        const allocations: Array<{ entry: FinancialLedgerEntry; amountMinor: number }> = [];
+        for (const entry of entries) {
+          if (remainingNet <= 0) break;
+          const availableForEntry = entry.amount_minor - (allocatedByEntry.get(entry.id) ?? 0);
+          const amountMinor = Math.min(availableForEntry, remainingNet);
+          if (amountMinor <= 0) continue;
+          allocations.push({ entry, amountMinor });
+          remainingNet -= amountMinor;
         }
-        const gross = entries.reduce((sum, entry) => sum + entry.amount_minor, 0);
+        const gross = allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
         if (gross <= 0 || gross > netAvailable) {
           throw new ConflictException(
             biBody(
@@ -244,13 +260,18 @@ export class SettlementsService {
         );
         await manager.insert(
           SettlementEntry,
-          entries.map((entry) => ({
+          allocations.map(({ entry, amountMinor }) => ({
             settlement_id: settlement.id,
             ledger_entry_id: entry.id,
+            amount_minor: amountMinor,
           })),
         );
         await this.audit(manager, adminId, 'settlement_created', settlement, {
-          ledger_entry_ids: entries.map((entry) => entry.id),
+          ledger_entry_ids: allocations.map(({ entry }) => entry.id),
+          allocated_amounts_minor: allocations.map(({ entry, amountMinor }) => ({
+            ledger_entry_id: entry.id,
+            amount_minor: amountMinor,
+          })),
         });
         await this.event(manager, 'settlement.created', `settlement:${settlement.id}:created`, {
           settlement_id: settlement.id,
@@ -269,6 +290,14 @@ export class SettlementsService {
       if (settlement.status !== SettlementStatus.DRAFT) {
         throw new ConflictException(
           biBody('Only a draft settlement can be approved', 'يمكن اعتماد التسوية المسودة فقط'),
+        );
+      }
+      if (settlement.initiated_by === adminId) {
+        throw new ConflictException(
+          biBody(
+            'Settlement creator cannot approve the same settlement',
+            'Settlement creator cannot approve the same settlement',
+          ),
         );
       }
       settlement.status = SettlementStatus.APPROVED;
@@ -292,6 +321,14 @@ export class SettlementsService {
         if (settlement.status !== SettlementStatus.APPROVED) {
           throw new ConflictException(
             biBody('Settlement must be approved before payment', 'يجب اعتماد التسوية قبل الدفع'),
+          );
+        }
+        if (settlement.initiated_by === adminId || settlement.approved_by === adminId) {
+          throw new ConflictException(
+            biBody(
+              'Settlement creator or approver cannot disburse the same settlement',
+              'Settlement creator or approver cannot disburse the same settlement',
+            ),
           );
         }
         const memberOrders = await manager

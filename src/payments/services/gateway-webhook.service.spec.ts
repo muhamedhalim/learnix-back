@@ -51,6 +51,7 @@ describe('GatewayWebhookService', () => {
     processFailedPayment: jest.fn(),
     processRefundedPayment: jest.fn(),
   };
+  const financialStateMachine = { apply: jest.fn() };
   const dataSource = {
     transaction: jest.fn(async (work: (manager: typeof manager) => unknown) => work(manager)),
   };
@@ -98,10 +99,33 @@ describe('GatewayWebhookService', () => {
     payments.processSuccessfulPayment.mockResolvedValue(undefined);
     payments.processFailedPayment.mockResolvedValue(undefined);
     payments.processRefundedPayment.mockResolvedValue(undefined);
+    financialStateMachine.apply.mockImplementation(
+      async (_eventId: string, _lease: string, paymentId: string, webhook: ProviderWebhookEvent) => {
+        await payments.processSuccessfulPayment(paymentId, {
+          amountCents: webhook.amountMinor,
+          currency: webhook.currency,
+          transactionId: webhook.transactionId,
+        });
+        if (webhook.outcome === 'refunded') {
+          await payments.processRefundedPayment(paymentId, {
+            amountCents: webhook.amountMinor,
+            currency: webhook.currency,
+            transactionId: webhook.transactionId,
+          });
+        }
+        const event = [...events.values()].find((candidate) => candidate.id === _eventId);
+        if (event) {
+          event.status = 'processed';
+          event.lease_token = null;
+          event.processed_at = new Date();
+        }
+      },
+    );
     service = new GatewayWebhookService(
       repository as never,
       dataSource as never,
       payments as unknown as PaymentsService,
+      financialStateMachine as never,
     );
   });
 

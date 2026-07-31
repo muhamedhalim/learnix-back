@@ -26,6 +26,7 @@ export interface PaymobTransaction {
   integrationId: number;
   owner: number;
   createdAt: string;
+  isLive?: boolean;
   sourceData: PaymobSourceData;
   order: PaymobOrderReference;
   message?: string;
@@ -62,6 +63,7 @@ export interface PaymobTransactionInquiryResponse {
   refunded_amount_cents?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
+  is_live?: unknown;
   order?: {
     id?: unknown;
     merchant_order_id?: unknown;

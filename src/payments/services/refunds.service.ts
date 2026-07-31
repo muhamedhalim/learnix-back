@@ -187,6 +187,14 @@ export class RefundsService {
       if (!refund || refund.channel !== PaymentChannel.GATEWAY || !refund.payment_id) {
         throw new NotFoundException(biBody('Gateway refund not found', 'Gateway refund not found'));
       }
+      if (refund.requested_by === adminId) {
+        throw new ConflictException(
+          biBody(
+            'Refund requester cannot dispatch the same gateway refund',
+            'Refund requester cannot dispatch the same gateway refund',
+          ),
+        );
+      }
       if (refund.status === RefundStatus.SUCCEEDED) return { refund, payment: null, attempt: null };
       const payment = await manager.findOne(Payment, {
         where: { id: refund.payment_id },
@@ -319,8 +327,9 @@ export class RefundsService {
     dto: CompleteRefundDto,
     adminId: string,
     providerVerified = false,
+    transactionManager?: EntityManager,
   ): Promise<Refund> {
-    return retryTransaction(this.dataSource, async (manager) => {
+    const execute = async (manager: EntityManager): Promise<Refund> => {
       const refund = await manager.findOne(Refund, {
         where: { id: refundId },
         lock: { mode: 'pessimistic_write' },
@@ -328,6 +337,14 @@ export class RefundsService {
       if (!refund)
         throw new NotFoundException(biBody('Refund not found', 'طلب الاسترداد غير موجود'));
       if (refund.status === RefundStatus.SUCCEEDED) return refund;
+      if (!providerVerified && refund.requested_by === adminId) {
+        throw new ConflictException(
+          biBody(
+            'Refund requester cannot complete the same refund',
+            'Refund requester cannot complete the same refund',
+          ),
+        );
+      }
       if (
         ![RefundStatus.REQUESTED, RefundStatus.APPROVED, RefundStatus.PROCESSING].includes(
           refund.status,
@@ -399,7 +416,9 @@ export class RefundsService {
         external_reference: dto.external_reference,
       });
       return refund;
-    });
+    };
+    if (transactionManager) return execute(transactionManager);
+    return retryTransaction(this.dataSource, execute);
   }
 
   public async completeProviderNotification(
@@ -496,8 +515,9 @@ export class RefundsService {
     externalReference: string,
     amountMinor: number,
     currency: string,
+    transactionManager?: EntityManager,
   ): Promise<Refund> {
-    const prepared = await retryTransaction(this.dataSource, async (manager) => {
+    const prepare = async (manager: EntityManager) => {
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
         lock: { mode: 'pessimistic_write' },
@@ -573,12 +593,33 @@ export class RefundsService {
         }),
       );
       return { refund: created, provider: payment.provider ?? 'gateway' };
-    });
+    };
+    const prepared = transactionManager
+      ? await prepare(transactionManager)
+      : await retryTransaction(this.dataSource, prepare);
     return this.complete(
       prepared.refund.id,
       { external_method: prepared.provider, external_reference: externalReference },
       prepared.refund.requested_by,
       true,
+      transactionManager,
+    );
+  }
+
+  /** Used by the webhook state machine to keep payment and refund effects atomic. */
+  public async completeProviderNotificationInTransaction(
+    manager: EntityManager,
+    paymentId: string,
+    externalReference: string,
+    amountMinor: number,
+    currency: string,
+  ): Promise<Refund> {
+    return this.completeProviderNotificationLocked(
+      paymentId,
+      externalReference,
+      amountMinor,
+      currency,
+      manager,
     );
   }
 

@@ -31,6 +31,8 @@ import {
   UpdateManualPaymentMethodDto,
 } from '../dto';
 import { ManualPaymentsService } from '../services/manual-payments.service';
+import { FinancePermissions } from '../decorators/finance-permissions.decorator';
+import { FinancePermissionsGuard } from '../guards/finance-permissions.guard';
 import { OrdersService } from '../services/orders.service';
 import { PaymentOperationsService } from '../services/payment-operations.service';
 import { RefundsService } from '../services/refunds.service';
@@ -38,7 +40,7 @@ import { SettlementsService } from '../services/settlements.service';
 
 @ApiTags('Admin - Unified Finance')
 @Controller('admin/finance')
-@UseGuards(HybridAuthGuard, RolesGuard)
+@UseGuards(HybridAuthGuard, RolesGuard, FinancePermissionsGuard)
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminFinanceController {
@@ -131,6 +133,7 @@ export class AdminFinanceController {
   }
 
   @Post('refunds')
+  @FinancePermissions('refunds.create')
   public async requestRefund(@Body() dto: CreateRefundDto, @GetUser() user: JwtPayload) {
     return { data: await this.refunds.request(dto, user.userId) };
   }
@@ -141,6 +144,7 @@ export class AdminFinanceController {
   }
 
   @Post('refunds/:id/process-gateway')
+  @FinancePermissions('refunds.process')
   public async processGatewayRefund(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: JwtPayload,
@@ -149,6 +153,7 @@ export class AdminFinanceController {
   }
 
   @Post('refunds/:id/complete')
+  @FinancePermissions('refunds.complete')
   public async completeRefund(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CompleteRefundDto,
@@ -158,6 +163,7 @@ export class AdminFinanceController {
   }
 
   @Post('settlements')
+  @FinancePermissions('settlements.create')
   public async createSettlement(@Body() dto: CreateSettlementDto, @GetUser() user: JwtPayload) {
     return { data: await this.settlements.create(dto, user.userId) };
   }
@@ -168,6 +174,7 @@ export class AdminFinanceController {
   }
 
   @Post('settlements/:id/approve')
+  @FinancePermissions('settlements.approve')
   public async approveSettlement(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: JwtPayload,
@@ -176,6 +183,7 @@ export class AdminFinanceController {
   }
 
   @Post('settlements/:id/pay')
+  @FinancePermissions('settlements.pay')
   public async paySettlement(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PaySettlementDto,
@@ -185,6 +193,7 @@ export class AdminFinanceController {
   }
 
   @Get('reconciliation')
+  @FinancePermissions('reconciliation.review')
   public async reconciliation() {
     return { data: await this.operations.reconciliationReport() };
   }

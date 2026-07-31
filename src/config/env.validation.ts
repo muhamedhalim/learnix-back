@@ -1,6 +1,7 @@
 import { plainToInstance, Type } from 'class-transformer';
 import {
   IsNotEmpty,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -16,6 +17,31 @@ enum Environment {
   Development = 'development',
   Production = 'production',
   Test = 'test',
+}
+
+const PAYMOB_ALLOWED_HOSTS = new Set(['accept.paymob.com', 'accept.paymobsolutions.com']);
+
+export function validatePaymobBaseUrl(value: unknown): void {
+  if (value === undefined || value === '') return;
+  if (typeof value !== 'string') throw new Error('PAYMOB_BASE_URL must be a URL.');
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('PAYMOB_BASE_URL must be a valid HTTPS Paymob URL.');
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    !PAYMOB_ALLOWED_HOSTS.has(url.hostname.toLowerCase())
+  ) {
+    throw new Error(
+      'PAYMOB_BASE_URL must use an allowlisted HTTPS Paymob host without credentials, query, or fragment.',
+    );
+  }
 }
 
 export class EnvironmentVariables {
@@ -286,6 +312,10 @@ export class EnvironmentVariables {
   @IsOptional()
   public PAYMOB_BASE_URL?: string;
 
+  @IsIn(['test', 'live'])
+  @IsOptional()
+  public PAYMOB_EXPECTED_MODE?: 'test' | 'live';
+
   /** Trusted provider capture time may arrive shortly after local expiry. */
   @IsNumber()
   @Min(0)
@@ -438,6 +468,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
 
   validateProductionPublicOrigins(config);
+  validatePaymobBaseUrl(validatedConfig.PAYMOB_BASE_URL);
 
   if (validatedConfig.NODE_ENV === Environment.Production) {
     for (const key of ['PAYMENT_CAPTURE_GRACE_SECONDS', 'PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS']) {
@@ -446,6 +477,11 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
           `Environment validation failed: ${key} must be explicitly configured in production.`,
         );
       }
+    }
+    if (validatedConfig.PAYMOB_API_KEY && validatedConfig.PAYMOB_EXPECTED_MODE !== 'live') {
+      throw new Error(
+        'Environment validation failed: production Paymob must explicitly use PAYMOB_EXPECTED_MODE=live.',
+      );
     }
   }
 

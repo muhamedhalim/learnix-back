@@ -6,7 +6,6 @@ import { In, Repository } from 'typeorm';
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
-import { Question } from '../exams/entities/question.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { ReviewPolicy } from '../exams/entities/review-policy.enum';
 import { QuestionSolve } from '../gamification/entities/question-solve.entity';
@@ -100,8 +99,6 @@ export class QuizAnalyticsService {
     private readonly answersRepository: Repository<ExamAttemptAnswer>,
     @InjectRepository(Exam)
     private readonly examsRepository: Repository<Exam>,
-    @InjectRepository(Question)
-    private readonly questionsRepository: Repository<Question>,
     @InjectRepository(QuestionSolve)
     private readonly questionSolvesRepository: Repository<QuestionSolve>,
     @InjectRepository(HomeworkSubmission)
@@ -1188,124 +1185,4 @@ export class QuizAnalyticsService {
     );
   }
 
-  /* ===================== Admin ===================== */
-
-  public async getAdminAnalytics(): Promise<{
-    totalAttempts: number;
-    averageScore: number;
-    passRate: number;
-    completionRate: number;
-    activeStudents30d: number;
-    teacherComparisons: { teacherName: string; avgPercent: number; attempts: number }[];
-    subjectComparisons: { subject: string; avgPercent: number; attempts: number }[];
-    questionBankHealth: {
-      totalQuestions: number;
-      usedQuestions: number;
-      unusedQuestions: number;
-      tooHard: number;
-      tooEasy: number;
-    };
-  }> {
-    const summary = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .select('COUNT(*)', 'total')
-      .addSelect('COUNT(a.score_total)', 'scored')
-      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .addSelect('AVG(CASE WHEN a.passed THEN 1 ELSE 0 END) * 100', 'passRate')
-      .getRawOne<{
-        total: string;
-        scored: string;
-        avgPercent: string | null;
-        passRate: string | null;
-      }>();
-
-    const total = Number.parseInt(summary?.total ?? '0', 10);
-    const scored = Number.parseInt(summary?.scored ?? '0', 10);
-
-    const active = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .select('COUNT(DISTINCT a.student_id)', 'count')
-      .where("a.started_at >= NOW() - INTERVAL '30 days'")
-      .getRawOne<{ count: string }>();
-
-    const teachers = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .innerJoin('exams', 'e', 'e.id = a.exam_id')
-      .innerJoin('users', 'u', 'u.id = e.teacher_id')
-      .select('u.name', 'teacherName')
-      .addSelect('COUNT(*)', 'attempts')
-      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .where('a.score_total IS NOT NULL')
-      .groupBy('u.id')
-      .addGroupBy('u.name')
-      .orderBy('"avgPercent"', 'DESC')
-      .limit(10)
-      .getRawMany<{ teacherName: string; attempts: string; avgPercent: string | null }>();
-
-    const subjects = await this.attemptsRepository
-      .createQueryBuilder('a')
-      .innerJoin('exams', 'e', 'e.id = a.exam_id')
-      .innerJoin('subjects', 's', 's.id = e.subject_id')
-      .select('s.name', 'subject')
-      .addSelect('COUNT(*)', 'attempts')
-      .addSelect('AVG(a.score_total::numeric / NULLIF(a.max_score, 0)) * 100', 'avgPercent')
-      .where('a.score_total IS NOT NULL')
-      .groupBy('s.id')
-      .addGroupBy('s.name')
-      .orderBy('"avgPercent"', 'DESC')
-      .limit(10)
-      .getRawMany<{ subject: string; attempts: string; avgPercent: string | null }>();
-
-    const totalQuestions = await this.questionsRepository.count();
-    const questionHealth = await this.answersRepository.query<
-      {
-        usedQuestions: number | string;
-        tooHard: number | string;
-        tooEasy: number | string;
-      }[]
-    >(`
-      SELECT
-        (
-          SELECT COUNT(DISTINCT answer.question_id)::int
-          FROM exam_attempt_answers answer
-        ) AS "usedQuestions",
-        COUNT(*) FILTER (WHERE difficulty.correct_rate < 0.3)::int AS "tooHard",
-        COUNT(*) FILTER (WHERE difficulty.correct_rate > 0.9)::int AS "tooEasy"
-      FROM (
-        SELECT AVG(answer.is_correct::int) AS correct_rate
-        FROM exam_attempt_answers answer
-        WHERE answer.is_correct IS NOT NULL
-        GROUP BY answer.question_id
-        HAVING COUNT(*) >= 5
-      ) difficulty
-    `);
-    const usedQuestions = Number(questionHealth[0]?.usedQuestions ?? 0);
-    const tooHard = Number(questionHealth[0]?.tooHard ?? 0);
-    const tooEasy = Number(questionHealth[0]?.tooEasy ?? 0);
-
-    return {
-      totalAttempts: total,
-      averageScore: Math.round(Number(summary?.avgPercent ?? 0)),
-      passRate: Math.round(Number(summary?.passRate ?? 0)),
-      completionRate: total > 0 ? Math.round((scored / total) * 100) : 0,
-      activeStudents30d: Number.parseInt(active?.count ?? '0', 10),
-      teacherComparisons: teachers.map((t) => ({
-        teacherName: t.teacherName,
-        avgPercent: Math.round(Number(t.avgPercent ?? 0)),
-        attempts: Number.parseInt(t.attempts, 10),
-      })),
-      subjectComparisons: subjects.map((s) => ({
-        subject: s.subject,
-        avgPercent: Math.round(Number(s.avgPercent ?? 0)),
-        attempts: Number.parseInt(s.attempts, 10),
-      })),
-      questionBankHealth: {
-        totalQuestions,
-        usedQuestions,
-        unusedQuestions: Math.max(0, totalQuestions - usedQuestions),
-        tooHard,
-        tooEasy,
-      },
-    };
-  }
 }

@@ -45,6 +45,7 @@ export interface ProviderTransactionDetails {
   providerOrderReference: string;
   merchantReference: string;
   refundedAmountMinor: number;
+  isLive?: boolean;
 }
 
 export interface ProviderWebhookRequest {
@@ -62,6 +63,7 @@ export interface ProviderWebhookEvent {
   currency: string;
   /** Provider-signed transaction timestamp, when available. */
   occurredAt?: Date;
+  isLive?: boolean;
   outcome: 'pending' | 'succeeded' | 'failed' | 'refunded';
   message?: string;
   payload: Record<string, unknown>;

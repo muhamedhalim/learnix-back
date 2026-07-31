@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, LessThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
@@ -160,34 +160,161 @@ export class PaymentOperationsService {
       return refund;
     });
     if (!claimed) return;
+    try {
+      if (!claimed.payment_id) {
+        await this.scheduleRefundReconciliationRetry(
+          claimed,
+          'Refund has no linked payment for provider reconciliation',
+        );
+        return;
+      }
+      const payment = await this.dataSource.getRepository(Payment).findOne({
+        where: { id: claimed.payment_id },
+      });
+      if (!payment?.provider || !payment.order_id) {
+        await this.scheduleRefundReconciliationRetry(
+          claimed,
+          'Refund payment has no reconcilable provider reference',
+        );
+        return;
+      }
+      const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+      if (!providerOrderReference) {
+        await this.scheduleRefundReconciliationRetry(
+          claimed,
+          'Refund payment is missing a provider order reference',
+        );
+        return;
+      }
+      const details = await this.providers
+        .get(payment.provider)
+        .getTransactionByOrderReference(providerOrderReference, payment.id);
+      if (!details) {
+        await this.scheduleRefundReconciliationRetry(
+          claimed,
+          'Provider did not return transaction details for the refund payment',
+        );
+        return;
+      }
+      if (
+        details.providerOrderReference !== providerOrderReference ||
+        details.merchantReference !== payment.id ||
+        details.amountMinor !== payment.amount_minor ||
+        details.currency.toUpperCase() !== payment.currency.toUpperCase() ||
+        details.currency.toUpperCase() !== claimed.currency.toUpperCase()
+      ) {
+        await this.quarantineRefund(claimed, details);
+        return;
+      }
+      // The product only supports whole-order refunds.  A provider-authoritative
+      // transaction state of `refunded` plus a full refunded amount is therefore
+      // an unambiguous refund-level fact for this exact refund.  A successful
+      // original charge alone is deliberately insufficient and never releases a
+      // new dispatch.
+      if (
+        details.status === 'refunded' &&
+        details.refundedAmountMinor >= claimed.amount_minor &&
+        claimed.amount_minor === payment.amount_minor
+      ) {
+        await this.refunds.completeProviderNotification(
+          payment.id,
+          `transaction:${details.transactionId}:refunded`,
+          claimed.amount_minor,
+          claimed.currency,
+        );
+        await this.finishRefundReconciliation(claimed);
+        return;
+      }
+      await this.requireRefundReconciliationReview(
+        claimed,
+        details.status === 'succeeded'
+          ? 'Original payment succeeded, but no provider refund fact was returned'
+          : `Provider refund transaction is ${details.status}`,
+      );
+    } catch (error) {
+      await this.scheduleRefundReconciliationRetry(
+        claimed,
+        error instanceof Error ? error.message : 'Unknown provider refund reconciliation error',
+      );
+    }
+  }
 
-    // Paymob's currently integrated inquiry is transaction-level for the
-    // original charge, not a refund-attempt status endpoint. It cannot prove
-    // that a particular refund was not processed; do not dispatch or complete
-    // a refund from it. A signed refund callback/manual reviewed action is
-    // required to resolve this state.
-    const message = 'Provider refund-level confirmation is required; automatic resend is disabled';
+  private async finishRefundReconciliation(refund: Refund): Promise<void> {
+    await this.dataSource.getRepository(Refund).update(
+      { id: refund.id, reconciliation_claim_token: refund.reconciliation_claim_token! },
+      {
+        reconciliation_status: 'reconciled',
+        reconciliation_claim_token: null,
+        reconciliation_lease_expires_at: null,
+        reconciliation_next_retry_at: null,
+        reconciliation_last_provider_error: null,
+      },
+    );
+  }
+
+  private async scheduleRefundReconciliationRetry(refund: Refund, error: string): Promise<void> {
+    const attempts = refund.reconciliation_attempt_count;
+    const nextRetryAt = new Date(
+      Date.now() + Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7)),
+    );
     await retryTransaction(this.dataSource, async (manager) => {
-      const refund = await manager.findOne(Refund, {
-        where: { id: claimed.id },
+      const locked = await manager.findOne(Refund, {
+        where: { id: refund.id },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!refund || refund.reconciliation_claim_token !== claimed.reconciliation_claim_token)
-        return;
-      refund.reconciliation_status = 'reconciliation_required';
-      refund.reconciliation_last_provider_error = message;
-      refund.reconciliation_lease_expires_at = null;
-      refund.reconciliation_claim_token = null;
-      refund.reconciliation_next_retry_at = null;
-      await manager.save(refund);
+      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token) return;
+      locked.reconciliation_status = 'retry_scheduled';
+      locked.reconciliation_claim_token = null;
+      locked.reconciliation_lease_expires_at = null;
+      locked.reconciliation_next_retry_at = nextRetryAt;
+      locked.reconciliation_last_provider_error = error;
+      await manager.save(locked);
+      if (attempts >= 3) {
+        await manager
+          .createQueryBuilder()
+          .insert()
+          .into(PaymentDomainEvent)
+          .values({
+            event_name: 'refund.reconciliation_stuck',
+            dedupe_key: `refund:${locked.id}:reconciliation-stuck`,
+            payload: {
+              refund_id: locked.id,
+              payment_id: locked.payment_id,
+              attempts,
+              error,
+              next_retry_at: nextRetryAt.toISOString(),
+            },
+            published_at: null,
+            attempts: 0,
+            last_error: null,
+          } as never)
+          .orIgnore()
+          .execute();
+      }
+    });
+  }
+
+  private async requireRefundReconciliationReview(refund: Refund, reason: string): Promise<void> {
+    await retryTransaction(this.dataSource, async (manager) => {
+      const locked = await manager.findOne(Refund, {
+        where: { id: refund.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked || locked.reconciliation_claim_token !== refund.reconciliation_claim_token) return;
+      locked.reconciliation_status = 'reconciliation_required';
+      locked.reconciliation_last_provider_error = reason;
+      locked.reconciliation_claim_token = null;
+      locked.reconciliation_lease_expires_at = null;
+      locked.reconciliation_next_retry_at = null;
+      await manager.save(locked);
       await manager
         .createQueryBuilder()
         .insert()
         .into(PaymentDomainEvent)
         .values({
           event_name: 'refund.reconciliation_required',
-          dedupe_key: `refund:${refund.id}:reconciliation-required`,
-          payload: { refund_id: refund.id, payment_id: refund.payment_id, reason: message },
+          dedupe_key: `refund:${locked.id}:reconciliation-required`,
+          payload: { refund_id: locked.id, payment_id: locked.payment_id, reason },
           published_at: null,
           attempts: 0,
           last_error: null,
@@ -198,10 +325,66 @@ export class PaymentOperationsService {
         actor_id: null,
         action: 'refund_reconciliation_required',
         resource_type: 'refund',
-        resource_id: refund.id,
-        details: { reason: message },
+        resource_id: locked.id,
+        details: { reason },
         ip_address: null,
       });
+    });
+  }
+
+  private async quarantineRefund(
+    refund: Refund,
+    details: {
+      transactionId: string;
+      amountMinor: number;
+      currency: string;
+      providerOrderReference: string;
+      merchantReference: string;
+    },
+  ): Promise<void> {
+    const reason = `reconciliation_quarantine: provider transaction ${details.transactionId} does not match refund`;
+    await retryTransaction(this.dataSource, async (manager) => {
+      const locked = await manager.findOne(Refund, {
+        where: { id: refund.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!locked || locked.reconciliation_status === 'quarantined') return;
+      locked.reconciliation_status = 'quarantined';
+      locked.reconciliation_quarantine_reason = reason;
+      locked.reconciliation_quarantined_at = new Date();
+      locked.reconciliation_last_provider_error = reason;
+      locked.reconciliation_claim_token = null;
+      locked.reconciliation_lease_expires_at = null;
+      locked.reconciliation_next_retry_at = null;
+      await manager.save(locked);
+      await manager.insert(PaymentAuditLog, {
+        actor_id: null,
+        action: 'refund_reconciliation_quarantined',
+        resource_type: 'refund',
+        resource_id: locked.id,
+        details: {
+          provider_transaction_id: details.transactionId,
+          provider_amount_minor: details.amountMinor,
+          provider_currency: details.currency,
+          provider_order_reference: details.providerOrderReference,
+          provider_merchant_reference: details.merchantReference,
+        },
+        ip_address: null,
+      });
+      await manager
+        .createQueryBuilder()
+        .insert()
+        .into(PaymentDomainEvent)
+        .values({
+          event_name: 'refund.reconciliation_alert',
+          dedupe_key: `refund:${locked.id}:reconciliation-quarantine`,
+          payload: { refund_id: locked.id, reason },
+          published_at: null,
+          attempts: 0,
+          last_error: null,
+        } as never)
+        .orIgnore()
+        .execute();
     });
   }
 
@@ -473,28 +656,122 @@ export class PaymentOperationsService {
   }
 
   public async publishOutbox(limit = 100): Promise<number> {
-    const pending = await this.events.find({
-      where: { published_at: IsNull() },
-      order: { created_at: 'ASC' },
-      take: limit,
-    });
+    const pending = await this.claimOutboxEvents(limit);
     let published = 0;
     for (const event of pending) {
       try {
-        this.eventEmitter.emit(event.event_name, event.payload);
+        await this.eventEmitter.emitAsync(event.event_name, event.payload);
         await this.events.update(
-          { id: event.id, published_at: IsNull() },
-          { published_at: new Date(), attempts: event.attempts + 1, last_error: null },
+          { id: event.id, status: 'processing', lease_token: event.lease_token! },
+          {
+            status: 'published',
+            published_at: new Date(),
+            last_error: null,
+            lease_token: null,
+            claimed_by: null,
+            claimed_at: null,
+            lease_expires_at: null,
+            next_retry_at: null,
+          },
         );
         published += 1;
       } catch (error) {
-        await this.events.update(event.id, {
-          attempts: event.attempts + 1,
-          last_error: error instanceof Error ? error.message : 'Unknown event error',
-        });
+        await this.failOutboxEvent(
+          event.id,
+          event.lease_token!,
+          error instanceof Error ? error.message : 'Unknown event error',
+        );
       }
     }
     return published;
+  }
+
+  private async claimOutboxEvents(limit: number): Promise<PaymentDomainEvent[]> {
+    const now = new Date();
+    return this.dataSource.transaction(async (manager) => {
+      const candidates = await manager
+        .getRepository(PaymentDomainEvent)
+        .createQueryBuilder('event')
+        .where(
+          "(event.status IN ('pending', 'failed') AND (event.next_retry_at IS NULL OR event.next_retry_at <= :now)) OR (event.status = 'processing' AND event.lease_expires_at <= :now)",
+          { now },
+        )
+        .andWhere('event.published_at IS NULL')
+        .orderBy('event.created_at', 'ASC')
+        .take(limit)
+        .setLock('pessimistic_write')
+        .setOnLocked('skip_locked')
+        .getMany();
+      for (const event of candidates) {
+        if (event.attempts >= 8) {
+          event.status = 'dead_letter';
+          event.last_error = event.last_error ?? 'Maximum outbox attempts exhausted';
+          event.failed_at = now;
+          event.lease_token = null;
+          event.claimed_by = null;
+          event.lease_expires_at = null;
+          event.next_retry_at = null;
+          await manager.save(event);
+          await this.outboxDeadLetterAlert(manager, event, event.last_error);
+          continue;
+        }
+        event.status = 'processing';
+        event.lease_token = randomUUID();
+        event.claimed_by = `outbox:${process.pid}`;
+        event.claimed_at = now;
+        event.lease_expires_at = new Date(now.getTime() + 5 * 60_000);
+        event.next_retry_at = null;
+        event.attempts += 1;
+        await manager.save(event);
+      }
+      return candidates.filter((event) => event.status === 'processing');
+    });
+  }
+
+  private async failOutboxEvent(eventId: string, leaseToken: string, error: string): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const event = await manager.findOne(PaymentDomainEvent, {
+        where: { id: eventId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!event || event.status !== 'processing' || event.lease_token !== leaseToken) return;
+      const deadLetter = event.attempts >= 8;
+      event.status = deadLetter ? 'dead_letter' : 'failed';
+      event.last_error = error;
+      event.lease_token = null;
+      event.claimed_by = null;
+      event.lease_expires_at = null;
+      event.failed_at = deadLetter ? new Date() : null;
+      event.next_retry_at = deadLetter
+        ? null
+        : new Date(Date.now() + Math.min(60 * 60_000, 30_000 * 2 ** Math.min(event.attempts, 7)));
+      await manager.save(event);
+      if (deadLetter && event.event_name !== 'payment.outbox_dead_letter') {
+        await this.outboxDeadLetterAlert(manager, event, error);
+      }
+    });
+  }
+
+  private async outboxDeadLetterAlert(
+    manager: import('typeorm').EntityManager,
+    event: PaymentDomainEvent,
+    error: string,
+  ): Promise<void> {
+    if (event.event_name === 'payment.outbox_dead_letter') return;
+    await manager
+      .createQueryBuilder()
+      .insert()
+      .into(PaymentDomainEvent)
+      .values({
+        event_name: 'payment.outbox_dead_letter',
+        dedupe_key: `outbox:${event.id}:dead-letter`,
+        payload: { outbox_event_id: event.id, event_name: event.event_name, error },
+        published_at: null,
+        attempts: 0,
+        last_error: null,
+      } as never)
+      .orIgnore()
+      .execute();
   }
 
   public async reconciliationReport(): Promise<Record<string, unknown>> {

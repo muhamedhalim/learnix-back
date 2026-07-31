@@ -2,11 +2,12 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { GatewayWebhookEvent, Payment, PaymentDomainEvent } from '../entities';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentsService } from './payments.service';
+import { GatewayFinancialStateMachineService } from './gateway-financial-state-machine.service';
 
 export interface GatewayWebhookResponse {
   status: 'success' | 'pending' | 'failed' | 'refunded' | 'error' | 'already_processed';
@@ -34,6 +35,7 @@ export class GatewayWebhookService {
     private readonly events: Repository<GatewayWebhookEvent>,
     private readonly dataSource: DataSource,
     private readonly payments: PaymentsService,
+    private readonly financialStateMachine: GatewayFinancialStateMachineService,
   ) {}
 
   public async process(webhook: ProviderWebhookEvent): Promise<GatewayWebhookResponse> {
@@ -70,15 +72,46 @@ export class GatewayWebhookService {
       };
       let result: GatewayWebhookResponse;
       if (webhook.outcome === 'succeeded') {
-        await this.payments.processSuccessfulPayment(payment.id, verification);
+        const transition = await this.financialStateMachine.apply(
+          event.id,
+          event.lease_token!,
+          payment.id,
+          webhook,
+        );
+        if (transition === 'reconciliation_required') {
+          await this.failEvent(
+            event.id,
+            event.lease_token!,
+            'Verified capture requires fulfillment compensation review',
+          );
+          return this.result(
+            'pending',
+            'Payment is under financial reconciliation',
+            payment.id,
+            webhook,
+          );
+        }
         result = this.result('success', 'Payment completed, access granted', payment.id, webhook);
       } else if (webhook.outcome === 'refunded') {
-        // A provider refund is authoritative.  If its success callback was
-        // delayed/lost, first run the one canonical paid finalizer and then the
-        // one canonical refund finalizer.  Both use order/payment row locks and
-        // idempotent ledger/entitlement writes.
-        await this.payments.processSuccessfulPayment(payment.id, verification);
-        await this.payments.processRefundedPayment(payment.id, verification);
+        const transition = await this.financialStateMachine.apply(
+          event.id,
+          event.lease_token!,
+          payment.id,
+          webhook,
+        );
+        if (transition === 'reconciliation_required') {
+          await this.failEvent(
+            event.id,
+            event.lease_token!,
+            'Verified refund requires fulfillment compensation review',
+          );
+          return this.result(
+            'pending',
+            'Payment is under financial reconciliation',
+            payment.id,
+            webhook,
+          );
+        }
         result = this.result('refunded', 'Payment refunded', payment.id, webhook);
       } else if (webhook.outcome === 'pending') {
         result = this.result('pending', 'Payment pending verification', payment.id, webhook);
@@ -91,7 +124,9 @@ export class GatewayWebhookService {
         result = this.result('failed', webhook.message ?? 'Payment declined', payment.id, webhook);
       }
 
-      await this.completeEvent(event.id, event.lease_token!);
+      if (webhook.outcome !== 'succeeded' && webhook.outcome !== 'refunded') {
+        await this.completeEvent(event.id, event.lease_token!);
+      }
       return result;
     } catch (error) {
       await this.failEvent(
@@ -116,16 +151,28 @@ export class GatewayWebhookService {
       const candidates = await manager
         .createQueryBuilder(GatewayWebhookEvent, 'event')
         .where(
-          "(event.status = 'processing' AND event.lease_expires_at <= :now) OR (event.status = 'failed' AND event.next_retry_at <= :now)",
+          "(event.status = 'processing' AND event.lease_expires_at <= :now) OR (event.status = 'failed' AND (event.next_retry_at <= :now OR event.attempt_count >= event.max_attempts))",
           { now },
         )
-        .andWhere('event.attempt_count < event.max_attempts')
         .orderBy('event.created_at', 'ASC')
         .take(limit)
         .setLock('pessimistic_write')
         .setOnLocked('skip_locked')
         .getMany();
       for (const event of candidates) {
+        if (event.attempt_count >= event.max_attempts) {
+          event.status = 'dead_letter';
+          event.last_error = event.last_error ?? 'Maximum webhook attempts exhausted';
+          event.error_message = event.last_error;
+          event.lease_token = null;
+          event.claimed_by = null;
+          event.lease_expires_at = null;
+          event.heartbeat_at = null;
+          event.next_retry_at = null;
+          await manager.save(event);
+          await this.deadLetterAlert(manager, event, event.last_error);
+          continue;
+        }
         event.status = 'received';
         event.lease_token = null;
         event.claimed_by = null;
@@ -135,7 +182,9 @@ export class GatewayWebhookService {
         event.next_retry_at = null;
         await manager.save(event);
       }
-      return candidates.map((event) => event.id);
+      return candidates
+        .filter((event) => event.status === 'received')
+        .map((event) => event.id);
     });
     for (const id of eventIds) {
       const event = await this.events.findOne({ where: { id } });
@@ -152,6 +201,40 @@ export class GatewayWebhookService {
       }
     }
     return eventIds.length;
+  }
+
+  /**
+   * A reviewed replay starts a fresh lease over the signed payload already
+   * stored in PostgreSQL.  It cannot alter provider facts or bypass the same
+   * payment/order validation used by an ordinary delivery.
+   */
+  public async replayDeadLetter(eventId: string): Promise<GatewayWebhookResponse> {
+    const webhook = await this.dataSource.transaction(async (manager) => {
+      const event = await manager.findOne(GatewayWebhookEvent, {
+        where: { id: eventId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!event || event.status !== 'dead_letter') {
+        throw new NotFoundException('Dead-letter webhook event not found');
+      }
+      const recovered = this.recoverableWebhook(event);
+      if (!recovered) {
+        throw new BadRequestException('Dead-letter webhook event has no recoverable signed facts');
+      }
+      event.status = 'received';
+      event.error_message = null;
+      event.last_error = null;
+      event.lease_token = null;
+      event.claimed_by = null;
+      event.claimed_at = null;
+      event.lease_expires_at = null;
+      event.heartbeat_at = null;
+      event.next_retry_at = null;
+      event.attempt_count = 0;
+      await manager.save(event);
+      return recovered;
+    });
+    return this.process(webhook);
   }
 
   public async heartbeat(eventId: string, leaseToken: string): Promise<boolean> {
@@ -321,22 +404,30 @@ export class GatewayWebhookService {
         : new Date(Date.now() + WEBHOOK_RETRY_BASE_MS * 2 ** Math.min(event.attempt_count, 6));
       await manager.save(event);
       if (deadLetter) {
-        await manager
-          .createQueryBuilder()
-          .insert()
-          .into(PaymentDomainEvent)
-          .values({
-            event_name: 'payment.webhook_dead_letter',
-            dedupe_key: `webhook:${event.id}:dead-letter`,
-            payload: { webhook_event_id: event.id, payment_id: event.payment_id, error: message },
-            published_at: null,
-            attempts: 0,
-            last_error: null,
-          } as never)
-          .orIgnore()
-          .execute();
+        await this.deadLetterAlert(manager, event, message);
       }
     });
+  }
+
+  private async deadLetterAlert(
+    manager: EntityManager,
+    event: GatewayWebhookEvent,
+    message: string,
+  ): Promise<void> {
+    await manager
+      .createQueryBuilder()
+      .insert()
+      .into(PaymentDomainEvent)
+      .values({
+        event_name: 'payment.webhook_dead_letter',
+        dedupe_key: `webhook:${event.id}:dead-letter`,
+        payload: { webhook_event_id: event.id, payment_id: event.payment_id, error: message },
+        published_at: null,
+        attempts: 0,
+        last_error: null,
+      } as never)
+      .orIgnore()
+      .execute();
   }
 
   private async recordRejectedEvent(webhook: ProviderWebhookEvent, message: string): Promise<void> {

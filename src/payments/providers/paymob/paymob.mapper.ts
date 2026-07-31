@@ -91,6 +91,7 @@ export function parsePaymobWebhook(request: ProviderWebhookRequest): PaymobWebho
       integrationId: positiveInteger(transaction['integration_id'], 'obj.integration_id'),
       owner: positiveInteger(transaction['owner'], 'obj.owner'),
       createdAt: stringValue(transaction['created_at'], 'obj.created_at'),
+      ...(typeof transaction['is_live'] === 'boolean' ? { isLive: transaction['is_live'] } : {}),
       sourceData: {
         pan: stringValue(sourceData['pan'], 'obj.source_data.pan'),
         subType: stringValue(sourceData['sub_type'], 'obj.source_data.sub_type'),
@@ -173,6 +174,7 @@ export function mapPaymobWebhook(
     amountMinor: transaction.amountMinor,
     currency: transaction.currency,
     occurredAt: new Date(transaction.createdAt),
+    ...(transaction.isLive === undefined ? {} : { isLive: transaction.isLive }),
     outcome,
     ...(transaction.message === undefined ? {} : { message: transaction.message }),
     payload: {
@@ -188,6 +190,7 @@ export function mapPaymobWebhook(
       error_occurred: transaction.errorOccurred,
       refunded: transaction.isRefunded,
       voided: transaction.isVoided,
+      ...(transaction.isLive === undefined ? {} : { is_live: transaction.isLive }),
       ...(transaction.message === undefined ? {} : { message: transaction.message }),
     },
   };

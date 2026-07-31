@@ -2,6 +2,9 @@ import type { INestApplication } from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
 
 import { AddPaymentRecoveryState2050000000000 } from '../../src/migrations/2050000000000-AddPaymentRecoveryState';
+import { AddFinancePermissions2051000000000 } from '../../src/migrations/2051000000000-AddFinancePermissions';
+import { AddSettlementEntryAllocation2052000000000 } from '../../src/migrations/2052000000000-AddSettlementEntryAllocation';
+import { AddPaymentOutboxLeases2053000000000 } from '../../src/migrations/2053000000000-AddPaymentOutboxLeases';
 import { createE2EApp, resetDatabase } from './fixtures';
 
 /**
@@ -103,6 +106,34 @@ describe('payment recovery PostgreSQL guarantees', () => {
         `SELECT to_regclass('public.refund_attempts') AS table_name`,
       )) as Array<{ table_name: string | null }>;
       expect(afterUp[0]?.table_name).toBe('refund_attempts');
+    } finally {
+      await runner.release();
+    }
+  });
+
+  it('runs the Phase 2/3 additive migrations down and back up on PostgreSQL', async () => {
+    const migrations = [
+      new AddFinancePermissions2051000000000(),
+      new AddSettlementEntryAllocation2052000000000(),
+      new AddPaymentOutboxLeases2053000000000(),
+    ];
+    const runner = dataSource.createQueryRunner();
+    await runner.connect();
+    try {
+      for (const migration of migrations) await migration.up(runner);
+      const upColumns = (await runner.query(`
+        SELECT table_name, column_name FROM information_schema.columns
+        WHERE (table_name = 'users' AND column_name = 'finance_permissions')
+           OR (table_name = 'teacher_settlement_entries' AND column_name = 'amount_minor')
+           OR (table_name = 'payment_domain_events' AND column_name = 'lease_token')
+      `)) as Array<{ table_name: string; column_name: string }>;
+      expect(upColumns).toHaveLength(3);
+      for (const migration of [...migrations].reverse()) await migration.down(runner);
+      for (const migration of migrations) await migration.up(runner);
+      const afterUp = (await runner.query(
+        `SELECT to_regclass('public.payment_domain_events') AS table_name`,
+      )) as Array<{ table_name: string | null }>;
+      expect(afterUp[0]?.table_name).toBe('payment_domain_events');
     } finally {
       await runner.release();
     }

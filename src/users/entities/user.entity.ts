@@ -11,6 +11,7 @@ import {
 import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { UserRole } from './user-role.enum';
 import { UserStatus } from './user-status.enum';
+import { FINANCE_PERMISSIONS, type FinancePermission } from '../../payments/finance-permissions';
 
 @Entity('users')
 export class User {
@@ -63,6 +64,13 @@ export class User {
   })
   @Index('IDX_users_status')
   status!: UserStatus;
+
+  @Column({
+    type: 'jsonb',
+    name: 'finance_permissions',
+    default: () => `'${JSON.stringify(FINANCE_PERMISSIONS)}'::jsonb`,
+  })
+  finance_permissions!: FinancePermission[];
 
   // Rejection reason (only set when status = REJECTED)
   @Column({ type: 'text', nullable: true })

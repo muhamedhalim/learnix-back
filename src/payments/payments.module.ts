@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
+import { User } from '../users/entities/user.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -41,11 +42,13 @@ import { PaymobGateway } from './providers/paymob/paymob.gateway';
 import { CommissionService } from './services/commission.service';
 import { EntitlementsService } from './services/entitlements.service';
 import { GatewayWebhookService } from './services/gateway-webhook.service';
+import { GatewayFinancialStateMachineService } from './services/gateway-financial-state-machine.service';
 import { ManualPaymentsService } from './services/manual-payments.service';
 import { OrdersService } from './services/orders.service';
 import { PaymentFinalizationService } from './services/payment-finalization.service';
 import { PaymentOperationsService } from './services/payment-operations.service';
 import { PaymentProviderRegistry } from './services/payment-provider-registry.service';
+import { FinancePermissionsGuard } from './guards/finance-permissions.guard';
 import { PaymentsService } from './services/payments.service';
 import { RefundsService } from './services/refunds.service';
 import { SettlementsService } from './services/settlements.service';
@@ -77,6 +80,7 @@ import { SettlementsService } from './services/settlements.service';
       LessonPackage,
       Book,
       BookPurchase,
+      User,
     ]),
   ],
   controllers: [
@@ -106,6 +110,8 @@ import { SettlementsService } from './services/settlements.service';
     SettlementsService,
     PaymentOperationsService,
     GatewayWebhookService,
+    GatewayFinancialStateMachineService,
+    FinancePermissionsGuard,
   ],
   exports: [
     PaymentsService,
