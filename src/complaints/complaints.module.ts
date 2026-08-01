@@ -15,6 +15,12 @@ import { ComplaintMessage } from './entities/complaint-message.entity';
 import { ComplaintAttachment } from './entities/complaint-attachment.entity';
 import { ComplaintStatusPeriod } from './entities/complaint-status-period.entity';
 import { Complaint } from './entities/complaint.entity';
+import { SupportSlaService } from './support-sla.service';
+import { SupportManagementService } from './support-management.service';
+import { SupportManagementAdminController } from './controllers/support-management-admin.controller';
+import { SupportCannedResponse } from './entities/support-canned-response.entity';
+import { SupportKnowledgeArticle } from './entities/support-knowledge-article.entity';
+import { SupportSlaPolicy } from './entities/support-sla-policy.entity';
 
 @Module({
   imports: [
@@ -28,15 +34,19 @@ import { Complaint } from './entities/complaint.entity';
       ComplaintStatusPeriod,
       StudentProfile,
       User,
+      SupportCannedResponse,
+      SupportKnowledgeArticle,
+      SupportSlaPolicy,
     ]),
   ],
-  providers: [ComplaintsService],
+  providers: [ComplaintsService, SupportSlaService, SupportManagementService],
   controllers: [
     ComplaintsAdminController,
     ComplaintsCallCenterController,
     ComplaintsStudentController,
     ComplaintsTeacherController,
+    SupportManagementAdminController,
   ],
-  exports: [ComplaintsService],
+  exports: [ComplaintsService, SupportManagementService],
 })
 export class ComplaintsModule {}

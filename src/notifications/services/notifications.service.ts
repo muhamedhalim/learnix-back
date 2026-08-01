@@ -33,6 +33,80 @@ export interface PaginatedNotifications {
   };
 }
 
+export type SupportTicketNotificationEvent =
+  | 'created'
+  | 'assigned'
+  | 'agent_reply'
+  | 'waiting_for_user'
+  | 'escalated'
+  | 'resolved'
+  | 'closed'
+  | 'reopened'
+  | 'sla_first_response_warning'
+  | 'sla_first_response_exceeded'
+  | 'sla_resolution_warning'
+  | 'sla_resolution_exceeded';
+
+interface NotificationCreateOptions {
+  dedupeKey?: string;
+}
+
+const SUPPORT_TICKET_COPY: Readonly<
+  Record<
+    SupportTicketNotificationEvent,
+    { title: string; message: (ticketNumber: string) => string }
+  >
+> = {
+  created: {
+    title: 'Support request received',
+    message: (number) => `Your support request ${number} has been received.`,
+  },
+  assigned: {
+    title: 'Ticket assigned',
+    message: (number) => `You have been assigned support ticket ${number}.`,
+  },
+  agent_reply: {
+    title: 'Support reply received',
+    message: (number) => `There is a new reply on support ticket ${number}.`,
+  },
+  waiting_for_user: {
+    title: 'Support information needed',
+    message: (number) => `Support is waiting for your reply on ticket ${number}.`,
+  },
+  escalated: {
+    title: 'Support request under review',
+    message: (number) => `Your support ticket ${number} is under additional review.`,
+  },
+  resolved: {
+    title: 'Support request resolved',
+    message: (number) => `Support ticket ${number} has been resolved.`,
+  },
+  closed: {
+    title: 'Support request closed',
+    message: (number) => `Support ticket ${number} has been closed.`,
+  },
+  reopened: {
+    title: 'Support request reopened',
+    message: (number) => `Support ticket ${number} has been reopened.`,
+  },
+  sla_first_response_warning: {
+    title: 'First response SLA nearing',
+    message: (number) => `Ticket ${number} is nearing its first-response SLA deadline.`,
+  },
+  sla_first_response_exceeded: {
+    title: 'First response SLA exceeded',
+    message: (number) => `Ticket ${number} exceeded its first-response SLA deadline.`,
+  },
+  sla_resolution_warning: {
+    title: 'Resolution SLA nearing',
+    message: (number) => `Ticket ${number} is nearing its resolution SLA deadline.`,
+  },
+  sla_resolution_exceeded: {
+    title: 'Resolution SLA exceeded',
+    message: (number) => `Ticket ${number} exceeded its resolution SLA deadline.`,
+  },
+};
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -65,11 +139,24 @@ export class NotificationsService {
   /**
    * Create and send a notification
    */
-  public async create(dto: SendNotificationDto, sendSms = true): Promise<Notification> {
+  public async create(
+    dto: SendNotificationDto,
+    sendSms = true,
+    options: NotificationCreateOptions = {},
+  ): Promise<Notification> {
+    if (options.dedupeKey !== undefined) {
+      const existing = await this.notificationsRepository.findOneBy({
+        dedupe_key: options.dedupeKey,
+      });
+      if (existing) {
+        return existing;
+      }
+    }
     const now = new Date();
 
     // Create notification record
     const notification = this.notificationsRepository.create({
+      dedupe_key: options.dedupeKey ?? null,
       user_id: dto.user_id,
       type: dto.type,
       title: dto.title,
@@ -85,7 +172,21 @@ export class NotificationsService {
       delivered_at: null,
     });
 
-    const saved = await this.notificationsRepository.save(notification);
+    let saved: Notification;
+    try {
+      saved = await this.notificationsRepository.save(notification);
+    } catch (error: unknown) {
+      if (options.dedupeKey === undefined || (error as { code?: string }).code !== '23505') {
+        throw error;
+      }
+      const existing = await this.notificationsRepository.findOneBy({
+        dedupe_key: options.dedupeKey,
+      });
+      if (!existing) {
+        throw error;
+      }
+      return existing;
+    }
 
     // Fan out to guardians if requested.
     if (sendSms && dto.send_sms !== false) {
@@ -93,6 +194,45 @@ export class NotificationsService {
     }
 
     return saved;
+  }
+
+  /**
+   * Ticket notifications are in-app only. They deliberately reuse the
+   * established notification persistence and status lifecycle rather than
+   * introducing a support dispatcher or exposing a provider operation.
+   */
+  public async createSupportTicketNotification(
+    recipientUserId: string,
+    ticket: { id: string; ticket_number: string; version: number },
+    event: SupportTicketNotificationEvent,
+  ): Promise<Notification> {
+    const copy = SUPPORT_TICKET_COPY[event];
+    const notification = await this.create(
+      {
+        user_id: recipientUserId,
+        type: NotificationType.CUSTOM,
+        title: copy.title,
+        message: copy.message(ticket.ticket_number),
+        data: {
+          support_ticket: {
+            id: ticket.id,
+            number: ticket.ticket_number,
+            event,
+          },
+        },
+        send_sms: false,
+      },
+      false,
+      { dedupeKey: `support-ticket:${ticket.id}:${event}:${ticket.version}` },
+    );
+    // Support events are in-app-only. Mark their local dispatch state as sent
+    // without invoking any provider or exposing a retry/transport operation.
+    if (notification.status === NotificationStatus.PENDING) {
+      notification.status = NotificationStatus.SENT;
+      notification.attempts = Math.max(1, notification.attempts);
+      return await this.notificationsRepository.save(notification);
+    }
+    return notification;
   }
 
   /**

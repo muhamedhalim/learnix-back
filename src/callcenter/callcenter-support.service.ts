@@ -12,7 +12,9 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { AuditEvent } from '../activity-logs/events/audit.events';
 import type { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { Complaint } from '../complaints/entities/complaint.entity';
+import { ComplaintStatus } from '../complaints/enums/complaint-status.enum';
 import { FinancialLedgerEntry, Order, Payment, Settlement } from '../payments/entities';
+import { Notification } from '../notifications/entities';
 import { biBody } from '../i18n/error-translator.util';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
@@ -21,6 +23,12 @@ import { UserRole } from '../users/entities/user-role.enum';
 import { SessionsService } from '../users/sessions.service';
 import { CallCenterUserFilterDto } from './dto/call-center-user-filter.dto';
 import { CallCenterFinanceFilterDto } from './dto/call-center-finance-filter.dto';
+import { CallCenterNotificationFilterDto } from './dto/call-center-notification-filter.dto';
+
+interface PageFilter {
+  page: number;
+  limit: number;
+}
 
 interface SupportUserSummary {
   id: string;
@@ -55,6 +63,8 @@ export class CallCenterSupportService {
     @InjectRepository(Settlement) private readonly settlementsRepository: Repository<Settlement>,
     @InjectRepository(FinancialLedgerEntry)
     private readonly ledgerRepository: Repository<FinancialLedgerEntry>,
+    @InjectRepository(Notification)
+    private readonly notificationsRepository: Repository<Notification>,
     private readonly sessionsService: SessionsService,
     private readonly activityLogs: ActivityLogsService,
   ) {}
@@ -283,15 +293,74 @@ export class CallCenterSupportService {
     );
   }
 
+  /** Read-only ticket dispatch projection; bodies and recipient details are never selected. */
+  public async listSupportNotifications(filter: CallCenterNotificationFilterDto) {
+    const query = this.notificationsRepository
+      .createQueryBuilder('notification')
+      .select([
+        "notification.data -> 'support_ticket' ->> 'number' AS ticket_number",
+        "notification.data -> 'support_ticket' ->> 'event' AS event",
+        'notification.status AS status',
+        'notification.attempts AS attempts',
+        'notification.sent_at AS sent_at',
+        'notification.delivered_at AS delivered_at',
+      ])
+      .where("notification.data ? 'support_ticket'");
+    if (filter.status?.trim()) {
+      query.andWhere('notification.status = :status', { status: filter.status.trim() });
+    }
+    if (filter.search?.trim()) {
+      query.andWhere("notification.data -> 'support_ticket' ->> 'number' ILIKE :search", {
+        search: `%${filter.search.trim()}%`,
+      });
+    }
+    return await this.rawPage(
+      query,
+      filter,
+      (row) => ({ ...row, attempts: Number(row['attempts']) }),
+      undefined,
+      'sent_at',
+    );
+  }
+
+  /** Aggregate-only support report; no complaint, finance, or user entity is serialized. */
+  public async supportReport(): Promise<Record<string, unknown>> {
+    const statusRows = await this.complaintsRepository.createQueryBuilder('complaint')
+      .select('complaint.status', 'status').addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL').groupBy('complaint.status').getRawMany<{ status: string; count: string }>();
+    const roleRows = await this.complaintsRepository.createQueryBuilder('complaint')
+      .select('complaint.complainant_role', 'role').addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL').groupBy('complaint.complainant_role').getRawMany<{ role: string; count: string }>();
+    const typeRows = await this.complaintsRepository.createQueryBuilder('complaint')
+      .select('complaint.type', 'type').addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL').groupBy('complaint.type').getRawMany<{ type: string; count: string }>();
+    const times = await this.complaintsRepository.createQueryBuilder('complaint')
+      .select("AVG(EXTRACT(EPOCH FROM (complaint.first_response_at - complaint.created_at)))", 'first')
+      .addSelect("AVG(EXTRACT(EPOCH FROM (complaint.resolved_at - complaint.created_at)))", 'resolution')
+      .where('complaint.deleted_at IS NULL').getRawOne<{ first: string | null; resolution: string | null }>();
+    const delayed = await this.complaintsRepository.createQueryBuilder('complaint').where('complaint.deleted_at IS NULL').andWhere('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())').getCount();
+    return { by_status: statusRows.map((row) => ({ status: row.status, count: Number(row.count) })), by_complainant_role: roleRows.map((row) => ({ role: row.role, count: Number(row.count) })), by_type: typeRows.map((row) => ({ type: row.type, count: Number(row.count) })), delayed, average_first_response_seconds: times?.first ? Math.round(Number(times.first)) : null, average_resolution_seconds: times?.resolution ? Math.round(Number(times.resolution)) : null };
+  }
+
+  public async slaSummary(): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const [firstResponseOverdue, resolutionOverdue] = await Promise.all([
+      this.complaintsRepository.createQueryBuilder('complaint').where('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('complaint.first_response_at IS NULL').andWhere('complaint.first_response_due_at <= :now', { now }).getCount(),
+      this.complaintsRepository.createQueryBuilder('complaint').where('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('complaint.resolution_due_at <= :now', { now }).getCount(),
+    ]);
+    return { first_response_overdue: firstResponseOverdue, resolution_overdue: resolutionOverdue };
+  }
+
   private async rawPage(
     query: SelectQueryBuilder<ObjectLiteral>,
-    filter: CallCenterFinanceFilterDto,
+    filter: PageFilter,
     map: (row: Record<string, unknown>) => Record<string, unknown>,
     totalOverride?: number,
+    orderColumn = 'created_at',
   ) {
     const total = totalOverride ?? (await query.getCount());
     const data = await query
-      .orderBy('created_at', 'DESC')
+      .orderBy(orderColumn, 'DESC')
       .skip((filter.page - 1) * filter.limit)
       .take(filter.limit)
       .getRawMany();

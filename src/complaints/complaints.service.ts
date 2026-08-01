@@ -13,7 +13,6 @@ import { AuditEvent } from '../activity-logs/events/audit.events';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { SanitizationService } from '../common/sanitization/sanitization.service';
 import { biBody } from '../i18n/error-translator.util';
-import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { StorageService } from '../storage/storage.service';
@@ -36,6 +35,7 @@ import { ComplaintStatusPeriod } from './entities/complaint-status-period.entity
 import { Complaint } from './entities/complaint.entity';
 import { ComplaintMessageKind } from './enums/complaint-message-kind.enum';
 import { ComplaintStatus } from './enums/complaint-status.enum';
+import { SupportSlaService } from './support-sla.service';
 
 type ComplainantRole = Extract<UserRole, UserRole.STUDENT | UserRole.TEACHER>;
 
@@ -126,6 +126,7 @@ export class ComplaintsService {
     private readonly sanitizationService: SanitizationService,
     private readonly uploads: UploadService,
     private readonly storage: StorageService,
+    private readonly supportSla: SupportSlaService,
   ) {}
 
   public async createComplaint(studentUserId: string, dto: CreateComplaintDto): Promise<Complaint> {
@@ -338,6 +339,13 @@ export class ComplaintsService {
       await this.complaintsRepository.update(ticket.id, { first_response_at: new Date() });
     }
     await this.audit(agentId, 'support_ticket_message_added', ticket, { kind });
+    if (kind === ComplaintMessageKind.AGENT_REPLY) {
+      await this.notificationsService.createSupportTicketNotification(
+        ticket.complainant_id,
+        ticket,
+        'agent_reply',
+      );
+    }
     return message;
   }
 
@@ -365,6 +373,7 @@ export class ComplaintsService {
     }
     const updated = result.raw[0] as Complaint;
     await this.audit(actorId, 'support_ticket_assigned', updated, { assignedAgentId: agent.id });
+    await this.notificationsService.createSupportTicketNotification(agent.id, updated, 'assigned');
     return updated;
   }
 
@@ -411,13 +420,11 @@ export class ComplaintsService {
       ComplaintStatus.RESOLVED,
       'Admin response',
     );
-    await this.notificationsService.create({
-      user_id: ticket.complainant_id,
-      type: NotificationType.CUSTOM,
-      title: 'Complaint Response',
-      message: `Your complaint "${ticket.subject}" has been responded to. Please check the app for details.`,
-      send_sms: true,
-    });
+    await this.notificationsService.createSupportTicketNotification(
+      ticket.complainant_id,
+      updated,
+      'resolved',
+    );
     await this.audit(adminId, 'support_ticket_admin_response', updated, {
       legacyAdminResponse: true,
     });
@@ -431,6 +438,7 @@ export class ComplaintsService {
     legacyStudentId: string | null,
   ): Promise<Complaint> {
     const ticketNumber = await this.nextTicketNumber();
+    const createdAt = new Date();
     const complaint = this.complaintsRepository.create({
       student_id: legacyStudentId,
       complainant_id: complainantId,
@@ -441,6 +449,7 @@ export class ComplaintsService {
       subject: this.sanitizationService.sanitizeStrict(dto.subject),
       description: this.sanitizationService.sanitizeStrict(dto.description),
       status: ComplaintStatus.NEW,
+        ...(await this.supportSla.dueDates(createdAt)),
     });
     const saved = await this.complaintsRepository.save(complaint);
     await this.complaintStatusPeriodsRepository.save(
@@ -452,6 +461,11 @@ export class ComplaintsService {
       }),
     );
     await this.audit(complainantId, 'support_ticket_created', saved, { complainantRole });
+    await this.notificationsService.createSupportTicketNotification(
+      saved.complainant_id,
+      saved,
+      'created',
+    );
     return saved;
   }
 
@@ -559,7 +573,11 @@ export class ComplaintsService {
         : {}),
       ...(dto.status === ComplaintStatus.ESCALATED ? { escalated_at: now } : {}),
       ...(dto.status === ComplaintStatus.REOPENED
-        ? { reopen_count: ticket.reopen_count + 1, closed_at: null }
+        ? {
+            reopen_count: ticket.reopen_count + 1,
+            closed_at: null,
+            resolution_due_at: (await this.supportSla.dueDates(now)).resolution_due_at,
+          }
         : {}),
     };
     const result = await this.complaintsRepository
@@ -594,6 +612,14 @@ export class ComplaintsService {
       to: dto.status,
       reason: dto.reason ?? null,
     });
+    const notificationEvent = this.statusNotificationEvent(dto.status);
+    if (notificationEvent !== null) {
+      await this.notificationsService.createSupportTicketNotification(
+        updated.complainant_id,
+        updated,
+        notificationEvent,
+      );
+    }
     return updated;
   }
 
@@ -611,6 +637,21 @@ export class ComplaintsService {
         reason,
       },
     );
+  }
+
+  private statusNotificationEvent(
+    status: ComplaintStatus,
+  ): 'waiting_for_user' | 'escalated' | 'resolved' | 'closed' | 'reopened' | null {
+    switch (status) {
+      case ComplaintStatus.WAITING_FOR_USER:
+      case ComplaintStatus.ESCALATED:
+      case ComplaintStatus.RESOLVED:
+      case ComplaintStatus.CLOSED:
+      case ComplaintStatus.REOPENED:
+        return status;
+      default:
+        return null;
+    }
   }
 
   private async nextTicketNumber(): Promise<string> {

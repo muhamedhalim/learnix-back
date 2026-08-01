@@ -24,8 +24,11 @@ import { StudentFilterDto } from '../students/dto';
 import { StudentsService } from '../students/students.service';
 import { UsersService } from '../users/users.service';
 import { CallCenterSupportService } from './callcenter-support.service';
+import { SupportManagementService } from '../complaints/support-management.service';
+import { SupportResourceFilterDto } from '../complaints/dto';
 import {
   CallCenterFinanceFilterDto,
+  CallCenterNotificationFilterDto,
   CallCenterUserFilterDto,
   TerminateUserSessionsDto,
 } from './dto';
@@ -44,6 +47,7 @@ export class CallCenterController {
     private readonly usersService: UsersService,
     private readonly guardiansService: GuardiansService,
     private readonly supportService: CallCenterSupportService,
+    private readonly supportManagement: SupportManagementService,
   ) {}
 
   @Get('students/:studentId')
@@ -138,6 +142,36 @@ export class CallCenterController {
   public async financeReceivables(@Query() filter: CallCenterFinanceFilterDto): Promise<unknown> {
     return await this.supportService.listTeacherReceivables(filter);
   }
+
+  @Get('notifications')
+  @Roles('call_center')
+  @ApiOperation({ summary: 'View support-ticket notification dispatch status' })
+  public async supportNotifications(
+    @Query() filter: CallCenterNotificationFilterDto,
+  ): Promise<unknown> {
+    return await this.supportService.listSupportNotifications(filter);
+  }
+
+  @Get('reports')
+  @Roles('call_center')
+  @ApiOperation({ summary: 'View read-only Call Center ticket metrics' })
+  public async reports(): Promise<unknown> { return await this.supportService.supportReport(); }
+
+  @Get('sla')
+  @Roles('call_center')
+  @ApiOperation({ summary: 'View current SLA policy and ticket delay summary' })
+  public async sla(): Promise<unknown> {
+    const [policy, summary] = await Promise.all([this.supportManagement.activePolicy(), this.supportService.slaSummary()]);
+    return { policy: policy ? { first_response_hours: policy.first_response_hours, resolution_hours: policy.resolution_hours, warning_window_hours: policy.warning_window_hours } : { first_response_hours: 24, resolution_hours: 72, warning_window_hours: 4 }, ...summary };
+  }
+
+  @Get('resources/canned-responses')
+  @Roles('call_center')
+  public async cannedResponses(@Query() filter: SupportResourceFilterDto): Promise<unknown> { return await this.supportManagement.listCanned(filter); }
+
+  @Get('resources/knowledge-base')
+  @Roles('call_center')
+  public async knowledgeBase(@Query() filter: SupportResourceFilterDto): Promise<unknown> { return await this.supportManagement.listArticles(filter); }
 
   @Post('users/:userId/terminate-sessions')
   @Roles('call_center')

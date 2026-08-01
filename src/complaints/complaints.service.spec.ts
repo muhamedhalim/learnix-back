@@ -14,39 +14,62 @@ describe('ComplaintsService.createComplaint', () => {
   function createService(studentProfile: unknown) {
     const complaintsRepository = {
       create: jest.fn().mockImplementation((input: unknown) => input),
-      save: jest.fn().mockResolvedValue({ id: 'complaint-id', created_at: new Date(), ticket_number: 'CC-2026-000001' }),
+      save: jest.fn().mockResolvedValue({
+        id: 'complaint-id',
+        created_at: new Date(),
+        ticket_number: 'CC-2026-000001',
+        complainant_id: studentUserId,
+        version: 1,
+      }),
       query: jest.fn().mockResolvedValue([{ value: '1' }]),
     };
     const studentProfilesRepository = { findOne: jest.fn().mockResolvedValue(studentProfile) };
-    const complaintStatusPeriodsRepository = { create: jest.fn().mockImplementation((input: unknown) => input), save: jest.fn() };
+    const complaintStatusPeriodsRepository = {
+      create: jest.fn().mockImplementation((input: unknown) => input),
+      save: jest.fn(),
+    };
     const activityLogsService = { recordAuditEvent: jest.fn() };
     const sanitizationService = { sanitizeStrict: jest.fn((value: string) => value) };
     const service = new ComplaintsService(
       complaintsRepository as never,
       {} as never,
+      {} as never,
       complaintStatusPeriodsRepository as never,
       studentProfilesRepository as never,
       {} as never,
-      {} as never,
+      { createSupportTicketNotification: jest.fn() } as never,
       activityLogsService as never,
       sanitizationService as never,
+      {} as never,
+      {} as never,
+      {
+        dueDates: jest.fn().mockReturnValue({
+          first_response_due_at: new Date('2026-08-02T00:00:00.000Z'),
+          resolution_due_at: new Date('2026-08-04T00:00:00.000Z'),
+        }),
+      } as never,
     );
     return { service, complaintsRepository, complaintStatusPeriodsRepository };
   }
 
   it('persists the complaint against the authenticated student profile user ID', async () => {
     const { service, complaintsRepository, complaintStatusPeriodsRepository } = createService({
-      id: 'student-profile-id', user_id: studentUserId,
+      id: 'student-profile-id',
+      user_id: studentUserId,
     });
 
-    await expect(service.createComplaint(studentUserId, dto)).resolves.toMatchObject({ id: 'complaint-id' });
-    expect(complaintsRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      student_id: studentUserId,
-      complainant_id: studentUserId,
-      complainant_role: 'student',
-      ticket_number: 'CC-2026-000001',
-      description: dto.description,
-    }));
+    await expect(service.createComplaint(studentUserId, dto)).resolves.toMatchObject({
+      id: 'complaint-id',
+    });
+    expect(complaintsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        student_id: studentUserId,
+        complainant_id: studentUserId,
+        complainant_role: 'student',
+        ticket_number: 'CC-2026-000001',
+        description: dto.description,
+      }),
+    );
     expect(complaintsRepository.save).toHaveBeenCalledTimes(1);
     expect(complaintStatusPeriodsRepository.save).toHaveBeenCalledTimes(1);
   });
@@ -54,7 +77,9 @@ describe('ComplaintsService.createComplaint', () => {
   it('returns a business 404 without attempting an insert when the student profile is absent', async () => {
     const { service, complaintsRepository } = createService(null);
 
-    await expect(service.createComplaint(studentUserId, dto)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.createComplaint(studentUserId, dto)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(complaintsRepository.create).not.toHaveBeenCalled();
     expect(complaintsRepository.save).not.toHaveBeenCalled();
   });
