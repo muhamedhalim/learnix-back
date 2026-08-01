@@ -7,6 +7,7 @@ import {
   Get,
   MaxFileSizeValidator,
   Param,
+  Patch,
   ParseFilePipe,
   ParseUUIDPipe,
   Post,
@@ -29,6 +30,8 @@ import { PaginationDto } from '../common/dto/pagination.dto';
 import type { UserRequest } from '../common/interfaces/user-request.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { AssignCallCenterRoleDto } from './dto/assign-call-center-role.dto';
+import { CreateCallCenterUserDto } from './dto/create-call-center-user.dto';
 import type { DeleteSessionResponseDto, UserSessionListResponseDto } from './dto/user-session.dto';
 import { SessionsService } from './sessions.service';
 import { UsersService } from './users.service';
@@ -67,6 +70,35 @@ export class UsersController {
   @ApiOperation({ summary: 'Get user by ID (admin only)' })
   public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return await this.usersService.findOne(id);
+  }
+
+  @Post('call-center')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Create a Call Center employee (admin only)' })
+  public async createCallCenterEmployee(
+    @Body() dto: CreateCallCenterUserDto,
+    @Request() req: UserRequest,
+  ): Promise<unknown> {
+    if (req.user === undefined) {
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
+    }
+    return await this.usersService.createCallCenterEmployee(dto, req.user, req.ip ?? null);
+  }
+
+  @Patch(':id/call-center-role')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Assign the Call Center role to a user (admin only)' })
+  public async assignCallCenterRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignCallCenterRoleDto,
+    @Request() req: UserRequest,
+  ): Promise<unknown> {
+    if (req.user === undefined) {
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
+    }
+    return await this.usersService.assignCallCenterRole(id, dto, req.user, req.ip ?? null);
   }
 
   @Put('me')

@@ -97,6 +97,50 @@ export class UserActivatedEvent extends AuditEvent {
   }
 }
 
+/** Admin provisioned a new non-technical Call Center employee. */
+export class CallCenterEmployeeCreatedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    userId: string,
+    details: { userName: string; userRole: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'call_center_employee_created',
+      'user',
+      userId,
+      details.userName,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+/** Admin changed an existing account into a Call Center employee. */
+export class CallCenterRoleAssignedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    userId: string,
+    details: { userName: string; previousRole: string; reason?: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'call_center_role_assigned',
+      'user',
+      userId,
+      details.userName,
+      {
+        previousRole: details.previousRole,
+        newRole: 'call_center',
+        ...(details.reason !== undefined && details.reason !== '' ? { reason: details.reason } : {}),
+      },
+      ipAddress ?? null,
+    );
+  }
+}
+
 /**
  * Content moderation events
  */

@@ -5,6 +5,7 @@ import { Between, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ActivityLog, AuditLog } from './entities';
+import { AuditEvent } from './events/audit.events';
 
 export interface ActivityLogFilter {
   from?: string | undefined;
@@ -32,6 +33,23 @@ export class ActivityLogsService {
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
   ) {}
+
+  /**
+   * Persist an administrative audit record for security-sensitive operations
+   * that must not rely on asynchronous event delivery alone.
+   */
+  public async recordAuditEvent(event: AuditEvent): Promise<void> {
+    const log = this.auditLogRepository.create({
+      admin_id: event.adminId,
+      action: event.action,
+      target_type: event.targetType,
+      target_id: event.targetId,
+      target_name: event.targetName,
+      details: event.details,
+      ip_address: event.ipAddress,
+    });
+    await this.auditLogRepository.save(log);
+  }
 
   /**
    * Get activity logs for a specific user (student or teacher)

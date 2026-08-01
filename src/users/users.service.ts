@@ -5,17 +5,28 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import * as bcrypt from 'bcryptjs';
 import * as admin from 'firebase-admin';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
 import { UploadService } from '../uploads/upload.service';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import type { JwtPayload } from '../common/interfaces/user-request.interface';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateCallCenterUserDto } from './dto/create-call-center-user.dto';
+import { AssignCallCenterRoleDto } from './dto/assign-call-center-role.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.enum';
+import { UserStatus } from './entities/user-status.enum';
+import {
+  CallCenterEmployeeCreatedEvent,
+  CallCenterRoleAssignedEvent,
+} from '../activity-logs/events/audit.events';
 
 @Injectable()
 export class UsersService {
@@ -26,6 +37,8 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
     private readonly uploadService: UploadService,
     private readonly applicationCache: ApplicationCacheService,
+    private readonly configService: ConfigService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   /**
@@ -411,10 +424,93 @@ export class UsersService {
     return { message: 'Profile picture deleted successfully' };
   }
 
+  private assertAdminActor(actor: JwtPayload): void {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        biBody(
+          'Only an administrator can manage Call Center employees',
+          'يمكن للمسؤول فقط إدارة موظفي مركز الاتصال',
+        ),
+      );
+    }
+  }
+
   /**
-   * Update user role (admin only)
+   * Creates a Call Center employee through the only server-side provisioning
+   * path. The role is never supplied by the caller and is fixed here.
    */
-  public async updateRole(userId: string, newRole: UserRole): Promise<unknown> {
+  public async createCallCenterEmployee(
+    dto: CreateCallCenterUserDto,
+    actor: JwtPayload,
+    ipAddress: string | null,
+  ): Promise<unknown> {
+    this.assertAdminActor(actor);
+
+    const username = dto.username.trim();
+    const email = dto.email.trim().toLowerCase();
+    const phone = dto.phone.trim();
+    const existing = await this.userRepository.findOne({
+      where: [{ username }, { email }, { phone }],
+    });
+    if (existing) {
+      throw new ConflictException(
+        biBody(
+          'Username, email, or phone is already in use',
+          'اسم المستخدم أو البريد الإلكتروني أو رقم الهاتف مستخدم بالفعل',
+        ),
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(
+      dto.password,
+      this.configService.get<number>('BCRYPT_ROUNDS') ?? 12,
+    );
+    const user = this.userRepository.create({
+      username,
+      name: dto.name.trim(),
+      email,
+      phone,
+      password_hash: passwordHash,
+      role: UserRole.CALL_CENTER,
+      status: UserStatus.APPROVED,
+      is_active: true,
+    });
+    const created = await this.userRepository.save(user);
+
+    await this.invalidateUserCache(created.id);
+    await this.activityLogsService.recordAuditEvent(
+      new CallCenterEmployeeCreatedEvent(
+        actor.userId,
+        created.id,
+        { userName: created.name, userRole: created.role },
+        ipAddress ?? undefined,
+      ),
+    );
+
+    return {
+      message: 'Call Center employee created successfully',
+      user: {
+        id: created.id,
+        username: created.username,
+        name: created.name,
+        email: created.email,
+        role: created.role,
+      },
+    };
+  }
+
+  /**
+   * Changes an existing account into a Call Center employee. It deliberately
+   * does not expose a generic role setter, so no caller can select arbitrary
+   * roles or bypass the Admin-only controller guard.
+   */
+  public async assignCallCenterRole(
+    userId: string,
+    dto: AssignCallCenterRoleDto,
+    actor: JwtPayload,
+    ipAddress: string | null,
+  ): Promise<unknown> {
+    this.assertAdminActor(actor);
     const user = await this.userRepository.findOne({
       where: { id: userId },
     });
@@ -425,8 +521,8 @@ export class UsersService {
       );
     }
 
-    // Prevent removing the last admin
-    if (user.role === UserRole.ADMIN && newRole !== UserRole.ADMIN) {
+    // Prevent removing the last admin by converting it to Call Center.
+    if (user.role === UserRole.ADMIN) {
       const adminCount = await this.userRepository.count({
         where: { role: UserRole.ADMIN, is_active: true },
       });
@@ -441,13 +537,28 @@ export class UsersService {
       }
     }
 
-    user.role = newRole;
+    const previousRole = user.role;
+    user.role = UserRole.CALL_CENTER;
     await this.userRepository.save(user);
 
     // Invalidate user profile cache
     await this.invalidateUserCache(userId);
 
-    this.logger.log(`User ID ${userId} role changed to ${newRole}`);
+    const reason = dto.reason?.trim();
+    await this.activityLogsService.recordAuditEvent(
+      new CallCenterRoleAssignedEvent(
+        actor.userId,
+        user.id,
+        {
+          userName: user.name,
+          previousRole,
+          ...(reason !== undefined && reason !== '' ? { reason } : {}),
+        },
+        ipAddress ?? undefined,
+      ),
+    );
+
+    this.logger.log(`User ID ${userId} role changed to ${UserRole.CALL_CENTER}`);
 
     return {
       message: 'User role updated successfully',
