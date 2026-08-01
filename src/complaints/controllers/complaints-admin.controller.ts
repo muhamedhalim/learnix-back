@@ -5,7 +5,6 @@ import {
   Param,
   Post,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -18,16 +17,10 @@ import {
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { ComplaintsService } from '../complaints.service';
 import { ComplaintFilterDto, RespondComplaintDto } from '../dto';
-
-interface AuthRequest extends Request {
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
 
 @ApiTags('Complaints')
 @Controller('admin/complaints')
@@ -55,11 +48,11 @@ export class ComplaintsAdminController {
   public async respondToComplaint(
     @Param('id') id: string,
     @Body() dto: RespondComplaintDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
     return await this.complaintsService.respondToComplaint(
       id,
-      req.user.id,
+      user.userId,
       dto,
     );
   }

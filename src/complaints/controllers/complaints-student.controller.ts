@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   UseGuards,
@@ -19,7 +20,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { ComplaintsService } from '../complaints.service';
-import { ComplaintFilterDto, CreateComplaintDto } from '../dto';
+import { ComplaintFilterDto, CreateComplaintDto, CreateComplaintMessageDto } from '../dto';
 
 @ApiTags('Complaints')
 @Controller('student/complaints')
@@ -54,5 +55,21 @@ export class ComplaintsStudentController {
       filter.page,
       filter.limit,
     );
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'View one own complaint (student)' })
+  public async getOwnComplaint(@Param('id') id: string, @GetUser() user: JwtPayload): Promise<unknown> {
+    return await this.complaintsService.getOwnTicket(id, user.userId);
+  }
+
+  @Post(':id/messages')
+  @ApiOperation({ summary: 'Reply to one own complaint (student)' })
+  public async addMessage(
+    @Param('id') id: string,
+    @Body() dto: CreateComplaintMessageDto,
+    @GetUser() user: JwtPayload,
+  ): Promise<unknown> {
+    return await this.complaintsService.addComplainantMessage(id, user.userId, dto);
   }
 }

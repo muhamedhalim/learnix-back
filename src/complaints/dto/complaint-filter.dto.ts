@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ComplaintStatus } from '../enums/complaint-status.enum';
@@ -25,4 +25,13 @@ export class ComplaintFilterDto {
   @IsOptional()
   @IsEnum(ComplaintType)
   public type?: ComplaintType;
+
+  @IsOptional()
+  @IsUUID()
+  public assigned_agent_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  public search?: string;
 }
