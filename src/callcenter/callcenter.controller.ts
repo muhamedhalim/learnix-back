@@ -155,23 +155,41 @@ export class CallCenterController {
   @Get('reports')
   @Roles('call_center')
   @ApiOperation({ summary: 'View read-only Call Center ticket metrics' })
-  public async reports(): Promise<unknown> { return await this.supportService.supportReport(); }
+  public async reports(): Promise<unknown> {
+    return await this.supportService.supportReport();
+  }
 
   @Get('sla')
   @Roles('call_center')
   @ApiOperation({ summary: 'View current SLA policy and ticket delay summary' })
   public async sla(): Promise<unknown> {
-    const [policy, summary] = await Promise.all([this.supportManagement.activePolicy(), this.supportService.slaSummary()]);
-    return { policy: policy ? { first_response_hours: policy.first_response_hours, resolution_hours: policy.resolution_hours, warning_window_hours: policy.warning_window_hours } : { first_response_hours: 24, resolution_hours: 72, warning_window_hours: 4 }, ...summary };
+    const [policy, summary] = await Promise.all([
+      this.supportManagement.activePolicy(),
+      this.supportService.slaSummary(),
+    ]);
+    return {
+      policy: policy
+        ? {
+            first_response_hours: policy.first_response_hours,
+            resolution_hours: policy.resolution_hours,
+            warning_window_hours: policy.warning_window_hours,
+          }
+        : { first_response_hours: 24, resolution_hours: 72, warning_window_hours: 4 },
+      ...summary,
+    };
   }
 
   @Get('resources/canned-responses')
   @Roles('call_center')
-  public async cannedResponses(@Query() filter: SupportResourceFilterDto): Promise<unknown> { return await this.supportManagement.listCanned(filter); }
+  public async cannedResponses(@Query() filter: SupportResourceFilterDto): Promise<unknown> {
+    return await this.supportManagement.listCanned(filter);
+  }
 
   @Get('resources/knowledge-base')
   @Roles('call_center')
-  public async knowledgeBase(@Query() filter: SupportResourceFilterDto): Promise<unknown> { return await this.supportManagement.listArticles(filter); }
+  public async knowledgeBase(@Query() filter: SupportResourceFilterDto): Promise<unknown> {
+    return await this.supportManagement.listArticles(filter);
+  }
 
   @Post('users/:userId/terminate-sessions')
   @Roles('call_center')

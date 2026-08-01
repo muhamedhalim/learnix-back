@@ -325,28 +325,77 @@ export class CallCenterSupportService {
 
   /** Aggregate-only support report; no complaint, finance, or user entity is serialized. */
   public async supportReport(): Promise<Record<string, unknown>> {
-    const statusRows = await this.complaintsRepository.createQueryBuilder('complaint')
-      .select('complaint.status', 'status').addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL').groupBy('complaint.status').getRawMany<{ status: string; count: string }>();
-    const roleRows = await this.complaintsRepository.createQueryBuilder('complaint')
-      .select('complaint.complainant_role', 'role').addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL').groupBy('complaint.complainant_role').getRawMany<{ role: string; count: string }>();
-    const typeRows = await this.complaintsRepository.createQueryBuilder('complaint')
-      .select('complaint.type', 'type').addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL').groupBy('complaint.type').getRawMany<{ type: string; count: string }>();
-    const times = await this.complaintsRepository.createQueryBuilder('complaint')
-      .select("AVG(EXTRACT(EPOCH FROM (complaint.first_response_at - complaint.created_at)))", 'first')
-      .addSelect("AVG(EXTRACT(EPOCH FROM (complaint.resolved_at - complaint.created_at)))", 'resolution')
-      .where('complaint.deleted_at IS NULL').getRawOne<{ first: string | null; resolution: string | null }>();
-    const delayed = await this.complaintsRepository.createQueryBuilder('complaint').where('complaint.deleted_at IS NULL').andWhere('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())').getCount();
-    return { by_status: statusRows.map((row) => ({ status: row.status, count: Number(row.count) })), by_complainant_role: roleRows.map((row) => ({ role: row.role, count: Number(row.count) })), by_type: typeRows.map((row) => ({ type: row.type, count: Number(row.count) })), delayed, average_first_response_seconds: times?.first ? Math.round(Number(times.first)) : null, average_resolution_seconds: times?.resolution ? Math.round(Number(times.resolution)) : null };
+    const statusRows = await this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .select('complaint.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL')
+      .groupBy('complaint.status')
+      .getRawMany<{ status: string; count: string }>();
+    const roleRows = await this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .select('complaint.complainant_role', 'role')
+      .addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL')
+      .groupBy('complaint.complainant_role')
+      .getRawMany<{ role: string; count: string }>();
+    const typeRows = await this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .select('complaint.type', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .where('complaint.deleted_at IS NULL')
+      .groupBy('complaint.type')
+      .getRawMany<{ type: string; count: string }>();
+    const times = await this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .select(
+        'AVG(EXTRACT(EPOCH FROM (complaint.first_response_at - complaint.created_at)))',
+        'first',
+      )
+      .addSelect(
+        'AVG(EXTRACT(EPOCH FROM (complaint.resolved_at - complaint.created_at)))',
+        'resolution',
+      )
+      .where('complaint.deleted_at IS NULL')
+      .getRawOne<{ first: string | null; resolution: string | null }>();
+    const delayed = await this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .where('complaint.deleted_at IS NULL')
+      .andWhere('complaint.status NOT IN (:...terminal)', {
+        terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+      })
+      .andWhere(
+        '(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())',
+      )
+      .getCount();
+    return {
+      by_status: statusRows.map((row) => ({ status: row.status, count: Number(row.count) })),
+      by_complainant_role: roleRows.map((row) => ({ role: row.role, count: Number(row.count) })),
+      by_type: typeRows.map((row) => ({ type: row.type, count: Number(row.count) })),
+      delayed,
+      average_first_response_seconds: times?.first ? Math.round(Number(times.first)) : null,
+      average_resolution_seconds: times?.resolution ? Math.round(Number(times.resolution)) : null,
+    };
   }
 
   public async slaSummary(): Promise<Record<string, unknown>> {
     const now = new Date();
     const [firstResponseOverdue, resolutionOverdue] = await Promise.all([
-      this.complaintsRepository.createQueryBuilder('complaint').where('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('complaint.first_response_at IS NULL').andWhere('complaint.first_response_due_at <= :now', { now }).getCount(),
-      this.complaintsRepository.createQueryBuilder('complaint').where('complaint.status NOT IN (:...terminal)', { terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED] }).andWhere('complaint.resolution_due_at <= :now', { now }).getCount(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .where('complaint.status NOT IN (:...terminal)', {
+          terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+        })
+        .andWhere('complaint.first_response_at IS NULL')
+        .andWhere('complaint.first_response_due_at <= :now', { now })
+        .getCount(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .where('complaint.status NOT IN (:...terminal)', {
+          terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+        })
+        .andWhere('complaint.resolution_due_at <= :now', { now })
+        .getCount(),
     ]);
     return { first_response_overdue: firstResponseOverdue, resolution_overdue: resolutionOverdue };
   }

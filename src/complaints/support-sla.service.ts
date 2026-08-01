@@ -37,14 +37,18 @@ export class SupportSlaService {
     resolution_due_at: Date;
   }> {
     const policy = await this.supportManagement.activePolicy();
-    const values = policy ? { firstResponseHours: policy.first_response_hours, resolutionHours: policy.resolution_hours, warningWindowHours: policy.warning_window_hours } : SUPPORT_SLA_POLICY;
+    const values = policy
+      ? {
+          firstResponseHours: policy.first_response_hours,
+          resolutionHours: policy.resolution_hours,
+          warningWindowHours: policy.warning_window_hours,
+        }
+      : SUPPORT_SLA_POLICY;
     return {
       first_response_due_at: new Date(
         createdAt.getTime() + values.firstResponseHours * 60 * 60 * 1000,
       ),
-      resolution_due_at: new Date(
-        createdAt.getTime() + values.resolutionHours * 60 * 60 * 1000,
-      ),
+      resolution_due_at: new Date(createdAt.getTime() + values.resolutionHours * 60 * 60 * 1000),
     };
   }
 
@@ -52,10 +56,9 @@ export class SupportSlaService {
   public async evaluate(): Promise<void> {
     const now = new Date();
     const policy = await this.supportManagement.activePolicy();
-    const warningWindowHours = policy?.warning_window_hours ?? SUPPORT_SLA_POLICY.warningWindowHours;
-    const warningAt = new Date(
-      now.getTime() + warningWindowHours * 60 * 60 * 1000,
-    );
+    const warningWindowHours =
+      policy?.warning_window_hours ?? SUPPORT_SLA_POLICY.warningWindowHours;
+    const warningAt = new Date(now.getTime() + warningWindowHours * 60 * 60 * 1000);
     await Promise.all([
       this.notifyDueTickets('first_response_due_at', 'first_response_at', now, warningAt),
       this.notifyDueTickets('resolution_due_at', null, now, warningAt),

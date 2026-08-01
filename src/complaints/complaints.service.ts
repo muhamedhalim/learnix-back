@@ -449,7 +449,7 @@ export class ComplaintsService {
       subject: this.sanitizationService.sanitizeStrict(dto.subject),
       description: this.sanitizationService.sanitizeStrict(dto.description),
       status: ComplaintStatus.NEW,
-        ...(await this.supportSla.dueDates(createdAt)),
+      ...(await this.supportSla.dueDates(createdAt)),
     });
     const saved = await this.complaintsRepository.save(complaint);
     await this.complaintStatusPeriodsRepository.save(

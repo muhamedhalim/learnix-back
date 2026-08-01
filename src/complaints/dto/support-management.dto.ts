@@ -1,9 +1,20 @@
 import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
+import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
+
 export class SupportResourceFilterDto {
   @IsOptional() @IsString() @MaxLength(120) search?: string;
-  @IsOptional() @IsInt() @Min(1) page = 1;
-  @IsOptional() @IsInt() @Min(1) @Max(100) limit = 20;
+  @IsOptional()
+  @StrictIntegerQuery()
+  @IsInt()
+  @Min(1)
+  page = 1;
+  @IsOptional()
+  @StrictIntegerQuery({ max: 100 })
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit = 20;
 }
 
 export class UpsertCannedResponseDto {
