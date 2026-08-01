@@ -86,10 +86,7 @@ describe('Call Center Phase 1 access and role provisioning (e2e)', () => {
       .expect(403);
 
     // Both generic user-update endpoints reject a manually injected role field.
-    await callCenter.agent
-      .put(`${API_PREFIX}/users/me`)
-      .send({ role: 'call_center' })
-      .expect(400);
+    await callCenter.agent.put(`${API_PREFIX}/users/me`).send({ role: 'call_center' }).expect(400);
     await admin.agent
       .put(`${API_PREFIX}/users/${target.userId}`)
       .send({ role: 'call_center' })
@@ -115,7 +112,11 @@ describe('Call Center Phase 1 access and role provisioning (e2e)', () => {
 
     const auditRows = (await ctx.dataSource.query(
       "SELECT action, target_id, details FROM audit_logs WHERE action = 'call_center_role_assigned'",
-    )) as Array<{ action: string; target_id: string; details: { previousRole: string; newRole: string } }>;
+    )) as Array<{
+      action: string;
+      target_id: string;
+      details: { previousRole: string; newRole: string };
+    }>;
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0]).toMatchObject({
       action: 'call_center_role_assigned',
@@ -136,7 +137,7 @@ describe('Call Center Phase 1 access and role provisioning (e2e)', () => {
     await request(server).post(`${API_PREFIX}/auth/register`).send(payload).expect(400);
   });
 
-  it('keeps admin APIs admin-only while preserving the existing Call Center API for Call Center staff', async () => {
+  it('keeps Admin APIs and the legacy Admin Call Center surface Admin-only', async () => {
     const admin = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'admin' });
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'teacher' });
@@ -148,6 +149,7 @@ describe('Call Center Phase 1 access and role provisioning (e2e)', () => {
     await student.agent.get(`${API_PREFIX}/admin/students`).expect(403);
     await teacher.agent.get(`${API_PREFIX}/admin/students`).expect(403);
     await callCenter.agent.get(`${API_PREFIX}/admin/students`).expect(403);
-    await callCenter.agent.get(`${API_PREFIX}/callcenter/students`).expect(200);
+    await callCenter.agent.get(`${API_PREFIX}/callcenter/students`).expect(403);
+    await admin.agent.get(`${API_PREFIX}/callcenter/students`).expect(200);
   });
 });
