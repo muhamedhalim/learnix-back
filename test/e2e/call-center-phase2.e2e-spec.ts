@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import { Readable } from 'node:stream';
 
 import request from 'supertest';
 
@@ -9,6 +10,7 @@ import {
   resetDatabase,
   type E2EContext,
 } from './fixtures';
+import { StorageService } from '../../src/storage/storage.service';
 
 const ticketPayload = {
   type: 'technical',
@@ -21,7 +23,26 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
   let server: Server;
 
   beforeAll(async () => {
-    ctx = await createE2EApp();
+    const objects = new Map<string, { buffer: Buffer; contentType: string }>();
+    const storage: Partial<StorageService> = {
+      upload: async ({ buffer, path, contentType, visibility = 'public' }) => {
+        objects.set(path, { buffer, contentType });
+        return { url: '', path, size: buffer.length, visibility };
+      },
+      getObject: async (path) => {
+        const object = objects.get(path);
+        if (!object) throw new Error('Object not found');
+        return {
+          stream: Readable.from(object.buffer),
+          contentType: object.contentType,
+          contentLength: object.buffer.length,
+        };
+      },
+      tryDelete: async (path) => {
+        objects.delete(path);
+      },
+    };
+    ctx = await createE2EApp({ storageService: storage });
     server = ctx.app.getHttpServer() as Server;
   });
 
@@ -33,9 +54,15 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
     const otherStudent = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const support = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
 
-    const created = await student.agent.post(`${API_PREFIX}/student/complaints`).send(ticketPayload).expect(201);
+    const created = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(ticketPayload)
+      .expect(201);
     expect(created.body).toMatchObject({
-      status: 'new', complainant_id: student.userId, complainant_role: 'student', version: 1,
+      status: 'new',
+      complainant_id: student.userId,
+      complainant_role: 'student',
+      version: 1,
     });
     expect(created.body.ticket_number).toMatch(/^CC-\d{4}-.+$/);
 
@@ -52,7 +79,9 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .send({ body: 'We are investigating your request.', internal: false })
       .expect(201);
 
-    const detail = await student.agent.get(`${API_PREFIX}/student/complaints/${created.body.id}`).expect(200);
+    const detail = await student.agent
+      .get(`${API_PREFIX}/student/complaints/${created.body.id}`)
+      .expect(200);
     expect(detail.body.messages).toHaveLength(1);
     expect(detail.body.messages[0].kind).toBe('agent_reply');
     expect(detail.body.messages[0].body).not.toContain('<script>');
@@ -62,7 +91,10 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const support = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
     const nonSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource);
-    const created = await student.agent.post(`${API_PREFIX}/student/complaints`).send(ticketPayload).expect(201);
+    const created = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(ticketPayload)
+      .expect(201);
 
     await support.agent
       .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/assignment`)
@@ -89,26 +121,98 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .expect(400);
 
     const auditRows = (await ctx.dataSource.query(
-      "SELECT action FROM audit_logs WHERE target_id = $1 ORDER BY created_at ASC", [created.body.id],
+      'SELECT action FROM audit_logs WHERE target_id = $1 ORDER BY created_at ASC',
+      [created.body.id],
     )) as Array<{ action: string }>;
-    expect(auditRows.map((row) => row.action)).toEqual(expect.arrayContaining([
-      'support_ticket_created', 'support_ticket_assigned', 'support_ticket_status_changed',
-    ]));
+    expect(auditRows.map((row) => row.action)).toEqual(
+      expect.arrayContaining([
+        'support_ticket_created',
+        'support_ticket_assigned',
+        'support_ticket_status_changed',
+      ]),
+    );
   });
 
   it('keeps existing Admin complaint response behavior and allows teachers to own only their tickets', async () => {
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'teacher' });
     const admin = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'admin' });
-    const studentTicket = await student.agent.post(`${API_PREFIX}/student/complaints`).send(ticketPayload).expect(201);
-    const teacherTicket = await teacher.agent.post(`${API_PREFIX}/teacher/complaints`).send(ticketPayload).expect(201);
+    const studentTicket = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(ticketPayload)
+      .expect(201);
+    const teacherTicket = await teacher.agent
+      .post(`${API_PREFIX}/teacher/complaints`)
+      .send(ticketPayload)
+      .expect(201);
 
-    await student.agent.get(`${API_PREFIX}/teacher/complaints/${teacherTicket.body.id}`).expect(403);
-    await teacher.agent.get(`${API_PREFIX}/teacher/complaints/${studentTicket.body.id}`).expect(404);
+    await student.agent
+      .get(`${API_PREFIX}/teacher/complaints/${teacherTicket.body.id}`)
+      .expect(403);
+    await teacher.agent
+      .get(`${API_PREFIX}/teacher/complaints/${studentTicket.body.id}`)
+      .expect(404);
     const responded = await admin.agent
       .post(`${API_PREFIX}/admin/complaints/${studentTicket.body.id}/respond`)
       .send({ admin_response: 'This has been fixed.' })
       .expect(201);
     expect(responded.body.status).toBe('resolved');
+  });
+
+  it('keeps Call Center ticket attachments private, ticket-scoped, and auditable', async () => {
+    const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const otherStudent = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const support = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
+    const ticket = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(ticketPayload)
+      .expect(201);
+    const otherTicket = await otherStudent.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(ticketPayload)
+      .expect(201);
+
+    await student.agent
+      .post(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments`)
+      .attach('file', Buffer.from('%PDF-1.4\nprivate support evidence\n'), 'evidence.pdf')
+      .expect(403);
+
+    const uploaded = await support.agent
+      .post(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments`)
+      .attach('file', Buffer.from('%PDF-1.4\nprivate support evidence\n'), 'evidence.pdf')
+      .expect(201);
+    expect(uploaded.body).toMatchObject({
+      original_filename: 'evidence.pdf',
+      mime_type: 'application/pdf',
+    });
+    expect(uploaded.body).not.toHaveProperty('storage_key');
+
+    const detail = await support.agent
+      .get(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}`)
+      .expect(200);
+    expect(detail.body.attachments).toHaveLength(1);
+    expect(detail.body.attachments[0]).not.toHaveProperty('storage_key');
+    await student.agent
+      .get(
+        `${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments/${uploaded.body.id}/download`,
+      )
+      .expect(403);
+    await support.agent
+      .get(
+        `${API_PREFIX}/callcenter/tickets/${otherTicket.body.id}/attachments/${uploaded.body.id}/download`,
+      )
+      .expect(404);
+    await support.agent
+      .get(
+        `${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments/${uploaded.body.id}/download`,
+      )
+      .expect('Cache-Control', 'private, no-store')
+      .expect(200);
+
+    const auditRows = (await ctx.dataSource.query(
+      'SELECT action FROM audit_logs WHERE target_id = $1',
+      [ticket.body.id],
+    )) as Array<{ action: string }>;
+    expect(auditRows.map((row) => row.action)).toContain('support_ticket_attachment_added');
   });
 });

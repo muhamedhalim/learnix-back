@@ -11,17 +11,29 @@ import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
 import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
+import { StorageService } from '../../../src/storage/storage.service';
 
 export interface E2EContext {
   app: INestApplication;
   dataSource: DataSource;
 }
 
+export interface E2EOverrides {
+  storageService?: Partial<StorageService>;
+}
+
 /** Shared bootstrap; `withCsrfGuard` controls whether CsrfGuard is installed. */
-async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
-  const moduleFixture: TestingModule = await Test.createTestingModule({
+async function bootstrapE2EApp(
+  withCsrfGuard: boolean,
+  overrides?: E2EOverrides,
+): Promise<E2EContext> {
+  let builder = Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  });
+  if (overrides?.storageService !== undefined) {
+    builder = builder.overrideProvider(StorageService).useValue(overrides.storageService);
+  }
+  const moduleFixture: TestingModule = await builder.compile();
 
   const app = moduleFixture.createNestApplication();
 
@@ -83,8 +95,8 @@ async function bootstrapE2EApp(withCsrfGuard: boolean): Promise<E2EContext> {
  * {@link createE2EAppWithCsrf} for specs that specifically exercise the CSRF
  * bootstrap/login flow.
  */
-export async function createE2EApp(): Promise<E2EContext> {
-  return bootstrapE2EApp(false);
+export async function createE2EApp(overrides?: E2EOverrides): Promise<E2EContext> {
+  return bootstrapE2EApp(false, overrides);
 }
 
 /**
@@ -93,8 +105,8 @@ export async function createE2EApp(): Promise<E2EContext> {
  * `getCrossSiteCookieOptions`). Use this to test the CSRF bootstrap/login flow
  * end-to-end.
  */
-export async function createE2EAppWithCsrf(): Promise<E2EContext> {
-  return bootstrapE2EApp(true);
+export async function createE2EAppWithCsrf(overrides?: E2EOverrides): Promise<E2EContext> {
+  return bootstrapE2EApp(true, overrides);
 }
 
 /** Base URL prefix all E2E requests share. */

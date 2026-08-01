@@ -70,10 +70,10 @@ export class UploadService {
     return await this.handleImageUpload(file, folder, uploadStartTime);
   }
 
-  /** Store a student's homework response outside every public media prefix. */
-  public async uploadPrivateHomeworkSubmission(
+  /** Store a validated document outside every public media prefix. */
+  private async uploadPrivateRestrictedDocument(
     file: Express.Multer.File,
-    studentId: string,
+    storagePrefix: string,
   ): Promise<{ url: string; filename: string }> {
     this.validateFileSize(file, 'resources');
     this.validateContentType(file);
@@ -112,7 +112,7 @@ export class UploadService {
     const filename = `${randomUUID()}.${extension}`;
     const stored = await this.storageService.upload({
       buffer: file.buffer,
-      path: `homework-submissions/${studentId}/${filename}`,
+      path: `${storagePrefix}/${filename}`,
       contentType: file.mimetype,
       visibility: 'private',
     });
@@ -121,6 +121,39 @@ export class UploadService {
     // The opaque storage key stays in `url`; the original name is returned
     // separately so it can be shown/downloaded without exposing that key.
     return { url: stored.path, filename: file.originalname };
+  }
+
+  /** Store a student's homework response outside every public media prefix. */
+  public async uploadPrivateHomeworkSubmission(
+    file: Express.Multer.File,
+    studentId: string,
+  ): Promise<{ url: string; filename: string }> {
+    return await this.uploadPrivateRestrictedDocument(file, `homework-submissions/${studentId}`);
+  }
+
+  /**
+   * Store Call Center evidence using the existing private upload validation and
+   * storage path. The caller persists the opaque key; it must never expose it.
+   */
+  public async uploadPrivateSupportAttachment(
+    file: Express.Multer.File,
+    ticketId: string,
+  ): Promise<{ storageKey: string; originalFilename: string; mimeType: string; size: number }> {
+    if (file.size > FILE_LIMITS.CALL_CENTER_ATTACHMENT_MAX_SIZE) {
+      throw new BadRequestException(
+        biBody('Support attachment exceeds the 10MB limit', 'مرفق الدعم يتجاوز حد 10 ميجابايت'),
+      );
+    }
+    const uploaded = await this.uploadPrivateRestrictedDocument(
+      file,
+      `support-tickets/${ticketId}`,
+    );
+    return {
+      storageKey: uploaded.url,
+      originalFilename: uploaded.filename,
+      mimeType: file.mimetype,
+      size: file.size,
+    };
   }
 
   private validateFileSize(file: Express.Multer.File, folder: UploadFolder): void {

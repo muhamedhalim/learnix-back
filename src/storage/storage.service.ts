@@ -42,6 +42,7 @@ const PRIVATE_LOCAL_PREFIXES = [
   'omr-sheets/',
   'lesson-resources/',
   'homework-submissions/',
+  'support-tickets/',
   'resources/',
   'attachments/',
 ] as const;
@@ -438,11 +439,7 @@ export class StorageService implements StorageProvider {
 
   private assertProductionPublicUrl(value: string, variableName: string): void {
     if (this.config.get<string>('NODE_ENV') !== 'production') return;
-    parsePublicOrigin(
-      value,
-      variableName as 'R2_PUBLIC_BASE_URL' | 'BUNNY_CDN_URL',
-      true,
-    );
+    parsePublicOrigin(value, variableName as 'R2_PUBLIC_BASE_URL' | 'BUNNY_CDN_URL', true);
   }
 
   public upload(params: UploadParams): Promise<StoredFile> {

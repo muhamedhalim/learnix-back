@@ -15,6 +15,9 @@ export const FILE_LIMITS = {
   // limit is even reached, so unauthenticated requests never get this far.
   VIDEO_MAX_SIZE: 20 * 1024 * 1024 * 1024, // 20GB
   RESOURCE_MAX_SIZE: 500 * 1024 * 1024, // 500MB
+  // Support evidence is deliberately smaller than course resources because
+  // Multer buffers uploads in process memory.
+  CALL_CENTER_ATTACHMENT_MAX_SIZE: 10 * 1024 * 1024, // 10MB
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
 } as const;
 
@@ -67,9 +70,5 @@ export type UploadFolder = (typeof UPLOAD_FOLDERS)[number];
  * folders (e.g. `books`, OMR sheet scans) are deliberately excluded so they
  * can only ever be reached via a purchase/ownership-gated signed URL.
  */
-export const PUBLIC_MEDIA_FOLDERS = [
-  'images',
-  'thumbnails',
-  'profiles',
-] as const;
+export const PUBLIC_MEDIA_FOLDERS = ['images', 'thumbnails', 'profiles'] as const;
 export type PublicMediaFolder = (typeof PUBLIC_MEDIA_FOLDERS)[number];
