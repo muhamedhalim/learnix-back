@@ -24,7 +24,11 @@ import { StudentFilterDto } from '../students/dto';
 import { StudentsService } from '../students/students.service';
 import { UsersService } from '../users/users.service';
 import { CallCenterSupportService } from './callcenter-support.service';
-import { CallCenterUserFilterDto, TerminateUserSessionsDto } from './dto';
+import {
+  CallCenterFinanceFilterDto,
+  CallCenterUserFilterDto,
+  TerminateUserSessionsDto,
+} from './dto';
 import { CallCenterUpdateStudentDto } from './dto/update-student.dto';
 
 @ApiTags('Call Center')
@@ -115,6 +119,24 @@ export class CallCenterController {
   @ApiOperation({ summary: 'List active Call Center agents for ticket assignment' })
   public async getActiveAgents(): Promise<unknown> {
     return await this.supportService.activeAgents();
+  }
+
+  @Get('finance/payments')
+  @Roles('call_center')
+  public async financePayments(@Query() filter: CallCenterFinanceFilterDto): Promise<unknown> {
+    return await this.supportService.listFinancePayments(filter);
+  }
+
+  @Get('finance/settlements')
+  @Roles('call_center')
+  public async financeSettlements(@Query() filter: CallCenterFinanceFilterDto): Promise<unknown> {
+    return await this.supportService.listFinanceSettlements(filter);
+  }
+
+  @Get('finance/receivables')
+  @Roles('call_center')
+  public async financeReceivables(@Query() filter: CallCenterFinanceFilterDto): Promise<unknown> {
+    return await this.supportService.listTeacherReceivables(filter);
   }
 
   @Post('users/:userId/terminate-sessions')

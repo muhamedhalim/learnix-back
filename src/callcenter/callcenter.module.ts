@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { Complaint } from '../complaints/entities/complaint.entity';
+import { FinancialLedgerEntry, Order, Payment, Settlement } from '../payments/entities';
 import { GuardiansModule } from '../guardians/guardians.module';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { StudentsModule } from '../students/students.module';
@@ -18,7 +19,16 @@ import { CallCenterSupportService } from './callcenter-support.service';
     GuardiansModule,
     StudentsModule,
     UsersModule,
-    TypeOrmModule.forFeature([Complaint, StudentProfile, TeacherProfile, User]),
+    TypeOrmModule.forFeature([
+      Complaint,
+      StudentProfile,
+      TeacherProfile,
+      User,
+      Order,
+      Payment,
+      Settlement,
+      FinancialLedgerEntry,
+    ]),
   ],
   controllers: [CallCenterController],
   providers: [CallCenterSupportService],

@@ -6,12 +6,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { AuditEvent } from '../activity-logs/events/audit.events';
 import type { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { Complaint } from '../complaints/entities/complaint.entity';
+import { FinancialLedgerEntry, Order, Payment, Settlement } from '../payments/entities';
 import { biBody } from '../i18n/error-translator.util';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
@@ -19,6 +20,7 @@ import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { SessionsService } from '../users/sessions.service';
 import { CallCenterUserFilterDto } from './dto/call-center-user-filter.dto';
+import { CallCenterFinanceFilterDto } from './dto/call-center-finance-filter.dto';
 
 interface SupportUserSummary {
   id: string;
@@ -49,6 +51,10 @@ export class CallCenterSupportService {
     private readonly teachersRepository: Repository<TeacherProfile>,
     @InjectRepository(Complaint)
     private readonly complaintsRepository: Repository<Complaint>,
+    @InjectRepository(Order) private readonly ordersRepository: Repository<Order>,
+    @InjectRepository(Settlement) private readonly settlementsRepository: Repository<Settlement>,
+    @InjectRepository(FinancialLedgerEntry)
+    private readonly ledgerRepository: Repository<FinancialLedgerEntry>,
     private readonly sessionsService: SessionsService,
     private readonly activityLogs: ActivityLogsService,
   ) {}
@@ -153,6 +159,154 @@ export class CallCenterSupportService {
       take: 100,
     });
     return users.map((user) => ({ id: user.id, name: user.name }));
+  }
+
+  /** Explicit finance allowlist; never serializes payment, order, settlement, or ledger entities. */
+  public async listFinancePayments(filter: CallCenterFinanceFilterDto) {
+    const query = this.ordersRepository
+      .createQueryBuilder('order')
+      .leftJoin(User, 'student', 'student.id = order.student_id')
+      .leftJoin(User, 'teacher', 'teacher.id = order.teacher_id')
+      .leftJoin(Payment, 'payment', 'payment.id = order.payment_id')
+      .select([
+        'order.id AS order_id',
+        'order.order_number AS order_number',
+        'order.item_type AS item_type',
+        'order.product_title_snapshot AS product_title',
+        'order.final_amount_minor AS total_amount_minor',
+        'order.platform_commission_minor AS platform_commission_minor',
+        'order.teacher_earning_minor AS teacher_net_receivable_minor',
+        'order.currency AS currency',
+        'order.status AS order_status',
+        'order.created_at AS created_at',
+        'payment.status AS payment_status',
+        'student.name AS user_name',
+        'teacher.name AS teacher_name',
+      ]);
+    if (filter.status) query.andWhere('order.status = :status', { status: filter.status });
+    if (filter.search?.trim())
+      query.andWhere(
+        '(order.order_number ILIKE :search OR student.name ILIKE :search OR teacher.name ILIKE :search)',
+        { search: `%${filter.search.trim()}%` },
+      );
+    return await this.rawPage(query, filter, (row) => {
+      const { order_id: _orderId, ...payment } = row;
+      return {
+        ...payment,
+        total_amount_minor: Number(payment['total_amount_minor']),
+        platform_commission_minor: Number(payment['platform_commission_minor']),
+        teacher_net_receivable_minor: Number(payment['teacher_net_receivable_minor']),
+      };
+    });
+  }
+
+  public async listFinanceSettlements(filter: CallCenterFinanceFilterDto) {
+    const query = this.settlementsRepository
+      .createQueryBuilder('settlement')
+      .leftJoin(User, 'teacher', 'teacher.id = settlement.teacher_id')
+      .select([
+        'settlement.id AS settlement_id',
+        'settlement.settlement_number AS settlement_number',
+        'teacher.name AS teacher_name',
+        'settlement.gross_amount_minor AS total_amount_minor',
+        'settlement.deductions_minor AS deductions_minor',
+        'settlement.receivable_offset_minor AS receivable_offset_minor',
+        'settlement.payout_amount_minor AS teacher_net_receivable_minor',
+        'settlement.currency AS currency',
+        'settlement.status AS status',
+        'settlement.transfer_reference AS financial_reference',
+        'settlement.created_at AS created_at',
+        'settlement.paid_at AS paid_at',
+      ]);
+    if (filter.status) query.andWhere('settlement.status = :status', { status: filter.status });
+    if (filter.search?.trim())
+      query.andWhere('(settlement.settlement_number ILIKE :search OR teacher.name ILIKE :search)', {
+        search: `%${filter.search.trim()}%`,
+      });
+    return await this.rawPage(query, filter, (row) => {
+      const { settlement_id: _settlementId, ...settlement } = row;
+      return {
+        ...settlement,
+        total_amount_minor: Number(settlement['total_amount_minor']),
+        deductions_minor: Number(settlement['deductions_minor']),
+        receivable_offset_minor: Number(settlement['receivable_offset_minor']),
+        teacher_net_receivable_minor: Number(settlement['teacher_net_receivable_minor']),
+      };
+    });
+  }
+
+  public async listTeacherReceivables(filter: CallCenterFinanceFilterDto) {
+    const query = this.ledgerRepository
+      .createQueryBuilder('entry')
+      .leftJoin(User, 'teacher', 'teacher.id = entry.teacher_id')
+      .select('entry.teacher_id', 'teacher_id')
+      .addSelect('teacher.name', 'teacher_name')
+      .addSelect('entry.currency', 'currency')
+      .addSelect('MAX(entry.created_at)', 'created_at')
+      .addSelect(
+        "COALESCE(SUM(CASE WHEN entry.account = 'teacher_payable_available' THEN CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END), 0)",
+        'teacher_net_receivable_minor',
+      )
+      .addSelect(
+        "COALESCE(SUM(CASE WHEN entry.account = 'platform_receivable' THEN CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END ELSE 0 END), 0)",
+        'platform_receivable_minor',
+      )
+      .where('entry.teacher_id IS NOT NULL')
+      .groupBy('entry.teacher_id')
+      .addGroupBy('teacher.name')
+      .addGroupBy('entry.currency');
+    if (filter.search?.trim())
+      query.having('teacher.name ILIKE :search', { search: `%${filter.search.trim()}%` });
+    const totalQuery = this.ledgerRepository
+      .createQueryBuilder('entry')
+      .leftJoin(User, 'teacher', 'teacher.id = entry.teacher_id')
+      .select('COUNT(DISTINCT (entry.teacher_id, entry.currency))', 'total')
+      .where('entry.teacher_id IS NOT NULL');
+    if (filter.search?.trim()) {
+      totalQuery.andWhere('teacher.name ILIKE :search', {
+        search: `%${filter.search.trim()}%`,
+      });
+    }
+    const totalResult = await totalQuery.getRawOne<{ total: string }>();
+    return await this.rawPage(
+      query,
+      filter,
+      (row) => {
+        const { teacher_id: _teacherId, ...receivable } = row;
+        return {
+          ...receivable,
+          teacher_net_receivable_minor: Number(receivable['teacher_net_receivable_minor']),
+          platform_receivable_minor: Number(receivable['platform_receivable_minor']),
+        };
+      },
+      Number(totalResult?.total ?? 0),
+    );
+  }
+
+  private async rawPage(
+    query: SelectQueryBuilder<ObjectLiteral>,
+    filter: CallCenterFinanceFilterDto,
+    map: (row: Record<string, unknown>) => Record<string, unknown>,
+    totalOverride?: number,
+  ) {
+    const total = totalOverride ?? (await query.getCount());
+    const data = await query
+      .orderBy('created_at', 'DESC')
+      .skip((filter.page - 1) * filter.limit)
+      .take(filter.limit)
+      .getRawMany();
+    const totalPages = Math.ceil(total / filter.limit);
+    return {
+      data: data.map(map),
+      meta: {
+        page: filter.page,
+        limit: filter.limit,
+        total,
+        totalPages,
+        hasNextPage: filter.page < totalPages,
+        hasPrevPage: filter.page > 1,
+      },
+    };
   }
 
   public async terminateUserSessions(
