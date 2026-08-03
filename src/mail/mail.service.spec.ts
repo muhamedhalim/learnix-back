@@ -98,6 +98,38 @@ describe('MailService', () => {
     });
   });
 
+  it('passes a recipient locale to configured templates and localizes Arabic fallbacks', async () => {
+    const { service, queue } = createService({
+      ...configuredValues,
+      MAILERSEND_TEMPLATE_WELCOME: 'template-welcome',
+    });
+
+    await service.sendWelcomeEmail({
+      to: 'student@example.test',
+      locale: PreferredLanguage.AR,
+      personalization: { name: 'طالب' },
+    });
+    expect(queue.add).toHaveBeenCalledWith(
+      JOB_TYPES.EMAIL.DELIVER,
+      expect.objectContaining({
+        templateId: 'template-welcome',
+        personalization: { name: 'طالب', locale: PreferredLanguage.AR },
+      }),
+    );
+
+    const { service: fallback, queue: fallbackQueue } = createService({
+      MAIL_PROVIDER: 'mailersend',
+      MAILERSEND_API_KEY: 'test-api-key',
+      MAIL_FROM_EMAIL: 'no-reply@example.test',
+      MAIL_FROM_NAME: 'Learnix',
+    });
+    await fallback.sendWelcomeEmail({ to: 'student@example.test', locale: PreferredLanguage.AR });
+    expect(fallbackQueue.add).toHaveBeenCalledWith(
+      JOB_TYPES.EMAIL.DELIVER,
+      expect.objectContaining({ subject: 'مرحبًا بك في Learnix', html: expect.stringContaining('dir="rtl"') }),
+    );
+  });
+
   it('does not initialize MailerSend for any other provider', async () => {
     const { service, queue } = createService({ MAIL_PROVIDER: 'smtp' });
 

@@ -72,4 +72,15 @@ describe('AttemptService audience enforcement', () => {
     expect(access.assertCanAccessExam).toHaveBeenCalledWith('student-1', 'private-exam');
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
+
+  it('does not distinguish a foreign attempt from an unknown attempt', async () => {
+    const attempt = { id: 'attempt-1', student_id: 'student-2' } as ExamAttempt;
+    const { service, attempts, access } = buildService();
+
+    await expect(service.getAttempt('student-1', attempt.id)).rejects.toBeInstanceOf(NotFoundException);
+    expect(attempts.findOne).toHaveBeenCalledWith({
+      where: { id: attempt.id, student_id: 'student-1' },
+    });
+    expect(access.assertCanAccessExam).not.toHaveBeenCalled();
+  });
 });

@@ -556,11 +556,8 @@ export class AttemptService {
   }
 
   private async loadOwnedAttempt(studentId: string, attemptId: string): Promise<ExamAttempt> {
-    const attempt = await this.attempts.findOne({ where: { id: attemptId } });
+    const attempt = await this.attempts.findOne({ where: { id: attemptId, student_id: studentId } });
     if (!attempt) throw new NotFoundException(biBody('Attempt not found', 'المحاولة غير موجودة'));
-    if (attempt.student_id !== studentId) {
-      throw new ForbiddenException(biBody('This is not your attempt', 'هذه ليست محاولتك'));
-    }
     return attempt;
   }
 

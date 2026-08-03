@@ -573,13 +573,17 @@ export class LessonContentService {
     submission.graded_at = new Date();
     submission.graded_by = teacherId;
     const saved = await this.homeworkSubmissions.save(submission);
+    const student = await this.users.findOne({ where: { id: submission.student_id } });
+    const arabic = student?.preferred_language === PreferredLanguage.AR;
 
     await this.notifications.create(
       {
         user_id: submission.student_id,
         type: NotificationType.HOMEWORK,
-        title: 'Homework graded',
-        message: `Your result for “${homework.title}” is ${String(dto.score)}/${String(homework.max_score)}.`,
+        title: arabic ? 'تم تصحيح الواجب' : 'Homework graded',
+        message: arabic
+          ? `نتيجتك في واجب «${homework.title}» هي ${String(dto.score)}/${String(homework.max_score)}.`
+          : `Your result for “${homework.title}” is ${String(dto.score)}/${String(homework.max_score)}.`,
         data: { homework_id: homework.id, submission_id: submission.id, href: '/student/homework' },
         send_sms: false,
       },

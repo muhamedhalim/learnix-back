@@ -3,7 +3,6 @@ import { extname } from 'node:path';
 
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -202,12 +201,9 @@ export class OmrSheetsService {
   }
 
   private async assertOwned(examId: string, teacherId: string): Promise<void> {
-    const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
+    const exam = await this.exams.findOne({
+      where: { id: examId, teacher_id: teacherId, deleted_at: IsNull() },
+    });
     if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
-    if (exam.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only manage your own exams', 'يمكنك فقط إدارة اختباراتك الخاصة'),
-      );
-    }
   }
 }

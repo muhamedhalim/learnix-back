@@ -124,12 +124,10 @@ export class ExamAuthoringService {
   /** Full authoring view: exam + ordered sections + ordered questions. */
   public async getExamForTeacher(examId: string, teacherId: string): Promise<Exam> {
     const exam = await this.exams.findOne({
-      where: { id: examId, deleted_at: IsNull() },
+      where: { id: examId, teacher_id: teacherId, deleted_at: IsNull() },
       relations: ['sections', 'exam_questions', 'subject'],
     });
     if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
-    if (exam.teacher_id !== teacherId)
-      throw new ForbiddenException(biBody('Not your exam', 'هذا الاختبار ليس ملكك'));
     exam.sections.sort((a, b) => a.order_index - b.order_index);
     exam.exam_questions.sort((a, b) => a.order_index - b.order_index);
     return exam;
@@ -450,13 +448,10 @@ export class ExamAuthoringService {
   }
 
   private async findOwned(examId: string, teacherId: string): Promise<Exam> {
-    const exam = await this.exams.findOne({ where: { id: examId, deleted_at: IsNull() } });
+    const exam = await this.exams.findOne({
+      where: { id: examId, teacher_id: teacherId, deleted_at: IsNull() },
+    });
     if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
-    if (exam.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only manage your own exams', 'يمكنك فقط إدارة اختباراتك الخاصة'),
-      );
-    }
     return exam;
   }
 

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -191,11 +190,8 @@ export class TeacherGradingService {
   }
 
   private async assertExamOwner(examId: string, teacherId: string): Promise<Exam> {
-    const exam = await this.exams.findOne({ where: { id: examId } });
+    const exam = await this.exams.findOne({ where: { id: examId, teacher_id: teacherId } });
     if (!exam) throw new NotFoundException(biBody('Exam not found', 'الاختبار غير موجود'));
-    if (exam.teacher_id !== teacherId) {
-      throw new ForbiddenException(biBody('Not your exam', 'هذا الاختبار ليس ملكك'));
-    }
     return exam;
   }
 

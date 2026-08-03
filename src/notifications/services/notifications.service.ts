@@ -6,7 +6,9 @@ import { Repository } from 'typeorm';
 import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
 import { GuardiansService } from '../../guardians/guardians.service';
+import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { biBody } from '../../i18n/error-translator.util';
+import { User } from '../../users/entities/user.entity';
 import {
   AdminNotificationFilterDto,
   NotificationFilterDto,
@@ -107,6 +109,23 @@ const SUPPORT_TICKET_COPY: Readonly<
   },
 };
 
+const SUPPORT_TICKET_COPY_AR: Readonly<
+  Record<SupportTicketNotificationEvent, { title: string; message: (ticketNumber: string) => string }>
+> = {
+  created: { title: 'تم استلام طلب الدعم', message: (number) => `تم استلام طلب الدعم ${number}.` },
+  assigned: { title: 'تم تعيين التذكرة', message: (number) => `تم تعيين تذكرة الدعم ${number} إليك.` },
+  agent_reply: { title: 'وصل رد من الدعم', message: (number) => `يوجد رد جديد في تذكرة الدعم ${number}.` },
+  waiting_for_user: { title: 'مطلوب معلومات للدعم', message: (number) => `ينتظر الدعم ردك على التذكرة ${number}.` },
+  escalated: { title: 'طلب الدعم قيد المراجعة', message: (number) => `تذكرة الدعم ${number} قيد مراجعة إضافية.` },
+  resolved: { title: 'تم حل طلب الدعم', message: (number) => `تم حل تذكرة الدعم ${number}.` },
+  closed: { title: 'تم إغلاق طلب الدعم', message: (number) => `تم إغلاق تذكرة الدعم ${number}.` },
+  reopened: { title: 'تمت إعادة فتح طلب الدعم', message: (number) => `تمت إعادة فتح تذكرة الدعم ${number}.` },
+  sla_first_response_warning: { title: 'اقترب موعد الرد الأول', message: (number) => `اقترب موعد الرد الأول لتذكرة ${number}.` },
+  sla_first_response_exceeded: { title: 'تجاوز موعد الرد الأول', message: (number) => `تجاوزت التذكرة ${number} موعد الرد الأول.` },
+  sla_resolution_warning: { title: 'اقترب موعد الحل', message: (number) => `اقترب موعد حل التذكرة ${number}.` },
+  sla_resolution_exceeded: { title: 'تجاوز موعد الحل', message: (number) => `تجاوزت التذكرة ${number} موعد الحل.` },
+};
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -116,6 +135,8 @@ export class NotificationsService {
     private readonly notificationsRepository: Repository<Notification>,
     @InjectRepository(NotificationSettings)
     private readonly settingsRepository: Repository<NotificationSettings>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
     private readonly guardiansService: GuardiansService,
     private readonly smsSenderService: SmsSenderService,
   ) {}
@@ -206,7 +227,14 @@ export class NotificationsService {
     ticket: { id: string; ticket_number: string; version: number },
     event: SupportTicketNotificationEvent,
   ): Promise<Notification> {
-    const copy = SUPPORT_TICKET_COPY[event];
+    const recipient = await this.usersRepository.findOne({
+      where: { id: recipientUserId },
+      select: ['id', 'preferred_language'],
+    });
+    const copy =
+      recipient?.preferred_language === PreferredLanguage.AR
+        ? SUPPORT_TICKET_COPY_AR[event]
+        : SUPPORT_TICKET_COPY[event];
     const notification = await this.create(
       {
         user_id: recipientUserId,

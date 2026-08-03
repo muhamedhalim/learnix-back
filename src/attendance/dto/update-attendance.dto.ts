@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import type { AttendanceStatus } from '../entities/attendance-record.entity';
 import { ATTENDANCE_STATUSES } from './mark-attendance.dto';
@@ -13,5 +13,6 @@ export class UpdateAttendanceDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   public notes?: string;
 }

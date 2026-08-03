@@ -34,6 +34,7 @@ export type MailJob = MailMessage;
 export interface TemplateEmailInput {
   to: string;
   recipientName?: string;
+  locale?: PreferredLanguage;
   personalization?: Record<string, unknown>;
 }
 
@@ -295,15 +296,42 @@ export class MailService {
     fallbackSubject: string,
   ): Promise<boolean> {
     const templateId = this.templateId(template);
+    const { locale = PreferredLanguage.EN, ...mailInput } = input;
     if (templateId !== undefined) {
-      return await this.send({ ...input, templateId });
+      return await this.send({
+        ...mailInput,
+        templateId,
+        personalization: { ...input.personalization, locale },
+      });
     }
+    const subject = this.localizedFallbackSubject(template, fallbackSubject, locale);
     return await this.send({
-      ...input,
-      subject: fallbackSubject,
-      text: fallbackSubject,
-      html: `<p>${fallbackSubject}</p>`,
+      ...mailInput,
+      subject,
+      text: subject,
+      html: `<p dir="${locale === PreferredLanguage.AR ? 'rtl' : 'ltr'}">${subject}</p>`,
     });
+  }
+
+  private localizedFallbackSubject(
+    template: MailTemplateName,
+    englishSubject: string,
+    locale: PreferredLanguage,
+  ): string {
+    if (locale !== PreferredLanguage.AR) return englishSubject;
+    const arabicSubjects: Record<MailTemplateName, string> = {
+      welcome: 'مرحبًا بك في Learnix',
+      passwordReset: 'إعادة تعيين كلمة المرور',
+      verification: 'تحقق من تسجيل الدخول إلى Learnix',
+      invitation: 'لديك دعوة إلى Learnix',
+      paymentConfirmation: 'تأكيد الدفع',
+      invoice: 'فاتورة Learnix الخاصة بك',
+      certificate: 'شهادة Learnix الخاصة بك',
+      homework: 'تم تعيين واجب جديد',
+      exam: 'تمت جدولة اختبار',
+      subscription: 'اشتراكك على وشك الانتهاء',
+    };
+    return arabicSubjects[template];
   }
 
   private templateId(template: MailTemplateName): string | undefined {
