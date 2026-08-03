@@ -196,9 +196,9 @@ describe('PaymentsService — canonical compatibility routes', () => {
     await expect(
       service.checkItemAccess('student-1', ItemType.PACKAGE, 'package-1'),
     ).resolves.toEqual({ has_access: true });
-    await expect(
-      service.checkLessonAccess('student-1', 'lesson-1'),
-    ).resolves.toEqual({ has_access: true });
+    await expect(service.checkLessonAccess('student-1', 'lesson-1')).resolves.toEqual({
+      has_access: true,
+    });
 
     expect(entitlements.hasItemAccess).toHaveBeenCalledWith(
       'student-1',
@@ -238,5 +238,57 @@ describe('PaymentsService — canonical compatibility routes', () => {
     expect(manager.save).not.toHaveBeenCalled();
     expect(manager.update).not.toHaveBeenCalled();
     expect(discounts.releaseUsageForPayment).not.toHaveBeenCalled();
+  });
+
+  it('applies the requested date range and keeps revenue rankings currency-scoped', async () => {
+    const query = {
+      andWhere: jest.fn(),
+      select: jest.fn(),
+      groupBy: jest.fn(),
+      addGroupBy: jest.fn(),
+      orderBy: jest.fn(),
+      getRawMany: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            lesson_id: 'lesson-1',
+            lesson_title: 'Math',
+            currency: 'EGP',
+            purchase_count: '2',
+            total_revenue: '150',
+            avg_price: '75',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            package_id: 'package-1',
+            package_title: 'Algebra',
+            currency: 'EGP',
+            purchase_count: '1',
+            total_revenue: '200',
+            avg_price: '200',
+          },
+        ]),
+    };
+    for (const method of ['andWhere', 'select', 'groupBy', 'addGroupBy', 'orderBy'] as const) {
+      query[method].mockReturnValue(query);
+    }
+    const baseQuery = jest.fn().mockReturnValue(query);
+    (service as unknown as { getTeacherRevenueBaseQuery: jest.Mock }).getTeacherRevenueBaseQuery =
+      baseQuery;
+
+    await expect(
+      service.getTeacherRevenueByLesson('teacher-a', '2026-01-01', '2026-01-31'),
+    ).resolves.toMatchObject({
+      lessons: [expect.objectContaining({ currency: 'EGP', total_revenue: 150 })],
+    });
+    await expect(
+      service.getTeacherRevenueByPackage('teacher-a', '2026-01-01', '2026-01-31'),
+    ).resolves.toMatchObject({
+      packages: [expect.objectContaining({ currency: 'EGP', total_revenue: 200 })],
+    });
+    expect(baseQuery).toHaveBeenNthCalledWith(1, 'teacher-a', '2026-01-01', '2026-01-31');
+    expect(baseQuery).toHaveBeenNthCalledWith(2, 'teacher-a', '2026-01-01', '2026-01-31');
+    expect(query.addGroupBy).toHaveBeenCalledWith('order.currency');
   });
 });

@@ -674,6 +674,72 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Teacher finance responses intentionally avoid the admin order projection.
+   * A teacher can identify the buyer by name for their own content, but never
+   * receives contact details or other fields from the User entity.
+   */
+  public async findTeacherOrders(
+    filter: OrderFilterDto,
+  ): Promise<{ data: Order[]; meta: PaginationMeta }> {
+    const page = filter.page ?? 1;
+    const limit = filter.limit ?? 20;
+    const query = this.teacherOrdersQuery(filter);
+    const [data, total] = await query
+      .orderBy('order.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
+  }
+
+  public async findTeacherOrder(orderId: string, teacherId: string): Promise<Order> {
+    const order = await this.teacherOrdersQuery({ teacher_id: teacherId })
+      .andWhere('order.id = :orderId', { orderId })
+      .getOne();
+    if (!order) {
+      throw new NotFoundException(biBody('Order not found', 'Ø§Ù„Ø·Ù„Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯'));
+    }
+    return order;
+  }
+
+  private teacherOrdersQuery(filter: Partial<OrderFilterDto>) {
+    const query = this.orders
+      .createQueryBuilder('order')
+      .leftJoin('order.student', 'student')
+      .select('order')
+      .addSelect(['student.id', 'student.name']);
+    if (filter.teacher_id)
+      query.andWhere('order.teacher_id = :teacherId', { teacherId: filter.teacher_id });
+    if (filter.status) query.andWhere('order.status = :status', { status: filter.status });
+    if (filter.channel)
+      query.andWhere('order.payment_channel = :channel', { channel: filter.channel });
+    if (filter.item_type)
+      query.andWhere('order.item_type = :itemType', { itemType: filter.item_type });
+    if (filter.currency)
+      query.andWhere('order.currency = :currency', { currency: filter.currency.toUpperCase() });
+    if (filter.from) query.andWhere('order.created_at >= :from', { from: filter.from });
+    if (filter.to) query.andWhere('order.created_at <= :to', { to: filter.to });
+    if (filter.search?.trim()) {
+      query.andWhere(
+        '(order.order_number ILIKE :search OR order.product_title_snapshot ILIKE :search OR student.name ILIKE :search)',
+        { search: `%${filter.search.trim()}%` },
+      );
+    }
+    return query;
+  }
+
   private async loadProduct(
     itemType: ItemType,
     itemId: string,

@@ -97,6 +97,7 @@ interface TeacherTopLessonsRaw {
 interface TeacherRevenueByLessonRaw {
   lesson_id: string;
   lesson_title: string;
+  currency: string;
   purchase_count: string;
   total_revenue: string;
   avg_price: string;
@@ -105,6 +106,7 @@ interface TeacherRevenueByLessonRaw {
 interface TeacherRevenueByPackageRaw {
   package_id: string;
   package_title: string;
+  currency: string;
   purchase_count: string;
   total_revenue: string;
   avg_price: string;
@@ -920,25 +922,32 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by lesson for a teacher
    */
-  public async getTeacherRevenueByLesson(teacherId: string): Promise<{
+  public async getTeacherRevenueByLesson(
+    teacherId: string,
+    fromDate?: string,
+    toDate?: string,
+  ): Promise<{
     lessons: Array<{
       lesson_id: string;
       lesson_title: string;
+      currency: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
     }>;
   }> {
-    const results = await this.getTeacherRevenueBaseQuery(teacherId)
+    const results = await this.getTeacherRevenueBaseQuery(teacherId, fromDate, toDate)
       .andWhere('order.item_type = :lessonType', { lessonType: ItemType.LESSON })
       .select([
         'order.item_id AS lesson_id',
         'MAX(order.product_title_snapshot) AS lesson_title',
+        'order.currency AS currency',
         'COUNT(order.id) AS purchase_count',
         'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
         'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
       .groupBy('order.item_id')
+      .addGroupBy('order.currency')
       .orderBy('total_revenue', 'DESC')
       .getRawMany<TeacherRevenueByLessonRaw>();
 
@@ -946,6 +955,7 @@ export class PaymentsService {
       lessons: results.map((l) => ({
         lesson_id: l.lesson_id,
         lesson_title: l.lesson_title,
+        currency: l.currency,
         purchase_count: Number(l.purchase_count),
         total_revenue: Number(l.total_revenue),
         avg_price: Number(l.avg_price),
@@ -956,25 +966,32 @@ export class PaymentsService {
   /**
    * Get revenue breakdown by package for a teacher
    */
-  public async getTeacherRevenueByPackage(teacherId: string): Promise<{
+  public async getTeacherRevenueByPackage(
+    teacherId: string,
+    fromDate?: string,
+    toDate?: string,
+  ): Promise<{
     packages: Array<{
       package_id: string;
       package_title: string;
+      currency: string;
       purchase_count: number;
       total_revenue: number;
       avg_price: number;
     }>;
   }> {
-    const results = await this.getTeacherRevenueBaseQuery(teacherId)
+    const results = await this.getTeacherRevenueBaseQuery(teacherId, fromDate, toDate)
       .andWhere('order.item_type = :packageType', { packageType: ItemType.PACKAGE })
       .select([
         'order.item_id AS package_id',
         'MAX(order.product_title_snapshot) AS package_title',
+        'order.currency AS currency',
         'COUNT(order.id) AS purchase_count',
         'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
         'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
       .groupBy('order.item_id')
+      .addGroupBy('order.currency')
       .orderBy('total_revenue', 'DESC')
       .getRawMany<TeacherRevenueByPackageRaw>();
 
@@ -982,6 +999,7 @@ export class PaymentsService {
       packages: results.map((p) => ({
         package_id: p.package_id,
         package_title: p.package_title,
+        currency: p.currency,
         purchase_count: Number(p.purchase_count),
         total_revenue: Number(p.total_revenue),
         avg_price: Number(p.avg_price),

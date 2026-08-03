@@ -70,6 +70,18 @@ export class TeacherPaymentsController {
    * Get revenue by lesson
    */
   @Get('lessons')
+  @ApiQuery({
+    name: 'from_date',
+    required: false,
+    type: String,
+    description: 'Filter from date (ISO format)',
+  })
+  @ApiQuery({
+    name: 'to_date',
+    required: false,
+    type: String,
+    description: 'Filter to date (ISO format)',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by lesson retrieved',
@@ -87,19 +99,39 @@ export class TeacherPaymentsController {
       },
     },
   })
-  public async getRevenueByLesson(@GetUser() user: JwtPayload): Promise<unknown> {
-    return await this.paymentsService.getTeacherRevenueByLesson(user.userId);
+  public async getRevenueByLesson(
+    @GetUser() user: JwtPayload,
+    @Query('from_date') fromDate?: string,
+    @Query('to_date') toDate?: string,
+  ): Promise<unknown> {
+    return await this.paymentsService.getTeacherRevenueByLesson(user.userId, fromDate, toDate);
   }
 
   /**
    * Get revenue by package
    */
   @Get('packages')
+  @ApiQuery({
+    name: 'from_date',
+    required: false,
+    type: String,
+    description: 'Filter from date (ISO format)',
+  })
+  @ApiQuery({
+    name: 'to_date',
+    required: false,
+    type: String,
+    description: 'Filter to date (ISO format)',
+  })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Revenue by package retrieved',
   })
-  public async getRevenueByPackage(@GetUser() user: JwtPayload): Promise<unknown> {
-    return await this.paymentsService.getTeacherRevenueByPackage(user.userId);
+  public async getRevenueByPackage(
+    @GetUser() user: JwtPayload,
+    @Query('from_date') fromDate?: string,
+    @Query('to_date') toDate?: string,
+  ): Promise<unknown> {
+    return await this.paymentsService.getTeacherRevenueByPackage(user.userId, fromDate, toDate);
   }
 }

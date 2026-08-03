@@ -440,6 +440,33 @@ export class CreateSettlementDto {
   public notes?: string;
 }
 
+/**
+ * Teacher-owned payout request.  The caller is always used as the teacher ID
+ * and cannot select staff-only deductions, receivable offsets, or ledger rows.
+ */
+export class RequestSettlementDto {
+  /** A payout must be created per currency; mixed-currency allocations are never allowed. */
+  @IsString()
+  @Length(3, 3)
+  public currency!: string;
+
+  /** Optional only for retry compatibility; the service derives a stable fallback. */
+  @IsOptional()
+  @IsString()
+  @Length(8, 120)
+  public idempotency_key?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(7, 7)
+  public fiscal_period?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  public notes?: string;
+}
+
 export class PaySettlementDto {
   @IsString()
   @Length(2, 180)
