@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { CourseChapter } from '../packages/entities/course-chapter.entity';
+import { Book } from '../books/entities/book.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -18,6 +19,7 @@ import { SearchService } from './search.service';
       User,
       Subject,
       CourseChapter,
+      Book,
       SearchQueryLog,
     ]),
   ],

@@ -314,6 +314,7 @@ export class BookPurchasesService {
     const result = await this.purchasesRepository
       .createQueryBuilder('purchase')
       .where('purchase.book_id = :bookId', { bookId })
+      .andWhere('purchase.revoked_at IS NULL')
       .select([
         'COUNT(purchase.id) as total_purchases',
         'SUM(purchase.price_paid) as total_revenue',
@@ -350,6 +351,7 @@ export class BookPurchasesService {
       .innerJoin('purchase.book', 'book')
       .where('book.teacher_id = :teacherId', { teacherId })
       .andWhere('book.deleted_at IS NULL')
+      .andWhere('purchase.revoked_at IS NULL')
       .select([
         'book.id as book_id',
         'book.title as book_title',

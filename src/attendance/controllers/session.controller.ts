@@ -125,11 +125,13 @@ export class SessionController {
     description: 'Progress updated',
   })
   public async updateProgress(
+    @GetUser() user: JwtPayload,
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: UpdateSessionDto,
   ): Promise<{ message: string; data: unknown }> {
     const session = await this.attendanceService.updateSessionProgress(
       sessionId,
+      user.userId,
       dto.video_progress_percent ?? 0,
     );
 

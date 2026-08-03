@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 
 import { normalizeArabicQuery } from '../common/utils/arabic-search.util';
 import { CourseStatus } from '../packages/entities/course-status.enum';
+import { Book } from '../books/entities/book.entity';
 import { CourseChapter } from '../packages/entities/course-chapter.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
@@ -18,7 +19,7 @@ import { SearchQueryLog } from './entities/search-query.entity';
 import { SearchType } from './dto/search.dto';
 
 export interface SearchResultItem {
-  type: 'course' | 'lesson' | 'teacher' | 'subject';
+  type: 'course' | 'lesson' | 'book' | 'teacher' | 'subject';
   id: string;
   title: string;
   subtitle: string | null;
@@ -49,6 +50,8 @@ export class SearchService {
     private readonly packagesRepository: Repository<LessonPackage>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
+    @InjectRepository(Book)
+    private readonly booksRepository: Repository<Book>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Subject)
@@ -67,22 +70,25 @@ export class SearchService {
   public async searchAll(rawQuery: string): Promise<{
     courses: SearchResultItem[];
     lessons: SearchResultItem[];
+    books: SearchResultItem[];
     teachers: SearchResultItem[];
     subjects: SearchResultItem[];
   }> {
     const q = this.normalize(rawQuery);
     if (q.length < 2) {
-      return { courses: [], lessons: [], teachers: [], subjects: [] };
+      return { courses: [], lessons: [], books: [], teachers: [], subjects: [] };
     }
-    const [courses, lessons, teachers, subjects] = await Promise.all([
+    const [courses, lessons, books, teachers, subjects] = await Promise.all([
       this.searchCourses(q, 1, 5),
       this.searchLessons(q, 1, 5),
+      this.searchBooks(q, 1, 5),
       this.searchTeachers(q, 1, 5),
       this.searchSubjects(q, 1, 5),
     ]);
     return {
       courses: courses.data,
       lessons: lessons.data,
+      books: books.data,
       teachers: teachers.data,
       subjects: subjects.data,
     };
@@ -104,6 +110,8 @@ export class SearchService {
         return this.searchCourses(q, page, limit);
       case SearchType.LESSONS:
         return this.searchLessons(q, page, limit);
+      case SearchType.BOOKS:
+        return this.searchBooks(q, page, limit);
       case SearchType.TEACHERS:
         return this.searchTeachers(q, page, limit);
       case SearchType.SUBJECTS:
@@ -324,6 +332,36 @@ export class SearchService {
 
     return this.paginate(
       rows.map((l) => this.lessonItem(l)),
+      page,
+      limit,
+      total,
+    );
+  }
+
+  private async searchBooks(q: string, page: number, limit: number): Promise<PaginatedResults> {
+    const like = `%${q}%`;
+    const base = (): SelectQueryBuilder<Book> =>
+      this.booksRepository
+        .createQueryBuilder('book')
+        .where('book.deleted_at IS NULL')
+        .andWhere('(book.title ILIKE :like OR book.title_ar ILIKE :like)', { like });
+
+    const total = await base().getCount();
+    const rows = await this.safeGetMany((useSimilarity) => {
+      const qb = base().skip((page - 1) * limit).take(limit);
+      return useSimilarity
+        ? qb.orderBy('similarity(book.title, :q)', 'DESC').setParameter('q', q)
+        : qb.orderBy('book.title', 'ASC');
+    });
+    return this.paginate(
+      rows.map((book) => ({
+        type: 'book' as const,
+        id: book.id,
+        title: book.title,
+        subtitle: null,
+        thumbnail: book.cover_image,
+        url: `/shop/books/${book.id}`,
+      })),
       page,
       limit,
       total,

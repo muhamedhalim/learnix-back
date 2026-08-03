@@ -6,6 +6,7 @@ export enum SearchType {
   ALL = 'all',
   COURSES = 'courses',
   LESSONS = 'lessons',
+  BOOKS = 'books',
   TEACHERS = 'teachers',
   SUBJECTS = 'subjects',
 }

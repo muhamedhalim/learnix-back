@@ -49,3 +49,32 @@ describe('BookPurchasesService protected downloads', () => {
     expect(storage.getObject).toHaveBeenCalledWith('books/student-1/private.pdf');
   });
 });
+
+describe('BookPurchasesService revenue reporting', () => {
+  it('excludes revoked purchases from per-book revenue', async () => {
+    const query = {
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      select: jest.fn(),
+      getRawOne: jest.fn().mockResolvedValue({
+        total_purchases: '1',
+        total_revenue: '100',
+        avg_price: '100',
+      }),
+    };
+    query.where.mockReturnValue(query);
+    query.andWhere.mockReturnValue(query);
+    query.select.mockReturnValue(query);
+    const purchases = { createQueryBuilder: jest.fn().mockReturnValue(query) };
+    const service = new BookPurchasesService(
+      purchases as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await service.getBookPurchaseStats('book-1');
+
+    expect(query.andWhere).toHaveBeenCalledWith('purchase.revoked_at IS NULL');
+  });
+});

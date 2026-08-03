@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { CourseChapter } from '../packages/entities/course-chapter.entity';
+import { Book } from '../books/entities/book.entity';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -39,6 +40,7 @@ describe('SearchService', () => {
   let service: SearchService;
   const packages = { createQueryBuilder: jest.fn(), query: jest.fn() };
   const lessons = { createQueryBuilder: jest.fn() };
+  const books = { createQueryBuilder: jest.fn() };
   const users = { createQueryBuilder: jest.fn() };
   const subjects = { createQueryBuilder: jest.fn() };
   const chapters = { createQueryBuilder: jest.fn() };
@@ -53,6 +55,7 @@ describe('SearchService', () => {
         SearchService,
         { provide: getRepositoryToken(LessonPackage), useValue: packages },
         { provide: getRepositoryToken(Lesson), useValue: lessons },
+        { provide: getRepositoryToken(Book), useValue: books },
         { provide: getRepositoryToken(User), useValue: users },
         { provide: getRepositoryToken(Subject), useValue: subjects },
         { provide: getRepositoryToken(CourseChapter), useValue: chapters },
@@ -64,8 +67,24 @@ describe('SearchService', () => {
 
   it('returns empty groups for a query shorter than 2 chars (no DB hit)', async () => {
     const result = await service.searchAll('a');
-    expect(result).toEqual({ courses: [], lessons: [], teachers: [], subjects: [] });
+    expect(result).toEqual({ courses: [], lessons: [], books: [], teachers: [], subjects: [] });
     expect(packages.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('returns books in the public catalog search results', async () => {
+    const row = qb(1, [{ id: 'B1', title: 'Algebra workbook', cover_image: null }]);
+    books.createQueryBuilder.mockReturnValue(row);
+
+    const result = await service.searchByType('alg', SearchType.BOOKS, 1, 20);
+
+    expect(result.data[0]).toEqual({
+      type: 'book',
+      id: 'B1',
+      title: 'Algebra workbook',
+      subtitle: null,
+      thumbnail: null,
+      url: '/shop/books/B1',
+    });
   });
 
   it('maps course rows to search result items with a course URL', async () => {

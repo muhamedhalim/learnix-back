@@ -18,7 +18,7 @@ describe('TeacherAttendanceController', () => {
     lessonsRepository.findOne.mockResolvedValue({ id: 'lesson-id', teacher_id: 'teacher-id' });
     attendanceService.updateAttendance.mockResolvedValue({ id: 'attendance-id' });
 
-    await controller.updateAttendance(teacher, 'lesson-id', 'attendance-id', 'present');
+    await controller.updateAttendance(teacher, 'lesson-id', 'attendance-id', { status: 'present' });
 
     expect(attendanceService.updateAttendance).toHaveBeenCalledWith(
       'attendance-id',

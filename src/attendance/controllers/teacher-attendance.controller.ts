@@ -32,8 +32,7 @@ import type { JwtPayload } from '../../common/interfaces/user-request.interface'
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { AttendanceService } from '../attendance.service';
-import { AttendanceFilterDto, MarkAttendanceDto } from '../dto';
-import type { AttendanceStatus } from '../entities';
+import { AttendanceFilterDto, MarkAttendanceDto, UpdateAttendanceDto } from '../dto';
 
 @ApiTags('Teacher Attendance')
 @Controller('teacher/lessons')
@@ -98,8 +97,7 @@ export class TeacherAttendanceController {
     @GetUser() user: JwtPayload,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body('status') status: AttendanceStatus,
-    @Body('notes') notes?: string,
+    @Body() dto: UpdateAttendanceDto,
   ): Promise<{ message: string; data: unknown }> {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
@@ -108,8 +106,8 @@ export class TeacherAttendanceController {
       id,
       lessonId,
       user.userId,
-      status,
-      notes,
+      dto.status,
+      dto.notes,
     );
 
     return {

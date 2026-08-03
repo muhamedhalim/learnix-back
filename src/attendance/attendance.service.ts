@@ -281,9 +281,10 @@ export class AttendanceService {
    */
   public async updateSessionProgress(
     sessionId: string,
+    studentId: string,
     watchPercentage: number,
   ): Promise<LessonSession> {
-    const session = await this.findSessionById(sessionId);
+    const session = await this.findSessionByIdForStudent(sessionId, studentId);
 
     session.video_progress_percent = Math.max(session.video_progress_percent, watchPercentage);
 
@@ -345,6 +346,20 @@ export class AttendanceService {
       );
     }
 
+    return session;
+  }
+
+  /** Resolve a playback session only for its owning student. */
+  public async findSessionByIdForStudent(id: string, studentId: string): Promise<LessonSession> {
+    const session = await this.sessionsRepository.findOne({
+      where: { id, student_id: studentId },
+      relations: ['student', 'lesson'],
+    });
+    if (!session) {
+      throw new NotFoundException(
+        biBody(`Session with ID ${id} not found`, `الجلسة ذات المعرّف ${id} غير موجودة`),
+      );
+    }
     return session;
   }
 

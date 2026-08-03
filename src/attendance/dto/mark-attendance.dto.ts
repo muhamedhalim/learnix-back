@@ -1,8 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 import type { AttendanceStatus } from '../entities/attendance-record.entity';
+
+export const ATTENDANCE_STATUSES = ['present', 'absent', 'late', 'excused'] as const;
 
 export class MarkAttendanceDto {
   @ApiProperty({
@@ -20,6 +22,7 @@ export class MarkAttendanceDto {
   public lesson_id!: string;
 
   @IsNotEmpty()
+  @IsIn(ATTENDANCE_STATUSES)
   public status!: AttendanceStatus;
 
   @ApiPropertyOptional({
