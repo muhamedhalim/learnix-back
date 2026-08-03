@@ -17,6 +17,7 @@ describe('BooksService title compatibility', () => {
     const service = new BooksService(
       books as never,
       { findOne: jest.fn().mockResolvedValue(subject) } as never,
+      {} as never,
       storage as never,
     );
 
@@ -52,6 +53,7 @@ describe('BooksService title compatibility', () => {
     const service = new BooksService(
       books as never,
       { findOne: jest.fn() } as never,
+      {} as never,
       storage as never,
     );
 
@@ -59,5 +61,27 @@ describe('BooksService title compatibility', () => {
 
     expect(book.title_ar).toBe('Advanced Algebra');
     expect(books.save).toHaveBeenCalledWith(book);
+  });
+
+  it('refuses an irreversible deletion when purchase history exists', async () => {
+    const book = {
+      id: 'book-id',
+      book_file: `books/${teacherId}/book.pdf`,
+      cover_image: null,
+    };
+    const purchases = { exist: jest.fn().mockResolvedValue(true) };
+    const books = { findOne: jest.fn().mockResolvedValue(book), remove: jest.fn() };
+    const service = new BooksService(
+      books as never,
+      {} as never,
+      purchases as never,
+      storage as never,
+    );
+
+    await expect(service.hardDelete(book.id)).rejects.toThrow(
+      'A purchased book cannot be permanently deleted',
+    );
+    expect(books.remove).not.toHaveBeenCalled();
+    expect(storage.tryDelete).not.toHaveBeenCalled();
   });
 });

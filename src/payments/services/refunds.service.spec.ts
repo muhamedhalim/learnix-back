@@ -78,7 +78,7 @@ describe('RefundsService — financial validation', () => {
     service = module.get(RefundsService);
   });
 
-  it('rejects a partial refund before creating financial state', async () => {
+  it('creates a partial refund while recording the retained-entitlement policy', async () => {
     manager.findOne.mockImplementation((entity: unknown) => {
       if (entity === Order) return Promise.resolve(paidOrder());
       return Promise.resolve(null);
@@ -93,8 +93,11 @@ describe('RefundsService — financial validation', () => {
         },
         'admin-1',
       ),
-    ).rejects.toBeInstanceOf(BadRequestException);
-    expect(manager.save).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      amount_minor: 5_000,
+      metadata: { entitlement_policy: 'retain_on_partial_refund' },
+    });
+    expect(manager.save).toHaveBeenCalled();
   });
 
   it('creates a full-value refund request with an immutable amount snapshot', async () => {
@@ -134,7 +137,7 @@ describe('RefundsService — financial validation', () => {
     });
 
     await expect(
-      service.completeProviderNotification('payment-1', 'provider-refund-1', 9_999, 'EGP'),
+      service.completeProviderNotification('payment-1', 'provider-refund-1', 10_001, 'EGP'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(manager.findOne).toHaveBeenCalled();
   });

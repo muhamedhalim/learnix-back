@@ -32,15 +32,12 @@ describe('StorageService legacy media URL normalization', () => {
         R2_BUCKET: 'bucket',
       }),
     );
-    const legacy =
-      'https://account.r2.cloudflarestorage.com/bucket/images/legacy-cover.jpg';
+    const legacy = 'https://account.r2.cloudflarestorage.com/bucket/images/legacy-cover.jpg';
 
     expect(storage.isOwnUrl(legacy)).toBe(true);
     expect(storage.toKey(legacy)).toBe('images/legacy-cover.jpg');
     expect(
-      storage.isOwnUrl(
-        'https://different.r2.cloudflarestorage.com/bucket/images/legacy-cover.jpg',
-      ),
+      storage.isOwnUrl('https://different.r2.cloudflarestorage.com/bucket/images/legacy-cover.jpg'),
     ).toBe(false);
     expect(
       storage.isOwnUrl(
@@ -55,7 +52,7 @@ describe('StorageService legacy media URL normalization', () => {
     );
   });
 
-  it('rejects a localhost R2 public origin in production', () => {
+  it('rejects every R2 public origin in production', () => {
     expect(
       () =>
         new StorageService(
@@ -65,9 +62,9 @@ describe('StorageService legacy media URL normalization', () => {
             R2_ACCESS_KEY_ID: 'key',
             R2_SECRET_ACCESS_KEY: 'secret',
             R2_BUCKET: 'bucket',
-            R2_PUBLIC_BASE_URL: 'http://localhost:3001',
+            R2_PUBLIC_BASE_URL: 'https://media.learnix.example',
           }),
         ),
-    ).toThrow('R2_PUBLIC_BASE_URL must be a public HTTPS origin in production');
+    ).toThrow('R2_PUBLIC_BASE_URL must not be configured in production');
   });
 });

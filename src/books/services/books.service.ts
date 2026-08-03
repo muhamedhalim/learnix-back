@@ -16,6 +16,7 @@ import { StorageService } from '../../storage/storage.service';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
+import { BookPurchase } from '../entities/book-purchase.entity';
 
 @Injectable()
 export class BooksService {
@@ -26,6 +27,8 @@ export class BooksService {
     private readonly booksRepository: Repository<Book>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    @InjectRepository(BookPurchase)
+    private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly storageService: StorageService,
   ) {}
 
@@ -188,6 +191,15 @@ export class BooksService {
   }
 
   /**
+   * Resolve a book retained for a verified historical purchaser. A soft delete
+   * removes it from the storefront, but is never allowed to strand a buyer
+   * who still has an active purchase entitlement.
+   */
+  public async findOneRetained(id: string): Promise<Book> {
+    return await this.findOneAdmin(id);
+  }
+
+  /**
    * Update a book (teacher must own it)
    */
   public async update(id: string, teacherId: string, dto: UpdateBookDto): Promise<Book> {
@@ -306,6 +318,19 @@ export class BooksService {
    */
   public async hardDelete(id: string): Promise<void> {
     const book = await this.findOneAdmin(id);
+
+    const hasPurchaseHistory = await this.bookPurchasesRepository.exist({
+      where: { book_id: id },
+    });
+    if (hasPurchaseHistory) {
+      throw new ConflictException(
+        biBody(
+          'A purchased book cannot be permanently deleted; archive it instead.',
+          'لا يمكن حذف كتاب تم شراؤه نهائياً؛ قم بأرشفته بدلاً من ذلك.',
+        ),
+      );
+    }
+
     await this.booksRepository.remove(book);
 
     // Permanent delete → purge the underlying storage objects (private PDF +

@@ -144,6 +144,18 @@ export class Order {
   })
   teacher_earning_minor!: number;
 
+  /** Snapshot of the configured provider fee; gateway fees are platform-paid. */
+  @Column({ type: 'int', default: 0, name: 'gateway_fee_bps' })
+  gateway_fee_bps!: number;
+
+  @Column({
+    type: 'bigint',
+    default: 0,
+    name: 'gateway_fee_minor',
+    transformer: minorUnitsTransformer,
+  })
+  gateway_fee_minor!: number;
+
   @Column({ type: 'jsonb', nullable: true, name: 'discount_snapshot' })
   discount_snapshot!: Record<string, unknown> | null;
 

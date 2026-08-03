@@ -514,6 +514,23 @@ export class PaymentFinalizationService {
         available_at: null,
         reference: `order:${order.id}:platform-commission`,
       });
+      if (order.gateway_fee_minor > 0) {
+        entries.push({
+          ...common,
+          account: 'gateway_fee_expense',
+          entry_type: LedgerEntryType.GATEWAY_FEE_EXPENSE,
+          amount_minor: order.gateway_fee_minor,
+          direction: LedgerDirection.DEBIT,
+          available_at: null,
+          reference: `order:${order.id}:gateway-fee`,
+          metadata: {
+            ...common.metadata,
+            fee_source: 'configured_gateway_fee_schedule',
+            fee_payer: 'platform',
+            fee_bps: order.gateway_fee_bps,
+          },
+        });
+      }
       const availableAt =
         this.refundHoldDays > 0
           ? new Date(Date.now() + this.refundHoldDays * 86_400_000)

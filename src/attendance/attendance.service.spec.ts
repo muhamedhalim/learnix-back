@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { AttendanceService } from './attendance.service';
 import type { AttendanceRecord } from './entities/attendance-record.entity';
@@ -6,16 +6,20 @@ import type { AttendanceRecord } from './entities/attendance-record.entity';
 describe('AttendanceService record ownership scope', () => {
   const attendanceRepository = {
     findOne: jest.fn(),
+    create: jest.fn(),
     save: jest.fn(),
     remove: jest.fn(),
   };
+  const lessonsRepository = { findOne: jest.fn() };
+  const payments = { hasLessonPlaybackAccess: jest.fn() };
 
   const service = new AttendanceService(
     attendanceRepository as never,
     {} as never,
+    lessonsRepository as never,
     {} as never,
     {} as never,
-    {} as never,
+    payments as never,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -48,5 +52,23 @@ describe('AttendanceService record ownership scope', () => {
       relations: ['student', 'lesson', 'marker'],
     });
     expect(attendanceRepository.remove).not.toHaveBeenCalled();
+  });
+
+  it('rejects attendance for a student without active lesson enrollment', async () => {
+    attendanceRepository.findOne.mockResolvedValue(null);
+    lessonsRepository.findOne.mockResolvedValue({ id: 'lesson-id', title: 'Chemistry' });
+    payments.hasLessonPlaybackAccess.mockResolvedValue(false);
+
+    await expect(
+      service.markAttendance('teacher-id', {
+        student_id: 'student-id',
+        lesson_id: 'lesson-id',
+        status: 'present',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(payments.hasLessonPlaybackAccess).toHaveBeenCalledWith('student-id', 'lesson-id');
+    expect(attendanceRepository.create).not.toHaveBeenCalled();
+    expect(attendanceRepository.save).not.toHaveBeenCalled();
   });
 });

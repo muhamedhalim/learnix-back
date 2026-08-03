@@ -9,9 +9,15 @@ export interface CommissionBreakdown {
   teacherEarningMinor: number;
 }
 
+export interface GatewayFeeBreakdown {
+  gatewayFeeBps: number;
+  gatewayFeeMinor: number;
+}
+
 @Injectable()
 export class CommissionService {
   private readonly defaultPlatformCommissionBps: number;
+  private readonly defaultGatewayFeeBps: number;
 
   constructor(config: ConfigService) {
     this.defaultPlatformCommissionBps = Number.parseInt(
@@ -19,6 +25,11 @@ export class CommissionService {
       10,
     );
     this.assertRate(this.defaultPlatformCommissionBps);
+    this.defaultGatewayFeeBps = Number.parseInt(
+      config.get<string>('DEFAULT_GATEWAY_FEE_BPS') ?? '0',
+      10,
+    );
+    this.assertRate(this.defaultGatewayFeeBps);
   }
 
   public resolveRate(snapshotOverride?: number | null): number {
@@ -39,6 +50,21 @@ export class CommissionService {
       platformCommissionBps,
       platformCommissionMinor,
       teacherEarningMinor: netPaidMinor - platformCommissionMinor,
+    };
+  }
+
+  /**
+   * Gateway-fee policy: the platform absorbs a configured provider fee. The
+   * customer charge and teacher earning remain unchanged; the fee is recorded
+   * as a platform expense and therefore cannot distort teacher settlements.
+   */
+  public calculateGatewayFee(grossPaidMinor: number): GatewayFeeBreakdown {
+    if (!Number.isSafeInteger(grossPaidMinor) || grossPaidMinor < 0) {
+      throw new BadRequestException(biBody('Invalid order amount', 'قيمة الطلب غير صالحة'));
+    }
+    return {
+      gatewayFeeBps: this.defaultGatewayFeeBps,
+      gatewayFeeMinor: Math.floor((grossPaidMinor * this.defaultGatewayFeeBps) / 10_000),
     };
   }
 

@@ -16,6 +16,7 @@ export enum LedgerEntryType {
   PLATFORM_COLLECTED_SALE = 'platform_collected_sale',
   TEACHER_COLLECTED_SALE = 'teacher_collected_sale',
   PLATFORM_COMMISSION = 'platform_commission',
+  GATEWAY_FEE_EXPENSE = 'gateway_fee_expense',
   TEACHER_EARNING_PENDING = 'teacher_earning_pending',
   TEACHER_EARNING_AVAILABLE = 'teacher_earning_available',
   REFUND = 'refund',

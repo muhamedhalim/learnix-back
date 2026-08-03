@@ -74,7 +74,7 @@ export class RefundsService {
         );
       }
       const remaining = order.final_amount_minor - order.refunded_amount_minor;
-      if (dto.amount_minor !== remaining) {
+      if (dto.amount_minor > remaining) {
         throw new BadRequestException(
           biBody(
             'Partial refunds are not supported for the current content access model',
@@ -112,13 +112,17 @@ export class RefundsService {
           approved_by: null,
           completed_by: null,
           completed_at: null,
-          metadata: null,
+          metadata: {
+            entitlement_policy:
+              dto.amount_minor === remaining ? 'revoke_on_full_refund' : 'retain_on_partial_refund',
+          },
         }),
       );
       await this.audit(manager, adminId, 'refund_requested', refund, {
         order_id: order.id,
         amount_minor: refund.amount_minor,
         reason_code: refund.reason_code,
+        entitlement_policy: refund.metadata?.['entitlement_policy'],
       });
       await this.event(manager, 'refund.requested', `refund:${refund.id}:requested`, {
         refund_id: refund.id,
@@ -387,7 +391,7 @@ export class RefundsService {
       });
       if (!order) throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
       const remaining = order.final_amount_minor - order.refunded_amount_minor;
-      if (refund.amount_minor !== remaining) {
+      if (refund.amount_minor > remaining) {
         throw new BadRequestException(
           biBody(
             'Partial refunds are not supported for the current content access model',
@@ -404,6 +408,7 @@ export class RefundsService {
       if (dto.note?.trim()) refund.internal_note = dto.note.trim();
       await manager.save(Refund, refund);
 
+      const refundedBefore = order.refunded_amount_minor;
       order.refunded_amount_minor += refund.amount_minor;
       order.status =
         order.refunded_amount_minor === order.final_amount_minor
@@ -413,8 +418,10 @@ export class RefundsService {
       if (order.payment_id && order.status === OrderStatus.REFUNDED) {
         await manager.update(Payment, order.payment_id, { status: PaymentStatus.REFUNDED });
       }
-      await this.revokeAccess(manager, order, refund);
-      await this.reverseLedger(manager, order, refund);
+      if (order.status === OrderStatus.REFUNDED) {
+        await this.revokeAccess(manager, order, refund);
+      }
+      await this.reverseLedger(manager, order, refund, refundedBefore);
       await this.notification(manager, order, refund);
       await this.event(manager, 'refund.completed', `refund:${refund.id}:completed`, {
         refund_id: refund.id,
@@ -422,14 +429,25 @@ export class RefundsService {
         amount_minor: refund.amount_minor,
         currency: refund.currency,
       });
-      await this.event(manager, 'entitlement.revoked', `refund:${refund.id}:entitlement-revoked`, {
-        refund_id: refund.id,
-        order_id: order.id,
-      });
+      if (order.status === OrderStatus.REFUNDED) {
+        await this.event(
+          manager,
+          'entitlement.revoked',
+          `refund:${refund.id}:entitlement-revoked`,
+          {
+            refund_id: refund.id,
+            order_id: order.id,
+          },
+        );
+      }
       await this.audit(manager, adminId, 'refund_completed', refund, {
         order_id: order.id,
         external_method: dto.external_method,
         external_reference: dto.external_reference,
+        entitlement_policy:
+          order.status === OrderStatus.REFUNDED
+            ? 'revoked_on_full_refund'
+            : 'retained_on_partial_refund',
       });
       return refund;
     };
@@ -464,8 +482,8 @@ export class RefundsService {
       if (!order) throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
       const remaining = order.final_amount_minor - order.refunded_amount_minor;
       if (
-        order.status !== OrderStatus.PAID ||
-        amountMinor !== remaining ||
+        ![OrderStatus.PAID, OrderStatus.PARTIALLY_REFUNDED].includes(order.status) ||
+        amountMinor > remaining ||
         currency.toUpperCase() !== order.currency.toUpperCase()
       ) {
         throw new BadRequestException(
@@ -719,7 +737,12 @@ export class RefundsService {
     }
   }
 
-  private async reverseLedger(manager: EntityManager, order: Order, refund: Refund): Promise<void> {
+  private async reverseLedger(
+    manager: EntityManager,
+    order: Order,
+    refund: Refund,
+    refundedBefore: number,
+  ): Promise<void> {
     const common = {
       order_id: order.id,
       payment_id: order.payment_id,
@@ -746,6 +769,15 @@ export class RefundsService {
       releasedEarning || originalEarning?.account === 'teacher_payable_available'
         ? 'teacher_payable_available'
         : 'teacher_payable';
+    // Compare cumulative allocations before and after this refund. This makes
+    // partial refunds deterministic and guarantees that a final refund exactly
+    // reverses the original commission and teacher earning despite rounding.
+    const cumulativeCommission = (refunded: number): number =>
+      Math.floor((order.platform_commission_minor * refunded) / order.final_amount_minor);
+    const commissionReversal =
+      cumulativeCommission(refundedBefore + refund.amount_minor) -
+      cumulativeCommission(refundedBefore);
+    const teacherReversal = refund.amount_minor - commissionReversal;
     let entries: Array<Partial<FinancialLedgerEntry>>;
     if (order.collection_party === CollectionParty.PLATFORM) {
       entries = [
@@ -753,7 +785,7 @@ export class RefundsService {
           ...common,
           account: 'platform_revenue',
           entry_type: LedgerEntryType.COMMISSION_REVERSAL,
-          amount_minor: order.platform_commission_minor,
+          amount_minor: commissionReversal,
           direction: LedgerDirection.DEBIT,
           reference: `refund:${refund.id}:commission-reversal`,
         },
@@ -761,7 +793,7 @@ export class RefundsService {
           ...common,
           account: payableAccount,
           entry_type: LedgerEntryType.TEACHER_EARNING_REVERSAL,
-          amount_minor: order.teacher_earning_minor,
+          amount_minor: teacherReversal,
           direction: LedgerDirection.DEBIT,
           reference: `refund:${refund.id}:teacher-reversal`,
         },
@@ -780,7 +812,7 @@ export class RefundsService {
           ...common,
           account: 'teacher_collected_earnings',
           entry_type: LedgerEntryType.TEACHER_EARNING_REVERSAL,
-          amount_minor: order.teacher_earning_minor,
+          amount_minor: teacherReversal,
           direction: LedgerDirection.DEBIT,
           reference: `refund:${refund.id}:teacher-collected-reversal`,
         },
@@ -788,7 +820,7 @@ export class RefundsService {
           ...common,
           account: 'platform_receivable',
           entry_type: LedgerEntryType.COMMISSION_REVERSAL,
-          amount_minor: order.platform_commission_minor,
+          amount_minor: commissionReversal,
           direction: LedgerDirection.DEBIT,
           reference: `refund:${refund.id}:receivable-reversal`,
         },

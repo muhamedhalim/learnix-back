@@ -249,6 +249,10 @@ export class OrdersService {
     }
 
     const commission = this.commissions.calculate(finalAmountMinor);
+    const gatewayFee =
+      dto.payment_channel === PaymentChannel.GATEWAY
+        ? this.commissions.calculateGatewayFee(finalAmountMinor)
+        : { gatewayFeeBps: 0, gatewayFeeMinor: 0 };
     const gatewayName = this.providers.getDefault().name;
     const idempotencyKey =
       dto.idempotency_key ??
@@ -290,6 +294,8 @@ export class OrdersService {
           platform_commission_bps: commission.platformCommissionBps,
           platform_commission_minor: commission.platformCommissionMinor,
           teacher_earning_minor: commission.teacherEarningMinor,
+          gateway_fee_bps: gatewayFee.gatewayFeeBps,
+          gateway_fee_minor: gatewayFee.gatewayFeeMinor,
           discount_snapshot: discount.snapshot,
           metadata: {
             access_duration_days: product.accessDurationDays,
@@ -439,6 +445,8 @@ export class OrdersService {
         platform_commission_bps: commission.platformCommissionBps,
         platform_commission_minor: commission.platformCommissionMinor,
         teacher_earning_minor: commission.teacherEarningMinor,
+        gateway_fee_bps: 0,
+        gateway_fee_minor: 0,
         discount_snapshot: null,
         metadata: {
           access_duration_days: product.accessDurationDays,

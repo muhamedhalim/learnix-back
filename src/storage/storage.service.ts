@@ -389,7 +389,11 @@ export class StorageService implements StorageProvider {
     const publicBaseUrl = this.config.get<string>('R2_PUBLIC_BASE_URL');
 
     if (accountId && accessKeyId && secretAccessKey && bucket) {
-      if (publicBaseUrl) this.assertProductionPublicUrl(publicBaseUrl, 'R2_PUBLIC_BASE_URL');
+      if (publicBaseUrl && this.config.get<string>('NODE_ENV') === 'production') {
+        throw new Error(
+          'R2_PUBLIC_BASE_URL must not be configured in production: R2 objects must be private and served only through authorized backend routes or signed URLs.',
+        );
+      }
       return new R2StorageProvider(
         accountId,
         accessKeyId,

@@ -10,7 +10,7 @@ import { BooksService } from './books.service';
 
 describe('BookPurchasesService protected downloads', () => {
   const purchases = { findOne: jest.fn() };
-  const books = { findOne: jest.fn() };
+  const books = { findOneRetained: jest.fn() };
   const storage = { toKey: jest.fn(), getObject: jest.fn() };
   const config = { get: jest.fn() };
   let service: BookPurchasesService;
@@ -32,7 +32,7 @@ describe('BookPurchasesService protected downloads', () => {
       ForbiddenException,
     );
 
-    expect(books.findOne).not.toHaveBeenCalled();
+    expect(books.findOneRetained).not.toHaveBeenCalled();
     expect(storage.toKey).not.toHaveBeenCalled();
     expect(storage.getObject).not.toHaveBeenCalled();
   });
@@ -40,7 +40,7 @@ describe('BookPurchasesService protected downloads', () => {
   it('streams the purchased book only after the purchase check succeeds', async () => {
     const book = { id: 'book-1', book_file: 'books/student-1/private.pdf' } as Book;
     purchases.findOne.mockResolvedValue({ id: 'purchase-1' });
-    books.findOne.mockResolvedValue(book);
+    books.findOneRetained.mockResolvedValue(book);
     storage.toKey.mockReturnValue('books/student-1/private.pdf');
     storage.getObject.mockResolvedValue({ body: Buffer.from('pdf') });
 

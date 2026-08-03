@@ -35,4 +35,13 @@ describe('CommissionService', () => {
     expect(() => service.calculate(10.5)).toThrow(BadRequestException);
     expect(() => service.calculate(100, 10_001)).toThrow(BadRequestException);
   });
+
+  it('calculates a deterministic platform-paid gateway fee', () => {
+    const service = new CommissionService(config('3000'));
+
+    expect(service.calculateGatewayFee(10_001)).toEqual({
+      gatewayFeeBps: 3000,
+      gatewayFeeMinor: 3000,
+    });
+  });
 });

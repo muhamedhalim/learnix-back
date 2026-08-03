@@ -19,6 +19,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:infra:up": "docker compose -f test/docker-compose.e2e.yml up -d --wait",
+    "test:e2e:infra:down": "docker compose -f test/docker-compose.e2e.yml down --volumes --remove-orphans",
     "seed": "npm run build && node dist/database/seed.js",
     "seed:admin": "ts-node src/database/seed-admin.ts",
     "typeorm": "typeorm-ts-node-commonjs",

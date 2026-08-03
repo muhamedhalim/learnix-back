@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -8,6 +14,7 @@ import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { AttendanceMarkedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
+import { PaymentsService } from '../payments/services/payments.service';
 import { User } from '../users/entities/user.entity';
 import { AttendanceFilterDto, MarkAttendanceDto } from './dto';
 import { AttendanceRecord, AttendanceStatus } from './entities/attendance-record.entity';
@@ -38,6 +45,7 @@ export class AttendanceService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly events: EventEmitter2,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   /**
@@ -73,6 +81,8 @@ export class AttendanceService {
         ),
       );
     }
+
+    await this.assertStudentEnrollment(dto.student_id, dto.lesson_id);
 
     // Create attendance record
     const attendance = this.attendanceRepository.create({
@@ -230,6 +240,8 @@ export class AttendanceService {
       );
     }
 
+    await this.assertStudentEnrollment(studentId, lessonId);
+
     // Create session
     const session = this.sessionsRepository.create({
       student_id: studentId,
@@ -328,6 +340,24 @@ export class AttendanceService {
     } catch (error) {
       this.logger.error('Failed to auto-mark attendance:', error);
       return false;
+    }
+  }
+
+  /**
+   * Attendance is a record of access to paid instructional content. Reuse the
+   * canonical payments entitlement policy so direct lesson purchases and
+   * active package enrolments are both accepted, while arbitrary students can
+   * never create attendance records or playback sessions for another course.
+   */
+  private async assertStudentEnrollment(studentId: string, lessonId: string): Promise<void> {
+    const hasEnrollment = await this.paymentsService.hasLessonPlaybackAccess(studentId, lessonId);
+    if (!hasEnrollment) {
+      throw new ForbiddenException(
+        biBody(
+          'The student does not have an active enrollment for this lesson',
+          'الطالب لا يملك تسجيلاً نشطاً لهذا الدرس',
+        ),
+      );
     }
   }
 

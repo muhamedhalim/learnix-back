@@ -118,8 +118,7 @@ export class BookPurchasesService {
       .leftJoinAndSelect('book.teacher', 'teacher')
       .leftJoinAndSelect('book.subject', 'subject')
       .where('purchase.student_id = :studentId', { studentId })
-      .andWhere('purchase.revoked_at IS NULL')
-      .andWhere('book.deleted_at IS NULL');
+      .andWhere('purchase.revoked_at IS NULL');
 
     // Apply search filter
     if (filter.search !== undefined && filter.search !== '') {
@@ -217,7 +216,7 @@ export class BookPurchasesService {
       );
     }
 
-    const book = await this.booksService.findOne(bookId);
+    const book = await this.booksService.findOneRetained(bookId);
     return book;
   }
 
@@ -350,7 +349,6 @@ export class BookPurchasesService {
       .createQueryBuilder('purchase')
       .innerJoin('purchase.book', 'book')
       .where('book.teacher_id = :teacherId', { teacherId })
-      .andWhere('book.deleted_at IS NULL')
       .andWhere('purchase.revoked_at IS NULL')
       .select([
         'book.id as book_id',
