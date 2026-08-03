@@ -55,10 +55,13 @@ export interface LessonWithDetails {
   bunny_video_status: string | null;
   video_width: number | null;
   video_height: number | null;
+  /** Bunny-generated poster, exposed only to the owning teacher detail response. */
+  video_thumbnail?: string | null;
   video_size_bytes: number | null;
   price: number;
   duration: number | null;
   is_group: boolean;
+  is_free_preview?: boolean;
   available_for_days: number;
   students_count: number;
   status: LessonStatus;
@@ -921,6 +924,7 @@ export class LessonsService {
     if (meta.durationSeconds != null) lesson.duration = meta.durationSeconds;
     if (meta.width != null) lesson.video_width = meta.width;
     if (meta.height != null) lesson.video_height = meta.height;
+    if (meta.thumbnailUrl != null) lesson.video_thumbnail = meta.thumbnailUrl;
     if (meta.sizeBytes != null) lesson.video_size_bytes = meta.sizeBytes;
     await this.lessonsRepository.save(lesson);
 
@@ -1069,10 +1073,12 @@ export class LessonsService {
       bunny_video_status: lesson.bunny_video_status,
       video_width: lesson.video_width,
       video_height: lesson.video_height,
+      video_thumbnail: lesson.video_thumbnail,
       video_size_bytes: lesson.video_size_bytes == null ? null : Number(lesson.video_size_bytes),
       price: lesson.price,
       duration: lesson.duration,
       is_group: lesson.is_group,
+      is_free_preview: lesson.is_free_preview,
       available_for_days: lesson.available_for_days,
       students_count: lesson.students_count,
       status: lesson.status,

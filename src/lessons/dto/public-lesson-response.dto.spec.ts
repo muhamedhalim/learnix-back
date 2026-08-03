@@ -28,6 +28,7 @@ describe('toPublicLessonResponse', () => {
       price: 100,
       duration: 60,
       is_group: false,
+      is_free_preview: false,
       available_for_days: 30,
       students_count: 5,
       status: LessonStatus.PUBLISHED,
@@ -35,9 +36,8 @@ describe('toPublicLessonResponse', () => {
       updated_at: new Date('2026-01-02T00:00:00.000Z'),
     };
 
-    const result = toPublicLessonResponse(
-      lesson,
-      (value) => (value ? `https://api.example.test/media/${value}` : null),
+    const result = toPublicLessonResponse(lesson, (value) =>
+      value ? `https://api.example.test/media/${value}` : null,
     );
 
     expect(result).toMatchSnapshot();

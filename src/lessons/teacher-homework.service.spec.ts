@@ -112,6 +112,21 @@ describe('TeacherHomeworkService', () => {
     );
   });
 
+  it('refuses grading when the homework belongs to a different teacher', async () => {
+    const homeworkQuery = chain(['innerJoinAndSelect', 'where', 'andWhere']);
+    homeworkQuery.getOne = jest.fn().mockResolvedValue(null);
+    homeworkRepository.createQueryBuilder.mockReturnValue(homeworkQuery);
+
+    await expect(
+      service.grade(otherTeacherId, homeworkId, submissionId, { score: 92 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(lessonContent.gradeHomework).not.toHaveBeenCalled();
+    expect(homeworkQuery.where).toHaveBeenCalledWith('lesson.teacher_id = :teacherId', {
+      teacherId: otherTeacherId,
+    });
+  });
+
   it('does not expose a private storage key in the teacher homework response', async () => {
     const homeworkQuery = chain(['innerJoinAndSelect', 'where', 'andWhere']);
     homeworkQuery.getOne = jest.fn().mockResolvedValue(ownedHomework());

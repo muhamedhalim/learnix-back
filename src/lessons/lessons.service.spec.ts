@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 
 import { MediaService } from '../media/media.service';
@@ -213,6 +214,11 @@ describe('LessonsService lesson duration persistence', () => {
   };
   const usersRepository = { findOne: jest.fn() };
   const subjectsRepository = { findOne: jest.fn() };
+  const bunny = {
+    getVideo: jest.fn(),
+    generateSignedEmbedUrl: jest.fn(),
+  };
+  const payments = { hasLessonPlaybackAccess: jest.fn() };
   const media = {
     canonicalPublicReference: jest.fn((value: string | null) => value),
     normalizeStoredPublicReference: jest.fn((value: string) => value),
@@ -223,6 +229,10 @@ describe('LessonsService lesson duration persistence', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     lesson.duration = null;
+    lesson.bunny_video_id = null;
+    lesson.bunny_video_status = null;
+    lesson.video_thumbnail = null;
+    lesson.is_free_preview = false;
     lessonRepository.create.mockImplementation((value: Partial<Lesson>) => ({
       ...lesson,
       ...value,
@@ -238,8 +248,8 @@ describe('LessonsService lesson duration persistence', () => {
       {} as Repository<
         import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession
       >,
-      {} as BunnyStreamService,
-      {} as PaymentsService,
+      bunny as unknown as BunnyStreamService,
+      payments as unknown as PaymentsService,
       media as unknown as MediaService,
     );
   });
@@ -298,5 +308,35 @@ describe('LessonsService lesson duration persistence', () => {
     expect(lesson.duration).toBe(1_800);
     expect(lessonRepository.save).toHaveBeenCalledWith(lesson);
     expect(result.duration).toBe(1_800);
+  });
+
+  it('persists the Bunny-generated video poster after encoding metadata is available', async () => {
+    lesson.bunny_video_id = 'bunny-video-1';
+    bunny.getVideo.mockResolvedValue({
+      status: 'ready',
+      progress: 100,
+      durationSeconds: 120,
+      width: 1920,
+      height: 1080,
+      sizeBytes: 4096,
+      thumbnailUrl: 'https://cdn.example.test/bunny-video-1/thumbnail.jpg',
+    });
+
+    await service.refreshBunnyStatus(lesson.id, teacher.id);
+
+    expect(lesson.video_thumbnail).toBe('https://cdn.example.test/bunny-video-1/thumbnail.jpg');
+    expect(lessonRepository.save).toHaveBeenCalledWith(lesson);
+  });
+
+  it('denies a non-entitled viewer before asking Bunny to sign playback', async () => {
+    lesson.bunny_video_id = 'bunny-video-1';
+    lesson.bunny_video_status = 'ready';
+    payments.hasLessonPlaybackAccess.mockResolvedValue(false);
+
+    await expect(
+      service.getSignedPlaybackUrl(lesson.id, 'student-without-access', UserRole.STUDENT),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(bunny.generateSignedEmbedUrl).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,51 @@
+import { ForbiddenException } from '@nestjs/common';
+import type { Repository } from 'typeorm';
+
+import { ConfigService } from '@nestjs/config';
+import { StorageService } from '../../storage/storage.service';
+import { Book } from '../entities/book.entity';
+import { BookPurchase } from '../entities/book-purchase.entity';
+import { BookPurchasesService } from './book-purchases.service';
+import { BooksService } from './books.service';
+
+describe('BookPurchasesService protected downloads', () => {
+  const purchases = { findOne: jest.fn() };
+  const books = { findOne: jest.fn() };
+  const storage = { toKey: jest.fn(), getObject: jest.fn() };
+  const config = { get: jest.fn() };
+  let service: BookPurchasesService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new BookPurchasesService(
+      purchases as unknown as Repository<BookPurchase>,
+      books as unknown as BooksService,
+      storage as unknown as StorageService,
+      config as unknown as ConfigService,
+    );
+  });
+
+  it('rejects an unpurchased book before resolving its storage object', async () => {
+    purchases.findOne.mockResolvedValue(null);
+
+    await expect(service.getDownloadObject('student-1', 'book-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    expect(books.findOne).not.toHaveBeenCalled();
+    expect(storage.toKey).not.toHaveBeenCalled();
+    expect(storage.getObject).not.toHaveBeenCalled();
+  });
+
+  it('streams the purchased book only after the purchase check succeeds', async () => {
+    const book = { id: 'book-1', book_file: 'books/student-1/private.pdf' } as Book;
+    purchases.findOne.mockResolvedValue({ id: 'purchase-1' });
+    books.findOne.mockResolvedValue(book);
+    storage.toKey.mockReturnValue('books/student-1/private.pdf');
+    storage.getObject.mockResolvedValue({ body: Buffer.from('pdf') });
+
+    await expect(service.getDownloadObject('student-1', 'book-1')).resolves.toMatchObject({ book });
+
+    expect(storage.getObject).toHaveBeenCalledWith('books/student-1/private.pdf');
+  });
+});
