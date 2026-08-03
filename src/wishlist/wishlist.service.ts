@@ -247,6 +247,49 @@ export class WishlistService {
     }));
   }
 
+  /** Analytics scoped to content owned by one teacher; never leaks another teacher's demand. */
+  public async getTeacherTopWishlisted(
+    teacherId: string,
+    limit = 10,
+  ): Promise<TopWishlistedItemDto[]> {
+    const [lessonRows, packageRows] = await Promise.all([
+      this.wishlistRepository
+        .createQueryBuilder('w')
+        .innerJoin(Lesson, 'lesson', 'lesson.id = w.item_id')
+        .select('w.item_type', 'item_type')
+        .addSelect('w.item_id', 'item_id')
+        .addSelect('COUNT(*)', 'count')
+        .where('w.item_type = :type', { type: WishlistItemType.LESSON })
+        .andWhere('lesson.teacher_id = :teacherId', { teacherId })
+        .andWhere('lesson.deleted_at IS NULL')
+        .groupBy('w.item_type')
+        .addGroupBy('w.item_id')
+        .getRawMany<{ item_type: WishlistItemType; item_id: string; count: string }>(),
+      this.wishlistRepository
+        .createQueryBuilder('w')
+        .innerJoin(LessonPackage, 'package', 'package.id = w.item_id')
+        .select('w.item_type', 'item_type')
+        .addSelect('w.item_id', 'item_id')
+        .addSelect('COUNT(*)', 'count')
+        .where('w.item_type = :type', { type: WishlistItemType.PACKAGE })
+        .andWhere('package.teacher_id = :teacherId', { teacherId })
+        .andWhere('package.deleted_at IS NULL')
+        .groupBy('w.item_type')
+        .addGroupBy('w.item_id')
+        .getRawMany<{ item_type: WishlistItemType; item_id: string; count: string }>(),
+    ]);
+    const rows = [...lessonRows, ...packageRows]
+      .sort((a, b) => Number.parseInt(b.count, 10) - Number.parseInt(a.count, 10))
+      .slice(0, limit);
+    const resolved = await this.resolveItems(rows);
+    return rows.map((row) => ({
+      itemType: row.item_type,
+      itemId: row.item_id,
+      title: resolved.get(this.key(row.item_type, row.item_id))?.title ?? 'Unavailable',
+      wishlistCount: Number.parseInt(row.count, 10),
+    }));
+  }
+
   /* ===================== Helpers ===================== */
 
   private key(type: WishlistItemType, id: string): string {

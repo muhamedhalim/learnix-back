@@ -158,3 +158,29 @@ describe('WishlistService', () => {
     });
   });
 });
+
+describe('WishlistService teacher analytics', () => {
+  it('scopes the lesson and package aggregation queries to the teacher', async () => {
+    const query = {
+      innerJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      addGroupBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    };
+    const repository = { createQueryBuilder: jest.fn().mockReturnValue(query) };
+    const service = new WishlistService(repository as never, {} as never, {} as never, {} as never);
+
+    await expect(service.getTeacherTopWishlisted('teacher-id')).resolves.toEqual([]);
+
+    expect(query.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('teacher_id = :teacherId'),
+      {
+        teacherId: 'teacher-id',
+      },
+    );
+  });
+});

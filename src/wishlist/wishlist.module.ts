@@ -5,16 +5,14 @@ import { CartModule } from '../cart/cart.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AdminWishlistController } from './controllers/admin-wishlist.controller';
+import { TeacherWishlistController } from './controllers/teacher-wishlist.controller';
 import { WishlistController } from './controllers/wishlist.controller';
 import { WishlistItem } from './entities/wishlist-item.entity';
 import { WishlistService } from './wishlist.service';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([WishlistItem, Lesson, LessonPackage]),
-    CartModule,
-  ],
-  controllers: [WishlistController, AdminWishlistController],
+  imports: [TypeOrmModule.forFeature([WishlistItem, Lesson, LessonPackage]), CartModule],
+  controllers: [WishlistController, AdminWishlistController, TeacherWishlistController],
   providers: [WishlistService],
   exports: [WishlistService],
 })

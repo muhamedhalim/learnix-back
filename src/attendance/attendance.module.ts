@@ -5,6 +5,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { PaymentsModule } from '../payments/payments.module';
 import { User } from '../users/entities/user.entity';
 import { AttendanceService } from './attendance.service';
+import { AttendanceExportService } from './attendance-export.service';
 import {
   AdminAttendanceController,
   SessionController,
@@ -26,7 +27,7 @@ import { AttendanceRecord, LessonSession } from './entities';
     StudentAttendanceController,
     TeacherAttendanceController,
   ],
-  providers: [AttendanceService],
+  providers: [AttendanceService, AttendanceExportService],
   exports: [AttendanceService],
 })
 export class AttendanceModule {}
