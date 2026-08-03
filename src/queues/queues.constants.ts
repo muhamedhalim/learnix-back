@@ -11,11 +11,11 @@ import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connect
  * Each queue processes a specific type of background job
  */
 export const QUEUE_NAMES = {
-  /** Payment webhook fulfillment */
-  WEBHOOK_FULFILLMENT: 'webhook-fulfillment',
-
   /** Email notifications (confirmations, alerts) */
   EMAIL: 'email',
+
+  /** Large in-app notification broadcasts. */
+  BULK_NOTIFICATIONS: 'bulk-notifications',
 
   /** Image processing (resize, compress, optimize) */
   IMAGE_PROCESSING: 'image-processing',
@@ -53,18 +53,12 @@ export const QUEUE_NAMES = {
    * visible in Bull Board and can be replayed by an admin rather than vanishing.
    */
   PARENT_NOTIFICATIONS_DLQ: 'parent-notifications-dlq',
-
-  /** Scheduled weekly/monthly guardian progress reports. */
-  PARENT_REPORTS: 'parent-reports',
 } as const;
 
 /**
  * Job Types within each queue
  */
 export const JOB_TYPES = {
-  WEBHOOK: {
-    FULFILL_PAYMENT: 'fulfill-payment',
-  },
   EMAIL: {
     /** Outbound MailerSend delivery; executed only by MailProcessor. */
     DELIVER: 'deliver-email',
@@ -117,12 +111,9 @@ export const JOB_TYPES = {
     /** Re-attempt a single previously-failed `parent_messages` row. */
     REDELIVER: 'redeliver-parent-message',
   },
-  PARENT_REPORT: {
-    /** Repeatable: enqueue a digest for every student with a verified guardian. */
-    WEEKLY_SWEEP: 'weekly-report-sweep',
-    MONTHLY_SWEEP: 'monthly-report-sweep',
-    /** Build + deliver one student's digest. */
-    BUILD: 'build-parent-report',
+  NOTIFICATION: {
+    /** Persist a large in-app broadcast in bounded database batches. */
+    DELIVER_BULK: 'deliver-bulk-notifications',
   },
 } as const;
 
@@ -213,16 +204,6 @@ export const WORKER_CONFIG = {
  * Some queues need different settings
  */
 export const QUEUE_CONFIGS = {
-  [QUEUE_NAMES.WEBHOOK_FULFILLMENT]: {
-    ...DEFAULT_QUEUE_CONFIG,
-    defaultJobOptions: {
-      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
-      /** Critical jobs - retry more aggressively */
-      attempts: 5,
-      priority: 1, // Highest priority
-    },
-  },
-
   [QUEUE_NAMES.EMAIL]: {
     ...DEFAULT_QUEUE_CONFIG,
     defaultJobOptions: {
@@ -351,12 +332,11 @@ export const QUEUE_CONFIGS = {
     },
   },
 
-  [QUEUE_NAMES.PARENT_REPORTS]: {
+  [QUEUE_NAMES.BULK_NOTIFICATIONS]: {
     ...DEFAULT_QUEUE_CONFIG,
     defaultJobOptions: {
       ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
-      // Digests are not urgent and the next scheduled run supersedes a miss.
-      priority: 5,
+      priority: 4,
       attempts: 3,
     },
   },

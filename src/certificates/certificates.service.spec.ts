@@ -42,7 +42,13 @@ function qb(result: number | unknown[]) {
 describe('CertificatesService', () => {
   let service: CertificatesService;
 
-  const certificates = { findOne: jest.fn(), find: jest.fn(), create: jest.fn(), save: jest.fn(), createQueryBuilder: jest.fn() };
+  const certificates = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+    createQueryBuilder: jest.fn(),
+  };
   const templates = {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -106,9 +112,7 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(null);
       packageItems.count.mockResolvedValue(4);
       progress.createQueryBuilder.mockReturnValue(qb(2)); // 50%
-      await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('issues, snapshots names, and emits when complete', async () => {
@@ -130,7 +134,9 @@ describe('CertificatesService', () => {
         body: 'Presented to {{student}} for {{course}}.',
       });
       certificates.create.mockImplementation((v: unknown) => v);
-      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+      certificates.save.mockImplementation((v: Certificate) =>
+        Promise.resolve({ ...v, id: 'new' }),
+      );
 
       const result = await service.issueForCourse('S1', 'P1');
 
@@ -169,6 +175,29 @@ describe('CertificatesService', () => {
       await service.autoIssueForCompletedLesson('S1', 'L1');
 
       expect(issueSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bulkIssue', () => {
+    it('limits certificate issuance work to bounded batches', async () => {
+      packages.findOne.mockResolvedValue({ id: 'P1', teacher_id: 'T1' });
+      certificates.findOne.mockResolvedValue(null);
+
+      let inFlight = 0;
+      let maxInFlight = 0;
+      jest.spyOn(service, 'issueForCourse').mockImplementation(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await Promise.resolve();
+        inFlight -= 1;
+        return { id: 'certificate' } as Certificate;
+      });
+
+      const studentIds = Array.from({ length: 51 }, (_, index) => `student-${String(index)}`);
+      const result = await service.bulkIssue({ packageId: 'P1', studentIds }, 'T1');
+
+      expect(result).toMatchObject({ requested: 51, issued: 51, skipped: 0, failed: [] });
+      expect(maxInFlight).toBeLessThanOrEqual(50);
     });
   });
 
@@ -233,9 +262,9 @@ describe('CertificatesService', () => {
         status: CertificateTemplateStatus.PUBLISHED,
       });
 
-      await expect(service.updateTemplate('t1', { body: 'Presented to {{teacher}}' })).rejects.toThrow(
-        'Unsupported certificate placeholders',
-      );
+      await expect(
+        service.updateTemplate('t1', { body: 'Presented to {{teacher}}' }),
+      ).rejects.toThrow('Unsupported certificate placeholders');
       expect(templates.save).not.toHaveBeenCalled();
     });
 
@@ -257,7 +286,11 @@ describe('CertificatesService', () => {
       });
 
       expect(templates.save).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'Named', body: 'Presented to {{student}}', title: 'Updated title' }),
+        expect.objectContaining({
+          name: 'Named',
+          body: 'Presented to {{student}}',
+          title: 'Updated title',
+        }),
       );
     });
 

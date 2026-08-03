@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { IsArray, IsEnum, IsUUID } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsEnum, IsUUID } from 'class-validator';
+
+export const MAX_BULK_USER_ACTION_SIZE = 1000;
 
 /**
  * Available bulk actions for users
@@ -29,6 +31,7 @@ export class BulkUserActionDto {
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
   })
   @IsArray()
+  @ArrayMaxSize(MAX_BULK_USER_ACTION_SIZE)
   @IsUUID('4', { each: true })
   public user_ids!: string[];
 }

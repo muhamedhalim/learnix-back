@@ -1,6 +1,8 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import { Queue } from 'bullmq';
 import * as Papa from 'papaparse';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
@@ -10,8 +12,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { toE164 } from '../common/utils/phone.util';
 import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
-import { NotificationType } from '../notifications/entities/notification-type.enum';
-import { NotificationsService } from '../notifications/services/notifications.service';
+import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -51,8 +52,9 @@ export class BulkOperationsService {
     private readonly lessonsRepository: Repository<Lesson>,
     private readonly dataSource: DataSource,
     private readonly attendanceCodesService: AttendanceCodesService,
-    private readonly notificationsService: NotificationsService,
     private readonly guardiansService: GuardiansService,
+    @InjectQueue(QUEUE_NAMES.BULK_NOTIFICATIONS)
+    private readonly bulkNotificationsQueue: Queue,
   ) {}
 
   /**
@@ -69,10 +71,7 @@ export class BulkOperationsService {
       errors: string[];
     }> = [];
 
-    // Get existing emails for duplicate check
-    const existingEmails = new Set(
-      (await this.usersRepository.find({ select: ['email'] })).map((u) => u.email.toLowerCase()),
-    );
+    const existingEmails = await this.findExistingEmails(rows);
 
     let duplicateCount = 0;
 
@@ -145,11 +144,7 @@ export class BulkOperationsService {
       completed_at: new Date(),
     };
 
-    // Get existing emails for duplicate check
-
-    const existingEmails = new Set(
-      (await this.usersRepository.find({ select: ['email'] })).map((u) => u.email.toLowerCase()),
-    );
+    const existingEmails = await this.findExistingEmails(rows);
 
     // Process in batches of 50 for transaction efficiency
 
@@ -341,61 +336,27 @@ export class BulkOperationsService {
       completed_at: new Date(),
     };
 
-    const targetedUserIds = [...dto.user_ids];
+    const targetedUserIds = [...new Set(dto.user_ids)];
 
-    // Don't allow admins to bulk action themselves
     if (targetedUserIds.includes(adminId)) {
       results.errors.push({
         user_id: adminId,
         error: 'Cannot perform bulk action on yourself',
       });
       results.failed_count++;
-      // Create a new array without the adminId to avoid no-param-reassign
-      const filteredIds = targetedUserIds.filter((id) => id !== adminId);
-      // We need to use these filteredIds for the database query
-      const users = await this.usersRepository.find({
-        where: {
-          id: In(filteredIds),
-          deleted_at: IsNull(),
-        },
-      });
-      return await this.processBulkAction(users, dto, results, filteredIds, adminId);
     }
 
-    // Fetch all users
+    const actionableIds = targetedUserIds.filter((id) => id !== adminId);
     const users = await this.usersRepository.find({
+      select: { id: true, is_active: true },
       where: {
-        id: In(targetedUserIds),
+        id: In(actionableIds),
         deleted_at: IsNull(),
       },
     });
-
-    return await this.processBulkAction(users, dto, results, targetedUserIds, adminId);
-  }
-
-  /**
-   * Helper method to process bulk actions after filtering
-   */
-  private async processBulkAction(
-    users: User[],
-    dto: BulkUserActionDto,
-    initialResults: BulkUserActionResultDto,
-    targetedUserIds: string[],
-    adminId: string,
-  ): Promise<BulkUserActionResultDto> {
-    const results: BulkUserActionResultDto = {
-      action: initialResults.action,
-      total_targeted: initialResults.total_targeted,
-      success_count: initialResults.success_count,
-      failed_count: initialResults.failed_count,
-      skipped_count: initialResults.skipped_count,
-      errors: [...initialResults.errors],
-      completed_at: initialResults.completed_at,
-    };
     const foundIds = new Set(users.map((u) => u.id));
 
-    // Check for not found users
-    for (const userId of targetedUserIds) {
+    for (const userId of actionableIds) {
       if (!foundIds.has(userId)) {
         results.errors.push({
           user_id: userId,
@@ -405,43 +366,23 @@ export class BulkOperationsService {
       }
     }
 
-    // Process each user
-    for (const user of users) {
-      try {
-        switch (dto.action) {
-          case BulkUserAction.SUSPEND:
-            if (!user.is_active) {
-              results.skipped_count++;
-              continue;
-            }
-            user.is_active = false;
-            break;
+    const usersToUpdate = users.filter((user) => {
+      if (dto.action === BulkUserAction.SUSPEND) return user.is_active;
+      if (dto.action === BulkUserAction.ACTIVATE) return !user.is_active;
+      return true;
+    });
+    results.skipped_count = users.length - usersToUpdate.length;
 
-          case BulkUserAction.ACTIVATE:
-            if (user.is_active) {
-              results.skipped_count++;
-              continue;
-            }
-            user.is_active = true;
-            break;
-
-          case BulkUserAction.DELETE:
-            // Soft delete
-            user.deleted_at = new Date();
-            user.is_active = false;
-            break;
-        }
-
-        await this.usersRepository.save(user);
-        results.success_count++;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        results.errors.push({
-          user_id: user.id,
-          error: errorMessage,
-        });
-        results.failed_count++;
-      }
+    const idsToUpdate = usersToUpdate.map((user) => user.id);
+    if (idsToUpdate.length > 0) {
+      const update =
+        dto.action === BulkUserAction.SUSPEND
+          ? { is_active: false }
+          : dto.action === BulkUserAction.ACTIVATE
+            ? { is_active: true }
+            : { deleted_at: new Date(), is_active: false };
+      await this.usersRepository.update({ id: In(idsToUpdate), deleted_at: IsNull() }, update);
+      results.success_count = idsToUpdate.length;
     }
 
     results.completed_at = new Date();
@@ -467,9 +408,54 @@ export class BulkOperationsService {
     dto: BulkNotificationDto,
     adminId: string,
   ): Promise<BulkNotificationResultDto> {
-    const startTime = new Date();
+    const startedAt = new Date();
+    const totalQueued = await this.buildBulkNotificationRecipientQuery(dto).getCount();
+    const job = await this.bulkNotificationsQueue.add(JOB_TYPES.NOTIFICATION.DELIVER_BULK, {
+      dto,
+      adminId,
+    });
 
-    // Build query for students
+    const results: BulkNotificationResultDto = {
+      total_queued: totalQueued,
+      sent_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+      status: 'processing',
+      started_at: startedAt,
+      ...(job?.id === undefined ? {} : { job_id: String(job.id) }),
+    };
+
+    this.logger.log(`Bulk notification queued by admin ${adminId}: ${totalQueued} recipients`);
+
+    return results;
+  }
+
+  private async findExistingEmails(rows: ParsedStudentRow[]): Promise<Set<string>> {
+    const emails = [
+      ...new Set(
+        rows
+          .map((row) => row.email?.trim().toLowerCase())
+          .filter((email): email is string => email !== undefined && email !== ''),
+      ),
+    ];
+    const existingEmails = new Set<string>();
+
+    for (let start = 0; start < emails.length; start += 1000) {
+      const batch = emails.slice(start, start + 1000);
+      const matches = await this.usersRepository
+        .createQueryBuilder('user')
+        .select('LOWER(user.email)', 'email')
+        .where('LOWER(user.email) IN (:...emails)', { emails: batch })
+        .getRawMany<{ email: string }>();
+      for (const match of matches) {
+        existingEmails.add(match.email.toLowerCase());
+      }
+    }
+
+    return existingEmails;
+  }
+
+  private buildBulkNotificationRecipientQuery(dto: BulkNotificationDto) {
     const queryBuilder = this.usersRepository
       .createQueryBuilder('user')
       .leftJoin('student_profiles', 'profile', 'profile.user_id = user.id')
@@ -477,64 +463,23 @@ export class BulkOperationsService {
       .andWhere('user.is_active = true')
       .andWhere('user.deleted_at IS NULL');
 
-    // Apply filters
     if (typeof dto.filter.grade_level === 'string' && dto.filter.grade_level !== '') {
       queryBuilder.andWhere('profile.grade_level = :gradeLevel', {
         gradeLevel: dto.filter.grade_level,
       });
     }
-
     if (typeof dto.filter.status === 'string' && dto.filter.status !== 'all') {
-      if (dto.filter.status === 'active') {
-        queryBuilder.andWhere('user.is_active = true');
-      } else {
-        queryBuilder.andWhere('user.is_active = false');
-      }
+      queryBuilder.andWhere('user.is_active = :isActive', {
+        isActive: dto.filter.status === 'active',
+      });
     }
-
     if (Array.isArray(dto.filter.student_ids) && dto.filter.student_ids.length > 0) {
       queryBuilder.andWhere('user.id IN (:...studentIds)', {
         studentIds: dto.filter.student_ids,
       });
     }
 
-    const students = await queryBuilder.select(['user.id']).getMany();
-
-    const results: BulkNotificationResultDto = {
-      total_queued: students.length,
-      sent_count: 0,
-      failed_count: 0,
-      skipped_count: 0,
-      status: 'processing',
-      started_at: startTime,
-    };
-
-    // Send notifications synchronously (for small batches)
-    // For large batches (>100), this should be queued
-    for (const student of students) {
-      try {
-        await this.notificationsService.create({
-          user_id: student.id,
-          type: NotificationType.CUSTOM,
-          title: dto.title ?? 'Notification',
-          message: dto.message,
-          send_sms: true,
-        });
-        results.sent_count++;
-      } catch {
-        results.failed_count++;
-      }
-    }
-
-    results.status = 'completed';
-    results.completed_at = new Date();
-
-    this.logger.log(
-      `Bulk notification sent by admin ${adminId}: ` +
-        `${results.sent_count} sent, ${results.failed_count} failed, ${results.skipped_count} skipped`,
-    );
-
-    return results;
+    return queryBuilder;
   }
 
   /**

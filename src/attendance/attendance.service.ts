@@ -120,11 +120,12 @@ export class AttendanceService {
    */
   public async updateAttendance(
     id: string,
+    lessonId: string,
     markerId: string,
     status: AttendanceStatus,
     notes?: string,
   ): Promise<AttendanceRecord> {
-    const attendance = await this.findAttendanceById(id);
+    const attendance = await this.findAttendanceByIdForLesson(id, lessonId);
 
     attendance.status = status;
     attendance.marked_by = markerId;
@@ -137,14 +138,14 @@ export class AttendanceService {
 
     this.logger.log(`Attendance updated: ${id} to ${status}`);
 
-    return await this.findAttendanceById(id);
+    return await this.findAttendanceByIdForLesson(id, lessonId);
   }
 
   /**
    * Delete attendance record
    */
-  public async deleteAttendance(id: string): Promise<void> {
-    const attendance = await this.findAttendanceById(id);
+  public async deleteAttendance(id: string, lessonId: string): Promise<void> {
+    const attendance = await this.findAttendanceByIdForLesson(id, lessonId);
     await this.attendanceRepository.remove(attendance);
     this.logger.log(`Attendance deleted: ${id}`);
   }
@@ -176,6 +177,33 @@ export class AttendanceService {
     if (!attendance) {
       throw new NotFoundException(
         biBody(`Attendance record with ID ${id} not found`, `سجل الحضور ذو المعرف ${id} غير موجود`),
+      );
+    }
+
+    return attendance;
+  }
+
+  /**
+   * Resolve an attendance record only when it belongs to the lesson selected
+   * by the teacher route. Keeping this predicate in the lookup prevents a
+   * valid teacher-owned lesson id from being used to mutate a record from a
+   * different lesson.
+   */
+  public async findAttendanceByIdForLesson(
+    id: string,
+    lessonId: string,
+  ): Promise<AttendanceRecord> {
+    const attendance = await this.attendanceRepository.findOne({
+      where: { id, lesson_id: lessonId },
+      relations: ['student', 'lesson', 'marker'],
+    });
+
+    if (!attendance) {
+      throw new NotFoundException(
+        biBody(
+          `Attendance record with ID ${id} was not found for this lesson`,
+          `سجل الحضور ذو المعرف ${id} غير موجود لهذا الدرس`,
+        ),
       );
     }
 

@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  ArrayMaxSize,
   MaxLength,
 } from 'class-validator';
 
@@ -44,6 +45,7 @@ export class NotificationFilterDto {
   })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(1000)
   @IsUUID('4', { each: true })
   public student_ids?: string[];
 }

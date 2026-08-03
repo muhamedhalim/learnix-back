@@ -87,7 +87,6 @@ function boardPanel(name: string) {
      * connection is inherited from `BullModule.forRootAsync` above.
      */
     registerQueues(
-      { name: QUEUE_NAMES.WEBHOOK_FULFILLMENT, config: QUEUE_CONFIGS[QUEUE_NAMES.WEBHOOK_FULFILLMENT] },
       { name: QUEUE_NAMES.EMAIL, config: QUEUE_CONFIGS[QUEUE_NAMES.EMAIL] },
       { name: QUEUE_NAMES.IMAGE_PROCESSING, config: QUEUE_CONFIGS[QUEUE_NAMES.IMAGE_PROCESSING] },
       { name: QUEUE_NAMES.FILE_CLEANUP, config: QUEUE_CONFIGS[QUEUE_NAMES.FILE_CLEANUP] },
@@ -107,7 +106,6 @@ function boardPanel(name: string) {
      */
     ...(queuesEnabled
       ? [
-          boardPanel(QUEUE_NAMES.WEBHOOK_FULFILLMENT),
           boardPanel(QUEUE_NAMES.EMAIL),
           boardPanel(QUEUE_NAMES.IMAGE_PROCESSING),
           boardPanel(QUEUE_NAMES.FILE_CLEANUP),

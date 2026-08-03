@@ -58,6 +58,8 @@ export interface BulkIssueResult {
   failed: { studentId: string; reason: string }[];
 }
 
+const BULK_ISSUE_BATCH_SIZE = 50;
+
 export interface PaginatedList<T> {
   data: T[];
   meta: {
@@ -253,7 +255,10 @@ export class CertificatesService {
     }
     if (teacherId && pkg.teacher_id !== teacherId) {
       throw new ForbiddenException(
-        biBody('You can only issue certificates for your own courses', 'يمكنك إصدار الشهادات لدوراتك فقط'),
+        biBody(
+          'You can only issue certificates for your own courses',
+          'يمكنك إصدار الشهادات لدوراتك فقط',
+        ),
       );
     }
     // Validate the template once, up front, so a bad choice fails fast.
@@ -269,7 +274,10 @@ export class CertificatesService {
     }
     if (targets.length === 0) {
       throw new BadRequestException(
-        biBody('No matching students to issue certificates to', 'لا يوجد طلاب مطابقون لإصدار الشهادات لهم'),
+        biBody(
+          'No matching students to issue certificates to',
+          'لا يوجد طلاب مطابقون لإصدار الشهادات لهم',
+        ),
       );
     }
 
@@ -280,30 +288,54 @@ export class CertificatesService {
       failed: [],
     };
 
-    for (const studentId of targets) {
-      try {
-        const existing = await this.certificatesRepository.findOne({
-          where: { student_id: studentId, package_id: params.packageId },
-          select: { id: true },
-        });
-        if (existing) {
-          result.skipped += 1;
-          continue;
-        }
-        await this.issueForCourse(studentId, params.packageId, {
-          ...(params.force !== undefined ? { force: params.force } : {}),
-          ...(params.templateId !== undefined ? { templateId: params.templateId } : {}),
-          ...(teacherId !== undefined ? { restrictTemplateOwner: teacherId } : {}),
-        });
-        result.issued += 1;
-      } catch (error) {
-        result.failed.push({
-          studentId,
-          reason: error instanceof Error ? error.message : 'unknown error',
-        });
+    for (let start = 0; start < targets.length; start += BULK_ISSUE_BATCH_SIZE) {
+      const batch = targets.slice(start, start + BULK_ISSUE_BATCH_SIZE);
+      const outcomes = await Promise.all(
+        batch.map(
+          async (studentId) =>
+            await this.issueBulkCertificateForStudent(studentId, params, teacherId),
+        ),
+      );
+      for (const outcome of outcomes) {
+        if (outcome.status === 'issued') result.issued += 1;
+        if (outcome.status === 'skipped') result.skipped += 1;
+        if (outcome.status === 'failed') result.failed.push(outcome.failure);
       }
     }
     return result;
+  }
+
+  private async issueBulkCertificateForStudent(
+    studentId: string,
+    params: BulkIssueParams,
+    teacherId?: string,
+  ): Promise<
+    | { status: 'issued' }
+    | { status: 'skipped' }
+    | { status: 'failed'; failure: { studentId: string; reason: string } }
+  > {
+    try {
+      const existing = await this.certificatesRepository.findOne({
+        where: { student_id: studentId, package_id: params.packageId },
+        select: { id: true },
+      });
+      if (existing) return { status: 'skipped' };
+
+      await this.issueForCourse(studentId, params.packageId, {
+        ...(params.force !== undefined ? { force: params.force } : {}),
+        ...(params.templateId !== undefined ? { templateId: params.templateId } : {}),
+        ...(teacherId !== undefined ? { restrictTemplateOwner: teacherId } : {}),
+      });
+      return { status: 'issued' };
+    } catch (error) {
+      return {
+        status: 'failed',
+        failure: {
+          studentId,
+          reason: error instanceof Error ? error.message : 'unknown error',
+        },
+      };
+    }
   }
 
   /** Purchasers of a course who have completed every lesson in it. */
@@ -576,7 +608,9 @@ export class CertificatesService {
   public async getVerifiedCertificateByCode(code: string): Promise<Certificate> {
     const certificate = await this.getByVerificationCode(code);
     if (certificate.status !== CertificateStatus.ISSUED) {
-      throw new NotFoundException(biBody('Certificate not found', 'Ø§Ù„Ø´Ù‡Ø§Ø¯Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©'));
+      throw new NotFoundException(
+        biBody('Certificate not found', 'Ø§Ù„Ø´Ù‡Ø§Ø¯Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©'),
+      );
     }
     return certificate;
   }
@@ -973,7 +1007,10 @@ export class CertificatesService {
     }
     if (restrictToOwner && template.owner_id !== null && template.owner_id !== restrictToOwner) {
       throw new ForbiddenException(
-        biBody('You can only use your own or platform templates', 'يمكنك استخدام قوالبك أو قوالب المنصة فقط'),
+        biBody(
+          'You can only use your own or platform templates',
+          'يمكنك استخدام قوالبك أو قوالب المنصة فقط',
+        ),
       );
     }
     return template;

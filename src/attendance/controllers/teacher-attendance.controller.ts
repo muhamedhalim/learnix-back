@@ -106,6 +106,7 @@ export class TeacherAttendanceController {
 
     const attendance = await this.attendanceService.updateAttendance(
       id,
+      lessonId,
       user.userId,
       status,
       notes,
@@ -138,7 +139,7 @@ export class TeacherAttendanceController {
     // Validate ownership
     await this.validateOwnership(lessonId, user.userId);
 
-    await this.attendanceService.deleteAttendance(id);
+    await this.attendanceService.deleteAttendance(id, lessonId);
 
     return {
       message: 'Attendance deleted successfully',
