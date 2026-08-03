@@ -22,6 +22,7 @@ import {
   AttachQuestionDto,
   CreateExamDto,
   ExamFilterDto,
+  ReorderExamItemsDto,
   RescheduleExamDto,
   UpdateExamDto,
   UpsertSectionDto,
@@ -88,6 +89,16 @@ export class TeacherExamsController {
     return { message: 'Section removed' };
   }
 
+  @Patch(':id/sections/reorder')
+  public async reorderSections(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderExamItemsDto,
+  ) {
+    await this.authoring.reorderSections(id, user.userId, dto);
+    return { message: 'Sections reordered' };
+  }
+
   @Post(':id/questions')
   @ApiOperation({ summary: 'Attach a bank question to the exam' })
   public attach(
@@ -106,6 +117,16 @@ export class TeacherExamsController {
   ) {
     await this.authoring.detachQuestion(id, examQuestionId, user.userId);
     return { message: 'Question detached' };
+  }
+
+  @Patch(':id/questions/reorder')
+  public async reorderQuestions(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderExamItemsDto,
+  ) {
+    await this.authoring.reorderQuestions(id, user.userId, dto);
+    return { message: 'Questions reordered' };
   }
 
   @Post(':id/publish')

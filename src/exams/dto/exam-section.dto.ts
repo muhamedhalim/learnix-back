@@ -1,6 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 /** Create or update an exam section (question group). */
 export class UpsertSectionDto {
@@ -31,4 +42,13 @@ export class UpsertSectionDto {
   @IsOptional()
   @IsBoolean()
   public shuffle_questions?: boolean;
+}
+
+/** Complete ordered IDs for a draft exam's sections or questions. */
+export class ReorderExamItemsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  public ids!: string[];
 }

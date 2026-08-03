@@ -22,10 +22,12 @@ import {
   ExamAttemptAnswer,
   ExamConfig,
   ExamQuestion,
+  ExamSection,
   ExamStatus,
   QuestionResponsePayload,
   ReviewPolicy,
 } from '../entities';
+import { QuestionTypeRegistry } from '../question-types/question-type-registry';
 import { AttemptGradingService } from './attempt-grading.service';
 import { ExamAccessService } from './exam-access.service';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
@@ -62,6 +64,13 @@ export interface RenderedAttempt {
   server_time: Date;
   remaining_seconds: number;
   total_marks: number;
+  sections: Array<{
+    id: string;
+    order: number;
+    title: string | null;
+    title_ar: string | null;
+    description: string | null;
+  }>;
   questions: RenderedQuestion[];
 }
 
@@ -91,6 +100,7 @@ export class AttemptService {
     private readonly jobs: ExamJobsService,
     private readonly access: ExamAccessService,
     private readonly examGradedPublisher: ExamGradedPublisher,
+    private readonly questionTypes: QuestionTypeRegistry,
   ) {}
 
   // ==================== START / RESUME ====================
@@ -283,6 +293,10 @@ export class AttemptService {
 
     const rows = await this.answers.find({ where: { attempt_id: attemptId } });
     const byExamQuestion = new Map(rows.map((r) => [r.exam_question_id, r]));
+    const questions = await this.examQuestions.find({
+      where: { id: In([...byExamQuestion.keys()]) },
+    });
+    const questionByExamQuestion = new Map(questions.map((question) => [question.id, question]));
 
     let saved = 0;
     const now = new Date();
@@ -290,6 +304,7 @@ export class AttemptService {
     for (const item of dto.answers) {
       const row = byExamQuestion.get(item.exam_question_id);
       if (!row) continue; // not part of this attempt → ignore
+      this.assertValidResponse(questionByExamQuestion.get(row.exam_question_id), item.response);
       row.response = item.response ?? null;
       row.answered_at = item.response !== null && item.response !== undefined ? now : null;
       if (item.time_spent_ms !== undefined) row.time_spent_ms += item.time_spent_ms;
@@ -405,6 +420,7 @@ export class AttemptService {
           for (const item of options.submitDto.answers) {
             const row = byEq.get(item.exam_question_id);
             if (!row) continue;
+            this.assertValidResponse(eqById.get(row.exam_question_id), item.response);
             row.response = item.response ?? null;
             row.answered_at = item.response != null ? now : row.answered_at;
           }
@@ -581,6 +597,10 @@ export class AttemptService {
   private async renderAttempt(attempt: ExamAttempt): Promise<RenderedAttempt> {
     const exam = await this.exams.findOneOrFail({ where: { id: attempt.exam_id } });
     const examQuestions = await this.examQuestions.find({ where: { exam_id: attempt.exam_id } });
+    const sections = await this.dataSource.getRepository(ExamSection).find({
+      where: { exam_id: attempt.exam_id },
+      order: { order_index: 'ASC' },
+    });
     const eqById = new Map(examQuestions.map((eq) => [eq.id, eq]));
     const answers = await this.answers.find({
       where: { attempt_id: attempt.id },
@@ -615,6 +635,13 @@ export class AttemptService {
       server_time: now,
       remaining_seconds: Math.max(0, Math.floor(remainingMs / 1000)),
       total_marks: exam.total_marks,
+      sections: sections.map((section) => ({
+        id: section.id,
+        order: section.order_index,
+        title: section.title,
+        title_ar: section.title_ar,
+        description: section.description,
+      })),
       questions,
     };
   }
@@ -631,6 +658,22 @@ export class AttemptService {
       content['options'] = seededShuffle(content['options'] as unknown[], deriveSeed(seed, eq.id));
     }
     return content;
+  }
+
+  private assertValidResponse(
+    question: ExamQuestion | undefined,
+    response: QuestionResponsePayload | null | undefined,
+  ): void {
+    if (response === null || response === undefined) return;
+    if (!question) return;
+    const errors = this.questionTypes.require(question.type_snapshot).validateResponse(response);
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Invalid answer payload',
+        exam_question_id: question.id,
+        errors,
+      });
+    }
   }
 
   private toSummary(attempt: ExamAttempt, answers: ExamAttemptAnswer[]): SubmissionSummary {

@@ -9,6 +9,7 @@ import type { FirebaseService } from '../../firebase/firebase.service';
 import type { UsersService } from '../../users/users.service';
 import type { AuthService } from '../auth.service';
 import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
+import { UserStatus } from '../../users/entities/user-status.enum';
 import { HybridAuthGuard } from './hybrid-auth.guard';
 
 const secret = 'test-jwt-secret-value-at-least-32-characters';
@@ -61,4 +62,29 @@ describe('HybridAuthGuard cookie sessions', () => {
       UnauthorizedException,
     );
   });
+
+  it.each([UserStatus.PENDING, UserStatus.REJECTED])(
+    'rejects a Firebase identity whose application account is %s',
+    async (status) => {
+      const firebase = { verifyToken: jest.fn().mockResolvedValue({ uid: 'firebase-user' }) };
+      const users = {
+        syncFirebaseUser: jest.fn().mockResolvedValue({ is_active: true, status }),
+      };
+      const firebaseGuard = new HybridAuthGuard(
+        firebase as unknown as FirebaseService,
+        users as unknown as UsersService,
+        authService,
+        configService,
+      );
+      const firebaseHeader = Buffer.from(JSON.stringify({ kid: 'firebase-key' })).toString('base64url');
+      const request = {
+        signedCookies: {},
+        headers: { authorization: `Bearer ${firebaseHeader}.payload.signature` },
+      } as Request;
+
+      await expect(firebaseGuard.canActivate(contextFor(request))).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    },
+  );
 });

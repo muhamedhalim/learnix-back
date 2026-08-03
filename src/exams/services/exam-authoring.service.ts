@@ -24,6 +24,7 @@ import {
   AttachQuestionDto,
   CreateExamDto,
   ExamFilterDto,
+  ReorderExamItemsDto,
   RescheduleExamDto,
   UpdateExamDto,
   UpsertSectionDto,
@@ -216,6 +217,14 @@ export class ExamAuthoringService {
         biBody('You can only add your own questions', 'يمكنك فقط إضافة أسئلتك الخاصة'),
       );
     }
+    if (question.is_public) {
+      throw new BadRequestException(
+        biBody(
+          'Public practice questions cannot be attached to an exam',
+          'لا يمكن إضافة أسئلة التدريب العامة إلى اختبار',
+        ),
+      );
+    }
 
     const duplicate = await this.examQuestions.findOne({
       where: { exam_id: examId, question_id: dto.question_id },
@@ -260,6 +269,50 @@ export class ExamAuthoringService {
     await this.dataSource.transaction(async (manager) => {
       await manager.delete(ExamQuestion, { id: examQuestionId, exam_id: examId });
       await this.recomputeTotalMarks(manager, examId);
+    });
+  }
+
+  public async reorderSections(
+    examId: string,
+    teacherId: string,
+    dto: ReorderExamItemsDto,
+  ): Promise<void> {
+    const exam = await this.findOwned(examId, teacherId);
+    this.assertDraft(exam);
+    const sections = await this.sections.find({ where: { exam_id: examId } });
+    this.assertExactOrder(
+      sections.map((section) => section.id),
+      dto.ids,
+      'sections',
+    );
+    await this.dataSource.transaction(async (manager) => {
+      await Promise.all(
+        dto.ids.map((id, index) =>
+          manager.update(ExamSection, { id, exam_id: examId }, { order_index: index }),
+        ),
+      );
+    });
+  }
+
+  public async reorderQuestions(
+    examId: string,
+    teacherId: string,
+    dto: ReorderExamItemsDto,
+  ): Promise<void> {
+    const exam = await this.findOwned(examId, teacherId);
+    this.assertDraft(exam);
+    const questions = await this.examQuestions.find({ where: { exam_id: examId } });
+    this.assertExactOrder(
+      questions.map((question) => question.id),
+      dto.ids,
+      'questions',
+    );
+    await this.dataSource.transaction(async (manager) => {
+      await Promise.all(
+        dto.ids.map((id, index) =>
+          manager.update(ExamQuestion, { id, exam_id: examId }, { order_index: index }),
+        ),
+      );
     });
   }
 
@@ -419,6 +472,20 @@ export class ExamAuthoringService {
         biBody(
           'Exam structure can only be edited while it is a draft',
           'لا يمكن تعديل بنية الاختبار إلا أثناء وجوده في حالة المسودة',
+        ),
+      );
+    }
+  }
+
+  private assertExactOrder(existingIds: string[], requestedIds: string[], label: string): void {
+    if (
+      existingIds.length !== requestedIds.length ||
+      requestedIds.some((id) => !existingIds.includes(id))
+    ) {
+      throw new BadRequestException(
+        biBody(
+          `The ${label} order must contain every item in this exam exactly once`,
+          `يجب أن يتضمن ترتيب ${label} كل عنصر في الاختبار مرة واحدة`,
         ),
       );
     }

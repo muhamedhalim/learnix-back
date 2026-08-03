@@ -6,6 +6,7 @@ import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
 
 import { FirebaseService } from '../../firebase/firebase.service';
+import { UserStatus } from '../../users/entities/user-status.enum';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
 import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
@@ -128,6 +129,10 @@ export class OptionalHybridAuthGuard implements CanActivate {
     try {
       const decodedToken = await this.firebaseService.verifyToken(token);
       const user = await this.usersService.syncFirebaseUser(decodedToken);
+      if (!user.is_active || user.status !== UserStatus.APPROVED) {
+        this.logger.debug('Optional auth: Firebase account is inactive or not approved');
+        return true;
+      }
       request.user = user;
       this.logger.debug(`Optional auth: Firebase user ${user.id} authenticated`);
       return true;

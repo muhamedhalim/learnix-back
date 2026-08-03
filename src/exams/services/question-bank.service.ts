@@ -13,7 +13,14 @@ import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { CreateQuestionDto, QuestionFilterDto, UpdateQuestionDto } from '../dto';
-import { Question, QuestionType, QuestionVersion } from '../entities';
+import {
+  Exam,
+  ExamQuestion,
+  ExamStatus,
+  Question,
+  QuestionType,
+  QuestionVersion,
+} from '../entities';
 import { QuestionTypeRegistry } from '../question-types/question-type-registry';
 
 /**
@@ -112,6 +119,9 @@ export class QuestionBankService {
 
     if (dto.content !== undefined || dto.answer_key !== undefined) {
       this.validatePayload(question.type, nextContent, nextAnswerKey);
+    }
+    if (dto.is_public === true && !question.is_public) {
+      await this.assertNotUsedByActivePrivateExam(question.id);
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -291,6 +301,27 @@ export class QuestionBankService {
         biBody(
           'The lesson does not belong to the selected subject',
           'الدرس لا ينتمي إلى المادة المحددة',
+        ),
+      );
+    }
+  }
+
+  private async assertNotUsedByActivePrivateExam(questionId: string): Promise<void> {
+    const count = await this.dataSource
+      .getRepository(ExamQuestion)
+      .createQueryBuilder('examQuestion')
+      .innerJoin(Exam, 'exam', 'exam.id = examQuestion.exam_id')
+      .where('examQuestion.question_id = :questionId', { questionId })
+      .andWhere('exam.is_public = false')
+      .andWhere('exam.status IN (:...statuses)', {
+        statuses: [ExamStatus.PUBLISHED, ExamStatus.SCHEDULED],
+      })
+      .getCount();
+    if (count > 0) {
+      throw new BadRequestException(
+        biBody(
+          'A question used by an active private exam cannot be made public',
+          'لا يمكن جعل سؤال مستخدم في اختبار خاص نشط عاماً',
         ),
       );
     }

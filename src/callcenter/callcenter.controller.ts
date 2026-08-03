@@ -59,7 +59,7 @@ export class CallCenterController {
   }
 
   @Put('students/:studentId')
-  @Roles('admin')
+  @Roles('call_center', 'admin')
   @ApiOperation({ summary: 'Update student profile (call center)' })
   @ApiResponse({ status: 200, description: 'Student updated successfully' })
   public async updateStudent(

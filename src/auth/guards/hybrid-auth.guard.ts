@@ -12,6 +12,7 @@ import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
 
 import { FirebaseService } from '../../firebase/firebase.service';
+import { UserStatus } from '../../users/entities/user-status.enum';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
 import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
@@ -167,6 +168,9 @@ export class HybridAuthGuard implements CanActivate {
     try {
       const decodedToken = await this.firebaseService.verifyToken(token);
       const user = await this.usersService.syncFirebaseUser(decodedToken);
+      if (!user.is_active || user.status !== UserStatus.APPROVED) {
+        throw new UnauthorizedException('User account is not approved or active');
+      }
       Object.assign(request, { user });
       return true;
     } catch (error) {

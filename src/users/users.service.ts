@@ -96,45 +96,44 @@ export class UsersService {
         ttlMs: 60_000,
       },
       async () => {
+        const user = await this.userRepository.findOne({
+          where: { id },
+          select: [
+            'id',
+            'name',
+            'email',
+            'phone',
+            'is_active',
+            'role',
+            'finance_permissions',
+            'profile_picture_url',
+            'profile_picture_thumbnail_url',
+            'created_at',
+            'last_login',
+          ],
+        });
 
-    const user = await this.userRepository.findOne({
-      where: { id },
-      select: [
-        'id',
-        'name',
-        'email',
-        'phone',
-        'is_active',
-        'role',
-        'finance_permissions',
-        'profile_picture_url',
-        'profile_picture_thumbnail_url',
-        'created_at',
-        'last_login',
-      ],
-    });
+        if (!user) {
+          throw new NotFoundException(
+            biBody(`User with ID ${id} not found`, `المستخدم بالمعرّف ${id} غير موجود`),
+          );
+        }
 
-    if (!user) {
-      throw new NotFoundException(
-        biBody(`User with ID ${id} not found`, `المستخدم بالمعرّف ${id} غير موجود`),
-      );
-    }
-
-    const userProfile = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      is_active: user.is_active,
-      role: user.role,
-      // Finance permissions are administrative data. Only the admin UI needs
-      // them, and non-admin profiles must never receive administrative grants.
-      finance_permissions: user.role === UserRole.ADMIN ? user.finance_permissions : [],
-      profile_picture_url: user.profile_picture_url,
-      profile_picture_thumbnail_url: user.profile_picture_thumbnail_url,
-      created_at: user.created_at,
-      last_login: user.last_login,
-    };
+        const userProfile = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          is_active: user.is_active,
+          role: user.role,
+          // Finance permissions are administrative data. Only the admin UI needs
+          // them, and non-admin profiles must never receive administrative grants.
+          finance_permissions: user.role === UserRole.ADMIN ? user.finance_permissions : [],
+          profile_picture_url: user.profile_picture_url,
+          profile_picture_thumbnail_url: user.profile_picture_thumbnail_url,
+          created_at: user.created_at,
+          last_login: user.last_login,
+        };
 
         return userProfile;
       },
@@ -308,6 +307,7 @@ export class UsersService {
         phone: '', // Firebase users don't have phone by default
         role: UserRole.STUDENT, // Default role for Firebase users
         is_active: true,
+        status: UserStatus.PENDING,
         password_hash: null,
       });
 

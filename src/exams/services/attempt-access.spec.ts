@@ -36,6 +36,7 @@ function buildService(options?: { attempt?: ExamAttempt }): {
     {} as never,
     access as never,
     {} as never,
+    {} as never,
   );
   return { service, access, attempts, dataSource };
 }
