@@ -26,7 +26,7 @@ export class GameNotificationsService {
         tier: tier.slug,
       });
     }
-    if (result.streakExtendedToday && STREAK_MILESTONES.some((m) => m.days === result.streak)) {
+    if (result.milestoneAwarded && STREAK_MILESTONES.some((m) => m.days === result.streak)) {
       await this.safeSend(userId, `${String(result.streak)}-day streak!`, `You're on a ${String(result.streak)}-day solving streak. Don't break it!`, {
         kind: 'streak_milestone',
         streak: result.streak,

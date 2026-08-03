@@ -35,7 +35,7 @@ export const DEFAULT_PARENT_NOTIFICATION_PREFERENCES: Readonly<
   [ParentEventType.EXAM_GRADED]: true,
   [ParentEventType.ATTENDANCE_MARKED]: true,
   [ParentEventType.HOMEWORK_ASSIGNED]: true,
-  [ParentEventType.LESSON_COMPLETED]: false,
+  [ParentEventType.LESSON_COMPLETED]: true,
   [ParentEventType.COURSE_PURCHASED]: true,
   [ParentEventType.WEEKLY_REPORT]: true,
   [ParentEventType.MONTHLY_REPORT]: true,

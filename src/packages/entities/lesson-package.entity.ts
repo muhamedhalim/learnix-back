@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 
 import type { PackagePurchase } from '../../payments/entities/package-purchase.entity';
+import type { CertificateTemplate } from '../../certificates/entities/certificate-template.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import { CourseStatus } from './course-status.enum';
@@ -58,6 +59,19 @@ export class LessonPackage {
   @ManyToOne(() => Subject, { nullable: true })
   @JoinColumn({ name: 'subject_id' })
   subject!: Relation<Subject> | null;
+
+  /**
+   * The published template this course uses when a certificate is issued
+   * without an explicit per-issuance override.  Keeping the foreign key on the
+   * course makes the provider's choice durable rather than a wizard-only one.
+   */
+  @Column('uuid', { nullable: true, name: 'certificate_template_id' })
+  @Index('IDX_lesson_packages_certificate_template_id')
+  certificate_template_id!: string | null;
+
+  @ManyToOne('CertificateTemplate', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'certificate_template_id' })
+  certificate_template!: Relation<CertificateTemplate> | null;
 
   @Column('decimal', { precision: 10, scale: 2 })
   price!: number;

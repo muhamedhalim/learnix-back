@@ -14,6 +14,7 @@ import {
 import {
   PracticeSession,
   QuestionSolve,
+  StreakMilestoneAward,
   StudentGameProfile,
   StudentQuestionState,
   StudentSubjectRating,
@@ -61,6 +62,7 @@ export interface SolveResult {
   combo: number;
   streak: number;
   streakExtendedToday: boolean;
+  milestoneAwarded: boolean;
   level: number;
   levelUp: boolean;
   xp: number;
@@ -160,6 +162,7 @@ export class GamificationService {
       const solveRepo = manager.getRepository(QuestionSolve);
       const xpRepo = manager.getRepository(XpEvent);
       const sessionRepo = manager.getRepository(PracticeSession);
+      const milestoneRepo = manager.getRepository(StreakMilestoneAward);
 
       // Lock the profile row so concurrent solves for the same student serialize.
       const profile = await profileRepo.findOneOrFail({
@@ -239,6 +242,7 @@ export class GamificationService {
 
       // --- streak (advances on the first legit correct solve of a new day) ---
       let streakExtendedToday = false;
+      let milestoneAwarded = false;
       if (legit) {
         const ns = nextStreak(profile.current_streak, profile.last_active_date, today);
         if (ns.transition !== 'same_day') {
@@ -248,7 +252,18 @@ export class GamificationService {
           streakExtendedToday = true;
           breakdown.push({ reason: XpReason.STREAK_DAILY, amount: STREAK_DAILY_BONUS });
           const milestone = streakMilestoneBonusFor(ns.streak);
-          if (milestone > 0) breakdown.push({ reason: XpReason.STREAK_MILESTONE, amount: milestone });
+          if (milestone > 0) {
+            const existingAward = await milestoneRepo.findOne({
+              where: { user_id: input.userId, days: ns.streak },
+            });
+            if (!existingAward) {
+              await milestoneRepo.save(
+                milestoneRepo.create({ user_id: input.userId, days: ns.streak }),
+              );
+              breakdown.push({ reason: XpReason.STREAK_MILESTONE, amount: milestone });
+              milestoneAwarded = true;
+            }
+          }
         }
       }
 
@@ -355,6 +370,7 @@ export class GamificationService {
         combo: profile.current_combo,
         streak: profile.current_streak,
         streakExtendedToday,
+        milestoneAwarded,
         level: profile.level,
         levelUp: profile.level > previousLevel,
         xp: profile.xp,
@@ -402,6 +418,7 @@ export class GamificationService {
       combo: profile.current_combo,
       streak: profile.current_streak,
       streakExtendedToday: false,
+      milestoneAwarded: false,
       level: profile.level,
       levelUp: false,
       xp: profile.xp,

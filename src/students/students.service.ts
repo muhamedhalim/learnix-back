@@ -45,6 +45,7 @@ export interface StudentProfileWithDetails {
   country: string | null;
   governorate: string | null;
   school: string | null;
+  is_public_profile: boolean;
   notification_settings: Record<string, boolean>;
   /** Primary guardian's phone (E.164), or null if none is linked yet (legacy data). */
   guardian_phone: string | null;
@@ -233,6 +234,9 @@ export class StudentsService {
     }
     if (dto.school !== undefined) {
       profile.school = dto.school;
+    }
+    if (dto.is_public_profile !== undefined) {
+      profile.is_public_profile = dto.is_public_profile;
     }
 
     const savedProfile = await this.studentProfilesRepository.save(profile);
@@ -713,6 +717,7 @@ export class StudentsService {
       country: profile.country,
       governorate: profile.governorate,
       school: profile.school,
+      is_public_profile: profile.is_public_profile,
       notification_settings: profile.notification_settings,
       guardian_phone: guardianPhone,
       created_at: profile.created_at,

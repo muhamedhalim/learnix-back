@@ -46,6 +46,11 @@ export class StudentProfile {
   @Index('IDX_student_profiles_school')
   school!: string | null;
 
+  /** Public profiles and leaderboards are opt-in to protect student privacy. */
+  @Column({ type: 'boolean', default: false, name: 'is_public_profile' })
+  @Index('IDX_student_profiles_is_public_profile')
+  is_public_profile!: boolean;
+
   @Column({
     type: 'jsonb',
     nullable: false,

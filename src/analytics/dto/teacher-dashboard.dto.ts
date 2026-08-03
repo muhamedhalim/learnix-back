@@ -52,4 +52,7 @@ export class TeacherDashboardDto {
     example: 30,
   })
   public totalReviews!: number;
+
+  @ApiProperty({ description: 'Lesson viewing sessions in the selected period', example: 120 })
+  public engagementViews!: number;
 }

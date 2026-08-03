@@ -56,6 +56,13 @@ export class TeacherReview {
   @Column({ type: 'int', default: 0, name: 'helpful_count' })
   helpful_count!: number;
 
+  /** Teacher's public response to a direct teacher-profile review. */
+  @Column({ type: 'text', nullable: true, name: 'teacher_reply' })
+  teacher_reply!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'teacher_reply_at' })
+  teacher_reply_at!: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;
 

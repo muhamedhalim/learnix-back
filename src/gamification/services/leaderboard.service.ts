@@ -22,9 +22,6 @@ export interface LeaderboardRow {
   xp: number;
   level: number;
   current_streak: number;
-  governorate: string | null;
-  school: string | null;
-  grade_level: string | null;
   rank_tier: { slug: string; name: string; icon_key: string; color: string } | null;
   attempts: number;
 }
@@ -46,9 +43,6 @@ interface RawRow {
   xp: string;
   level: number;
   current_streak: number;
-  governorate: string | null;
-  school: string | null;
-  grade_level: string | null;
   tier_slug: string | null;
   tier_name: string | null;
   tier_icon: string | null;
@@ -119,7 +113,7 @@ export class LeaderboardService {
     const qb = this.profiles
       .createQueryBuilder('gp')
       .innerJoin('users', 'u', "u.id = gp.user_id AND u.deleted_at IS NULL AND u.role = 'student'")
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = gp.user_id')
+      .innerJoin('student_profiles', 'sp', 'sp.user_id = gp.user_id AND sp.is_public_profile = true')
       .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
       .where('gp.total_solved > 0')
       .select('gp.user_id', 'user_id')
@@ -131,9 +125,6 @@ export class LeaderboardService {
       .addSelect('gp.xp', 'xp')
       .addSelect('gp.level', 'level')
       .addSelect('gp.current_streak', 'current_streak')
-      .addSelect('sp.governorate', 'governorate')
-      .addSelect('sp.school', 'school')
-      .addSelect('sp.grade_level', 'grade_level')
       .addSelect('rt.slug', 'tier_slug')
       .addSelect('rt.name', 'tier_name')
       .addSelect('rt.icon_key', 'tier_icon')
@@ -157,7 +148,7 @@ export class LeaderboardService {
       .createQueryBuilder('sr')
       .innerJoin('student_game_profiles', 'gp', 'gp.user_id = sr.user_id')
       .innerJoin('users', 'u', "u.id = sr.user_id AND u.deleted_at IS NULL AND u.role = 'student'")
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = sr.user_id')
+      .innerJoin('student_profiles', 'sp', 'sp.user_id = sr.user_id AND sp.is_public_profile = true')
       .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
       .where('sr.subject_id = :subjectId', { subjectId: query.subject_id })
       .andWhere('sr.solved > 0')
@@ -170,9 +161,6 @@ export class LeaderboardService {
       .addSelect(subjectXp, 'xp')
       .addSelect('gp.level', 'level')
       .addSelect('gp.current_streak', 'current_streak')
-      .addSelect('sp.governorate', 'governorate')
-      .addSelect('sp.school', 'school')
-      .addSelect('sp.grade_level', 'grade_level')
       .addSelect('rt.slug', 'tier_slug')
       .addSelect('rt.name', 'tier_name')
       .addSelect('rt.icon_key', 'tier_icon')
@@ -195,7 +183,7 @@ export class LeaderboardService {
       .innerJoin('questions', 'q', 'q.id = qs.question_id AND q.deleted_at IS NULL AND q.is_active = true AND q.is_public = true')
       .innerJoin('users', 'u', "u.id = qs.user_id AND u.deleted_at IS NULL AND u.role = 'student'")
       .innerJoin('student_game_profiles', 'gp', 'gp.user_id = qs.user_id')
-      .leftJoin('student_profiles', 'sp', 'sp.user_id = qs.user_id')
+      .innerJoin('student_profiles', 'sp', 'sp.user_id = qs.user_id AND sp.is_public_profile = true')
       .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
       .where('qs.created_at >= :since', { since: this.windowStart(query.window) })
       .select('qs.user_id', 'user_id')
@@ -207,9 +195,6 @@ export class LeaderboardService {
       .addSelect('gp.xp', 'xp')
       .addSelect('gp.level', 'level')
       .addSelect('gp.current_streak', 'current_streak')
-      .addSelect('sp.governorate', 'governorate')
-      .addSelect('sp.school', 'school')
-      .addSelect('sp.grade_level', 'grade_level')
       .addSelect('rt.slug', 'tier_slug')
       .addSelect('rt.name', 'tier_name')
       .addSelect('rt.icon_key', 'tier_icon')
@@ -223,9 +208,6 @@ export class LeaderboardService {
       .addGroupBy('gp.xp')
       .addGroupBy('gp.level')
       .addGroupBy('gp.current_streak')
-      .addGroupBy('sp.governorate')
-      .addGroupBy('sp.school')
-      .addGroupBy('sp.grade_level')
       .addGroupBy('rt.slug')
       .addGroupBy('rt.name')
       .addGroupBy('rt.icon_key')
@@ -287,9 +269,6 @@ export class LeaderboardService {
       xp: Number(row.xp),
       level: Number(row.level),
       current_streak: Number(row.current_streak),
-      governorate: row.governorate,
-      school: row.school,
-      grade_level: row.grade_level,
       rank_tier:
         row.tier_slug && row.tier_name && row.tier_icon && row.tier_color
           ? {

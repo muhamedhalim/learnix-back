@@ -54,10 +54,17 @@ export class ReviewsTeacherController {
     @Body() dto: ReplyReviewDto,
     @Request() req: AuthRequest,
   ): Promise<unknown> {
-    return this.reviewsService.replyToLessonReview(
-      reviewId,
-      req.user.id,
-      dto.reply,
-    );
+    return this.reviewsService.replyToLessonReview(reviewId, req.user.id, dto.reply);
+  }
+
+  @Post('profile/:reviewId/reply')
+  @ApiOperation({ summary: 'Reply to a review on the authenticated teacher profile' })
+  @ApiResponse({ status: 403, description: 'Not your profile review' })
+  public async replyToProfileReview(
+    @Param('reviewId') reviewId: string,
+    @Body() dto: ReplyReviewDto,
+    @Request() req: AuthRequest,
+  ): Promise<unknown> {
+    return this.reviewsService.replyToTeacherReview(reviewId, req.user.id, dto.reply);
   }
 }

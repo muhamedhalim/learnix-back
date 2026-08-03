@@ -15,7 +15,7 @@ import {
   StudentCertificatesController,
   TeacherCertificatesController,
 } from './controllers';
-import { Certificate, CertificateTemplate } from './entities';
+import { Certificate, CertificateAutoIssuanceFailure, CertificateHistory, CertificateTemplate } from './entities';
 import { CertificateIssuanceListener } from './listeners/certificate-issuance.listener';
 import { CertificateNotificationListener } from './listeners/certificate-notification.listener';
 
@@ -24,6 +24,8 @@ import { CertificateNotificationListener } from './listeners/certificate-notific
     NotificationsModule,
     TypeOrmModule.forFeature([
       Certificate,
+      CertificateAutoIssuanceFailure,
+      CertificateHistory,
       CertificateTemplate,
       LessonPackage,
       LessonPackageItem,

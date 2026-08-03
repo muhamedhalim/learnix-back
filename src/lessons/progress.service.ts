@@ -5,6 +5,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
+import { LessonCompletedEvent as ParentLessonCompletedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
+import { User } from '../users/entities/user.entity';
 import type { LessonProgressDto } from './dto/lesson-progress.dto';
 import { Lesson } from './entities/lesson.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
@@ -26,6 +28,8 @@ export class ProgressService {
     private readonly progressRepository: Repository<LessonProgress>,
     @InjectRepository(Lesson)
     private readonly lessonRepository: Repository<Lesson>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -112,6 +116,17 @@ export class ProgressService {
         studentId,
         lessonId,
       } satisfies LessonCompletedEvent);
+
+      const student = await this.usersRepository.findOne({ where: { id: studentId } });
+      if (student) {
+        this.eventEmitter.emit(
+          PARENT_EVENT_CHANNEL,
+          new ParentLessonCompletedEvent(studentId, lessonId, {
+            studentName: student.name,
+            lessonName: lesson.title,
+          }),
+        );
+      }
     }
 
     return {

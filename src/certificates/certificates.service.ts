@@ -7,9 +7,10 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
@@ -24,6 +25,8 @@ import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatePreviewDto, CreateTemplateDto, UpdateTemplateDto } from './dto';
 import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
+import { CertificateAutoIssuanceFailure } from './entities/certificate-auto-issuance-failure.entity';
+import { CertificateHistory } from './entities/certificate-history.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
 import { CertificateTemplate } from './entities/certificate-template.entity';
 import { CertificateTemplateStatus } from './entities/certificate-template-status.enum';
@@ -91,6 +94,10 @@ export class CertificatesService {
     private readonly certificatesRepository: Repository<Certificate>,
     @InjectRepository(CertificateTemplate)
     private readonly templatesRepository: Repository<CertificateTemplate>,
+    @InjectRepository(CertificateHistory)
+    private readonly certificateHistoryRepository: Repository<CertificateHistory>,
+    @InjectRepository(CertificateAutoIssuanceFailure)
+    private readonly autoIssuanceFailuresRepository: Repository<CertificateAutoIssuanceFailure>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
     @InjectRepository(LessonPackageItem)
@@ -178,7 +185,9 @@ export class CertificatesService {
 
     const template = options.templateId
       ? await this.resolveIssuanceTemplate(options.templateId, options.restrictTemplateOwner)
-      : ((await this.findDefaultTemplate(pkg.teacher_id)) ?? (await this.findDefaultTemplate()));
+      : pkg.certificate_template_id
+        ? await this.resolveIssuanceTemplate(pkg.certificate_template_id)
+        : ((await this.findDefaultTemplate(pkg.teacher_id)) ?? (await this.findDefaultTemplate()));
     this.assertTemplateCanBeIssued(template);
 
     const certificate = this.certificatesRepository.create({
@@ -231,6 +240,7 @@ export class CertificatesService {
           await this.issueForCourse(studentId, package_id);
         }
       } catch (error) {
+        await this.recordAutoIssuanceFailure(studentId, lessonId, package_id, error);
         this.logger.warn(
           `Auto-issue check failed for student ${studentId}, course ${package_id}: ${
             error instanceof Error ? error.message : 'unknown'
@@ -238,6 +248,59 @@ export class CertificatesService {
         );
       }
     }
+  }
+
+  /** Retries a bounded batch so failed completion events do not leave a silent certificate gap. */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  public async retryPendingAutoIssuanceFailures(): Promise<void> {
+    const failures = await this.autoIssuanceFailuresRepository.find({
+      where: { resolved_at: IsNull(), next_retry_at: LessThanOrEqual(new Date()) },
+      order: { next_retry_at: 'ASC' },
+      take: 50,
+    });
+    for (const failure of failures) {
+      try {
+        const progress = await this.getCourseProgress(failure.student_id, failure.package_id);
+        if (progress.percentage >= 100) {
+          await this.issueForCourse(failure.student_id, failure.package_id);
+        }
+        failure.resolved_at = new Date();
+        await this.autoIssuanceFailuresRepository.save(failure);
+      } catch (error) {
+        await this.recordAutoIssuanceFailure(
+          failure.student_id,
+          failure.lesson_id,
+          failure.package_id,
+          error,
+          failure,
+        );
+      }
+    }
+  }
+
+  private async recordAutoIssuanceFailure(
+    studentId: string,
+    lessonId: string,
+    packageId: string,
+    error: unknown,
+    current?: CertificateAutoIssuanceFailure,
+  ): Promise<void> {
+    const failure = current ?? (await this.autoIssuanceFailuresRepository.findOne({
+      where: { student_id: studentId, lesson_id: lessonId, package_id: packageId },
+    }));
+    const attempts = (failure?.attempts ?? 0) + 1;
+    const retryDelayMs = Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7));
+    await this.autoIssuanceFailuresRepository.save(
+      Object.assign(
+        failure ?? this.autoIssuanceFailuresRepository.create({ student_id: studentId, lesson_id: lessonId, package_id: packageId }),
+        {
+          attempts,
+          last_error: error instanceof Error ? error.message : 'Unknown issuance error',
+          next_retry_at: new Date(Date.now() + retryDelayMs),
+          resolved_at: null,
+        },
+      ),
+    );
   }
 
   /* ===================== Bulk issuance ===================== */
@@ -372,9 +435,7 @@ export class CertificatesService {
   ): Promise<Certificate> {
     const certificate = await this.getManagedCertificate(id, teacherId);
     if (certificate.status === CertificateStatus.REVOKED) {
-      throw new BadRequestException(
-        biBody('Certificate is already revoked', 'الشهادة ملغاة بالفعل'),
-      );
+      return certificate;
     }
     certificate.status = CertificateStatus.REVOKED;
     certificate.revoked_at = new Date();
@@ -398,6 +459,17 @@ export class CertificatesService {
         biBody('Only a revoked certificate can be reissued', 'لا يمكن إعادة إصدار إلا شهادة ملغاة'),
       );
     }
+    await this.certificateHistoryRepository.save(
+      this.certificateHistoryRepository.create({
+        certificate_id: certificate.id,
+        certificate_number: certificate.certificate_number,
+        verification_code: certificate.verification_code,
+        status: certificate.status,
+        revoked_at: certificate.revoked_at,
+        revoke_reason: certificate.revoke_reason,
+        reissued_by: teacherId ?? null,
+      }),
+    );
     certificate.certificate_number = await this.uniqueNumber();
     certificate.verification_code = await this.uniqueCode();
     certificate.status = CertificateStatus.ISSUED;

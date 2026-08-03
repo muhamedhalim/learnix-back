@@ -5,6 +5,7 @@ import {
   StudentGameProfile,
   StudentQuestionState,
   StudentSubjectRating,
+  StreakMilestoneAward,
   XpEvent,
 } from '../entities';
 import { GamificationService } from './gamification.service';
@@ -53,6 +54,7 @@ describe('GamificationService practice scoring', () => {
       save: jest.fn().mockResolvedValue(profile),
     };
     const sessionRepo = { findOne: jest.fn() };
+    const milestoneRepo = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn((value) => value), save: jest.fn() };
     const manager = {
       getRepository: (entity: unknown) => {
         if (entity === StudentGameProfile) return profileRepo;
@@ -61,6 +63,7 @@ describe('GamificationService practice scoring', () => {
         if (entity === QuestionSolve) return solveRepo;
         if (entity === XpEvent) return xpRepo;
         if (entity === PracticeSession) return sessionRepo;
+        if (entity === StreakMilestoneAward) return milestoneRepo;
         throw new Error('Unexpected repository');
       },
     };

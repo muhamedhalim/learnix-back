@@ -25,6 +25,13 @@ export class CreatePackageDto {
   public subject_id!: string;
 
   @ApiPropertyOptional({
+    description: 'Published certificate template used by default for this course',
+  })
+  @IsOptional()
+  @IsUUID()
+  public certificate_template_id?: string;
+
+  @ApiPropertyOptional({
     description:
       'Arabic title (optional). Defaults to `title` when omitted so courses can be single-language.',
   })

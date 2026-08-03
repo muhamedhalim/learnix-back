@@ -32,6 +32,8 @@ describe('PracticeService public-content policy', () => {
       {} as never,
       {} as never,
       {} as never,
+      { upsert: jest.fn() } as never,
+      {} as never,
     );
 
     await service.getNext('student-1', {});
@@ -46,6 +48,8 @@ describe('PracticeService public-content policy', () => {
       questions,
       {} as never,
       {} as never,
+      {} as never,
+      { findOne: jest.fn() } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -91,6 +95,8 @@ describe('PracticeService public-content policy', () => {
       { existingSolveResultFor: jest.fn().mockResolvedValue(previous) } as never,
       {} as never,
       {} as never,
+      { upsert: jest.fn() } as never,
+      {} as never,
     );
 
     const rendered = await service.getNext('student-1', {});
@@ -134,6 +140,8 @@ describe('PracticeService public-content policy', () => {
       { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(null) } as never,
       { resolveTier: jest.fn().mockResolvedValue(null) } as never,
       { notifyForSolve: jest.fn() } as never,
+      { findOne: jest.fn().mockResolvedValue({ served_at: new Date(Date.now() - 5_000) }) } as never,
+      {} as never,
     );
 
     const result = await service.submitAnswer('authenticated-student', {
@@ -174,6 +182,8 @@ describe('PracticeService public-content policy', () => {
       { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(existing) } as never,
       {} as never,
       {} as never,
+      { findOne: jest.fn() } as never,
+      {} as never,
     );
 
     const result = await service.submitAnswer('student-1', {
@@ -183,6 +193,29 @@ describe('PracticeService public-content policy', () => {
     expect(result).toMatchObject({ alreadyAnswered: true, response: { value: true } });
     expect(registry.require).not.toHaveBeenCalled();
     expect(recordSolve).not.toHaveBeenCalled();
+  });
+
+  it('rejects an answer for a question the server did not serve to the student', async () => {
+    const question = {
+      id: 'unserved-question', type: 'true_false', current_version: 1,
+      subject_id: 'subject-1', lesson_id: null, difficulty: Difficulty.EASY,
+      answer_key: { value: true }, content: {},
+    } as Question;
+    const service = new PracticeService(
+      { findOne: jest.fn().mockResolvedValue(question) } as unknown as Repository<Question>,
+      {} as never,
+      {} as never,
+      { require: jest.fn() } as never,
+      { existingSolveResultFor: jest.fn().mockResolvedValue(null) } as never,
+      {} as never,
+      {} as never,
+      { findOne: jest.fn().mockResolvedValue(null) } as never,
+      {} as never,
+    );
+
+    await expect(service.submitAnswer('student-1', {
+      questionId: question.id, response: { value: true }, timeMs: 1,
+    })).rejects.toThrow('Question was not served');
   });
 
   it('records an incorrect public answer without awarding a correct-answer result', async () => {
@@ -204,6 +237,8 @@ describe('PracticeService public-content policy', () => {
       { require: () => ({ validateResponse: () => [], grade: () => ({ isCorrect: false, manualRequired: false }) }) } as never,
       { recordSolve, existingSolveResultFor: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
+      {} as never,
+      { findOne: jest.fn().mockResolvedValue({ served_at: new Date(Date.now() - 5_000) }) } as never,
       {} as never,
     );
 

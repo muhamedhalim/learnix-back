@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
  * `parent_phone` was removed from this DTO on purpose. It let a student rewrite
@@ -9,6 +9,11 @@ import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
  * without a fresh OTP.
  */
 export class UpdateStudentProfileDto {
+  @ApiProperty({ description: 'Opt in to the public game profile and leaderboards', required: false })
+  @IsBoolean()
+  @IsOptional()
+  public is_public_profile?: boolean;
+
   @ApiProperty({
     description: 'Student grade level',
     example: 'Grade 10',

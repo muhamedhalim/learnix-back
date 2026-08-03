@@ -12,11 +12,13 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import {
   PracticeSession,
+  PracticeQuestionServe,
   QuestionSolve,
   RankTier,
   StudentGameProfile,
   StudentQuestionState,
   StudentSubjectRating,
+  StreakMilestoneAward,
   XpEvent,
 } from './entities';
 import { GamificationPublicController } from './controllers/gamification-public.controller';
@@ -48,6 +50,8 @@ import { RankService } from './services/rank.service';
       QuestionSolve,
       XpEvent,
       PracticeSession,
+      PracticeQuestionServe,
+      StreakMilestoneAward,
       // Read access to shared tables (repos; entities also registered elsewhere)
       Question,
       ExamAttempt,

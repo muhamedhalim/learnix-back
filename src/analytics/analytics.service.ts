@@ -19,6 +19,7 @@ import { PaymentStatus } from '../payments/entities/payment-status.enum';
 import { Order } from '../payments/entities/order.entity';
 import { OrderStatus } from '../payments/entities/order-status.enum';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
+import { ReviewStatus } from '../reviews/entities/review-status.enum';
 import { User } from '../users/entities/user.entity';
 import { biBody } from '../i18n/error-translator.util';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -320,6 +321,8 @@ export class AnalyticsService {
   public async getTeacherDashboard(
     teacherId: string,
     tenant?: string,
+    from?: Date,
+    to?: Date,
   ): Promise<TeacherDashboardDto> {
     return await this.applicationCache.getOrCompute(
       {
@@ -327,7 +330,7 @@ export class AnalyticsService {
         endpoint: 'analytics.teacher-dashboard',
         tenant,
         scope: `owner:${teacherId}`,
-        parts: [teacherId],
+        parts: [teacherId, from?.toISOString() ?? 'all', to?.toISOString() ?? 'all'],
         ttlMs: 30_000,
       },
       async () => {
@@ -345,13 +348,19 @@ export class AnalyticsService {
         });
 
         // Financial dashboard facts are sourced only from confirmed paid orders.
-        const paidStudents = await this.canonicalPaidOrderQuery(teacherId)
+        const paidStudentsQuery = this.canonicalPaidOrderQuery(teacherId);
+        if (from) paidStudentsQuery.andWhere('order.paid_at >= :from', { from });
+        if (to) paidStudentsQuery.andWhere('order.paid_at <= :to', { to });
+        const paidStudents = await paidStudentsQuery
           .select('COUNT(DISTINCT order.student_id)', 'count')
           .getRawOne<CountResult>();
 
         const totalStudents = Number.parseInt(paidStudents?.count ?? '0', 10);
 
-        const paidRevenue = await this.canonicalPaidOrderQuery(teacherId)
+        const paidRevenueQuery = this.canonicalPaidOrderQuery(teacherId);
+        if (from) paidRevenueQuery.andWhere('order.paid_at >= :from', { from });
+        if (to) paidRevenueQuery.andWhere('order.paid_at <= :to', { to });
+        const paidRevenue = await paidRevenueQuery
           .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
           .getRawOne<SumResult>();
 
@@ -362,16 +371,39 @@ export class AnalyticsService {
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const paidRevenueThisMonth = await this.canonicalPaidOrderQuery(teacherId)
-          .andWhere('order.paid_at >= :start', { start: startOfMonth })
+        const paidRevenueThisMonthQuery = this.canonicalPaidOrderQuery(teacherId)
+          .andWhere('order.paid_at >= :start', { start: startOfMonth });
+        if (from) paidRevenueThisMonthQuery.andWhere('order.paid_at >= :from', { from });
+        if (to) paidRevenueThisMonthQuery.andWhere('order.paid_at <= :to', { to });
+        const paidRevenueThisMonth = await paidRevenueThisMonthQuery
           .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
           .getRawOne<SumResult>();
 
         const revenueThisMonth = Number.parseFloat(paidRevenueThisMonth?.total ?? '0');
 
-        // TODO: Implement ratings when ratings system is added
-        const averageRating = null;
-        const totalReviews = 0;
+        const ratingsQuery = this.lessonReviewsRepository
+          .createQueryBuilder('lr')
+          .innerJoin('lr.lesson', 'lesson')
+          .where('lesson.teacher_id = :teacherId', { teacherId })
+          .andWhere('lr.status = :status', { status: ReviewStatus.APPROVED });
+        if (from) ratingsQuery.andWhere('lr.created_at >= :ratingsFrom', { ratingsFrom: from });
+        if (to) ratingsQuery.andWhere('lr.created_at <= :ratingsTo', { ratingsTo: to });
+        const ratings = await ratingsQuery
+          .select('AVG(lr.rating)', 'average')
+          .addSelect('COUNT(*)', 'count')
+          .getRawOne<{ average: string | null; count: string }>();
+        const averageRating = ratings?.average == null
+          ? null
+          : Math.round(Number.parseFloat(ratings.average) * 100) / 100;
+        const totalReviews = Number.parseInt(ratings?.count ?? '0', 10);
+
+        const engagementQuery = this.lessonSessionsRepository
+          .createQueryBuilder('session')
+          .innerJoin('session.lesson', 'engagementLesson')
+          .where('engagementLesson.teacher_id = :teacherId', { teacherId });
+        if (from) engagementQuery.andWhere('session.entered_at >= :engagementFrom', { engagementFrom: from });
+        if (to) engagementQuery.andWhere('session.entered_at <= :engagementTo', { engagementTo: to });
+        const engagementViews = await engagementQuery.getCount();
 
         const stats: TeacherDashboardDto = {
           totalLessons,
@@ -382,6 +414,7 @@ export class AnalyticsService {
           revenueThisMonth,
           averageRating,
           totalReviews,
+          engagementViews,
         };
 
         return stats;

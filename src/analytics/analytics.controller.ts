@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -19,6 +20,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
+import { DateRangeQueryDto } from '../reports/dto/date-range-query.dto';
 import { AnalyticsService } from './analytics.service';
 import {
   AdminDashboardDto,
@@ -80,8 +82,14 @@ export class AnalyticsController {
   })
   public async getTeacherDashboard(
     @GetUser() user: JwtPayload,
+    @Query() query: DateRangeQueryDto,
   ): Promise<{ data: TeacherDashboardDto }> {
-    const stats = await this.analyticsService.getTeacherDashboard(user.userId, user.tenantId);
+    const stats = await this.analyticsService.getTeacherDashboard(
+      user.userId,
+      user.tenantId,
+      query.from ? new Date(query.from) : undefined,
+      query.to ? new Date(query.to) : undefined,
+    );
     return { data: stats };
   }
 

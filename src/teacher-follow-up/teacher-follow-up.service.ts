@@ -342,6 +342,7 @@ export class TeacherFollowUpService {
 
       const attendanceSummary = summarizeAttendance(attendance);
       const { latestExam, averageExamScore } = summarizeExams(attempts);
+      const homework = homeworkSummaries.get(student.id) ?? this.emptyHomeworkSummary();
       const lastMessage = messages[0] ?? null;
       const lastReadAt = messages.find((m) => m.read_at !== null)?.read_at ?? null;
       const deliveredCount = messages.filter(
@@ -352,6 +353,8 @@ export class TeacherFollowUpService {
       const risk = assessRisk({
         averageExamScore,
         attendanceRate: attendanceSummary.rate,
+        homeworkCompletionRate: homework.completionRate,
+        lateHomeworkCount: homework.late,
         lastActive,
         guardian,
         deliveredCount,
@@ -376,7 +379,7 @@ export class TeacherFollowUpService {
         attendance: attendanceSummary,
         latestExam,
         averageExamScore,
-        homework: homeworkSummaries.get(student.id) ?? this.emptyHomeworkSummary(),
+        homework,
         risk,
       });
     }
@@ -730,6 +733,8 @@ function summarizeExams(rows: AttemptRow[]): {
 function assessRisk(input: {
   averageExamScore: number | null;
   attendanceRate: number | null;
+  homeworkCompletionRate: number | null;
+  lateHomeworkCount: number;
   lastActive: Date | null;
   guardian: StudentGuardianSummary | null;
   deliveredCount: number;
@@ -742,6 +747,14 @@ function assessRisk(input: {
   }
   if (input.attendanceRate !== null && input.attendanceRate < LOW_ATTENDANCE_THRESHOLD) {
     factors.push(`Attendance below ${String(LOW_ATTENDANCE_THRESHOLD)}%`);
+  }
+  if (
+    input.homeworkCompletionRate !== null &&
+    input.homeworkCompletionRate < LOW_ATTENDANCE_THRESHOLD
+  ) {
+    factors.push(`Homework completion below ${String(LOW_ATTENDANCE_THRESHOLD)}%`);
+  } else if (input.lateHomeworkCount > 0) {
+    factors.push('Late homework submission');
   }
   if (input.lastActive !== null) {
     const daysSince = (Date.now() - input.lastActive.getTime()) / (24 * 60 * 60 * 1000);

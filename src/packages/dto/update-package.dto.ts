@@ -21,6 +21,14 @@ import { CourseStatus } from '../entities/course-status.enum';
 import { FaqItemDto } from './faq-item.dto';
 
 export class UpdatePackageDto {
+  @ApiPropertyOptional({
+    description: 'Published certificate template used by default for this course; null clears it',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsUUID()
+  public certificate_template_id?: string | null;
+
   @ApiPropertyOptional({ description: 'Subject this package belongs to' })
   @IsOptional()
   @IsUUID()

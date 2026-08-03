@@ -19,6 +19,8 @@ import { AdminParentMessagesController } from './controllers/admin-parent-messag
 import { WhatsAppWebhookController } from './controllers/whatsapp-webhook.controller';
 import { Notification, NotificationSettings, ParentMessage } from './entities';
 import { ParentNotificationListener } from './listeners/parent-notification.listener';
+import { PurchaseParentNotificationListener } from './listeners/purchase-parent-notification.listener';
+import { Order } from '../payments/entities/order.entity';
 import { ParentNotificationProcessor } from './processors/parent-notification.processor';
 import {
   NotificationsService,
@@ -59,7 +61,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
         config: QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ],
       },
     ),
-    TypeOrmModule.forFeature([Notification, NotificationSettings, ParentMessage, User]),
+    TypeOrmModule.forFeature([Notification, NotificationSettings, ParentMessage, User, Order]),
   ],
   controllers: [
     AdminNotificationsController,
@@ -82,6 +84,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     ParentMessageAdminService,
     ParentNotificationJobsService,
     ParentNotificationListener,
+    PurchaseParentNotificationListener,
     // The worker needs a real queue connection to pull jobs from; skip it
     // entirely when queues are disabled rather than let it attempt one.
     ...(areQueuesEnabled() ? [ParentNotificationProcessor] : []),

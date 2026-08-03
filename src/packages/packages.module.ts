@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { CertificateTemplate } from '../certificates/entities/certificate-template.entity';
 import { MediaModule } from '../media/media.module';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
@@ -31,6 +32,7 @@ import { PackagesService } from './packages.service';
       TeacherProfile,
       PackagePurchase,
       Subject,
+      CertificateTemplate,
     ]),
     MediaModule,
     ReviewsModule,

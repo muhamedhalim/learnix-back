@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 
+import { CertificateTemplate, CertificateTemplateStatus } from '../certificates/entities';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -63,6 +64,7 @@ export interface PackageWithDetails {
   thumbnail: string | null;
   /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
   thumbnail_url: string | null;
+  certificate_template_id: string | null;
   lessons_count: number;
   lessons: Array<{
     id: string;
@@ -123,6 +125,10 @@ export class PackagesService {
           `المادة بالمعرّف ${dto.subject_id} غير موجودة`,
         ),
       );
+    }
+
+    if (dto.certificate_template_id !== undefined) {
+      await this.assertTemplateAssignable(teacherId, dto.certificate_template_id);
     }
 
     const packageInput = Object.assign({}, dto, {
@@ -350,6 +356,10 @@ export class PackagesService {
           ),
         );
       }
+    }
+
+    if (dto.certificate_template_id !== undefined && dto.certificate_template_id !== null) {
+      await this.assertTemplateAssignable(teacherId, dto.certificate_template_id);
     }
 
     Object.assign(pkg, dto);
@@ -707,6 +717,7 @@ export class PackagesService {
       scheduled_publish_at: pkg.scheduled_publish_at,
       thumbnail: pkg.thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(pkg.thumbnail),
+      certificate_template_id: pkg.certificate_template_id,
       lessons_count: sortedItems.length,
       lessons: sortedItems.map((item) => ({
         id: item.lesson.id,
@@ -719,6 +730,25 @@ export class PackagesService {
       created_at: pkg.created_at,
       updated_at: pkg.updated_at,
     };
+  }
+
+  /** A course can reference only a published template owned by its teacher or the platform. */
+  private async assertTemplateAssignable(teacherId: string, templateId: string): Promise<void> {
+    const template = await this.dataSource
+      .getRepository(CertificateTemplate)
+      .createQueryBuilder('template')
+      .where('template.id = :templateId', { templateId })
+      .andWhere('template.status = :status', { status: CertificateTemplateStatus.PUBLISHED })
+      .andWhere('(template.owner_id = :teacherId OR template.owner_id IS NULL)', { teacherId })
+      .getOne();
+    if (!template) {
+      throw new BadRequestException(
+        biBody(
+          'Certificate template must be a published template you own or a published platform template',
+          'يجب أن يكون قالب الشهادة منشوراً ومملوكاً لك أو قالباً منشوراً للمنصة',
+        ),
+      );
+    }
   }
 
   /* ===================== Course CMS: chapters & status ===================== */

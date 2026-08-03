@@ -12,6 +12,8 @@ import { User } from '../users/entities/user.entity';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatesService } from './certificates.service';
 import { Certificate } from './entities/certificate.entity';
+import { CertificateAutoIssuanceFailure } from './entities/certificate-auto-issuance-failure.entity';
+import { CertificateHistory } from './entities/certificate-history.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
 import { CertificateTemplate } from './entities/certificate-template.entity';
 import { CertificateTemplateStatus } from './entities/certificate-template-status.enum';
@@ -49,6 +51,8 @@ describe('CertificatesService', () => {
     save: jest.fn(),
     createQueryBuilder: jest.fn(),
   };
+  const certificateHistory = { create: jest.fn(), save: jest.fn() };
+  const autoIssuanceFailures = { find: jest.fn(), findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
   const templates = {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -71,6 +75,8 @@ describe('CertificatesService', () => {
       providers: [
         CertificatesService,
         { provide: getRepositoryToken(Certificate), useValue: certificates },
+        { provide: getRepositoryToken(CertificateHistory), useValue: certificateHistory },
+        { provide: getRepositoryToken(CertificateAutoIssuanceFailure), useValue: autoIssuanceFailures },
         { provide: getRepositoryToken(CertificateTemplate), useValue: templates },
         { provide: getRepositoryToken(LessonPackage), useValue: packages },
         { provide: getRepositoryToken(LessonPackageItem), useValue: packageItems },
@@ -115,7 +121,7 @@ describe('CertificatesService', () => {
       await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('issues, snapshots names, and emits when complete', async () => {
+    it('uses the course-assigned template before owner defaults, snapshots names, and emits when complete', async () => {
       certificates.findOne
         .mockResolvedValueOnce(null) // no existing cert
         .mockResolvedValue(null); // unique number/code checks
@@ -125,10 +131,13 @@ describe('CertificatesService', () => {
       packages.findOne.mockResolvedValue({
         id: 'P1',
         title: 'Algorithms',
+        teacher_id: 'teacher-1',
+        certificate_template_id: 'course-template',
         teacher: { name: 'Prof X' },
       });
       templates.findOne.mockResolvedValue({
         id: 't1',
+        status: CertificateTemplateStatus.PUBLISHED,
         name: 'Default certificate',
         title: 'Certificate of Completion',
         body: 'Presented to {{student}} for {{course}}.',
@@ -144,6 +153,10 @@ describe('CertificatesService', () => {
       expect(result.course_title).toBe('Algorithms');
       expect(result.teacher_name).toBe('Prof X');
       expect(result.status).toBe(CertificateStatus.ISSUED);
+      expect(result.template_id).toBe('t1');
+      expect(templates.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: 'course-template' }) }),
+      );
       expect(result.certificate_number).toMatch(/^CERT-\d{4}-/);
       expect(emitter.emit).toHaveBeenCalled();
     });
@@ -175,6 +188,27 @@ describe('CertificatesService', () => {
       await service.autoIssueForCompletedLesson('S1', 'L1');
 
       expect(issueSpy).not.toHaveBeenCalled();
+    });
+
+    it('records a failed automatic issuance for bounded retry', async () => {
+      purchases.createQueryBuilder.mockReturnValue(qb([{ package_id: 'P1' }]));
+      jest.spyOn(service, 'getCourseProgress').mockResolvedValue({ total: 2, completed: 2, percentage: 100 });
+      jest.spyOn(service, 'issueForCourse').mockRejectedValue(new Error('database unavailable'));
+      autoIssuanceFailures.findOne.mockResolvedValue(null);
+      autoIssuanceFailures.create.mockImplementation((value: unknown) => value);
+      autoIssuanceFailures.save.mockResolvedValue({ id: 'failure-1' });
+
+      await service.autoIssueForCompletedLesson('S1', 'L1');
+
+      expect(autoIssuanceFailures.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          student_id: 'S1',
+          lesson_id: 'L1',
+          package_id: 'P1',
+          attempts: 1,
+          last_error: 'database unavailable',
+        }),
+      );
     });
   });
 
@@ -508,9 +542,11 @@ describe('CertificatesService', () => {
       expect(result.revoked_at).toBeInstanceOf(Date);
     });
 
-    it('revoking an already-revoked certificate is rejected', async () => {
-      certificates.findOne.mockResolvedValue({ id: 'c1', status: CertificateStatus.REVOKED });
-      await expect(service.revokeCertificate('c1')).rejects.toBeInstanceOf(BadRequestException);
+    it('treats repeated revocation as an idempotent no-op', async () => {
+      const certificate = { id: 'c1', status: CertificateStatus.REVOKED } as Certificate;
+      certificates.findOne.mockResolvedValue(certificate);
+      await expect(service.revokeCertificate('c1')).resolves.toBe(certificate);
+      expect(certificates.save).not.toHaveBeenCalled();
     });
 
     it('a teacher cannot revoke a certificate of a course they do not own', async () => {
@@ -538,6 +574,8 @@ describe('CertificatesService', () => {
         })
         .mockResolvedValue(null); // unique number/code checks
       certificates.save.mockImplementation((v: unknown) => Promise.resolve(v));
+      certificateHistory.create.mockImplementation((v: unknown) => v);
+      certificateHistory.save.mockResolvedValue({ id: 'history-1' });
 
       const result = await service.reissueCertificate('c1');
 
@@ -546,6 +584,14 @@ describe('CertificatesService', () => {
       expect(result.verification_code).not.toBe('OLDCODE');
       expect(result.revoked_at).toBeNull();
       expect(result.template_snapshot).toMatchObject({ title: 'Frozen' });
+      expect(certificateHistory.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          certificate_id: 'c1',
+          certificate_number: 'CERT-OLD',
+          verification_code: 'OLDCODE',
+          revoke_reason: 'x',
+        }),
+      );
       expect(emitter.emit).toHaveBeenCalled();
     });
 

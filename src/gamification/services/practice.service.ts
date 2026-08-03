@@ -9,7 +9,7 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 import { QuestionTypeRegistry } from '../../exams/question-types/question-type-registry';
 import { seededShuffle } from '../../exams/services/shuffle.util';
 import { DEFAULT_DIFFICULTY } from '../gamification.constants';
-import { PracticeSession } from '../entities';
+import { PracticeQuestionServe, PracticeSession, StudentSubjectRating } from '../entities';
 import { GameNotificationsService } from './game-notifications.service';
 import { GamificationService, SolveResult } from './gamification.service';
 import { RankService } from './rank.service';
@@ -53,6 +53,10 @@ export class PracticeService {
     private readonly gamification: GamificationService,
     private readonly rankService: RankService,
     private readonly gameNotifications: GameNotificationsService,
+    @InjectRepository(PracticeQuestionServe)
+    private readonly serves: Repository<PracticeQuestionServe>,
+    @InjectRepository(StudentSubjectRating)
+    private readonly subjectRatings: Repository<StudentSubjectRating>,
   ) {}
 
   /** Serve the next practice question, preferring ones the student hasn't solved. */
@@ -67,6 +71,10 @@ export class PracticeService {
     const prior = alreadySolved
       ? await this.gamification.existingSolveResultFor(userId, question.id)
       : null;
+    await this.serves.upsert(
+      { user_id: userId, question_id: question.id, served_at: new Date() },
+      ['user_id', 'question_id'],
+    );
     return await this.render(question, prior);
   }
 
@@ -84,7 +92,8 @@ export class PracticeService {
       // (e.g. essay), so a served question can always be graded instantly.
       .andWhere('q.type IN (:...types)', { types: this.objectiveTypes() });
     if (filters.subjectId) qb.andWhere('q.subject_id = :sid', { sid: filters.subjectId });
-    if (filters.difficulty) qb.andWhere('q.difficulty = :dif', { dif: filters.difficulty });
+    const difficulty = filters.difficulty ?? (await this.personalizedDifficulty(userId, filters.subjectId));
+    if (difficulty) qb.andWhere('q.difficulty = :dif', { dif: difficulty });
     if (unsolvedOnly) {
       // Exclude questions this student has ever attempted (times_seen > 0), so
       // the "unsolved-first" pass never repeats a seen question.
@@ -97,6 +106,19 @@ export class PracticeService {
     // ORDER BY RANDOM() is fine at M1 scale; revisit with a keyset/sample
     // strategy if the bank grows very large (noted as tech debt).
     return qb.orderBy('RANDOM()').limit(1).getOne();
+  }
+
+  private async personalizedDifficulty(
+    userId: string,
+    subjectId: string | undefined,
+  ): Promise<Difficulty | undefined> {
+    if (!subjectId) return undefined;
+    const rating = await this.subjectRatings.findOne({ where: { user_id: userId, subject_id: subjectId } });
+    const value = rating?.rating ?? 1200;
+    if (value < 1050) return Difficulty.EASY;
+    if (value < 1350) return Difficulty.MEDIUM;
+    if (value < 1650) return Difficulty.HARD;
+    return Difficulty.EXPERT;
   }
 
   /** Question types that can be graded instantly (everything except manual). */
@@ -152,6 +174,12 @@ export class PracticeService {
     const existing = await this.gamification.existingSolveResultFor(userId, question.id);
     if (existing) return await this.buildSubmitResult(question, existing);
 
+    const served = await this.serves.findOne({ where: { user_id: userId, question_id: question.id } });
+    if (!served) {
+      throw new BadRequestException(biBody('Question was not served to this student', 'لم يتم عرض هذا السؤال للطالب'));
+    }
+    const serverMeasuredTimeMs = Math.max(0, Date.now() - served.served_at.getTime());
+
     const definition = this.registry.require(question.type);
     const response = dto.response ?? null;
     if (response !== null) {
@@ -181,7 +209,7 @@ export class PracticeService {
       difficulty: question.difficulty ?? DEFAULT_DIFFICULTY,
       isCorrect: grade.isCorrect,
       response,
-      timeMs: dto.timeMs,
+      timeMs: serverMeasuredTimeMs,
       sessionId: dto.sessionId ?? null,
     });
 

@@ -40,6 +40,9 @@ export class PublicProfileService {
       this.games.findOne({ where: { user_id: user.id } }),
       this.studentProfiles.findOne({ where: { user_id: user.id } }),
     ]);
+    if (!studentProfile?.is_public_profile) {
+      throw new NotFoundException(biBody('Profile not found', 'الملف الشخصي غير موجود'));
+    }
 
     const rating = game ? game.global_rating : 1200;
     const xp = game ? game.xp : 0;
@@ -95,9 +98,6 @@ export class PublicProfileService {
       username: user.username,
       name: user.name,
       avatar_url: user.profile_picture_url,
-      governorate: studentProfile?.governorate ?? null,
-      school: studentProfile?.school ?? null,
-      grade_level: studentProfile?.grade_level ?? null,
       rating: Math.round(rating * 100) / 100,
       xp,
       level: levelProgress(xp),

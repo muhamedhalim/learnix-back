@@ -5,4 +5,6 @@ export { StudentQuestionState } from './student-question-state.entity';
 export { QuestionSolve } from './question-solve.entity';
 export { XpEvent } from './xp-event.entity';
 export { PracticeSession } from './practice-session.entity';
+export { PracticeQuestionServe } from './practice-question-serve.entity';
+export { StreakMilestoneAward } from './streak-milestone-award.entity';
 export { XpReason } from './xp-reason.enum';

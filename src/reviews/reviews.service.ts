@@ -318,6 +318,26 @@ export class ReviewsService {
     return this.lessonReviewsRepository.save(review);
   }
 
+  /** Reply to a review left directly on the authenticated teacher's profile. */
+  public async replyToTeacherReview(
+    reviewId: string,
+    teacherId: string,
+    reply: string,
+  ): Promise<TeacherReview> {
+    const review = await this.teacherReviewsRepository.findOne({ where: { id: reviewId } });
+    if (!review) {
+      throw new NotFoundException(biBody('Review not found', 'التقييم غير موجود'));
+    }
+    if (review.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody('You can only reply to reviews on your own profile', 'يمكنك الرد فقط على تقييمات ملفك الشخصي'),
+      );
+    }
+    review.teacher_reply = reply;
+    review.teacher_reply_at = new Date();
+    return this.teacherReviewsRepository.save(review);
+  }
+
   /** Reviews across all of a teacher's lessons (teacher dashboard). */
   public async getTeacherLessonReviews(
     teacherId: string,
@@ -331,8 +351,7 @@ export class ReviewsService {
       .where('lesson.teacher_id = :teacherId', { teacherId })
       .orderBy('r.created_at', 'DESC')
       .addOrderBy('r.id', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+      .take(page * limit);
 
     const [reviews, total] = await qb.getManyAndCount();
 
@@ -344,7 +363,26 @@ export class ReviewsService {
       target_title: r.lesson.title,
     }));
 
-    return { data, meta: this.buildMeta(page, limit, total) };
+    const teacherReviewQb = this.teacherReviewsRepository
+      .createQueryBuilder('r')
+      .innerJoinAndSelect('r.teacher', 'teacher')
+      .innerJoinAndSelect('r.student', 'student')
+      .where('r.teacher_id = :teacherId', { teacherId })
+      .orderBy('r.created_at', 'DESC')
+      .addOrderBy('r.id', 'DESC')
+      .take(page * limit);
+    const [teacherReviews, teacherTotal] = await teacherReviewQb.getManyAndCount();
+    const teacherData: ReviewForManagement[] = teacherReviews.map((r) => ({
+      ...this.toReviewWithStudent(r, true),
+      status: r.status,
+      review_type: 'teacher',
+      target_id: r.teacher_id,
+      target_title: r.teacher.name,
+    }));
+    const combined = [...data, ...teacherData]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice((page - 1) * limit, page * limit);
+    return { data: combined, meta: this.buildMeta(page, limit, total + teacherTotal) };
   }
 
   /* ===================== Helpful votes ===================== */
@@ -527,7 +565,7 @@ export class ReviewsService {
 
     const aggregates = await this.teacherAggregates(teacherId);
 
-    const data = reviews.map((r) => this.toReviewWithStudent(r, false));
+    const data = reviews.map((r) => this.toReviewWithStudent(r, true));
     return { data, meta: this.buildMeta(page, limit, total), aggregates };
   }
 
