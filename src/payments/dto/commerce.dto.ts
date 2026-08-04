@@ -526,6 +526,44 @@ export class SettlementFilterDto extends Pagination20Dto {
   public search?: string;
 }
 
+/**
+ * Financial-audit record types a `payment_audit_logs` row can point at.
+ *
+ * Each one resolves to a teacher through its own join, so the list is closed —
+ * an unrecognised type has no teacher and must not silently return everything.
+ */
+export const FINANCE_AUDIT_RESOURCE_TYPES = [
+  'settlement',
+  'refund',
+  'order',
+  'manual_payment_submission',
+] as const;
+
+export type FinanceAuditResourceType = (typeof FINANCE_AUDIT_RESOURCE_TYPES)[number];
+
+/** Teacher-scoped financial audit trail. `teacher_id` is always `users.id`. */
+export class FinanceAuditFilterDto extends Pagination20Dto {
+  @IsUUID('4')
+  public teacher_id!: string;
+
+  @IsOptional()
+  @IsIn(FINANCE_AUDIT_RESOURCE_TYPES)
+  public resource_type?: FinanceAuditResourceType;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  public action?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  public to?: string;
+}
+
 /** Canonical paid-order reporting filter. Dates always apply to orders.paid_at. */
 export class FinancialReportFilterDto extends Pagination20Dto {
   @IsOptional()

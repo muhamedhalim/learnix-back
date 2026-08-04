@@ -52,6 +52,7 @@ import { PaymentProviderRegistry } from './services/payment-provider-registry.se
 import { FinancePermissionsGuard } from './guards/finance-permissions.guard';
 import { PaymentsService } from './services/payments.service';
 import { RefundsService } from './services/refunds.service';
+import { FinanceAuditService } from './services/finance-audit.service';
 import { SettlementsService } from './services/settlements.service';
 
 @Module({
@@ -110,6 +111,7 @@ import { SettlementsService } from './services/settlements.service';
     ManualPaymentsService,
     RefundsService,
     SettlementsService,
+    FinanceAuditService,
     PaymentOperationsService,
     GatewayWebhookService,
     GatewayFinancialStateMachineService,

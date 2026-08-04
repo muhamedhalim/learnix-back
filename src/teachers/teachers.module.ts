@@ -1,6 +1,7 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { MediaModule } from '../media/media.module';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -13,7 +14,11 @@ import { TeacherProfile } from './entities/teacher-profile.entity';
 import { TeachersService } from './teachers.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TeacherProfile, User, Subject]), MediaModule],
+  imports: [
+    TypeOrmModule.forFeature([TeacherProfile, User, Subject]),
+    MediaModule,
+    ActivityLogsModule,
+  ],
   controllers: [
     AdminTeachersController,
     TeacherProfileController,

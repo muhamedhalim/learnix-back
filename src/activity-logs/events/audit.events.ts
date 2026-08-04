@@ -20,7 +20,13 @@ export class UserApprovedEvent extends AuditEvent {
   constructor(
     adminId: string,
     userId: string,
-    details: { userName: string; userEmail: string; userRole: string },
+    details: {
+      userName: string;
+      userEmail: string;
+      userRole: string;
+      /** Free-text reviewer justification, when the caller collected one. */
+      notes?: string;
+    },
     ipAddress?: string,
   ) {
     super(

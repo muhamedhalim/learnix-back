@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Ip,
   Param,
   ParseUUIDPipe,
   Post,
@@ -228,8 +229,15 @@ export class AdminTeachersController {
   public async approve(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveTeacherDto,
+    @GetUser() user: JwtPayload,
+    @Ip() ip: string,
   ): Promise<unknown> {
-    const teacher = await this.teachersService.approveTeacher(id, approveDto.notes);
+    const teacher = await this.teachersService.approveTeacher(
+      id,
+      approveDto.notes,
+      user.userId,
+      ip,
+    );
     return {
       message: 'Teacher approved successfully',
       teacher,
@@ -248,8 +256,15 @@ export class AdminTeachersController {
   public async reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectTeacherDto,
+    @GetUser() user: JwtPayload,
+    @Ip() ip: string,
   ): Promise<unknown> {
-    const teacher = await this.teachersService.rejectTeacher(id, rejectDto);
+    const teacher = await this.teachersService.rejectTeacher(
+      id,
+      rejectDto,
+      user.userId,
+      ip,
+    );
     return {
       message: 'Teacher rejected successfully',
       teacher,

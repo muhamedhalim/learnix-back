@@ -10,6 +10,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { UserApprovedEvent, UserRejectedEvent } from '../activity-logs/events/audit.events';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
@@ -93,6 +95,7 @@ export class TeachersService {
     private readonly dataSource: DataSource,
     private readonly applicationCache: ApplicationCacheService,
     private readonly media: MediaService,
+    private readonly activityLogs: ActivityLogsService,
   ) {}
 
   /**
@@ -452,6 +455,8 @@ export class TeachersService {
   public async approveTeacher(
     profileId: string,
     notes?: string,
+    actorId?: string,
+    ipAddress?: string,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id: profileId },
@@ -474,12 +479,27 @@ export class TeachersService {
 
     await this.usersRepository.save(profile.user);
 
-    // TODO: Store approval notes in audit_logs table when implemented
-    // Example: await this.auditLogService.log('TEACHER_APPROVED', profileId, notes);
-    // TODO: Send notification to teacher about approval
+    // Approval is a reviewable administrative decision, so it is recorded in
+    // `audit_logs` alongside every other admin action. The actor is optional
+    // only for internal callers that have no request context; admin routes
+    // always supply it.
+    if (actorId) {
+      await this.activityLogs.recordAuditEvent(
+        new UserApprovedEvent(
+          actorId,
+          profile.user.id,
+          {
+            userName: profile.user.name,
+            userEmail: profile.user.email,
+            userRole: 'teacher',
+            ...(notes?.trim() ? { notes: notes.trim() } : {}),
+          },
+          ipAddress,
+        ),
+      );
+    }
 
-    // Suppress unused variable warning until audit_logs table is implemented
-    void notes;
+    // TODO: Send notification to teacher about approval
 
     await this.invalidateAdminDashboard();
 
@@ -493,6 +513,8 @@ export class TeachersService {
   public async rejectTeacher(
     profileId: string,
     dto: RejectTeacherDto,
+    actorId?: string,
+    ipAddress?: string,
   ): Promise<TeacherProfileWithDetails> {
     const profile = await this.teacherProfilesRepository.findOne({
       where: { id: profileId },
@@ -515,8 +537,23 @@ export class TeachersService {
 
     await this.usersRepository.save(profile.user);
 
+    if (actorId) {
+      await this.activityLogs.recordAuditEvent(
+        new UserRejectedEvent(
+          actorId,
+          profile.user.id,
+          {
+            userName: profile.user.name,
+            userEmail: profile.user.email,
+            userRole: 'teacher',
+            reason: dto.reason,
+          },
+          ipAddress,
+        ),
+      );
+    }
+
     // TODO: Send notification to teacher about rejection
-    // TODO: Log audit trail for rejection action
 
     await this.invalidateAdminDashboard();
 
@@ -595,12 +632,33 @@ export class TeachersService {
       );
     }
 
-    // TODO: Implement actual stats queries when Lessons and Purchases modules are ready
-    // For now, return placeholder stats
+    // Content and commerce rows key on `users.id`, not on the profile id.
+    const userId = profile.user_id;
+
+    const [lessonRows, orderRows] = await Promise.all([
+      this.dataSource.query<Array<{ lessons_count: string }>>(
+        `SELECT COUNT(*)::text AS lessons_count
+           FROM lessons
+          WHERE teacher_id = $1 AND deleted_at IS NULL`,
+        [userId],
+      ),
+      // Paid orders are the canonical sale. `teacher_earning_minor` is the
+      // commission-adjusted entitlement snapshotted onto the order at
+      // finalization, so summing it needs no further arithmetic here.
+      this.dataSource.query<Array<{ students_count: string; total_earnings_minor: string }>>(
+        `SELECT COUNT(DISTINCT student_id)::text AS students_count,
+                COALESCE(SUM(teacher_earning_minor), 0)::text AS total_earnings_minor
+           FROM orders
+          WHERE teacher_id = $1 AND status = 'paid'`,
+        [userId],
+      ),
+    ]);
+
     return {
-      lessonsCount: 0,
-      studentsCount: 0,
-      totalEarnings: 0,
+      lessonsCount: Number(lessonRows[0]?.lessons_count ?? 0),
+      studentsCount: Number(orderRows[0]?.students_count ?? 0),
+      /** Minor units (piastres), consistent with every other financial figure. */
+      totalEarnings: Number(orderRows[0]?.total_earnings_minor ?? 0),
       averageRating: profile.rating,
     };
   }

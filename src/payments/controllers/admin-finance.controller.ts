@@ -22,6 +22,7 @@ import {
   CreateManualPaymentMethodDto,
   CreateRefundDto,
   CreateSettlementDto,
+  FinanceAuditFilterDto,
   FinancialReportFilterDto,
   ManualSubmissionFilterDto,
   OrderFilterDto,
@@ -35,6 +36,7 @@ import {
 } from '../dto';
 import { ManualPaymentsService } from '../services/manual-payments.service';
 import { FinancePermissions } from '../decorators/finance-permissions.decorator';
+import { FinanceAuditService } from '../services/finance-audit.service';
 import { FinancePermissionsGuard } from '../guards/finance-permissions.guard';
 import { OrdersService } from '../services/orders.service';
 import { PaymentOperationsService } from '../services/payment-operations.service';
@@ -42,6 +44,15 @@ import { RefundsService } from '../services/refunds.service';
 import { SettlementsService } from '../services/settlements.service';
 import type { Response } from 'express';
 
+/**
+ * Every route here exposes or moves money, so each declares a finance
+ * capability on top of the admin role.
+ *
+ * Manual-payment routes reuse the existing permissions rather than introducing
+ * new ones: reads take `reports.view`, and the review actions take
+ * `refunds.complete` because approving a manual payment finalises a sale and
+ * grants access — the same class of authority as completing a refund.
+ */
 @ApiTags('Admin - Unified Finance')
 @Controller('admin/finance')
 @UseGuards(HybridAuthGuard, RolesGuard, FinancePermissionsGuard)
@@ -54,14 +65,17 @@ export class AdminFinanceController {
     private readonly refunds: RefundsService,
     private readonly settlements: SettlementsService,
     private readonly operations: PaymentOperationsService,
+    private readonly financeAudit: FinanceAuditService,
   ) {}
 
   @Get('orders')
+  @FinancePermissions('reports.view')
   public async listOrders(@Query() filter: OrderFilterDto) {
     return this.orders.findOrders(filter);
   }
 
   @Post('manual-methods')
+  @FinancePermissions('refunds.complete')
   public async createMethod(
     @Body() dto: CreateManualPaymentMethodDto,
     @GetUser() user: JwtPayload,
@@ -70,11 +84,13 @@ export class AdminFinanceController {
   }
 
   @Get('manual-methods')
+  @FinancePermissions('reports.view')
   public async listMethods() {
     return { data: await this.manualPayments.listMethods(true) };
   }
 
   @Patch('manual-methods/:id')
+  @FinancePermissions('refunds.complete')
   public async updateMethod(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateManualPaymentMethodDto,
@@ -84,16 +100,19 @@ export class AdminFinanceController {
   }
 
   @Get('manual-submissions')
+  @FinancePermissions('reports.view')
   public async listSubmissions(@Query() filter: ManualSubmissionFilterDto) {
     return this.manualPayments.listReviewQueue(filter);
   }
 
   @Post('manual-submissions/:id/review')
+  @FinancePermissions('refunds.complete')
   public async startReview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload) {
     return { data: await this.manualPayments.startReview(id, user.userId) };
   }
 
   @Post('manual-submissions/:id/approve')
+  @FinancePermissions('refunds.complete')
   public async approveSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewManualPaymentDto,
@@ -103,6 +122,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/reject')
+  @FinancePermissions('refunds.complete')
   public async rejectSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,
@@ -112,6 +132,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/cancel')
+  @FinancePermissions('refunds.complete')
   public async cancelSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,
@@ -121,6 +142,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/request-information')
+  @FinancePermissions('refunds.complete')
   public async requestInformation(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,
@@ -132,6 +154,7 @@ export class AdminFinanceController {
   }
 
   @Get('manual-submissions/:id/proof')
+  @FinancePermissions('reports.view')
   public async proof(@Param('id', ParseUUIDPipe) id: string) {
     return { data: await this.manualPayments.getProofUrl(id) };
   }
@@ -143,6 +166,7 @@ export class AdminFinanceController {
   }
 
   @Get('refunds')
+  @FinancePermissions('reports.view')
   public async listRefunds(@Query() filter: RefundFilterDto) {
     return this.refunds.list(filter);
   }
@@ -176,6 +200,24 @@ export class AdminFinanceController {
   @FinancePermissions('settlements.view')
   public async listSettlements(@Query() filter: SettlementFilterDto) {
     return this.settlements.list(filter);
+  }
+
+  /**
+   * Teacher-scoped financial audit trail.
+   *
+   * Read-only. Gated on `settlements.view` because it exposes the same payout
+   * and refund evidence that settlement inspection already requires.
+   */
+  @Get('audit')
+  @FinancePermissions('settlements.view')
+  public async financeAuditTrail(@Query() filter: FinanceAuditFilterDto) {
+    return await this.financeAudit.list(filter);
+  }
+
+  @Get('audit/actions')
+  @FinancePermissions('settlements.view')
+  public async financeAuditActions(@Query() filter: FinanceAuditFilterDto) {
+    return { data: await this.financeAudit.actions(filter.teacher_id) };
   }
 
   @Get('settlements/teacher-balances')

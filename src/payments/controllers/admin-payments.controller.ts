@@ -14,13 +14,21 @@ import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Pagination20Dto } from '../../common/dto/pagination.dto';
+import { FinancePermissions } from '../decorators/finance-permissions.decorator';
 import { PaymentFilterDto } from '../dto/payment-filter.dto';
+import { FinancePermissionsGuard } from '../guards/finance-permissions.guard';
 import { PaymentsService } from '../services/payments.service';
 
+/**
+ * Legacy admin payment reads. Every route exposes revenue and purchase data, so
+ * the whole controller requires the `reports.view` finance capability in
+ * addition to the admin role — matching `AdminFinanceController`.
+ */
 @ApiTags('Admin - Payments')
 @Controller('admin/payments')
-@UseGuards(HybridAuthGuard, RolesGuard)
+@UseGuards(HybridAuthGuard, RolesGuard, FinancePermissionsGuard)
 @Roles('admin')
+@FinancePermissions('reports.view')
 @ApiBearerAuth('JWT-auth')
 export class AdminPaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
