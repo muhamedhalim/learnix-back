@@ -1,5 +1,7 @@
 /**
- * Base class for all audit events (admin actions)
+ * Base class for all audit events (privileged actor actions — an admin, or a
+ * teacher acting on content they own). `adminId` is the actor's `users.id`;
+ * where an event can be raised by either, `details.actorRole` records which.
  */
 export abstract class AuditEvent {
   constructor(
@@ -184,6 +186,152 @@ export class ContentRejectedEvent extends AuditEvent {
       contentType,
       contentId,
       details.title,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+/**
+ * Subject catalogue events.
+ *
+ * `audit_logs.target_name` is varchar(200) while `subjects.name` is
+ * varchar(255), so every constructor below truncates the name rather than
+ * leaving a 22001 to surface at insert time.
+ */
+const SUBJECT_TARGET_TYPE = 'subject';
+const TARGET_NAME_MAX = 200;
+
+/** Actor that raised a subject event — teachers manage their own submissions. */
+export type SubjectActorRole = 'admin' | 'teacher';
+
+export class SubjectCreatedEvent extends AuditEvent {
+  constructor(
+    actorId: string,
+    subjectId: string,
+    details: { name: string; actorRole: SubjectActorRole; status: string },
+    ipAddress?: string,
+  ) {
+    super(
+      actorId,
+      'subject_created',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectUpdatedEvent extends AuditEvent {
+  constructor(
+    actorId: string,
+    subjectId: string,
+    details: { name: string; actorRole: SubjectActorRole; changedFields: string[] },
+    ipAddress?: string,
+  ) {
+    super(
+      actorId,
+      'subject_updated',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectDeletedEvent extends AuditEvent {
+  constructor(
+    actorId: string,
+    subjectId: string,
+    details: { name: string; actorRole: SubjectActorRole },
+    ipAddress?: string,
+  ) {
+    super(
+      actorId,
+      'subject_deleted',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectApprovedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    subjectId: string,
+    details: { name: string; ownerTeacherId: string | null; notes?: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'subject_approved',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectRejectedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    subjectId: string,
+    details: { name: string; ownerTeacherId: string | null; reason: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'subject_rejected',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectSuspendedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    subjectId: string,
+    details: { name: string; ownerTeacherId: string | null; reason: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'subject_suspended',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class SubjectReactivatedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    subjectId: string,
+    details: { name: string; ownerTeacherId: string | null; previousStatus: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'subject_reactivated',
+      SUBJECT_TARGET_TYPE,
+      subjectId,
+      details.name.slice(0, TARGET_NAME_MAX),
       details,
       ipAddress ?? null,
     );

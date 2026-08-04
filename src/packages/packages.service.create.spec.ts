@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import type { Subject } from '../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import type { User } from '../users/entities/user.entity';
 import { CourseStatus } from './entities/course-status.enum';
 import type { LessonPackage } from './entities/lesson-package.entity';
@@ -139,7 +140,11 @@ describe('PackagesService.create — subject_id', () => {
       price: 100,
     } as never);
 
-    expect(subjectsFindOne).toHaveBeenCalledWith({ where: { id: 'subject-1' } });
+    // The subject lookup is scoped to what this teacher may use: the approved
+    // catalogue, or their own submission still awaiting approval.
+    expect(subjectsFindOne).toHaveBeenCalledWith({
+      where: usableSubjectByIdWhere('subject-1', 'teacher-1'),
+    });
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({ subject_id: 'subject-1', teacher_id: 'teacher-1' }),
     );

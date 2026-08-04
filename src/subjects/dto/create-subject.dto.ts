@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export enum GradeLevel {
   GRADE_10 = 'grade_10',
@@ -9,6 +10,16 @@ export enum GradeLevel {
 }
 
 export class CreateSubjectDto {
+  @ApiProperty({
+    description: 'Subject name',
+    example: 'الفيزياء',
+    minLength: 2,
+    maxLength: 255,
+  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(2)
   @MaxLength(255)
   public name!: string;
 
@@ -44,7 +55,13 @@ export class CreateSubjectDto {
   @MaxLength(2000)
   public description_ar?: string;
 
+  @ApiProperty({
+    description: 'Grade level',
+    example: 'grade_12',
+    enum: GradeLevel,
+  })
   @IsNotEmpty()
+  @IsEnum(GradeLevel)
   public gradeLevel!: GradeLevel;
 
   @ApiProperty({

@@ -16,6 +16,7 @@ import { PaginatedResponse, PaginationMeta } from '../common/interfaces/paginati
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import {
@@ -139,9 +140,10 @@ export class LessonsService {
       );
     }
 
-    // Validate subject exists
+    // Validate the subject exists and this teacher may use it (approved
+    // catalogue, or their own pending submission)
     const subject = await this.subjectsRepository.findOne({
-      where: { id: dto.subject_id },
+      where: usableSubjectByIdWhere(dto.subject_id, teacherId),
     });
 
     if (!subject) {
@@ -483,7 +485,7 @@ export class LessonsService {
     }
 
     // Validate subject change
-    await this.validateSubjectChange(dto, lesson);
+    await this.validateSubjectChange(dto, lesson, teacherId);
 
     // Apply updates
     this.applyLessonUpdates(lesson, dto);
@@ -505,10 +507,19 @@ export class LessonsService {
     return this.mapToLessonWithDetails(fullLesson);
   }
 
-  private async validateSubjectChange(dto: UpdateLessonDto, lesson: Lesson): Promise<void> {
+  /**
+   * Only validates when the subject is actually changing. That matters now
+   * that subjects can be suspended: re-checking an unchanged `subject_id`
+   * would make every lesson on a suspended subject uneditable.
+   */
+  private async validateSubjectChange(
+    dto: UpdateLessonDto,
+    lesson: Lesson,
+    teacherId: string,
+  ): Promise<void> {
     if (dto.subject_id !== undefined && dto.subject_id !== lesson.subject_id) {
       const subject = await this.subjectsRepository.findOne({
-        where: { id: dto.subject_id },
+        where: usableSubjectByIdWhere(dto.subject_id, teacherId),
       });
       if (!subject) {
         throw new NotFoundException(

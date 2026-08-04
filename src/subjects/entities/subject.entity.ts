@@ -4,9 +4,14 @@ import {
   DeleteDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+
+import { User } from '../../users/entities/user.entity';
+import { SubjectStatus } from './subject-status.enum';
 
 @Entity('subjects')
 export class Subject {
@@ -39,6 +44,34 @@ export class Subject {
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail!: string | null;
 
+  /**
+   * Lifecycle state. Defaults to APPROVED so admin-created subjects and every
+   * row predating the ownership migration stay live; teacher-created subjects
+   * set PENDING_APPROVAL explicitly in `SubjectsService.createByTeacher`.
+   */
+  @Column({ type: 'varchar', length: 20, default: SubjectStatus.APPROVED })
+  @Index('IDX_subjects_status')
+  status!: SubjectStatus;
+
+  /** Owning teacher's `users.id`. NULL means platform-owned (admin-created). */
+  @Column({ type: 'uuid', name: 'created_by_teacher_id', nullable: true })
+  @Index('IDX_subjects_created_by_teacher_id')
+  created_by_teacher_id!: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'created_by_teacher_id' })
+  created_by_teacher?: User | null;
+
+  /** Reason recorded when an admin rejects or suspends the subject. */
+  @Column({ type: 'text', name: 'rejection_reason', nullable: true })
+  rejection_reason!: string | null;
+
+  @Column({ type: 'uuid', name: 'reviewed_by_admin_id', nullable: true })
+  reviewed_by_admin_id!: string | null;
+
+  @Column({ type: 'timestamp', name: 'reviewed_at', nullable: true })
+  reviewed_at!: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;
 
@@ -50,5 +83,6 @@ export class Subject {
 
   // Relations will be added as other entities are created:
   // - OneToMany with Lesson
-  // - ManyToMany with TeacherProfile
+  // - ManyToMany with TeacherProfile (declared on TeacherProfile via teacher_subjects)
 }
+

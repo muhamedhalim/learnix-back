@@ -1,14 +1,19 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { UploadModule } from '../uploads/upload.module';
-import { AdminSubjectsController, SubjectsController } from './controllers';
+import {
+  AdminSubjectsController,
+  SubjectsController,
+  TeacherSubjectsController,
+} from './controllers';
 import { Subject } from './entities/subject.entity';
 import { SubjectsService } from './subjects.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Subject]), UploadModule],
-  controllers: [AdminSubjectsController, SubjectsController],
+  imports: [TypeOrmModule.forFeature([Subject]), UploadModule, ActivityLogsModule],
+  controllers: [AdminSubjectsController, TeacherSubjectsController, SubjectsController],
   providers: [SubjectsService],
   exports: [SubjectsService, TypeOrmModule],
 })

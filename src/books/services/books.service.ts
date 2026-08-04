@@ -14,6 +14,7 @@ import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { biBody } from '../../i18n/error-translator.util';
 import { StorageService } from '../../storage/storage.service';
 import { Subject } from '../../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../../subjects/subject-visibility.util';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
 import { BookPurchase } from '../entities/book-purchase.entity';
@@ -38,9 +39,10 @@ export class BooksService {
   public async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
     this.assertOwnedBookFileReference(dto.book_file, teacherId);
 
-    // Validate subject exists
+    // Validate the subject exists and this teacher may use it (approved
+    // catalogue, or their own pending submission)
     const subject = await this.subjectsRepository.findOne({
-      where: { id: dto.subject_id, deleted_at: IsNull() },
+      where: usableSubjectByIdWhere(dto.subject_id, teacherId),
     });
 
     if (!subject) {
@@ -216,10 +218,11 @@ export class BooksService {
       this.assertOwnedBookFileReference(dto.book_file, teacherId);
     }
 
-    // If updating subject, validate it exists
+    // If updating subject, validate it exists and is usable by this teacher.
+    // Skipped when unchanged, so a later suspension does not brick editing.
     if (dto.subject_id != null && dto.subject_id !== '' && dto.subject_id !== book.subject_id) {
       const subject = await this.subjectsRepository.findOne({
-        where: { id: dto.subject_id, deleted_at: IsNull() },
+        where: usableSubjectByIdWhere(dto.subject_id, teacherId),
       });
 
       if (!subject) {

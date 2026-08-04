@@ -19,6 +19,7 @@ import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../../subjects/subject-visibility.util';
 import { User } from '../../users/entities/user.entity';
 import {
   AttachQuestionDto,
@@ -67,7 +68,7 @@ export class ExamAuthoringService {
   ) {}
 
   public async createExam(teacherId: string, dto: CreateExamDto): Promise<Exam> {
-    await this.assertSubject(dto.subject_id);
+    await this.assertSubject(dto.subject_id, teacherId);
     this.assertAudience(dto.is_public ?? false, dto.lesson_id ?? null, dto.package_id ?? null);
     if (dto.lesson_id !== undefined) {
       await this.assertLesson(dto.lesson_id, teacherId, dto.subject_id);
@@ -95,7 +96,10 @@ export class ExamAuthoringService {
   public async updateExam(examId: string, teacherId: string, dto: UpdateExamDto): Promise<Exam> {
     const exam = await this.findOwned(examId, teacherId);
     this.assertDraft(exam);
-    if (dto.subject_id !== undefined) await this.assertSubject(dto.subject_id);
+    // Skipped when unchanged: a later suspension must not brick editing.
+    if (dto.subject_id !== undefined && dto.subject_id !== exam.subject_id) {
+      await this.assertSubject(dto.subject_id, teacherId);
+    }
     const nextSubjectId = dto.subject_id ?? exam.subject_id;
     const nextLessonId = dto.lesson_id !== undefined ? dto.lesson_id : exam.lesson_id;
     const nextPackageId = dto.package_id !== undefined ? dto.package_id : exam.package_id;
@@ -503,8 +507,16 @@ export class ExamAuthoringService {
     return merged;
   }
 
-  private async assertSubject(subjectId: string): Promise<void> {
-    const exists = await this.subjects.findOne({ where: { id: subjectId, deleted_at: IsNull() } });
+  /**
+   * The subject must be one this teacher may author against: the approved
+   * catalogue, or their own submission still awaiting approval. A subject they
+   * cannot use is reported as absent rather than forbidden, so the response
+   * does not enumerate other teachers' unpublished drafts.
+   */
+  private async assertSubject(subjectId: string, teacherId: string): Promise<void> {
+    const exists = await this.subjects.findOne({
+      where: usableSubjectByIdWhere(subjectId, teacherId),
+    });
     if (!exists) {
       throw new NotFoundException(
         biBody(`Subject ${subjectId} not found`, `المادة ${subjectId} غير موجودة`),

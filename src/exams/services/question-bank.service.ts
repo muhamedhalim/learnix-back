@@ -12,6 +12,7 @@ import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagin
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../../subjects/subject-visibility.util';
 import { CreateQuestionDto, QuestionFilterDto, UpdateQuestionDto } from '../dto';
 import {
   Exam,
@@ -61,7 +62,7 @@ export class QuestionBankService {
 
   /** Create a bank question and snapshot version 1. */
   public async create(teacherId: string, dto: CreateQuestionDto): Promise<Question> {
-    await this.assertSubject(dto.subject_id);
+    await this.assertSubject(dto.subject_id, teacherId);
     if (dto.lesson_id !== undefined) {
       await this.assertLesson(dto.lesson_id, teacherId, dto.subject_id);
     }
@@ -105,7 +106,10 @@ export class QuestionBankService {
   public async update(id: string, teacherId: string, dto: UpdateQuestionDto): Promise<Question> {
     const question = await this.findOwned(id, teacherId);
 
-    if (dto.subject_id !== undefined) await this.assertSubject(dto.subject_id);
+    // Skipped when unchanged: a later suspension must not brick editing.
+    if (dto.subject_id !== undefined && dto.subject_id !== question.subject_id) {
+      await this.assertSubject(dto.subject_id, teacherId);
+    }
     const nextSubjectId = dto.subject_id ?? question.subject_id;
     const nextLessonId = dto.lesson_id ?? question.lesson_id;
     if (nextLessonId !== null) {
@@ -271,8 +275,16 @@ export class QuestionBankService {
     }
   }
 
-  private async assertSubject(subjectId: string): Promise<void> {
-    const exists = await this.subjects.findOne({ where: { id: subjectId, deleted_at: IsNull() } });
+  /**
+   * The subject must be one this teacher may author against: the approved
+   * catalogue, or their own submission still awaiting approval. A subject they
+   * cannot use is reported as absent rather than forbidden, so the response
+   * does not enumerate other teachers' unpublished drafts.
+   */
+  private async assertSubject(subjectId: string, teacherId: string): Promise<void> {
+    const exists = await this.subjects.findOne({
+      where: usableSubjectByIdWhere(subjectId, teacherId),
+    });
     if (!exists) {
       throw new NotFoundException(
         biBody(`Subject ${subjectId} not found`, `المادة ${subjectId} غير موجودة`),

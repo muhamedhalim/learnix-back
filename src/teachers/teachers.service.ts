@@ -18,6 +18,7 @@ import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
+import { usableSubjectWhere } from '../subjects/subject-visibility.util';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
@@ -579,10 +580,16 @@ export class TeachersService {
       );
     }
 
-    // Validate all subject IDs exist
-    const subjects = await this.subjectsRepository.findBy({
-      id: In(dto.subjectIds),
-    });
+    // Validate the subject IDs exist and are usable by the teacher being
+    // assigned to. This is an admin-driven action, so the relevant owner is the
+    // target profile's user — not the acting admin: an admin may assign the
+    // approved catalogue, plus that teacher's own pending submissions.
+    const subjects = await this.subjectsRepository.findBy(
+      usableSubjectWhere(profile.user_id).map((clause) => ({
+        ...clause,
+        id: In(dto.subjectIds),
+      })),
+    );
 
     if (subjects.length !== dto.subjectIds.length) {
       const foundIds = new Set(subjects.map((s) => s.id));

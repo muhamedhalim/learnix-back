@@ -17,6 +17,7 @@ import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
+import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import { User } from '../users/entities/user.entity';
 import {
   AddLessonsDto,
@@ -117,7 +118,9 @@ export class PackagesService {
       throw new NotFoundException(biBody('Teacher not found', 'المعلم غير موجود'));
     }
 
-    const subject = await this.subjectsRepository.findOne({ where: { id: dto.subject_id } });
+    const subject = await this.subjectsRepository.findOne({
+      where: usableSubjectByIdWhere(dto.subject_id, teacherId),
+    });
     if (!subject) {
       throw new BadRequestException(
         biBody(
@@ -346,8 +349,13 @@ export class PackagesService {
       );
     }
 
-    if (dto.subject_id !== undefined) {
-      const subject = await this.subjectsRepository.findOne({ where: { id: dto.subject_id } });
+    // Only validated when the subject is actually changing: re-checking an
+    // unchanged subject_id would make every course on a suspended subject
+    // uneditable.
+    if (dto.subject_id !== undefined && dto.subject_id !== pkg.subject_id) {
+      const subject = await this.subjectsRepository.findOne({
+        where: usableSubjectByIdWhere(dto.subject_id, teacherId),
+      });
       if (!subject) {
         throw new BadRequestException(
           biBody(

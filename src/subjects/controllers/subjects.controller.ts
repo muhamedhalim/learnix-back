@@ -42,7 +42,7 @@ export class SubjectsController {
   public async findOne(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.subjectsService.findOne(id);
+    return await this.subjectsService.findOnePublic(id);
   }
 
   /**
