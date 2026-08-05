@@ -317,6 +317,26 @@ export class BooksService {
   }
 
   /**
+   * Soft delete a book (admin only, ignores ownership). Purchase history is
+   * untouched by a soft delete (the row and its `BookPurchase` FKs stay
+   * intact), so unlike hardDelete there is no purchase-history guard here.
+   */
+  public async adminDelete(id: string): Promise<void> {
+    const book = await this.booksRepository.findOne({
+      where: { id, deleted_at: IsNull() },
+    });
+
+    if (!book) {
+      throw new NotFoundException(
+        biBody(`Book with ID ${id} not found`, `الكتاب بالمعرّف ${id} غير موجود`),
+      );
+    }
+
+    await this.booksRepository.softDelete(id);
+    this.logger.log(`Book soft deleted: ${id} by admin`);
+  }
+
+  /**
    * Hard delete a book (admin only)
    */
   public async hardDelete(id: string): Promise<void> {

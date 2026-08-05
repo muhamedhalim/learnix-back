@@ -118,6 +118,28 @@ export class AdminBooksController {
   }
 
   /**
+   * Soft delete a book
+   */
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Delete book (admin)',
+    description:
+      'Soft deletes any book regardless of owner. Book remains recoverable via restore. Admin only.',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Book not found',
+  })
+  public async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ message: string }> {
+    await this.booksService.adminDelete(id);
+    return {
+      message: 'Book deleted successfully',
+    };
+  }
+
+  /**
    * Hard delete a book
    */
   @Delete(':id/permanent')
