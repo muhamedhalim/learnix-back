@@ -1,4 +1,5 @@
 import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connection.util';
+import { areBackgroundJobsEnabled } from '../config/feature-flags';
 
 /**
  * Queue Names and Configuration Constants
@@ -132,6 +133,14 @@ export const JOB_TYPES = {
  * instead of a real Redis-backed queue — see that file for why.
  */
 export function areQueuesEnabled(): boolean {
+  // Operator master switch. Default-on: only the exact string "false" disables
+  // it, so production — which sets nothing — behaves as it always has. When
+  // disabled, `registerQueues` substitutes `NoopQueue` under the same DI
+  // tokens, exactly as it does when Redis is unconfigured in development.
+  if (!areBackgroundJobsEnabled()) {
+    return false;
+  }
+
   // The HTTP E2E suite repeatedly truncates and reseeds PostgreSQL. Running
   // BullMQ workers against that same database makes the suite race background
   // jobs and prevents deterministic teardown. Keep Redis-backed cache,

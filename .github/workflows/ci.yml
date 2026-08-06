@@ -47,6 +47,51 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
+  migration-chain:
+    name: Migration chain (empty database)
+    runs-on: ubuntu-latest
+    # Proves the ENTIRE migration history applies cleanly to a genuinely empty
+    # PostgreSQL database. The regular unit/E2E suites materialise their schema
+    # with TYPEORM_SYNCHRONIZE=true (see the `e2e` job below), which builds
+    # tables directly from entity metadata and therefore never actually runs
+    # the migration files. That gap is exactly what src/database/seed-staging.ts
+    # and a fresh staging database depend on never existing — see
+    # docs/ENVIRONMENT_INVENTORY.md finding A-11 and scripts/migration-chain-test.ts.
+    #
+    # This job fails the PR if the chain fails to create the empty database,
+    # fails ANY migration, or leaves migrations pending after the run —
+    # scripts/migration-chain-test.ts asserts all three and exits non-zero on
+    # any of them (see assertReport()).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run every migration against an empty database
+        run: npm run test:migrations
+
   e2e:
     name: E2E tests (Postgres + Redis)
     runs-on: ubuntu-latest

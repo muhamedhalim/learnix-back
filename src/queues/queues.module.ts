@@ -7,6 +7,7 @@ import { ExpressAdapter } from '@bull-board/express';
 import { BullBoardModule } from '@bull-board/nestjs';
 
 import { resolveRedisUrl } from '../common/utils/redis-connection.util';
+import { bullMqPrefix } from '../common/utils/redis-namespace.util';
 import { IdempotencyModule } from '../idempotency/idempotency.module';
 import { bullBoardAuthMiddleware } from './bull-board-auth.middleware';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from './queues.constants';
@@ -77,7 +78,14 @@ function boardPanel(name: string) {
           return { connection: { host: '127.0.0.1', port: 6379 } };
         }
 
-        return { connection: { url: redisUrl } };
+        // `undefined` on a resolved-production environment (no APP_ENV=staging
+        // and no explicit REDIS_NAMESPACE) — BullMQ then keeps its own default
+        // `'bull'` prefix, byte-identical to before this option was passed at
+        // all. Staging gets a purpose-built prefix so its queues cannot be
+        // read or written by a production worker sharing the same Redis host.
+        const prefix = bullMqPrefix((key) => configService.get<string>(key));
+
+        return { connection: { url: redisUrl }, ...(prefix !== undefined ? { prefix } : {}) };
       },
     }),
 

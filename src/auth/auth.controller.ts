@@ -16,6 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
+import { LOGIN_THROTTLE } from '../common/throttle/login-throttle';
 import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
 import { biBody, resolveRequestLocale } from '../i18n/error-translator.util';
 import {
@@ -150,7 +151,9 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @Throttle({ default: THROTTLE.LOGIN_TESTSPRITE_TEMPORARY })
+  // Resolves to THROTTLE.AUTH (5 per 5 min) on production with no override
+  // path; only non-production deployments may raise it. See login-throttle.ts.
+  @Throttle({ default: LOGIN_THROTTLE })
   @ApiResponse({ status: 429, description: 'Too many requests' })
   public async login(
     @Body() loginDto: LoginDto,

@@ -35,6 +35,7 @@ import { CacheInvalidationInterceptor } from './common/cache/cache-invalidation.
 import { THROTTLE } from './common/constants';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
 import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
+import { namespacedPrefix } from './common/utils/redis-namespace.util';
 import { resolveRedisUrl } from './common/utils/redis-connection.util';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { validate } from './config/env.validation';
@@ -145,8 +146,9 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
 
         try {
           await client.connect();
+          const cacheKeyPrefix = `${namespacedPrefix((key) => configService.get<string>(key))}learnix:cache:`;
           return {
-            stores: [new RedisKeyvStore(client)],
+            stores: [new RedisKeyvStore(client, cacheKeyPrefix)],
             ttl: 5 * 60 * 1000, // 5 minutes default TTL
           };
         } catch (error: unknown) {
@@ -202,12 +204,18 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
         }
 
         const isProduction = configService.get<string>('NODE_ENV') === 'production';
+        const keyPrefix = namespacedPrefix((key) => configService.get<string>(key));
 
         if (isProduction) {
           // Unchanged: production always wires up Redis-backed storage
           // directly. A connection failure here is a production incident,
-          // not something to silently degrade from.
-          return { throttlers, storage: new ThrottlerStorageRedisService(redisUrl) };
+          // not something to silently degrade from. `keyPrefix` is the empty
+          // string on a resolved-production environment (no APP_ENV=staging),
+          // so this is byte-identical to before namespacing existed.
+          return {
+            throttlers,
+            storage: new ThrottlerStorageRedisService(redisUrl, { keyPrefix }),
+          };
         }
 
         // Development: verify Redis is actually reachable before wiring it
@@ -237,6 +245,7 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
               connectTimeout: 5000,
               retryStrategy: () => null,
               maxRetriesPerRequest: 1,
+              keyPrefix,
             }),
           };
         } catch (error: unknown) {

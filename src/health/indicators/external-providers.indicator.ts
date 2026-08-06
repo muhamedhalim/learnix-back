@@ -5,6 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import * as admin from 'firebase-admin';
 import { DataSource } from 'typeorm';
 
+import { AppEnvironment, resolveAppEnv, resolveAppEnvLabel } from '../../config/app-env';
 import { MailService } from '../../mail/mail.service';
 import { isSentryEnabled } from '../../observability/sentry';
 import {
@@ -15,6 +16,29 @@ import type { HealthIndicator } from '../health-indicator.interface';
 import { errorCode, sanitiseMessage } from '../health-sanitizer.util';
 import type { HealthCategory, HealthComponentResult } from '../health.types';
 import { componentResult } from './indicator-result.util';
+
+/**
+ * True when a configured origin (frontend URL, payment webhook endpoint) does
+ * NOT belong on a real production deployment.
+ *
+ * Deliberately keyed on `AppEnvironment`, not `NODE_ENV`: staging runs
+ * `NODE_ENV=production` (it needs every protection that flag turns on — see
+ * `config/app-env.ts`) with a `FRONTEND_URL` like
+ * `https://staging.learnix.school`. `environmentForUrl` classifies any host
+ * containing "staging" as non-production, so gating this on `NODE_ENV` would
+ * raise this warning on every single health check staging ever runs — a
+ * confirmed bug this function's tests reproduce and fix. See
+ * `docs/NODE_ENV_AUDIT.md` #18/#20.
+ *
+ * Exported as a pure function (rather than left inline in each check) so the
+ * fix is covered by a direct unit test instead of only by comment.
+ */
+export function shouldWarnOnEnvironmentMismatch(
+  appEnv: AppEnvironment,
+  urlEnvironment: string,
+): boolean {
+  return appEnv === AppEnvironment.Production && urlEnvironment !== 'production';
+}
 
 interface ProbeResult {
   reachable: boolean;
@@ -87,10 +111,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       dependencies: ['backend-api'],
       critical: true,
     });
-    if (
-      this.config.get<string>('NODE_ENV') === 'production' &&
-      this.environmentForUrl(url) !== 'production'
-    ) {
+    if (shouldWarnOnEnvironmentMismatch(this.currentAppEnv(), this.environmentForUrl(url))) {
       result.status = 'warning';
       result.warnings.push(
         'Production is configured with a localhost, sandbox, staging, or test frontend URL.',
@@ -260,8 +281,10 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       );
     }
     if (
-      this.config.get<string>('NODE_ENV') === 'production' &&
-      this.environmentForUrl(configuration.endpoint) !== 'production'
+      shouldWarnOnEnvironmentMismatch(
+        this.currentAppEnv(),
+        this.environmentForUrl(configuration.endpoint),
+      )
     ) {
       result.status = 'warning';
       result.warnings.push(
@@ -504,7 +527,10 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
         configured: true,
         release: this.config.get<string>('SENTRY_RELEASE') ?? null,
         traceSampleRate: this.config.get<number>('SENTRY_TRACES_SAMPLE_RATE') ?? null,
-        environment: this.config.get<string>('NODE_ENV') ?? 'development',
+        // APP_ENV, not NODE_ENV — this label surfaces in the health dashboard
+        // and must say which real deployment produced it. See
+        // docs/NODE_ENV_AUDIT.md #21.
+        environment: resolveAppEnvLabel(this.config.get.bind(this.config)),
         sdkInitialized: initialized,
         probeExecuted: false,
       },
@@ -753,5 +779,14 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     if (lower.includes('localhost') || lower.includes('127.0.0.1')) return 'local';
     if (/(sandbox|staging|test|dev)/u.test(lower)) return 'sandbox';
     return 'production';
+  }
+
+  /** Best-effort resolution for a warning check — never throws. */
+  private currentAppEnv(): AppEnvironment {
+    try {
+      return resolveAppEnv(this.config.get.bind(this.config));
+    } catch {
+      return AppEnvironment.Development;
+    }
   }
 }

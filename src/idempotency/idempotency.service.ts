@@ -1,12 +1,9 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { createClient, RedisClientType } from 'redis';
+
+import { namespacedPrefix } from '../common/utils/redis-namespace.util';
 
 /**
  * Result of an idempotency check
@@ -78,6 +75,9 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
 
   private redisClient?: RedisClientType;
 
+  /** Empty on a resolved-production environment — see `redis-namespace.util.ts`. */
+  private keyPrefix = '';
+
   constructor(private readonly configService: ConfigService) {}
 
   /**
@@ -90,6 +90,8 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('REDIS_URL not configured - idempotency disabled');
       return;
     }
+
+    this.keyPrefix = namespacedPrefix((key) => this.configService.get<string>(key));
 
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
 
@@ -193,9 +195,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
 
       return { isProcessed: false };
     } catch (error) {
-      this.logger.error(
-        `Redis error checking webhook idempotency: ${(error as Error).message}`,
-      );
+      this.logger.error(`Redis error checking webhook idempotency: ${(error as Error).message}`);
       // On Redis error, allow processing to proceed (fail open)
       return { isProcessed: false };
     }
@@ -233,19 +233,11 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     const key = this.buildWebhookKey(paymentId, externalOrderId);
 
     try {
-      await this.redisClient.setEx(
-        key,
-        this.idempotencyTtl,
-        JSON.stringify(result),
-      );
+      await this.redisClient.setEx(key, this.idempotencyTtl, JSON.stringify(result));
 
-      this.logger.log(
-        `Stored webhook result - Payment: ${paymentId}, Order: ${externalOrderId}`,
-      );
+      this.logger.log(`Stored webhook result - Payment: ${paymentId}, Order: ${externalOrderId}`);
     } catch (error) {
-      this.logger.error(
-        `Redis error storing webhook result: ${(error as Error).message}`,
-      );
+      this.logger.error(`Redis error storing webhook result: ${(error as Error).message}`);
       // Don't throw - webhook processing succeeded, just cache failed
     }
   }
@@ -285,9 +277,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
       const cachedData = await this.redisClient.get(key);
 
       if (cachedData !== null) {
-        this.logger.log(
-          `Payment idempotency hit - User: ${userId}, Key: ${idempotencyKey}`,
-        );
+        this.logger.log(`Payment idempotency hit - User: ${userId}, Key: ${idempotencyKey}`);
         return {
           isProcessed: true,
           cachedResult: JSON.parse(cachedData),
@@ -296,9 +286,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
 
       return { isProcessed: false };
     } catch (error) {
-      this.logger.error(
-        `Redis error checking payment idempotency: ${(error as Error).message}`,
-      );
+      this.logger.error(`Redis error checking payment idempotency: ${(error as Error).message}`);
       return { isProcessed: false };
     }
   }
@@ -327,19 +315,11 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
     const key = this.buildPaymentKey(userId, idempotencyKey);
 
     try {
-      await this.redisClient.setEx(
-        key,
-        this.idempotencyTtl,
-        JSON.stringify(result),
-      );
+      await this.redisClient.setEx(key, this.idempotencyTtl, JSON.stringify(result));
 
-      this.logger.log(
-        `Stored payment result - User: ${userId}, Key: ${idempotencyKey}`,
-      );
+      this.logger.log(`Stored payment result - User: ${userId}, Key: ${idempotencyKey}`);
     } catch (error) {
-      this.logger.error(
-        `Redis error storing payment result: ${(error as Error).message}`,
-      );
+      this.logger.error(`Redis error storing payment result: ${(error as Error).message}`);
     }
   }
 
@@ -365,9 +345,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
       await this.redisClient.del(key);
       this.logger.log(`Cleared idempotency key: ${key}`);
     } catch (error) {
-      this.logger.error(
-        `Redis error clearing key: ${(error as Error).message}`,
-      );
+      this.logger.error(`Redis error clearing key: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -380,7 +358,7 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * @returns Redis key string
    */
   private buildWebhookKey(paymentId: string, externalOrderId: string): string {
-    return `idempotency:webhook:${paymentId}:${externalOrderId}`;
+    return `${this.keyPrefix}idempotency:webhook:${paymentId}:${externalOrderId}`;
   }
 
   /**
@@ -391,6 +369,6 @@ export class IdempotencyService implements OnModuleInit, OnModuleDestroy {
    * @returns Redis key string
    */
   private buildPaymentKey(userId: string, idempotencyKey: string): string {
-    return `idempotency:payment:${userId}:${idempotencyKey}`;
+    return `${this.keyPrefix}idempotency:payment:${userId}:${idempotencyKey}`;
   }
 }

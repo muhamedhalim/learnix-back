@@ -24,4 +24,15 @@ describe('credentialed CORS allowlist', () => {
     expect(isOriginAllowed('https://learnix.school.attacker.example', allowed)).toBe(false);
     expect(isOriginAllowed('https://preview.vercel.app', allowed)).toBe(false);
   });
+
+  it('REGRESSION (finding A-17): the non-production fallback never names the production origin', () => {
+    // A staging or development boot that forgets to set CORS_ORIGINS must not
+    // silently start trusting the real production frontend as a credentialed
+    // CORS origin. See docs/NODE_ENV_AUDIT.md #10.
+    delete process.env['NODE_ENV'];
+    delete process.env['CORS_ORIGINS'];
+    const fallback = getAllowedOrigins();
+    expect(fallback).not.toContain('https://learnix.school');
+    expect(isOriginAllowed('https://learnix.school', fallback)).toBe(false);
+  });
 });

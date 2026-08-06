@@ -19,6 +19,7 @@ import { CsrfGuard } from './common/guards/csrf.guard';
 import { getAllowedOrigins, isOriginAllowed } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
+import { withMigrationAdvisoryLock } from './database/migration-lock.util';
 
 const logger = new Logger('Bootstrap');
 
@@ -48,7 +49,17 @@ const logger = new Logger('Bootstrap');
 async function runPendingMigrations(): Promise<void> {
   const dataSource = await AppDataSource.initialize();
   try {
-    const executed = await dataSource.runMigrations();
+    // Same advisory lock `migration:run:prod` (`database/migrate-cli.ts`)
+    // uses — both the external pre-boot step and this in-app safety net
+    // coordinate through the identical lock, so whichever one wins the race
+    // against a concurrently-deploying replica runs first and the other
+    // blocks briefly against an already-migrated (no-op) database. See
+    // `database/migration-lock.util.ts` for why this exists (R4).
+    const executed = await withMigrationAdvisoryLock(
+      dataSource,
+      () => dataSource.runMigrations(),
+      (message) => logger.log(message),
+    );
     if (executed.length > 0) {
       logger.log(
         `Applied ${String(executed.length)} pending migration(s): ${executed.map((m) => m.name).join(', ')}`,
@@ -76,7 +87,12 @@ function getLogLevels(): LogLevel[] {
 }
 
 async function bootstrap(): Promise<void> {
-  if (process.env['NODE_ENV'] === 'production') {
+  // Additive opt-out (RUN_MIGRATIONS), default unset — i.e. unchanged
+  // behaviour. Exists for a deployment topology where boot-time migrations
+  // would race across replicas; scripts/migrate.ts's advisory lock is the
+  // primary fix for that race, this is the escape hatch for an operator who
+  // wants migrations run only from an explicit, out-of-band command instead.
+  if (process.env['NODE_ENV'] === 'production' && process.env['RUN_MIGRATIONS'] !== 'false') {
     await runPendingMigrations();
   }
 
@@ -87,6 +103,14 @@ async function bootstrap(): Promise<void> {
     // Meta sent — re-serialising the parsed JSON would not reproduce them.
     rawBody: true,
   });
+
+  // Without this, Nest's OnModuleDestroy lifecycle (TypeORM, BullMQ, the
+  // idempotency/single-flight/health-collector Redis clients, the throttler
+  // storage adapter) never runs on SIGTERM/SIGINT — Railway's stop signal
+  // simply kills the process and every connection is dropped by the OS
+  // instead of closed by the app. Strictly additive: request handling and
+  // responses are unchanged; only the shutdown path gains a clean drain.
+  app.enableShutdownHooks();
 
   // Explicit, sequential — not a lifecycle hook — so the ordering the
   // deployment lifecycle requires (migrations → admin init → HTTP server

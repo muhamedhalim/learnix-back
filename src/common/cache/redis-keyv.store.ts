@@ -2,7 +2,6 @@ import { EventEmitter } from 'node:events';
 
 import type { RedisClientType } from 'redis';
 
-const CACHE_KEY_PREFIX = 'learnix:cache:';
 const DELETE_BATCH_SIZE = 100;
 
 /**
@@ -13,8 +12,21 @@ const DELETE_BATCH_SIZE = 100;
 export class RedisKeyvStore extends EventEmitter {
   public readonly opts: Record<string, never> = {};
 
-  public constructor(private readonly client: RedisClientType) {
+  /**
+   * Full key prefix, e.g. `learnix:cache:` on production (unchanged from
+   * before this became a constructor parameter) or
+   * `learnix:staging:learnix:cache:` on staging — see
+   * `common/utils/redis-namespace.util.ts` for why production's environment
+   * namespace defaults to empty and staging's does not.
+   */
+  private readonly keyPrefix: string;
+
+  public constructor(
+    private readonly client: RedisClientType,
+    keyPrefix = 'learnix:cache:',
+  ) {
     super();
+    this.keyPrefix = keyPrefix;
   }
 
   public async get<Value>(key: string): Promise<Value | undefined> {
@@ -42,7 +54,7 @@ export class RedisKeyvStore extends EventEmitter {
     let pending: string[] = [];
 
     for await (const keys of this.client.scanIterator({
-      MATCH: `${CACHE_KEY_PREFIX}*`,
+      MATCH: `${this.keyPrefix}*`,
       COUNT: DELETE_BATCH_SIZE,
     })) {
       pending.push(...keys);
@@ -65,6 +77,6 @@ export class RedisKeyvStore extends EventEmitter {
   }
 
   private prefixed(key: string): string {
-    return `${CACHE_KEY_PREFIX}${key}`;
+    return `${this.keyPrefix}${key}`;
   }
 }

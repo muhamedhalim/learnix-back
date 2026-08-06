@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { resolveAppEnvLabel } from '../config/app-env';
 import { sanitiseMessage, sanitiseMetadata } from './health-sanitizer.util';
 import { withHealthTimeout } from './health-timeout.util';
 import { calculateHealthScore, calculateOverallStatus } from './health-status.util';
@@ -172,7 +173,9 @@ export class HealthOrchestratorService {
         status: overall,
         score,
         banner: this.banner(overall, components),
-        environment: this.config.get<string>('NODE_ENV') ?? 'development',
+        // APP_ENV, not NODE_ENV: staging deliberately runs NODE_ENV=production.
+        // See docs/NODE_ENV_AUDIT.md #16.
+        environment: resolveAppEnvLabel(this.config.get.bind(this.config)),
         backendVersion: this.config.get<string>('APP_VERSION') ?? '0.0.1',
         frontendVersion: this.config.get<string>('FRONTEND_VERSION') ?? null,
         deploymentId:

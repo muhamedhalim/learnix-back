@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { AppEnvironment, resolveAppEnv } from '../../../config/app-env';
 import { validatePaymobBaseUrl } from '../../../config/env.validation';
 import { biBody } from '../../../i18n/error-translator.util';
 import type {
@@ -58,9 +59,18 @@ export class PaymobGateway implements PaymentGateway {
     validatePaymobBaseUrl(this.baseUrl);
     this.apiBaseUrl = this.baseUrl.endsWith('/api') ? this.baseUrl : `${this.baseUrl}/api`;
     const configuredMode = this.config.get<'test' | 'live'>('PAYMOB_EXPECTED_MODE');
+    // Defence-in-depth, keyed on APP_ENV rather than NODE_ENV. In a correctly
+    // configured deployment this fallback is unreachable: env.validation.ts
+    // requires PAYMOB_EXPECTED_MODE=live whenever PAYMOB_API_KEY is set on
+    // production, and the isolation guard requires =test on staging — both
+    // before this constructor ever runs. It is kept as a second line of
+    // defence in case that validation is ever bypassed, and it must not
+    // default to live for a staging box (which also runs NODE_ENV=production —
+    // see config/app-env.ts). See docs/NODE_ENV_AUDIT.md #32.
     this.expectedLive =
       configuredMode === 'live' ||
-      (configuredMode === undefined && this.config.get<string>('NODE_ENV') === 'production');
+      (configuredMode === undefined &&
+        resolveAppEnv(this.config.get.bind(this.config)) === AppEnvironment.Production);
   }
 
   public async createCheckout(input: ProviderCheckoutInput): Promise<ProviderCheckoutResult> {

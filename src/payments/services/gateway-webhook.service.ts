@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
+import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { GatewayWebhookEvent, Payment, PaymentDomainEvent } from '../entities';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentsService } from './payments.service';
@@ -146,6 +147,15 @@ export class GatewayWebhookService {
    */
   @Cron(CronExpression.EVERY_MINUTE)
   public async recoverStaleEvents(limit = 50): Promise<number> {
+    // Financial replay. Enabled unless ENABLE_WEBHOOK_REPLAY is exactly
+    // "false"; production sets nothing and is therefore unchanged.
+    if (!isFeatureEnabled(FEATURE_FLAGS.WEBHOOK_REPLAY)) {
+      this.logger.log(
+        JSON.stringify({ webhook_recovery: 'skipped', reason: 'feature_flag_disabled' }),
+      );
+      return 0;
+    }
+
     const now = new Date();
     const eventIds = await this.dataSource.transaction(async (manager) => {
       const candidates = await manager

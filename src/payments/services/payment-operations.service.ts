@@ -6,6 +6,7 @@ import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
+import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { AttendanceCode } from '../../attendance-codes/entities/attendance-code.entity';
 import { FinancialReportFilterDto, OrderFilterDto } from '../dto';
@@ -58,6 +59,15 @@ export class PaymentOperationsService {
 
   @Cron(CronExpression.EVERY_MINUTE)
   public async runMaintenance(): Promise<void> {
+    // Financial sweep. Enabled unless ENABLE_PAYMENT_RECONCILIATION is exactly
+    // "false", so production — which sets nothing — is unchanged.
+    if (!isFeatureEnabled(FEATURE_FLAGS.PAYMENT_RECONCILIATION)) {
+      this.logger.log(
+        JSON.stringify({ finance_maintenance: 'skipped', reason: 'feature_flag_disabled' }),
+      );
+      return;
+    }
+
     const guard = this.dataSource.createQueryRunner();
     await guard.connect();
     try {
@@ -191,6 +201,15 @@ export class PaymentOperationsService {
 
   @Cron(CronExpression.EVERY_30_MINUTES)
   public async reconcileGatewayAttempts(): Promise<void> {
+    // Same financial flag as runMaintenance: this re-queries the provider for
+    // pending/processing/expired payments and can transition them.
+    if (!isFeatureEnabled(FEATURE_FLAGS.PAYMENT_RECONCILIATION)) {
+      this.logger.log(
+        JSON.stringify({ gateway_reconciliation: 'skipped', reason: 'feature_flag_disabled' }),
+      );
+      return;
+    }
+
     let lastCreatedAt: Date | null = null;
     let lastId: string | null = null;
     for (;;) {

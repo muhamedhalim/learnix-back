@@ -2,6 +2,8 @@ import { Logger } from '@nestjs/common';
 
 import * as Sentry from '@sentry/node';
 
+import { resolveAppEnvLabel } from '../config/app-env';
+import { processEnvReader } from '../common/utils/redis-connection.util';
 import { performanceMetrics } from './performance-metrics.registry';
 
 const logger = new Logger('Sentry');
@@ -28,7 +30,12 @@ export function initSentry(): void {
   const release = process.env['SENTRY_RELEASE'];
   Sentry.init({
     dsn,
-    environment: process.env['NODE_ENV'] ?? 'development',
+    // APP_ENV, not NODE_ENV: staging deliberately runs NODE_ENV=production (it
+    // needs every protection that flag turns on — see config/app-env.ts), so
+    // tagging on NODE_ENV would label every staging error "production" and
+    // either bury real production alerts in staging noise or get a
+    // staging-only error triaged as a live incident. See docs/NODE_ENV_AUDIT.md.
+    environment: resolveAppEnvLabel(processEnvReader()),
     // Only set release when provided (exactOptionalPropertyTypes).
     ...(release !== undefined && release !== '' ? { release } : {}),
     // Sampling is env-tunable; default to a low trace rate to control volume.

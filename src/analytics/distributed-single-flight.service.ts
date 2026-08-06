@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
 import { createClient } from 'redis';
 
+import { namespacedPrefix } from '../common/utils/redis-namespace.util';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 
 const CACHE_MISS = Symbol('CACHE_MISS');
@@ -24,6 +25,9 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
   private readonly waitTimeoutMs: number;
   private readonly pollIntervalMs: number;
   private redisClient: ReturnType<typeof createClient> | null = null;
+
+  /** Empty on a resolved-production environment — see `redis-namespace.util.ts`. */
+  private lockKeyPrefix = '';
 
   public constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
@@ -51,6 +55,8 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
       this.logger.warn('Redis is not configured; distributed cache locking is unavailable');
       return;
     }
+
+    this.lockKeyPrefix = namespacedPrefix((key) => this.configService.get<string>(key));
 
     const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // Development: never retry forever against an unreachable host — see
@@ -135,7 +141,7 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
       return await this.computeAndCache(cacheKey, ttlMs, compute, metric);
     }
 
-    const lockKey = `cache-lock:${cacheKey}`;
+    const lockKey = `${this.lockKeyPrefix}cache-lock:${cacheKey}`;
     const deadline = Date.now() + this.waitTimeoutMs;
 
     do {

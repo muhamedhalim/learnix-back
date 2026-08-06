@@ -5,6 +5,7 @@ import { Job, UnrecoverableError } from 'bullmq';
 
 import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
+import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { GuardiansService, type GuardianTarget } from '../../guardians/guardians.service';
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
 import { ChannelRegistryService } from '../channels/channel-registry.service';
@@ -54,6 +55,21 @@ export class ParentNotificationProcessor extends WorkerHost {
   }
 
   public async process(job: Job): Promise<void> {
+    // CONTACTS REAL PEOPLE. Gated at the single entry point so both the
+    // first-delivery and redelivery paths are covered by one check. Enabled
+    // unless ENABLE_NOTIFICATIONS is exactly "false", so production — which
+    // sets nothing — is unchanged.
+    //
+    // Returning (rather than throwing) marks the job completed: a deployment
+    // that has deliberately switched delivery off should not accumulate a
+    // backlog of failed jobs and DLQ entries for the duration.
+    if (!isFeatureEnabled(FEATURE_FLAGS.NOTIFICATIONS)) {
+      this.logger.log(
+        `Guardian notification ${job.name} skipped: ENABLE_NOTIFICATIONS=false.`,
+      );
+      return;
+    }
+
     if (job.name === JOB_TYPES.PARENT.DELIVER) {
       await this.deliver(job as Job<ParentDeliveryJob>);
       return;

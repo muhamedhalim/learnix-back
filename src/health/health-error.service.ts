@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
+import { resolveAppEnvLabel } from '../config/app-env';
 import { HealthErrorGroup } from './entities';
 import { sanitiseMessage } from './health-sanitizer.util';
 import type { HealthComponentResult } from './health.types';
@@ -40,7 +41,11 @@ export class HealthErrorService {
     route?: string | null;
     correlationId?: string | null;
   }): Promise<void> {
-    const environment = this.config.get<string>('NODE_ENV') ?? 'development';
+    // APP_ENV, not NODE_ENV: a staging error and a production error with an
+    // identical message must not collapse into the same error group, and the
+    // stored label must say which deployment actually produced it. Staging
+    // deliberately runs NODE_ENV=production. See docs/NODE_ENV_AUDIT.md #15.
+    const environment = resolveAppEnvLabel(this.config.get.bind(this.config));
     const message = sanitiseMessage(input.message);
     const fingerprint = createHash('sha256')
       .update(`${environment}|${input.source}|${input.errorCode ?? ''}|${message}`)

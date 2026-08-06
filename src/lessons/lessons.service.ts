@@ -13,6 +13,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { LessThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { FEATURE_FLAGS, isFeatureEnabled } from '../config/feature-flags';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { Subject } from '../subjects/entities/subject.entity';
@@ -811,6 +812,14 @@ export class LessonsService {
   /** Durable cleanup saga for expired uploads and replacement leftovers. */
   @Cron(CronExpression.EVERY_30_MINUTES)
   public async cleanExpiredBunnyUploadSessions(): Promise<void> {
+    // DESTRUCTIVE: `cleanupUploadSession` deletes the abandoned video from the
+    // configured Bunny Stream library. Gated by the same flag as the weekly
+    // orphan sweep; default-on, so production is unchanged.
+    if (!isFeatureEnabled(FEATURE_FLAGS.FILE_CLEANUP)) {
+      this.logger.log('Expired upload-session cleanup skipped: ENABLE_FILE_CLEANUP=false.');
+      return;
+    }
+
     const sessions = await this.uploadSessionsRepository.find({
       where: [
         { status: 'created', expires_at: LessThanOrEqual(new Date()) },

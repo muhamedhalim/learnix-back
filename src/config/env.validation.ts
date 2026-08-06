@@ -11,6 +11,8 @@ import {
   validateSync,
 } from 'class-validator';
 
+import { AppEnvironment, recordReader, resolveAppEnv } from './app-env';
+import { assertEnvironmentIsolation } from './environment-isolation.guard';
 import { validateProductionPublicOrigins } from './public-url.util';
 
 enum Environment {
@@ -47,6 +49,82 @@ export function validatePaymobBaseUrl(value: unknown): void {
 export class EnvironmentVariables {
   @IsOptional()
   public NODE_ENV: Environment = Environment.Development;
+
+  /**
+   * Deployment identity, independent of `NODE_ENV`'s behaviour switches.
+   * Optional and derived from `NODE_ENV` when absent, so existing deployments
+   * are unaffected. Semantic validation lives in `resolveAppEnv` (see
+   * `app-env.ts`), which produces a far better message than a generic
+   * enum-constraint failure would.
+   */
+  @IsString()
+  @IsOptional()
+  public APP_ENV?: string;
+
+  /** When `true`, `APP_ENV` must be supplied explicitly rather than derived. */
+  @IsString()
+  @IsOptional()
+  public APP_ENV_STRICT?: string;
+
+  // --- Cross-environment isolation inputs (see environment-isolation.guard.ts) ---
+  // All optional: the guard ships with protective defaults and these extend them.
+
+  /** Extra exact hostnames belonging to production. Comma-separated. */
+  @IsString()
+  @IsOptional()
+  public PROD_HOST_DENYLIST?: string;
+
+  /** Extra production resource identifiers (bucket names, library IDs, DB names). */
+  @IsString()
+  @IsOptional()
+  public PROD_IDENTIFIER_DENYLIST?: string;
+
+  /** Combined alias accepted for both host and identifier denylists. */
+  @IsString()
+  @IsOptional()
+  public PROD_RESOURCE_DENYLIST?: string;
+
+  /** Extra production sender addresses that staging must not send from. */
+  @IsString()
+  @IsOptional()
+  public PROD_SENDER_DENYLIST?: string;
+
+  /**
+   * SHA-256 fingerprints (first 16 hex chars) of production secrets. Only
+   * hashes are stored, never values, so a production credential can be
+   * blocked from staging without being written down anywhere.
+   */
+  @IsString()
+  @IsOptional()
+  public PROD_SECRET_FINGERPRINTS?: string;
+
+  /** Optional Redis key namespace; must be staging-marked on staging. */
+  @IsString()
+  @IsOptional()
+  public REDIS_NAMESPACE?: string;
+
+  /**
+   * Staging-only outbound mail allowlist (addresses or bare domains).
+   * Required on staging whenever MailerSend is configured; forbidden on
+   * production, where it would silently discard customer mail.
+   */
+  @IsString()
+  @IsOptional()
+  public MAIL_ALLOWLIST?: string;
+
+  /** Staging-only: `sandbox` suppresses real SMS/WhatsApp delivery. */
+  @IsIn(['sandbox', 'live'])
+  @IsOptional()
+  public SMS_MODE?: 'sandbox' | 'live';
+
+  /**
+   * Never set in this codebase — cookies are host-only, which is what keeps
+   * environments from sharing credentials. Declared so the isolation guard can
+   * reject it if it is ever introduced with a shared parent domain.
+   */
+  @IsString()
+  @IsOptional()
+  public COOKIE_DOMAIN?: string;
 
   @IsNumber()
   @Min(1000)
@@ -444,6 +522,12 @@ export class EnvironmentVariables {
 }
 
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
+  const read = recordReader(config);
+
+  // Resolve deployment identity first: an unsupported APP_ENV should fail with
+  // its own precise message rather than surfacing as a downstream symptom.
+  const appEnv = resolveAppEnv(read);
+
   const validatedConfig = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
@@ -478,12 +562,34 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
         );
       }
     }
-    if (validatedConfig.PAYMOB_API_KEY && validatedConfig.PAYMOB_EXPECTED_MODE !== 'live') {
+    // Paymob live-mode is required for a genuine production deployment. Staging
+    // also runs NODE_ENV=production (it needs every protection that flag turns
+    // on), so this must key on deployment IDENTITY, not on NODE_ENV alone —
+    // otherwise staging could never use sandbox credentials.
+    //
+    // This does not weaken production: with APP_ENV unset or `production` the
+    // rule is byte-for-byte what it was. The only branch it opens is
+    // APP_ENV=staging, where the isolation guard below then REQUIRES
+    // PAYMOB_EXPECTED_MODE=test. Every deployment therefore ends up with a
+    // stricter, explicitly-stated mode than before.
+    if (
+      appEnv !== AppEnvironment.Staging &&
+      validatedConfig.PAYMOB_API_KEY &&
+      validatedConfig.PAYMOB_EXPECTED_MODE !== 'live'
+    ) {
       throw new Error(
         'Environment validation failed: production Paymob must explicitly use PAYMOB_EXPECTED_MODE=live.',
       );
     }
   }
+
+  // Cross-environment isolation. Deliberately last: the checks above establish
+  // that the configuration is internally coherent, and this establishes that it
+  // belongs to the environment claiming it. Runs before ConfigModule returns,
+  // therefore before any module, queue, cron trigger or database connection
+  // exists — the only point early enough to stop a misconfigured staging
+  // instance from reaching production resources (see the guard's header).
+  assertEnvironmentIsolation(appEnv, read);
 
   return validatedConfig;
 }

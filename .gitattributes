@@ -1,0 +1,5 @@
+# Shell scripts run inside Linux containers (Railway, CI) via bash. A CRLF
+# line ending in the shebang line breaks execution there ("bad interpreter"
+# or "$'\r': command not found"), so these are forced to LF regardless of a
+# developer's local core.autocrlf setting.
+*.sh text eol=lf

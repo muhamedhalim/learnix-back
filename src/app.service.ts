@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { resolveAppEnvLabel } from './config/app-env';
 import { UserRole } from './users/entities/user-role.enum';
 
 @Injectable()
@@ -30,7 +31,9 @@ export class AppService {
       status: 'ok',
       timestamp: new Date().toISOString(),
       uptime: uptimeSeconds,
-      environment: this.configService.get<string>('NODE_ENV') ?? 'development',
+      // APP_ENV, not NODE_ENV: this is a deployment-identity label, and staging
+      // deliberately runs NODE_ENV=production. See docs/NODE_ENV_AUDIT.md #5.
+      environment: resolveAppEnvLabel(this.configService.get.bind(this.configService)),
       version: '1.0.0',
     };
   }

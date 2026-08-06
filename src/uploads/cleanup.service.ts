@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
+import { FEATURE_FLAGS, isFeatureEnabled } from '../config/feature-flags';
 import { User } from '../users/entities/user.entity';
 
 /**
@@ -48,6 +49,15 @@ export class CleanupService {
     timeZone: 'UTC',
   })
   public async performWeeklyCleanup(): Promise<void> {
+    // DESTRUCTIVE: this deletes files from the configured storage. Enabled
+    // unless ENABLE_FILE_CLEANUP is exactly "false", so production behaviour is
+    // unchanged; the flag exists so an environment whose storage credentials
+    // are not yet confirmed isolated can be stood up without risking deletion.
+    if (!isFeatureEnabled(FEATURE_FLAGS.FILE_CLEANUP)) {
+      this.logger.log('Weekly file cleanup skipped: ENABLE_FILE_CLEANUP=false.');
+      return;
+    }
+
     this.logger.log('Starting weekly file cleanup job...');
 
     const startTime = Date.now();

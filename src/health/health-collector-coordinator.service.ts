@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 
 import Redis from 'ioredis';
 
+import { namespacedPrefix } from '../common/utils/redis-namespace.util';
 import { resolveRedisUrl } from '../common/utils/redis-connection.util';
 import { healthCollectionState } from './health-collection.state';
 import { sanitiseMessage } from './health-sanitizer.util';
@@ -13,9 +14,12 @@ import { sanitiseMessage } from './health-sanitizer.util';
 const COLLECTION_VERSION = 'health-v2';
 const DEFAULT_CADENCE_SECONDS = 60;
 const DEFAULT_LOCK_TTL_MS = 120_000;
-const STATE_KEY = 'learnix:health:collector:state:v2';
-const HEARTBEAT_KEY = 'learnix:health:collector:heartbeat:v2';
-const LOCK_PREFIX = 'learnix:health:collector:lock:v2';
+/** Suffixes appended to the resolved namespace prefix — see `redis-namespace.util.ts`.
+ * On a resolved-production environment the prefix is empty, so these resolve to
+ * exactly the literal keys this service always used before namespacing existed. */
+const STATE_KEY_SUFFIX = 'learnix:health:collector:state:v2';
+const HEARTBEAT_KEY_SUFFIX = 'learnix:health:collector:heartbeat:v2';
+const LOCK_PREFIX_SUFFIX = 'learnix:health:collector:lock:v2';
 const RENEW_SCRIPT =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end";
 const RELEASE_SCRIPT =
@@ -56,8 +60,15 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
   private localLock: string | null = null;
   private cachedState: CollectorPersistentState | null = null;
   private readonly renewals = new Map<string, NodeJS.Timeout>();
+  private readonly stateKey: string;
+  private readonly heartbeatKey: string;
+  private readonly lockPrefix: string;
 
   public constructor(private readonly config: ConfigService) {
+    const prefix = namespacedPrefix((key) => this.config.get<string>(key));
+    this.stateKey = `${prefix}${STATE_KEY_SUFFIX}`;
+    this.heartbeatKey = `${prefix}${HEARTBEAT_KEY_SUFFIX}`;
+    this.lockPrefix = `${prefix}${LOCK_PREFIX_SUFFIX}`;
     this.instanceId =
       this.config.get<string>('INSTANCE_ID') ||
       this.config.get<string>('RAILWAY_REPLICA_ID') ||
@@ -148,7 +159,7 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
   ): Promise<CollectorLease | CollectorSkipReason> {
     if (!this.isDesignatedProcess()) return 'process_role';
     const token = `${this.instanceId}:${randomUUID()}`;
-    const lockKey = `${LOCK_PREFIX}:${purpose}`;
+    const lockKey = `${this.lockPrefix}:${purpose}`;
 
     if (this.redis?.status === 'ready') {
       const acquired = await this.redis.set(lockKey, token, 'PX', this.lockTtlMs, 'NX');
@@ -280,8 +291,8 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
     if (this.cachedState === null || this.redis?.status !== 'ready') return;
     const serialized = JSON.stringify(this.cachedState);
     try {
-      await this.redis.set(STATE_KEY, serialized);
-      if (successfulHeartbeat) await this.redis.set(HEARTBEAT_KEY, serialized);
+      await this.redis.set(this.stateKey, serialized);
+      if (successfulHeartbeat) await this.redis.set(this.heartbeatKey, serialized);
     } catch (error) {
       this.logger.warn(`Health collector state persistence failed: ${sanitiseMessage(error)}`);
     }
@@ -290,7 +301,7 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
   private async readRemoteState(): Promise<CollectorPersistentState | null> {
     if (this.redis?.status !== 'ready') return null;
     try {
-      const value = await this.redis.get(STATE_KEY);
+      const value = await this.redis.get(this.stateKey);
       if (value === null) return null;
       return this.parseState(value);
     } catch (error) {

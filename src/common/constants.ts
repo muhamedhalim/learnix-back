@@ -53,9 +53,13 @@ export const THROTTLE = {
   DEFAULT: { ttl: 60_000, limit: 5 }, // 5 requests per minute (hardened from 10)
   STRICT: { ttl: 60_000, limit: 3 }, // 3 requests per minute for expensive operations
   AUTH: { ttl: 300_000, limit: 5 }, // 5 auth attempts per 5 minutes (prevents brute force)
-  // TEMPORARY: TestSprite exercises many login scenarios from one IP. Restore
-  // `THROTTLE.AUTH` on AuthController.login before the next production deploy.
-  LOGIN_TESTSPRITE_TEMPORARY: { ttl: 60_000, limit: 150 },
+  // `LOGIN_TESTSPRITE_TEMPORARY` (150/min) used to live here and was applied to
+  // AuthController.login. Its own comment asked for `THROTTLE.AUTH` to be
+  // restored before the next production deploy; that deploy shipped with the
+  // relaxed tier still in place. Login now resolves its tier through
+  // `common/throttle/login-throttle.ts`, which pins production to `AUTH` with
+  // no override path and confines a relaxed limit to non-production, so the
+  // automated-QA use case keeps a supported home on staging.
   PAYMENTS: { ttl: 60_000, limit: 3 }, // 3 payment initializations per minute
   FILE_UPLOAD: { ttl: 60_000, limit: 3 }, // 3 uploads per minute
 } as const;
