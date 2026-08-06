@@ -1,0 +1,116 @@
+name: Deploy staging (validate + smoke test)
+
+# STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.2. Triggers on push to
+# `develop`.
+#
+# IMPORTANT — read before assuming this workflow controls the deploy:
+# Railway's git integration, once the `learnix-staging` project's `web`
+# service exists and is connected to this repo's `develop` branch, deploys
+# on push BY ITSELF, independently of this workflow (confirmed for the
+# existing Production `web` service via `railway status --json` during
+# Phase 4 — it auto-deploys `main` today with no gate at all). The same will
+# be true for a staging service pointed at `develop` unless that is changed
+# in the Railway dashboard. Vercel's git integration behaves the same way.
+#
+# This workflow is therefore NOT the thing that deploys staging — per the
+# plan's own instruction ("if Railway/Vercel deploy automatically, make the
+# GitHub workflow a validation and smoke test, not a duplicate deploy"), it:
+#   1. Validates the change BEFORE the push even reaches this point (the
+#      regular CI workflow's checks already ran on the same commit).
+#   2. Re-validates the environment against the REAL staging secrets (not
+#      CI's synthetic placeholders) via the `staging` GitHub Environment.
+#   3. Waits for Railway/Vercel's own deploy to land, then smoke-tests it.
+#   4. If the smoke test fails, this workflow fails loudly — but the bad
+#      code is already serving traffic on staging by that point, because
+#      nothing in this repo controls Railway/Vercel's deploy timing. That is
+#      an acceptable trade-off on staging (by design, it is not production);
+#      it is exactly why deploy-production.yml (separately) does NOT follow
+#      this same shape.
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate staging environment (real secrets)
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Migration safety check (against main)
+        run: npx ts-node scripts/migration-safety-check.ts --base origin/main
+
+      - name: Validate the real staging configuration
+        # Every value below is read from the `staging` GitHub Environment's
+        # secrets/variables — configure them there once the staging
+        # infrastructure exists (docs/PHASE_4_DASHBOARD_CHECKLIST.md §2.4).
+        # Until they are configured, this step fails closed rather than
+        # silently validating nothing.
+        env:
+          NODE_ENV: production
+          APP_ENV: staging
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+          JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.STAGING_JWT_REFRESH_SECRET }}
+          COOKIE_SECRET: ${{ secrets.STAGING_COOKIE_SECRET }}
+          FRONTEND_URL: ${{ vars.STAGING_FRONTEND_URL }}
+          BACKEND_URL: ${{ vars.STAGING_BACKEND_URL }}
+          CORS_ORIGINS: ${{ vars.STAGING_FRONTEND_URL }}
+          PAYMENT_CAPTURE_GRACE_SECONDS: '300'
+          PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS: '120'
+          REDIS_NAMESPACE: learnix:staging
+          MAIL_ALLOWLIST: ${{ vars.STAGING_MAIL_ALLOWLIST }}
+          SMS_MODE: sandbox
+          PAYMOB_EXPECTED_MODE: test
+        run: npx ts-node -r tsconfig-paths/register scripts/validate-env.ts
+
+  smoke-test:
+    name: Wait for deploy, then smoke test
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for staging health endpoint (Railway/Vercel deploy independently)
+        run: |
+          URL="${{ vars.STAGING_BACKEND_URL }}"
+          if [ -z "$URL" ]; then
+            echo "::error::STAGING_BACKEND_URL is not set in the staging GitHub Environment. Nothing to smoke-test yet — see docs/PHASE_4_DASHBOARD_CHECKLIST.md."
+            exit 1
+          fi
+          for i in $(seq 1 20); do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Healthy after $i attempt(s)."
+              exit 0
+            fi
+            echo "Attempt $i: got $STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Staging never reported healthy after 20 attempts (5 minutes)."
+          exit 1
+
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh "${{ vars.STAGING_BACKEND_URL }}"

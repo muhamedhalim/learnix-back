@@ -1,0 +1,42 @@
+name: Branch sync check (main vs develop)
+
+# STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §11 / §12.1: catches long-term
+# divergence between the production branch and the staging integration
+# branch before it becomes a painful merge. Read-only — never pushes,
+# merges, or modifies either branch itself.
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # nightly, 03:00 UTC
+  workflow_dispatch: {}
+  push:
+    branches: [main, develop]
+
+jobs:
+  check-divergence:
+    name: Check main/develop divergence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: main must not be ahead of develop without a merge-back
+        run: |
+          git fetch origin main develop
+          AHEAD=$(git rev-list --count origin/develop..origin/main)
+          if [ "$AHEAD" -gt 0 ]; then
+            echo "::error::main is $AHEAD commit(s) ahead of develop. A hotfix merged to main must be merged back into develop in the same change (see the plan's §11 hotfix procedure)."
+            git log --oneline origin/develop..origin/main
+            exit 1
+          fi
+          echo "main has no commits missing from develop."
+
+      - name: develop should not drift indefinitely without a release
+        run: |
+          BEHIND=$(git rev-list --count origin/main..origin/develop)
+          echo "develop is $BEHIND commit(s) ahead of main (awaiting release)."
+          if [ "$BEHIND" -gt 100 ]; then
+            echo "::warning::develop is $BEHIND commits ahead of main — consider cutting a release. This is a warning, not a failure: a long-lived develop is a process smell, not a safety issue the way main-ahead-of-develop is."
+          fi

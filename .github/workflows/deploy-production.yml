@@ -1,0 +1,162 @@
+name: Deploy production (approval + backup + migration gate)
+
+# STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.3.
+#
+# CRITICAL, VERIFIED CAVEAT — read before treating this workflow as a real
+# gate: Railway's `web` service (Production) currently auto-deploys every
+# push to `main` via its own git integration, with NO approval step,
+# confirmed live during Phase 4 (`railway status --json` shows the running
+# deployment's commit was deployed automatically, same-day, with no gate).
+# This workflow's `environment: production` approval, backup, and
+# migration-safety gates below do NOT currently prevent that Railway
+# auto-deploy from happening in parallel — a push to `main` reaches
+# Production via Railway's own trigger regardless of whether this workflow
+# has even started running yet, let alone been approved.
+#
+# Making this workflow the REAL controller requires one of, both done in the
+# Railway dashboard by a human (out of scope for this session — "do not
+# change the current production" / no unrequested infrastructure changes):
+#   (a) Disable Railway's git-integration auto-deploy on the `web` service,
+#       and instead have the `deploy` job below call `railway up` /
+#       `railway redeploy` via an API token, once this workflow's gates pass; or
+#   (b) Configure Railway to deploy from a non-`main` internal branch/tag
+#       that only this workflow advances after approval.
+# Until (a) or (b) is done, this workflow provides real backup and migration
+# safety checks and a real audit trail, but not real deploy-timing control.
+# This is stated plainly rather than silently built as if it were binding.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  check-staging-smoke:
+    name: Require a green staging smoke test for this SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query latest "Deploy staging" run for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESULT=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy-staging.yml/runs?head_sha=${{ github.sha }}&status=success&per_page=1")
+          COUNT=$(echo "$RESULT" | grep -o '"total_count":[0-9]*' | grep -o '[0-9]*')
+          if [ "${COUNT:-0}" -lt 1 ]; then
+            echo "::error::No successful 'Deploy staging' run found for commit ${{ github.sha }}. A release must soak on staging before reaching production (plan §11 promotion rule 1)."
+            exit 1
+          fi
+          echo "Found a successful staging deploy for this commit."
+
+  migration-safety:
+    name: Classify migration changes
+    runs-on: ubuntu-latest
+    outputs:
+      classification: ${{ steps.classify.outputs.classification }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Classify
+        id: classify
+        run: |
+          set +e
+          npx ts-node scripts/migration-safety-check.ts --base "origin/main~1"
+          CODE=$?
+          set -e
+          if [ "$CODE" -eq 0 ]; then echo "classification=SAFE" >> "$GITHUB_OUTPUT";
+          elif [ "$CODE" -eq 1 ]; then echo "classification=NEEDS_DB_APPROVAL" >> "$GITHUB_OUTPUT";
+          else echo "classification=BLOCKED" >> "$GITHUB_OUTPUT"; fi
+          exit $([ "$CODE" -eq 2 ] && echo 1 || echo 0)
+          # BLOCKED fails this job outright — a blocked migration must be
+          # reworked, not approved around. NEEDS_DB_APPROVAL passes this job
+          # and is gated by the separate db-owner-approval job below instead.
+
+  db-owner-approval:
+    name: Database-owner approval (destructive migration)
+    needs: migration-safety
+    if: needs.migration-safety.outputs.classification == 'NEEDS_DB_APPROVAL'
+    runs-on: ubuntu-latest
+    # Configure this GitHub Environment with required reviewers = the
+    # db-owners group (docs/BRANCH_PROTECTION_SETUP.md). Distinct from the
+    # `production` environment below so a migration touching schema gets a
+    # second, specifically database-focused sign-off, per plan §12.3 step 18.
+    environment: production-db-approval
+    steps:
+      - name: Record approval
+        run: echo "Migration classified NEEDS_DB_APPROVAL and was approved via the production-db-approval environment's required reviewers."
+
+  deploy:
+    name: Backup, health check, smoke test
+    needs: [check-staging-smoke, migration-safety, db-owner-approval]
+    if: |
+      always() &&
+      needs.check-staging-smoke.result == 'success' &&
+      needs.migration-safety.result == 'success' &&
+      (needs.db-owner-approval.result == 'success' || needs.db-owner-approval.result == 'skipped')
+    runs-on: ubuntu-latest
+    # The one manual-approval gate for this whole workflow: configure the
+    # `production` GitHub Environment with required reviewers
+    # (docs/BRANCH_PROTECTION_SETUP.md). See the top-of-file caveat — this
+    # gate does not yet control Railway's own deploy timing.
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pre-deploy backup
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: bash scripts/db-backup.sh ./backups
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-pre-deploy-backup-${{ github.sha }}
+          path: backups/
+          retention-days: 30
+
+      - name: Wait for health
+        run: |
+          URL="${{ vars.PRODUCTION_BACKEND_URL }}"
+          if [ -z "$URL" ]; then
+            echo "::warning::PRODUCTION_BACKEND_URL is not set — skipping the health wait. Set it once the correct live domain is confirmed (docs/PHASE_4_DASHBOARD_CHECKLIST.md §0.2 — the domain this repo historically assumed does not currently resolve)."
+            exit 0
+          fi
+          for i in $(seq 1 20); do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health" || echo "000")
+            [ "$STATUS" = "200" ] && { echo "Healthy after $i attempt(s)."; exit 0; }
+            sleep 15
+          done
+          echo "::error::Production never reported healthy after 20 attempts (5 minutes)."
+          exit 1
+
+      - name: Read-only production smoke test
+        if: vars.PRODUCTION_BACKEND_URL != ''
+        run: bash scripts/smoke-test.sh "${{ vars.PRODUCTION_BACKEND_URL }}"
+        # Deliberately never passed --with-login: plan §13.2 requires
+        # Production verification stay strictly read-only.

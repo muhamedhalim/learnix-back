@@ -2,7 +2,7 @@
 
 > **STATUS: Phase 0 COMPLETE AND CLOSED (audited).** See [§25 Phase 0 Execution Record](#25-phase-0-execution-record) for the original build, and [§26 Phase 0 Closure Audit](#26-phase-0-closure-audit) for the follow-up review that verified it, found and fixed 3 additional defects, and formally closes every open item.
 >
-> **STATUS: Phase 2 — Implementation: Completed. Verification: Completed, with documented pre-existing and flaky E2E failures (NOT a full pass).** The E2E gate's real, captured exit code is **1** (125/133 passed, 6 failing suites) — see [§29.8](#298-test-results-numerical) for the numerical results and [`docs/E2E_KNOWN_FAILURES.md`](../docs/E2E_KNOWN_FAILURES.md) for the per-suite classification. This is never rounded up to "passed" anywhere in this document. See [§29 Phase 2 Execution Record](#29-phase-2-execution-record) (Database and Redis isolation, real Redis key namespacing, advisory-locked migrations with a bounded wait, backup/restore tooling, seed idempotency + arming, graceful shutdown, Redis-aware readiness) and [§29.12](#2912-phase-2-closure-review-git-diff-and-hardening) for the closure review (git diff audit, lock hardening, migration run policy, seed-guard verification). [§28](#28-phase-2--current-state-verification) is the pre-execution audit. Phase 1 is documented in [§27](#27-phase-1-execution-record); Phase 0 is fully closed with no open items (§26.7's E2E gate was run to completion — 6 failures, all individually traced to pre-existing bugs or test-harness flakiness, zero caused by this project's code). No Railway/Vercel/Cloudflare resource has been created — see `docs/PHASE_2_RAILWAY_CHECKLIST.md`. Phase 3 (Storage and third-party integrations) is now **in progress**; Phases 4–9 have **not started**.
+> **STATUS: Phase 2 — Implementation: Completed. Verification: Completed, with documented pre-existing and flaky E2E failures (NOT a full pass).** The E2E gate's real, captured exit code is **1** (125/133 passed, 6 failing suites) — see [§29.8](#298-test-results-numerical) for the numerical results and [`docs/E2E_KNOWN_FAILURES.md`](../docs/E2E_KNOWN_FAILURES.md) for the per-suite classification. This is never rounded up to "passed" anywhere in this document. See [§29 Phase 2 Execution Record](#29-phase-2-execution-record) (Database and Redis isolation, real Redis key namespacing, advisory-locked migrations with a bounded wait, backup/restore tooling, seed idempotency + arming, graceful shutdown, Redis-aware readiness) and [§29.12](#2912-phase-2-closure-review-git-diff-and-hardening) for the closure review (git diff audit, lock hardening, migration run policy, seed-guard verification). [§28](#28-phase-2--current-state-verification) is the pre-execution audit. Phase 1 is documented in [§27](#27-phase-1-execution-record); Phase 0 is fully closed with no open items (§26.7's E2E gate was run to completion — 6 failures, all individually traced to pre-existing bugs or test-harness flakiness, zero caused by this project's code). **Phase 3 (Storage and third-party integrations) is complete** — see [§30](#30-phase-3-execution-record). **Phase 4 (Railway services and DNS) is code/documentation-complete but infrastructure-blocked** — no Railway/Vercel/DNS/Cloudflare resource could be created from this environment (Vercel/GitHub/Cloudflare credentials are unavailable here; creating new billed Railway infrastructure requires your explicit go-ahead); see [§31](#31-phase-4-execution-record) and `docs/PHASE_4_DASHBOARD_CHECKLIST.md` for the exact remaining dashboard steps. **Phase 5 (CI/CD and branch protection) is code/documentation-complete, with branch protection and Railway/Vercel auto-deploy changes similarly blocked on dashboard access** — see [§32](#32-phase-5-execution-record). Phases 6–9 have **not started**.
 
 **Legend used throughout:**
 `[CONFIRMED]` = verified in a file in this repo, path cited.
@@ -2533,5 +2533,276 @@ residue.
 | Dashboard actions documented, none performed                                                                     | ✅                                                                                                                                     |
 
 **Phase 3 is complete.** No external resource was created (none was possible from this
-environment) — the full checklist is in `PHASE_3_DASHBOARD_CHECKLIST.md`. Phase 4 (Railway services
-and DNS) has not been started.
+environment) — the full checklist is in `PHASE_3_DASHBOARD_CHECKLIST.md`.
+
+---
+
+# 31. Phase 4 Execution Record
+
+## 31.1 What this phase actually did, and why so much of it is a checklist
+
+Phase 4 ("Railway services and DNS") is inherently a dashboard-execution phase — it means
+provisioning a new Railway project, a new Vercel project, DNS records, and a Cloudflare Access
+application. This session has:
+
+- **Authenticated Railway CLI access** (`railway whoami` → `mohamedhalemm40@gmail.com`), which was
+  used **read-only** to audit the real, current Production topology — nothing was created,
+  modified, or redeployed.
+- **No Vercel session** (`vercel whoami` → `Error: The specified token is not valid`).
+- **No GitHub CLI** (`gh`: not installed) and **no authenticated GitHub REST API access**
+  (unauthenticated calls to `api.github.com` return `404`/`401` for both private repos).
+- **No Cloudflare access** of any kind (no CLI, no API token, no `wrangler`).
+
+Per this phase's own instruction ("do not create external resources without explicit access" /
+"for any step that requires an external dashboard or unavailable permissions, stop and write down
+exactly what is needed"), everything requiring one of the above was **audited where possible and
+documented as a precise checklist otherwise** — never assumed, never claimed as done. The full
+checklist, environment variable matrix, and every command used to obtain each fact is in
+[`docs/PHASE_4_DASHBOARD_CHECKLIST.md`](../docs/PHASE_4_DASHBOARD_CHECKLIST.md).
+
+## 31.2 Critical findings from the Railway audit
+
+Two findings independent of anything this project has built, surfaced only because this was the
+first session with real (read-only) Railway CLI access:
+
+1. **Railway's `web` service auto-deploys every push to `main`, with no approval gate — and it
+   already did so for this project's own "staging" prep commit.** `railway status --json` shows
+   the live deployment's `commitHash` is `7d0ba8ee1bd372c4f1c6059d018d0bcf72cc022f`
+   (`commitMessage: "staging"`), deployed `2026-08-06T06:49:53Z` — the exact commit this project's
+   Phase 0–2 work was pushed to `origin/main` under, in a prior session, before this project's own
+   push access was confirmed. Because every change in that commit is `APP_ENV`-gated or
+   identifier-denylist-gated (both inert by default), this did not change Production's observable
+   behaviour — but it is direct, first-hand proof of exactly the risk Phase 5's "disable
+   auto-deploy from the production branch, or make CI the controller" requirement exists to close,
+   not a hypothetical.
+2. **The domain this project's own frontend code and Phase 0 audit cite as Production's API
+   (`learning-center-backend-production.up.railway.app`) does not resolve to anything today** —
+   `curl` against it returns Railway's own edge-fallback `404 {"message":"Application not
+found"}`. The service's real, live domain (read from `railway status --json`) is
+   `web-production-7bd6e.up.railway.app`, which returns `200 {"status":"healthy"}`. This predates
+   this project entirely (no action taken in Phases 0–3 renames a Railway service domain) and is
+   **not fixed here** — it is a Production frontend/Vercel-configuration question
+   (`docs/PHASE_4_DASHBOARD_CHECKLIST.md` §0.2 has the exact next step: check `NEXT_PUBLIC_API_URL`
+   in the `dodline` Vercel project's Production environment).
+
+## 31.3 Real Railway state (verified, not assumed)
+
+| Question the plan asked                             | Answer                                                                                                                           |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Railway project named `learnix-staging`?            | **No.** Only one project (`learnix`) exists in this account (plus two unrelated ones in a different workspace)                   |
+| Separate staging Postgres/Redis/API service?        | **No** — `learnix` has one environment (`production`) and three services (`web`, `Postgres`, `Redis`), all Production            |
+| `web` branch                                        | `main`                                                                                                                           |
+| `web` build/start command                           | NIXPACKS build; start `npm run start:migrate:prod` (migrations run on every deploy, unconditionally)                             |
+| `web` healthcheck path                              | `/api/v1/health`                                                                                                                 |
+| Migrations running automatically?                   | **Yes** — no separate migration job; `RUN_MIGRATIONS` is not set on `web`                                                        |
+| Pre-deploy command configured?                      | **No** (`null`)                                                                                                                  |
+| Private networking for Postgres/Redis?              | Both have no public domain at all (`serviceDomains: []`), consistent with Railway's default private-only same-project networking |
+| Any variable pointing at Production from elsewhere? | N/A — nothing staging-shaped exists yet to check                                                                                 |
+
+Full variable **key list** (never values) for the live `web` service, and the full environment
+variable matrix for the staging service that needs to be created, are both in
+`docs/PHASE_4_DASHBOARD_CHECKLIST.md` §2.
+
+## 31.4 Files changed this phase
+
+| File                                         | Reason                                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `docs/PHASE_4_DASHBOARD_CHECKLIST.md` (new)  | Every Railway fact verified this phase, the full environment variable matrix, and the exact Vercel/DNS/Cloudflare Access steps needed from a human with dashboard access |
+| `scripts/smoke-test.sh` (new)                | Post-deploy smoke test per §13.3 — read-only unless `--with-login` is passed with a seeded account's credentials; never runs a payment, refund, or send                  |
+| `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md` | This record; status banner                                                                                                                                               |
+
+## 31.5 Migration run policy for staging
+
+Documented, not applied anywhere (no staging service exists to apply it to): the **new** staging
+`web` service should use start command `npm run start:prod` (no migrations) plus a **Pre-deploy
+Command** of `npm run migration:run:prod` (the advisory-locked runner hardened in Phase 2
+closure), with `RUN_MIGRATIONS=false` set as a redundant belt-and-braces disable of the in-app
+safety net. **Production's `web` service configuration is untouched** — changing its start
+command is a Production infrastructure change and explicitly out of scope for this phase.
+
+## 31.6 Smoke test — run against Production (read-only) as verification
+
+`scripts/smoke-test.sh` was written and then run once, read-only, against the real live
+Production domain (`web-production-7bd6e.up.railway.app` — not the dead one, §31.2) to prove the
+script itself works and to get a genuine current Production health reading:
+
+```
+PASS  GET /api/v1/health (200)
+PASS  GET /api/v1/health/readiness (200)
+PASS  GET /api/v1/packages (public) (200)
+PASS  GET /api/v1/auth/csrf-token (200)
+SKIP  login/refresh (--with-login not passed — no credentials used against Production)
+All checks passed.
+```
+
+No staging URL exists yet to run the full smoke suite against.
+
+## 31.7 Dashboard actions required (none performed)
+
+Full detail in `docs/PHASE_4_DASHBOARD_CHECKLIST.md`. Summary:
+
+| Action                                                                          | Blocked by                                                                                                    |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Create Railway project `learnix-staging` + Postgres + Redis + `web` service     | Requires your explicit go-ahead (new billed, standing infrastructure) and dashboard access                    |
+| Create Vercel project `dodline-staging`                                         | No valid Vercel session from this environment                                                                 |
+| Add `api-staging.learnix.school` / `staging.learnix.school` DNS records         | No registrar/Cloudflare access                                                                                |
+| Configure Cloudflare Access on `staging.learnix.school`                         | No Cloudflare access                                                                                          |
+| Check `NEXT_PUBLIC_API_URL` on the existing `dodline` Production Vercel project | Separate, pre-existing Production question (§31.2) — needs a human with Vercel access, independent of staging |
+
+## 31.8 Production verification
+
+Confirmed healthy and unaffected by this phase (§31.6). The `learning-center-backend-production...`
+domain 404 (§31.2) predates this session and is not a regression introduced by Phases 0–4.
+
+## 31.9 Rollback
+
+Nothing was created, so nothing needs to be rolled back. `docs/PHASE_4_DASHBOARD_CHECKLIST.md` and
+`scripts/smoke-test.sh` are additive documentation/tooling with no runtime effect on Production or
+any other environment.
+
+## 31.10 Acceptance — Phase 4 status
+
+Per the plan's own §18 Phase 4 Definition of Done ("both URLs live; a smoke run passes; Production
+untouched"): **the DoD cannot be met from this environment**, because "both URLs live" requires
+creating billed infrastructure and dashboard access this session does not have. What Phase 4
+delivers instead, matching this project's standing practice of never claiming execution that
+didn't happen: a verified, assumption-free audit of the real current state; every fact needed to
+execute the dashboard steps correctly the first time; and the code/scripts (smoke test, migration
+run policy) ready for the moment the infrastructure exists.
+
+**Phase 4 is blocked on dashboard/infrastructure access, with a complete and precise checklist —
+not completed.**
+
+---
+
+# 32. Phase 5 Execution Record
+
+## 32.1 Real branch/deploy state (verified via `git ls-remote`, not assumed)
+
+|                           | Backend                                                                                                     | Frontend                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Default branch            | `main`                                                                                                      | `master`                                      |
+| Remote branches today     | `main` only                                                                                                 | `master` only                                 |
+| `develop` on the remote   | No                                                                                                          | No                                            |
+| `develop` created locally | `d90ecd8`, branched from `main`'s `7d0ba8e`                                                                 | `e7b381f`, branched from `master`'s `79392aa` |
+| Pushed                    | **No** — see §32.2                                                                                          | **No**                                        |
+| Railway deploying from    | `main`, **auto-deploys on every push, no gate** (confirmed live, Phase 4 §31.2)                             | —                                             |
+| Vercel production branch  | Not confirmed (no Vercel session)                                                                           | By elimination, `master`                      |
+| Branch protection         | Not confirmed via API (no `gh`, unauthenticated GitHub REST API returns `404`/`401` for both private repos) | Same                                          |
+
+## 32.2 Why `develop` exists locally but was not pushed
+
+Both repos had real, uncommitted work sitting in their working trees from prior sessions (backend:
+the Phase 2-closure + Phase 3 deliverables; frontend: the Phase 1 H1–H4 deliverables) — discovered
+at the start of this phase via `git status`/`git diff --stat`, not assumed away. Per this phase's
+own instruction ("do not create `develop` from an unclean working tree"), each repo's `develop`
+was created as a branch **pointer** at the exact commit already matching `origin` (`7d0ba8e` /
+`79392aa`), then the pending work was committed onto `develop` — never onto `main`/`master`, which
+remain byte-identical to `origin` throughout this phase. Per "do not push directly if permissions
+or policies are unclear" and this session's standing git-safety rule (push only on explicit
+request), both branches are ready locally; pushing them is the first item in
+`docs/PHASE_5_GITHUB_ACTIONS.md`.
+
+## 32.3 Files changed this phase
+
+| File                                                                                                                              | Reason                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml` (backend)                                                                                              | Added `format-check` (scoped Prettier), `env-validation`, `migration-safety-check` (non-blocking), `dependency-audit` (non-blocking) jobs                                   |
+| `.github/workflows/deploy-staging.yml` (new)                                                                                      | Re-validates real staging config, waits for Railway/Vercel's own deploy, smoke-tests it                                                                                     |
+| `.github/workflows/deploy-production.yml` (new)                                                                                   | Staging-soak check, migration-safety classification + db-owner approval gate, pre-deploy backup, manual approval, health wait, read-only smoke test                         |
+| `.github/workflows/branch-sync.yml` (new)                                                                                         | Nightly + on-push main/develop divergence check                                                                                                                             |
+| `scripts/validate-env.ts` (new)                                                                                                   | Standalone runner for the real `validate()` in `src/config/env.validation.ts`, secret-safe (never echoes `process.env`)                                                     |
+| `scripts/migration-safety-check.ts` (new)                                                                                         | Classifies changed migrations SAFE/NEEDS_DB_APPROVAL/BLOCKED by pattern-matching `up()` for DROP TABLE/DROP COLUMN/ALTER...TYPE/SET NOT NULL, plus a missing-`down()` check |
+| `docs/CI_CD_SETUP.md`, `docs/BRANCH_PROTECTION_SETUP.md`, `docs/RELEASE_PROCESS_DRAFT.md`, `docs/PHASE_5_GITHUB_ACTIONS.md` (new) | The four required Phase 5 docs                                                                                                                                              |
+| `.github/workflows/ci.yml` (frontend)                                                                                             | Added `dependency-audit` (non-blocking); documented the 2 pre-existing lint errors as baseline                                                                              |
+
+## 32.4 The migration-safety and dependency-audit gates are advisory today, by design
+
+Both new backend jobs (`migration-safety-check`, `dependency-audit`) and the frontend
+`dependency-audit` job run with `continue-on-error: true`. This is deliberate, not an oversight:
+
+- **`dependency-audit`**: verified `npm audit --audit-level=high` currently reports **3 high + 42
+  moderate** on the backend (all transitive through `firebase-admin`'s Google Cloud dependency
+  chain) and **2 critical + 6 high + 5 moderate** on the frontend (transitive through
+  `next`/`@tailwindcss/postcss`'s `postcss` dependency) — both verified by actually running the
+  command, not assumed. Making this blocking today would fail every PR on pre-existing debt
+  neither introduced by nor fixable within this phase's scope.
+- **`migration-safety-check`**: correctly classifying `NEEDS_DB_APPROVAL` requires the
+  `production-db-approval` GitHub Environment (§32.5) to exist so there is somewhere for that
+  approval to actually happen; until it does, making this job's non-zero exit block a merge would
+  make a legitimate schema change permanently unmergeable.
+
+Both are real, running checks whose output is visible in every CI run today — advisory, not
+hidden.
+
+## 32.5 GitHub Environments and branch protection — designed, not applied
+
+No `gh` CLI is installed and no authenticated GitHub REST API access exists from this session
+(confirmed: unauthenticated calls to `api.github.com` return `404` for both repos' metadata and
+`401` for the branch-protection endpoint). Every setting `deploy-production.yml` and
+`deploy-staging.yml` assume — the `production`, `production-db-approval`, and `staging` GitHub
+Environments, and branch protection on `main`/`master`/`develop` — is specified exactly in
+`docs/BRANCH_PROTECTION_SETUP.md` and `docs/PHASE_5_GITHUB_ACTIONS.md`, ready to apply, not
+applied.
+
+## 32.6 The Railway auto-deploy gap is real and unresolved
+
+Repeated here because it is this phase's most consequential finding, first surfaced in Phase 4
+(§31.2): Railway's `web` service deploys `main` to Production automatically, with no gate, and
+already did so once for this project's own work. `deploy-production.yml`'s approval/backup/
+migration-safety gates are real and functional in isolation, but **do not currently control when
+Railway actually deploys** — see the workflow file's own header comment and
+`docs/PHASE_5_GITHUB_ACTIONS.md` §5 for the two ways to close this, both of which require a human
+with Railway dashboard access to decide and apply (this session did not make an unrequested
+Production infrastructure change to resolve it unilaterally).
+
+## 32.7 Tests (numerical)
+
+| Check                                      | Command                                                                                               | Result                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend typecheck                          | `npx tsc --noEmit -p tsconfig.build.json`                                                             | ✅ PASS (0 issues)                                                                                                                                                                                                                                                                                                   |
+| Backend build                              | `npm run build`                                                                                       | ✅ PASS (1025 files compiled)                                                                                                                                                                                                                                                                                        |
+| Backend lint on new scripts                | `npx eslint scripts/validate-env.ts scripts/migration-safety-check.ts`                                | 2 warnings ("file ignored — no matching configuration"), 0 errors — **pre-existing repo-wide behaviour**: `eslint.config.mjs` already excludes all of `scripts/**/*.ts`, confirmed by running the same check against an existing, untouched script (`migration-chain-test.ts`), which produces the identical warning |
+| `scripts/validate-env.ts` — passing config | synthetic staging-shaped env (matches the `env-validation` CI job exactly)                            | ✅ `Environment validation passed.`, exit 0                                                                                                                                                                                                                                                                          |
+| `scripts/validate-env.ts` — failing config | `NODE_ENV=test` with no other vars                                                                    | ✅ Correctly fails with per-property messages, exit 1                                                                                                                                                                                                                                                                |
+| `scripts/migration-safety-check.ts`        | `--base main` (no migrations changed on `develop` vs `main` yet)                                      | ✅ `No migration files changed relative to main.`, exit 0                                                                                                                                                                                                                                                            |
+| Destructive-pattern regexes                | Direct check against 5 representative SQL snippets                                                    | ✅ Correctly flags DROP TABLE/DROP COLUMN/SET NOT NULL; correctly treats `ADD COLUMN ... NOT NULL DEFAULT` and `CREATE INDEX CONCURRENTLY` as safe                                                                                                                                                                   |
+| `scripts/smoke-test.sh`                    | Run read-only against live Production (`web-production-7bd6e.up.railway.app`)                         | ✅ 4/4 checks passed; login/refresh correctly skipped without `--with-login`                                                                                                                                                                                                                                         |
+| New workflow YAML                          | Parsed with `js-yaml` (`ci.yml` ×2, `deploy-staging.yml`, `deploy-production.yml`, `branch-sync.yml`) | ✅ All 5 files parse; job names enumerated and match what's documented                                                                                                                                                                                                                                               |
+| Frontend typecheck                         | `npx tsc --noEmit`                                                                                    | ✅ PASS                                                                                                                                                                                                                                                                                                              |
+| Frontend build                             | `npm run build` (with a placeholder `NEXT_PUBLIC_API_URL`)                                            | ✅ PASS                                                                                                                                                                                                                                                                                                              |
+| Frontend lint                              | `npm run lint`                                                                                        | ⚠️ 27 problems (2 errors, 25 warnings) — the 2 errors are the pre-existing, documented baseline (§32.3), not a regression from this phase's `ci.yml`-only change                                                                                                                                                     |
+| Backend npm audit                          | `npm audit --audit-level=high`                                                                        | ⚠️ 45 vulnerabilities (3 high, 42 moderate), all transitive via `firebase-admin` — recorded as baseline, job non-blocking                                                                                                                                                                                            |
+| Frontend npm audit                         | `npm audit --audit-level=high`                                                                        | ⚠️ 13 vulnerabilities (2 critical, 6 high, 5 moderate), transitive via `next`/`postcss` — recorded as baseline, job non-blocking                                                                                                                                                                                     |
+| E2E / unit suite re-run                    | Not re-run this phase                                                                                 | No `src/` application code changed in Phase 4/5 (only `scripts/`, `.github/`, `docs/`) — the full suite's last real result is Phase 3's (§30.11), unaffected by this phase                                                                                                                                           |
+
+## 32.8 Remaining risks
+
+| Risk                                                       | Assessment                                                                                                                                                                    |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Railway auto-deploys `main` with no gate                   | Unresolved — requires a human Railway-dashboard decision, §32.6                                                                                                               |
+| Branch protection unapplied                                | Both repos currently accept a direct push to their default branch (consistent with the original Phase 0 finding R6, not newly discovered)                                     |
+| `develop` not pushed                                       | Two real commits sit only in this local working copy until pushed — back them up (e.g. push to a fork, or just push `develop` itself) before this environment's state is lost |
+| `dependency-audit` / `migration-safety-check` non-blocking | Real findings, currently advisory only — see §32.4 for exactly what closes each                                                                                               |
+| Vercel production branch/env vars unconfirmed              | No Vercel session from this environment; `docs/PHASE_4_DASHBOARD_CHECKLIST.md` §0.2's domain-mismatch finding makes this more urgent than routine                             |
+
+## 32.9 Rollback
+
+Every workflow/script file this phase added is additive: none is referenced by any existing job,
+none changes `main`/`master`'s tracked state, and none has run against real infrastructure yet.
+Deleting the four new workflow files and three new scripts fully reverts this phase with zero
+residue. The two `ci.yml` edits (both repos) each add new jobs without modifying any existing
+job's steps — reverting those two files' diffs is equally clean.
+
+## 32.10 Acceptance — Phase 5 status
+
+Per the plan's own §18 Phase 5 Definition of Done ("both repos protected; one full
+`feature/*`→`develop`→staging cycle completed end to end"): **not met**, for the same class of
+reason as Phase 4 — completing it requires GitHub repo-admin access (branch protection,
+Environments) and live Railway/Vercel staging infrastructure (Phase 4), neither available from
+this session. What this phase delivers instead: every workflow, script, and document ready to
+apply the moment that access exists, plus two findings (§32.6's Railway gap, and Phase 4's domain
+mismatch) that matter regardless of whether staging work continues.
+
+**Phase 5 is code/documentation-complete and blocked on GitHub/Railway/Vercel dashboard access —
+not completed.**

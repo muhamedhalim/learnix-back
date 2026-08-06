@@ -153,3 +153,142 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  format-check:
+    name: Prettier (changed files only)
+    runs-on: ubuntu-latest
+    # `npm run lint` includes `prettier --check .` on the WHOLE repo, which
+    # would fail CI on ~315 files that predate this check
+    # (STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.2 step 3's own warning
+    # against gating the whole repo without a phased plan). This job instead
+    # diffs against the merge-base and formats only what the change actually
+    # touches — the pre-existing baseline is recorded as debt, not hidden or
+    # silently exempted forever.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine changed files
+        id: changed
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          if [ -z "$BASE" ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE" "${{ github.sha }}" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.md' | tr '\n' ' ')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Prettier --check on changed files
+        if: steps.changed.outputs.files != ''
+        run: npx prettier --check ${{ steps.changed.outputs.files }}
+
+  env-validation:
+    name: Environment validation (staging shape)
+    runs-on: ubuntu-latest
+    # Calls the exact validate() NestJS's ConfigModule calls at boot
+    # (src/config/env.validation.ts) against a synthetic, staging-shaped
+    # configuration, so a schema regression (a newly-required variable, a
+    # broken isolation-guard rule) fails here instead of at a real staging or
+    # production boot. See scripts/validate-env.ts and
+    # STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.2 step 10. This uses
+    # placeholder, non-secret values only — it never has access to the real
+    # staging environment's secrets (those are validated for real by
+    # deploy-staging.yml's own env-validation step, which runs inside the
+    # `staging` GitHub Environment).
+    env:
+      NODE_ENV: production
+      APP_ENV: staging
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/staging_placeholder
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: staging-ci-placeholder-secret-at-least-32-chars
+      JWT_REFRESH_SECRET: staging-ci-placeholder-refresh-at-least-32-chars
+      COOKIE_SECRET: staging-ci-placeholder-cookie-at-least-32-chars
+      FRONTEND_URL: https://staging.learnix.school
+      BACKEND_URL: https://api-staging.learnix.school
+      CORS_ORIGINS: https://staging.learnix.school
+      PAYMENT_CAPTURE_GRACE_SECONDS: '300'
+      PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS: '120'
+      REDIS_NAMESPACE: learnix:staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate synthetic staging configuration
+        run: npx ts-node -r tsconfig-paths/register scripts/validate-env.ts
+
+  migration-safety-check:
+    name: Migration safety check
+    runs-on: ubuntu-latest
+    # Classifies every migration file changed relative to `origin/main` as
+    # SAFE / NEEDS_DB_APPROVAL / BLOCKED (scripts/migration-safety-check.ts).
+    # Non-blocking today (continue-on-error): rolling this out as a hard PR
+    # gate needs the "db-owners second approval" workflow from
+    # STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.3 step 18 to exist first,
+    # otherwise a legitimate NEEDS_DB_APPROVAL migration has no way to get
+    # merged at all. The finding is still surfaced in the job output either
+    # way — this is visibility now, a hard gate once the approval path exists.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Classify changed migrations
+        run: npx ts-node scripts/migration-safety-check.ts --base origin/main
+
+  dependency-audit:
+    name: Dependency audit (npm audit)
+    runs-on: ubuntu-latest
+    # Non-blocking today: the current baseline is 3 high + 42 moderate
+    # advisories, all transitive through firebase-admin's Google Cloud
+    # dependency chain (verified 2026-08-06, not this project's own direct
+    # dependency). Recorded as debt rather than hidden — flip
+    # continue-on-error off once that baseline is cleared or explicitly
+    # accepted, so a *new* high-severity advisory doesn't silently join it.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: npm audit (high and above)
+        run: npm audit --audit-level=high
