@@ -6,6 +6,7 @@ import { AxiosError } from 'axios';
 import { firstValueFrom } from 'rxjs';
 
 import { maskPhone } from '../../common/utils/mask.util';
+import { evaluatePhoneRecipient } from '../../common/utils/staging-messaging-guard.util';
 import { MessageChannel } from '../entities';
 import type { RenderedMessage } from '../templates/template.types';
 import type { ChannelSendResult, ChannelTarget, ParentChannel } from './parent-channel.interface';
@@ -58,7 +59,7 @@ export class WhatsAppMetaChannel implements ParentChannel {
 
   constructor(
     private readonly http: HttpService,
-    configService: ConfigService,
+    private readonly configService: ConfigService,
   ) {
     this.phoneNumberId = configService.get<string>('META_WHATSAPP_PHONE_NUMBER_ID') ?? '';
     this.accessToken = configService.get<string>('META_WHATSAPP_ACCESS_TOKEN') ?? '';
@@ -76,10 +77,7 @@ export class WhatsAppMetaChannel implements ParentChannel {
     return this.isConfigured() && target.whatsappCapable;
   }
 
-  public async send(
-    target: ChannelTarget,
-    message: RenderedMessage,
-  ): Promise<ChannelSendResult> {
+  public async send(target: ChannelTarget, message: RenderedMessage): Promise<ChannelSendResult> {
     if (!this.isConfigured()) {
       return { accepted: false, error: 'WhatsApp not configured', permanent: true };
     }
@@ -91,6 +89,20 @@ export class WhatsAppMetaChannel implements ParentChannel {
         error: `Template ${message.templateKey} has no approved WhatsApp template`,
         permanent: true,
       };
+    }
+
+    // Staging-only enforcement (inert on production) — this is the one place
+    // that ever calls the real Graph API, so it is checked here rather than
+    // in the registry or the worker. Sandboxed sends are ACCEPTED (marked
+    // delivered) rather than failed, so callers don't fall back to SMS for a
+    // send that was deliberately never attempted.
+    const decision = evaluatePhoneRecipient(
+      (key) => this.configService.get<string>(key),
+      target.phoneE164,
+    );
+    if (decision.blocked) {
+      this.logger.log(`WhatsApp sandboxed, not sent (${decision.reason ?? 'staging'}).`);
+      return { accepted: true };
     }
 
     // Meta wants the number without the leading '+'.

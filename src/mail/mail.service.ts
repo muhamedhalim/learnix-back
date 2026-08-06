@@ -6,6 +6,10 @@ import { EmailParams, MailerSend, Recipient, Sender } from 'mailersend';
 import type { Queue } from 'bullmq';
 
 import { maskEmail } from '../common/utils/mask.util';
+import {
+  applyStagingSubjectPrefix,
+  evaluateMailRecipient,
+} from '../common/utils/staging-messaging-guard.util';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
@@ -166,6 +170,21 @@ export class MailService {
       throw new MailDeliveryException('MailerSend delivery worker is not configured.');
     }
 
+    // Staging-only enforcement of MAIL_ALLOWLIST — inert on production (see
+    // staging-messaging-guard.util.ts). This is the single funnel every
+    // outbound email passes through, so one check here covers every call
+    // site in this file. Blocked sends are logged and treated as a completed
+    // job, never thrown, so the BullMQ worker does not retry a send that was
+    // deliberately refused.
+    const envGet = (key: string): string | undefined => this.configService.get<string>(key);
+    const recipientDecision = evaluateMailRecipient(envGet, message.to);
+    if (recipientDecision.blocked) {
+      this.logger.warn(
+        this.logDetails('blocked_staging_allowlist', message, { reason: recipientDecision.reason }),
+      );
+      return;
+    }
+
     const attemptedAt = new Date().toISOString();
     this.providerObservation = {
       ...this.providerObservation,
@@ -178,11 +197,19 @@ export class MailService {
 
       if (this.replyTo !== null) email.setReplyTo(this.replyTo);
       if (message.templateId !== undefined && message.templateId !== '') {
+        // MailerSend templates carry their own subject configured in the
+        // MailerSend dashboard; this SDK does not support overriding it per
+        // send. A staging deployment MUST use its own template IDs (see
+        // docs/STAGING_EXTERNAL_SERVICES_SETUP.md) with "[STAGING]"
+        // baked into each template's subject there — this prefix cannot
+        // reach a templated send from here.
         email
           .setTemplateId(message.templateId)
           .setPersonalization([{ email: message.to, data: message.personalization ?? {} }]);
       } else {
-        if (message.subject !== undefined) email.setSubject(message.subject);
+        if (message.subject !== undefined) {
+          email.setSubject(applyStagingSubjectPrefix(envGet, message.subject));
+        }
         if (message.text !== undefined) email.setText(message.text);
         if (message.html !== undefined) email.setHtml(message.html);
       }

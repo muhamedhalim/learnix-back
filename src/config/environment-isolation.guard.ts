@@ -320,6 +320,19 @@ function checkStorage(context: RuleContext): void {
       'The weekly orphan-cleanup cron DELETES objects — a shared bucket means staging deletes production files.',
   );
 
+  // A correctly-named staging bucket living under the SAME R2 ACCOUNT as
+  // production is still one IAM boundary away from safe: an over-scoped
+  // token could still touch the production bucket. This does not replace a
+  // properly bucket-scoped token (Phase 3 checklist), but a bucket name alone
+  // does not prove the account differs, so it is checked independently.
+  assertNotProductionIdentifier(
+    context,
+    'R2_ACCOUNT_ID',
+    'STAGING_PRODUCTION_R2_ACCOUNT',
+    'Provision the staging bucket under its own Cloudflare account (or at least a distinct, ' +
+      'bucket-scoped API token) rather than reusing the production account ID.',
+  );
+
   const bucket = context.get('R2_BUCKET');
   if (bucket !== undefined && bucket.trim() !== '' && !STAGING_TOKEN_PATTERN.test(bucket)) {
     deny(context, {
@@ -375,6 +388,30 @@ function checkPayments(context: RuleContext): void {
         'deployment as live and real charges become possible.',
     });
   }
+
+  // PAYMOB_EXPECTED_MODE is this application's OWN belief about the
+  // transaction; whether a transaction is actually live-money or sandbox is
+  // decided by Paymob, keyed off which INTEGRATION reference this deployment
+  // submits. A staging box using Production's real card-integration or
+  // iframe ID would submit genuinely live-capable transactions to Paymob
+  // regardless of what PAYMOB_EXPECTED_MODE says — `assertProviderMode`
+  // would only notice (and reject) the mismatch *after* Paymob has already
+  // processed it. These identifiers must therefore be checked independently
+  // of the mode flag, the same way a bucket or video-library ID is.
+  assertNotProductionIdentifier(
+    context,
+    'PAYMOB_CARD_INTEGRATION_ID',
+    'STAGING_PRODUCTION_PAYMENT_INTEGRATION',
+    "Use the TEST merchant account's own card-integration ID. Reusing the production " +
+      'integration ID lets Paymob process a genuinely live-capable transaction no matter what ' +
+      'PAYMOB_EXPECTED_MODE says.',
+  );
+  assertNotProductionIdentifier(
+    context,
+    'PAYMOB_IFRAME_ID',
+    'STAGING_PRODUCTION_PAYMENT_INTEGRATION',
+    "Use the TEST merchant account's own iframe ID, for the same reason as the card-integration ID.",
+  );
 }
 
 function checkWebhooksAndOrigins(context: RuleContext): void {
@@ -470,6 +507,31 @@ function checkMessaging(context: RuleContext): void {
         `messages cannot reach real parents. Received "${smsMode === '' ? '<unset>' : smsMode}".`,
     });
   }
+
+  // Meta requires WhatsApp senders to be pre-registered phone numbers; using
+  // production's real phone_number_id would let staging send from the real
+  // business number, indistinguishable from production to the recipient,
+  // regardless of SMS_MODE (that flag is enforced in the channel registry,
+  // not by Meta — see mail/sms-sandbox.util.ts).
+  assertNotProductionIdentifier(
+    context,
+    'META_WHATSAPP_PHONE_NUMBER_ID',
+    'STAGING_PRODUCTION_WHATSAPP_NUMBER',
+    'Use a Meta test phone number for staging. Sending from the production phone_number_id would ' +
+      'reach real recipients from the real business number.',
+  );
+
+  // Firebase's only current use in this codebase is verifying ID tokens
+  // (src/users/users.service.ts's syncFirebaseUser) — not push notifications,
+  // whatever the .env.example section heading suggests. Still worth keeping
+  // staging on its own Firebase project: a shared project means a token
+  // minted by the production mobile app would authenticate on staging too.
+  assertNotProductionIdentifier(
+    context,
+    'FIREBASE_PROJECT_ID',
+    'STAGING_PRODUCTION_FIREBASE_PROJECT',
+    'Use a separate Firebase project for staging so ID tokens are not valid across environments.',
+  );
 }
 
 function checkSecretFingerprints(context: RuleContext): void {

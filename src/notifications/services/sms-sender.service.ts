@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 import twilio from 'twilio';
 
+import { evaluatePhoneRecipient } from '../../common/utils/staging-messaging-guard.util';
+
 export interface SmsResult {
   success: boolean;
   messageId?: string;
@@ -18,8 +20,7 @@ export class SmsSenderService {
   constructor(private readonly configService: ConfigService) {
     const accountSid = this.configService.get<string>('TWILIO_ACCOUNT_SID');
     const authToken = this.configService.get<string>('TWILIO_AUTH_TOKEN');
-    this.fromNumber =
-      this.configService.get<string>('TWILIO_PHONE_NUMBER') ?? '';
+    this.fromNumber = this.configService.get<string>('TWILIO_PHONE_NUMBER') ?? '';
 
     if (
       accountSid !== undefined &&
@@ -30,9 +31,7 @@ export class SmsSenderService {
       this.twilioClient = twilio(accountSid, authToken);
       this.logger.log('Twilio client initialized successfully');
     } else {
-      this.logger.warn(
-        'Twilio credentials not configured - SMS sending disabled',
-      );
+      this.logger.warn('Twilio credentials not configured - SMS sending disabled');
     }
   }
 
@@ -83,6 +82,21 @@ export class SmsSenderService {
 
     const formattedPhone = this.formatPhoneNumber(to);
 
+    // Staging-only enforcement (inert on production) — every Twilio call in
+    // this app funnels through this one method, so this single check covers
+    // guardian notifications, admin bulk sends, and anything added later.
+    // Sandboxed sends are reported as SUCCESS (no real messageId) rather than
+    // failure: callers should observe "delivered" without an actual SMS
+    // reaching anyone, not a false failure that trips retries/fallback.
+    const decision = evaluatePhoneRecipient(
+      (key) => this.configService.get<string>(key),
+      formattedPhone,
+    );
+    if (decision.blocked) {
+      this.logger.log(`SMS sandboxed, not sent (${decision.reason ?? 'staging'}).`);
+      return { success: true };
+    }
+
     try {
       const result = await this.twilioClient.messages.create({
         body: message,
@@ -90,20 +104,15 @@ export class SmsSenderService {
         to: formattedPhone,
       });
 
-      this.logger.log(
-        `SMS sent successfully to ${formattedPhone}: ${result.sid}`,
-      );
+      this.logger.log(`SMS sent successfully to ${formattedPhone}: ${result.sid}`);
 
       return {
         success: true,
         messageId: result.sid,
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(
-        `Failed to send SMS to ${formattedPhone}: ${errorMessage}`,
-      );
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to send SMS to ${formattedPhone}: ${errorMessage}`);
 
       return {
         success: false,

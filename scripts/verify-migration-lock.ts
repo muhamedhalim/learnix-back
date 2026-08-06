@@ -28,7 +28,9 @@
  * USAGE: npm run verify:migration-lock
  */
 
+import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import * as path from 'node:path';
 
 import { config as loadDotenv } from 'dotenv';
 import { Client } from 'pg';
@@ -121,6 +123,159 @@ async function dropTemporaryDatabase(adminUrl: string, databaseName: string): Pr
   }
 }
 
+interface WorkerResult {
+  outcome: 'acquired' | 'timeout' | 'error';
+  elapsedMs: number;
+  message?: string;
+}
+
+function spawnLockWorker(
+  mode: 'hold' | 'wait',
+  ms: number,
+  targetUrl: string,
+): { proc: ChildProcess; stdout: () => string; stderr: () => string } {
+  const proc = spawn(
+    process.execPath,
+    [
+      '-r',
+      'ts-node/register',
+      '-r',
+      'tsconfig-paths/register',
+      path.join(__dirname, 'internal', 'lock-worker.ts'),
+      mode,
+      String(ms),
+    ],
+    {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, DATABASE_URL: targetUrl },
+    },
+  );
+  let stdout = '';
+  let stderr = '';
+  proc.stdout?.on('data', (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  proc.stderr?.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  return { proc, stdout: () => stdout, stderr: () => stderr };
+}
+
+async function waitForLine(
+  getOutput: () => string,
+  predicate: (output: string) => boolean,
+  timeoutMs: number,
+  description: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate(getOutput())) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  fail(
+    `Timed out after ${String(timeoutMs)}ms waiting for ${description}. Output so far: ${getOutput()}`,
+  );
+}
+
+async function waitForExit(proc: ChildProcess): Promise<number | null> {
+  return new Promise((resolve) => {
+    proc.once('exit', (code) => resolve(code));
+  });
+}
+
+/**
+ * Scenario 2 — "the second process doesn't wait indefinitely."
+ *
+ * The holder and the waiter are spawned as two genuinely separate OS
+ * processes (see `scripts/internal/lock-worker.ts` for why: racing them
+ * inside this script's own single Node process — even using raw `pg`, no
+ * TypeORM involved — was found empirically to make Postgres's `lock_timeout`
+ * enforcement fire many seconds late instead of at the configured bound,
+ * which two real Railway replicas would never exhibit). The holder acquires
+ * and holds the lock for far longer (`LONG_HOLD_MS`) than the waiter is
+ * configured to wait (`SHORT_TIMEOUT_MS`). If the wait were unbounded, the
+ * waiter would still be blocked when this function's own deadline runs out.
+ * Instead it must report a `timeout` outcome at roughly `SHORT_TIMEOUT_MS`,
+ * well before the holder ever releases — proving a hung/crashed/very-slow
+ * migration on one replica cannot wedge a second replica's deploy forever.
+ */
+async function runTimeoutScenario(targetUrl: string): Promise<void> {
+  const LONG_HOLD_MS = 4000;
+  const SHORT_TIMEOUT_MS = 700;
+
+  const holder = spawnLockWorker('hold', LONG_HOLD_MS, targetUrl);
+  try {
+    await waitForLine(
+      holder.stdout,
+      (out) => out.includes('ACQUIRED'),
+      10_000,
+      "the holder's ACQUIRED line",
+    );
+
+    const waiter = spawnLockWorker('wait', SHORT_TIMEOUT_MS, targetUrl);
+    const waiterStart = Date.now();
+    const waiterExitCode = await waitForExit(waiter.proc);
+    const observedElapsedMs = Date.now() - waiterStart;
+
+    if (waiterExitCode !== 0) {
+      fail(`The wait worker exited with code ${String(waiterExitCode)}: ${waiter.stderr()}`);
+    }
+
+    const resultLine = waiter
+      .stdout()
+      .trim()
+      .split('\n')
+      .find((line) => line.startsWith('{'));
+    if (resultLine === undefined) {
+      fail(
+        `The wait worker printed no JSON result line. stdout: ${waiter.stdout()} stderr: ${waiter.stderr()}`,
+      );
+    }
+    const result = JSON.parse(resultLine) as WorkerResult;
+
+    console.log(
+      `Waiter reported: ${JSON.stringify(result)} (observed ${String(observedElapsedMs)}ms)`,
+    );
+
+    if (result.outcome !== 'timeout') {
+      fail(
+        `Expected the waiter to report "timeout", got "${result.outcome}". A generic error or an ` +
+          'unexpected success would hide the difference between "timed out as designed" and ' +
+          '"broke for some other reason."',
+      );
+    }
+    if (result.elapsedMs >= LONG_HOLD_MS) {
+      fail(
+        `The waiter took ${String(result.elapsedMs)}ms — at least as long as the holder's ` +
+          `${String(LONG_HOLD_MS)}ms hold. That means it actually waited for the holder to finish ` +
+          'rather than timing out on its own.',
+      );
+    }
+    // Generous upper bound (timeout + 5s) to absorb CI/local scheduling
+    // jitter and process-spawn overhead without weakening the meaningful
+    // assertion above (that it did not simply wait out the full hold).
+    if (result.elapsedMs > SHORT_TIMEOUT_MS + 5000) {
+      fail(
+        `The waiter took ${String(result.elapsedMs)}ms to fail, far more than its ` +
+          `${String(SHORT_TIMEOUT_MS)}ms configured timeout. The wait is not actually bounded by ` +
+          'MIGRATION_LOCK_TIMEOUT_MS.',
+      );
+    }
+
+    console.log(
+      'PASS: the waiter gave up after its configured lock_timeout instead of waiting ' +
+        'indefinitely for the holder.',
+    );
+
+    const holderExitCode = await waitForExit(holder.proc);
+    if (holderExitCode !== 0) {
+      fail(`The holder worker exited with code ${String(holderExitCode)}: ${holder.stderr()}`);
+    }
+  } finally {
+    if (holder.proc.exitCode === null) holder.proc.kill();
+  }
+}
+
 async function main(): Promise<void> {
   assertSafeToRun();
 
@@ -186,6 +341,12 @@ async function main(): Promise<void> {
   } finally {
     await connectionA.destroy().catch(() => undefined);
     await connectionB.destroy().catch(() => undefined);
+  }
+
+  console.log('\n--- Scenario 2: bounded wait (the lock timeout) ---\n');
+  try {
+    await runTimeoutScenario(targetUrl);
+  } finally {
     console.log(`Dropping temporary database ${databaseName}...`);
     await dropTemporaryDatabase(adminUrl, databaseName);
   }

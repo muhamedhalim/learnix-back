@@ -233,6 +233,19 @@ describe('staging isolation — production storage', () => {
     };
     expect(codesFor(config)).toContain('STAGING_R2_PUBLIC_BASE_URL_SET');
   });
+
+  it('fails when R2_ACCOUNT_ID is the production account, even with a correctly-named bucket', () => {
+    const config = {
+      ...stagingConfig,
+      PROD_IDENTIFIER_DENYLIST: 'prod-cf-account-id',
+      R2_ACCOUNT_ID: 'prod-cf-account-id',
+    };
+    expect(codesFor(config)).toContain('STAGING_PRODUCTION_R2_ACCOUNT');
+  });
+
+  it('does not flag R2_ACCOUNT_ID when it is absent (Phase 2 configs never set it)', () => {
+    expect(codesFor(stagingConfig)).toHaveLength(0);
+  });
 });
 
 describe('staging isolation — production payment credentials', () => {
@@ -272,6 +285,27 @@ describe('staging isolation — production payment credentials', () => {
       expect((error as Error).message).not.toContain(productionApiKey);
       expect((error as Error).message).toContain('PAYMOB_API_KEY');
     }
+  });
+
+  // PAYMOB_EXPECTED_MODE is this application's own belief; whether Paymob
+  // actually treats a transaction as live money is decided by which
+  // integration reference is submitted. Reusing production's real
+  // integration/iframe ID would let Paymob process a genuinely live-capable
+  // transaction no matter what PAYMOB_EXPECTED_MODE says.
+  it.each(['PAYMOB_CARD_INTEGRATION_ID', 'PAYMOB_IFRAME_ID'])(
+    'fails when %s is the production integration reference',
+    (variable) => {
+      const config = {
+        ...stagingConfig,
+        PROD_IDENTIFIER_DENYLIST: 'prod-integration-42',
+        [variable]: 'prod-integration-42',
+      };
+      expect(codesFor(config)).toContain('STAGING_PRODUCTION_PAYMENT_INTEGRATION');
+    },
+  );
+
+  it('does not flag integration IDs when they are absent', () => {
+    expect(codesFor(stagingConfig)).toHaveLength(0);
   });
 });
 
@@ -372,6 +406,30 @@ describe('staging isolation — email and SMS', () => {
       MAIL_FROM_EMAIL: undefined,
     };
     expect(codesFor(config)).toHaveLength(0);
+  });
+});
+
+describe('Phase 3 — WhatsApp and Firebase resource identifiers', () => {
+  it('fails when META_WHATSAPP_PHONE_NUMBER_ID is the production phone number', () => {
+    const config = {
+      ...stagingConfig,
+      PROD_IDENTIFIER_DENYLIST: 'prod-phone-number-id',
+      META_WHATSAPP_PHONE_NUMBER_ID: 'prod-phone-number-id',
+    };
+    expect(codesFor(config)).toContain('STAGING_PRODUCTION_WHATSAPP_NUMBER');
+  });
+
+  it('fails when FIREBASE_PROJECT_ID is the production project', () => {
+    const config = {
+      ...stagingConfig,
+      PROD_IDENTIFIER_DENYLIST: 'learnix-prod',
+      FIREBASE_PROJECT_ID: 'learnix-prod',
+    };
+    expect(codesFor(config)).toContain('STAGING_PRODUCTION_FIREBASE_PROJECT');
+  });
+
+  it('does not flag either identifier when absent', () => {
+    expect(codesFor(stagingConfig)).toHaveLength(0);
   });
 });
 

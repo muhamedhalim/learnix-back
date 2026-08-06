@@ -126,8 +126,53 @@ describe('MailService', () => {
     await fallback.sendWelcomeEmail({ to: 'student@example.test', locale: PreferredLanguage.AR });
     expect(fallbackQueue.add).toHaveBeenCalledWith(
       JOB_TYPES.EMAIL.DELIVER,
-      expect.objectContaining({ subject: 'مرحبًا بك في Learnix', html: expect.stringContaining('dir="rtl"') }),
+      expect.objectContaining({
+        subject: 'مرحبًا بك في Learnix',
+        html: expect.stringContaining('dir="rtl"'),
+      }),
     );
+  });
+
+  it('blocks delivery to a non-allowlisted recipient on staging without calling MailerSend', async () => {
+    const { service } = createService({
+      ...configuredValues,
+      APP_ENV: 'staging',
+      MAIL_ALLOWLIST: 'tester@example.com',
+    });
+    const send = jest.fn();
+    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
+
+    await service.deliver({ to: 'real.student@gmail.com', subject: 'Hi', text: 'Hi' });
+
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('delivers for real to an allowlisted recipient on staging, with a [STAGING] subject prefix', async () => {
+    const { service } = createService({
+      ...configuredValues,
+      APP_ENV: 'staging',
+      MAIL_ALLOWLIST: 'tester@example.com',
+    });
+    const send = jest.fn().mockResolvedValue({ statusCode: 202, headers: {} });
+    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
+
+    await service.deliver({ to: 'tester@example.com', subject: 'Hi', text: 'Hi' });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const params = send.mock.calls[0]?.[0] as { subject?: string };
+    expect(params.subject).toBe('[STAGING] Hi');
+  });
+
+  it('does not block anything on production (default APP_ENV)', async () => {
+    const { service } = createService(configuredValues);
+    const send = jest.fn().mockResolvedValue({ statusCode: 202, headers: {} });
+    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
+
+    await service.deliver({ to: 'anyone@gmail.com', subject: 'Hi', text: 'Hi' });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    const params = send.mock.calls[0]?.[0] as { subject?: string };
+    expect(params.subject).toBe('Hi');
   });
 
   it('does not initialize MailerSend for any other provider', async () => {

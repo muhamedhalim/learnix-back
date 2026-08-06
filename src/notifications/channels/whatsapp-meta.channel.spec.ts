@@ -18,14 +18,28 @@ const TARGET: ChannelTarget = {
 const TEMPLATED: RenderedMessage = {
   templateKey: 'exam_graded.ar',
   body: 'plain text',
-  whatsappTemplate: { name: 'exam_graded_ar', language: PreferredLanguage.AR, bodyParameters: ['Ahmed'] },
+  whatsappTemplate: {
+    name: 'exam_graded_ar',
+    language: PreferredLanguage.AR,
+    bodyParameters: ['Ahmed'],
+  },
 };
 
-function makeChannel(http: Partial<HttpService>, configured = true): WhatsAppMetaChannel {
+function makeChannel(
+  http: Partial<HttpService>,
+  configured = true,
+  extraConfig: Record<string, string> = {},
+): WhatsAppMetaChannel {
   const config = {
     get: (key: string) =>
       configured
-        ? { META_WHATSAPP_PHONE_NUMBER_ID: 'pnid', META_WHATSAPP_ACCESS_TOKEN: 'token' }[key]
+        ? (
+            {
+              META_WHATSAPP_PHONE_NUMBER_ID: 'pnid',
+              META_WHATSAPP_ACCESS_TOKEN: 'token',
+              ...extraConfig,
+            } as Record<string, string>
+          )[key]
         : undefined,
   } as unknown as ConfigService;
   return new WhatsAppMetaChannel(http as HttpService, config);
@@ -87,7 +101,9 @@ describe('WhatsAppMetaChannel', () => {
     ['template does not exist', 132_001, false],
     ['phone number not registered', 133_010, true],
   ])('treats "%s" as permanent', async (_label, code, notOnChannel) => {
-    const channel = makeChannel({ post: jest.fn(() => throwError(() => metaError(code))) as never });
+    const channel = makeChannel({
+      post: jest.fn(() => throwError(() => metaError(code))) as never,
+    });
 
     const result = await channel.send(TARGET, TEMPLATED);
 
@@ -116,6 +132,32 @@ describe('WhatsAppMetaChannel', () => {
 
     expect(result.accepted).toBe(false);
     expect(result.permanent).toBeUndefined();
+  });
+
+  it('sandboxes a non-allowlisted recipient on staging: no HTTP call, reported as accepted', async () => {
+    const post = jest.fn();
+    const channel = makeChannel({ post: post as never }, true, {
+      APP_ENV: 'staging',
+      SMS_ALLOWLIST: '+201000000001',
+    });
+
+    const result = await channel.send(TARGET, TEMPLATED);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(result).toEqual({ accepted: true });
+  });
+
+  it('still sends for real when the recipient IS on the staging allowlist', async () => {
+    const post = jest.fn(() => of({ data: { messages: [{ id: 'wamid.ABC' }] } }));
+    const channel = makeChannel({ post: post as never }, true, {
+      APP_ENV: 'staging',
+      SMS_ALLOWLIST: TARGET.phoneE164,
+    });
+
+    const result = await channel.send(TARGET, TEMPLATED);
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ accepted: true, providerMessageId: 'wamid.ABC' });
   });
 
   it('never returns the raw phone number in the error string', async () => {
