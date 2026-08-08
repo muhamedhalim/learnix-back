@@ -18,6 +18,8 @@ import { HealthMetricsService } from './health-metrics.service';
 import { HealthOrchestratorService } from './health-orchestrator.service';
 import { HealthRiskService } from './health-risk.service';
 import { HealthService } from './health.service';
+import { FinancialOperationsAlertListener } from './listeners/financial-operations-alert.listener';
+import { OperationalAlertService } from './operational-alert.service';
 import { BackendApiHealthIndicator } from './indicators/backend-api.indicator';
 import { DatabaseHealthIndicator } from './indicators/database.indicator';
 import { DocumentHealthIndicator } from './indicators/document.indicator';
@@ -51,6 +53,12 @@ import { StorageHealthIndicator } from './indicators/storage.indicator';
     HealthAlertService,
     HealthAuditService,
     HealthDiagnosticsService,
+    OperationalAlertService,
+    // Consumes the critical payment/refund/finance domain events that the
+    // outbox previously published with no subscriber. Registered here (not in
+    // PaymentsModule) because HealthModule already imports PaymentsModule —
+    // the reverse would close an import cycle. See the listener's header.
+    FinancialOperationsAlertListener,
     HealthCollectorCoordinatorService,
     HealthCollectionService,
     BackendApiHealthIndicator,
@@ -62,6 +70,6 @@ import { StorageHealthIndicator } from './indicators/storage.indicator';
     DocumentHealthIndicator,
     SchedulerHealthIndicator,
   ],
-  exports: [HealthService, HealthOrchestratorService],
+  exports: [HealthService, HealthOrchestratorService, OperationalAlertService],
 })
 export class HealthModule {}

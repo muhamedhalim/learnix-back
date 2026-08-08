@@ -93,7 +93,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Wait for staging health endpoint (Railway/Vercel deploy independently)
+      - name: Wait for staging readiness endpoint (Railway/Vercel deploy independently)
+        # READINESS, not liveness — see the equivalent step in
+        # deploy-production.yml for why liveness cannot gate a deploy.
         run: |
           URL="${{ vars.STAGING_BACKEND_URL }}"
           if [ -z "$URL" ]; then
@@ -101,15 +103,15 @@ jobs:
             exit 1
           fi
           for i in $(seq 1 20); do
-            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health" || echo "000")
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health/readiness" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "Healthy after $i attempt(s)."
+              echo "Ready after $i attempt(s)."
               exit 0
             fi
-            echo "Attempt $i: got $STATUS, retrying in 15s..."
+            echo "Attempt $i: readiness returned $STATUS, retrying in 15s..."
             sleep 15
           done
-          echo "::error::Staging never reported healthy after 20 attempts (5 minutes)."
+          echo "::error::Staging never reported ready after 20 attempts (5 minutes). Check PostgreSQL and Redis connectivity."
           exit 1
 
       - name: Smoke test

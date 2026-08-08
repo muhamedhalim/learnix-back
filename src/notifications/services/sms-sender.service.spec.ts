@@ -1,4 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
 import { SmsSenderService } from './sms-sender.service';
 
@@ -69,5 +70,47 @@ describe('SmsSenderService — staging sandbox enforcement', () => {
     await service.sendSms('+201234567890', 'hello');
 
     expect(twilioCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('SmsSenderService — guardian phone numbers are never logged in full', () => {
+  const PHONE = '+201234567890';
+
+  it('masks the recipient on a successful send', async () => {
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      const { service } = makeService(CONFIGURED);
+
+      await service.sendSms(PHONE, 'hello');
+
+      const logged = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logged).not.toContain(PHONE);
+      expect(logged).not.toContain('201234567890');
+      // Last three digits are retained so support can confirm the recipient.
+      expect(logged).toContain('***890');
+      // The provider correlation handle is still there.
+      expect(logged).toContain('SM123');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('masks the recipient on a failed send', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const { service, twilioCreate } = makeService(CONFIGURED);
+      twilioCreate.mockRejectedValue(new Error('Twilio 21610: unsubscribed recipient'));
+
+      const result = await service.sendSms(PHONE, 'hello');
+
+      expect(result.success).toBe(false);
+      const logged = errorSpy.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logged).not.toContain(PHONE);
+      expect(logged).toContain('***890');
+      // The provider error is preserved — it is what makes the log actionable.
+      expect(logged).toContain('21610');
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });

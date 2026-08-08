@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import twilio from 'twilio';
 
+import { maskPhone } from '../../common/utils/mask.util';
 import { evaluatePhoneRecipient } from '../../common/utils/staging-messaging-guard.util';
 
 export interface SmsResult {
@@ -104,7 +105,14 @@ export class SmsSenderService {
         to: formattedPhone,
       });
 
-      this.logger.log(`SMS sent successfully to ${formattedPhone}: ${result.sid}`);
+      // Masked: a guardian's full E.164 number is personal data and must never
+      // reach the production log stream. The Twilio SID is the correlation
+      // handle for support, and `maskPhone` keeps the last 3 digits, which is
+      // enough to confirm "the right number" without disclosing it. Matches
+      // what `WhatsAppMetaChannel` already does for the same event.
+      this.logger.log(
+        `SMS sent successfully to ${maskPhone(formattedPhone) ?? '***'}: ${result.sid}`,
+      );
 
       return {
         success: true,
@@ -112,7 +120,9 @@ export class SmsSenderService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Failed to send SMS to ${formattedPhone}: ${errorMessage}`);
+      this.logger.error(
+        `Failed to send SMS to ${maskPhone(formattedPhone) ?? '***'}: ${errorMessage}`,
+      );
 
       return {
         success: false,

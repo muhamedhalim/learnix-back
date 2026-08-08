@@ -3,13 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import { MailService } from '../mail/mail.service';
-import { NotificationType } from '../notifications/entities/notification-type.enum';
-import { NotificationsService } from '../notifications/services/notifications.service';
-import { UserRole } from '../users/entities/user-role.enum';
-import { User } from '../users/entities/user.entity';
 import { HealthAlertRule } from './entities';
 import type { HealthComponentResult } from './health.types';
+import { OperationalAlertService } from './operational-alert.service';
 
 const DEFAULT_RULES: Array<
   Pick<
@@ -143,10 +139,7 @@ export class HealthAlertService implements OnModuleInit {
   constructor(
     @InjectRepository(HealthAlertRule)
     private readonly rules: Repository<HealthAlertRule>,
-    @InjectRepository(User)
-    private readonly users: Repository<User>,
-    private readonly notifications: NotificationsService,
-    private readonly mail: MailService,
+    private readonly alerts: OperationalAlertService,
   ) {}
 
   public async onModuleInit(): Promise<void> {
@@ -223,50 +216,43 @@ export class HealthAlertService implements OnModuleInit {
     }
   }
 
+  /**
+   * Hands the decided incident to the shared delivery path. The rule engine
+   * (thresholds, `duration_seconds` hysteresis, persisted `cooldown_seconds`)
+   * is unchanged and still lives entirely in this class; only the "how does a
+   * human find out" half moved to `OperationalAlertService`, so rule-based
+   * alerts and event-driven financial alerts share one destination.
+   *
+   * `rule.channels`/`rule.recipients` remain authoritative for the channels an
+   * administrator explicitly configured. A `critical` rule additionally always
+   * attempts the external destinations — the entire point of Phase 1 is that a
+   * critical incident must not depend on someone watching the dashboard.
+   */
   private async deliver(
     rule: HealthAlertRule,
     component: HealthComponentResult,
     value: number,
   ): Promise<void> {
-    const title = `[${rule.severity.toUpperCase()}] ${rule.name}`;
-    const message = `${component.name}: ${rule.metric} is ${value.toFixed(2)} (threshold ${rule.threshold.toFixed(2)}).`;
-    if (rule.channels.includes('in_app')) {
-      const admins = await this.users.find({
-        where: { role: UserRole.ADMIN, is_active: true },
-        select: { id: true },
-        take: 100,
-      });
-      await Promise.allSettled(
-        admins.map(
-          async (admin) =>
-            await this.notifications.create(
-              {
-                user_id: admin.id,
-                type: NotificationType.CUSTOM,
-                title,
-                message,
-                data: { componentId: component.id, alertRuleId: rule.id },
-              },
-              false,
-            ),
-        ),
-      );
-    }
-    if (rule.channels.includes('email') && this.mail.isConfigured()) {
-      await Promise.allSettled(
-        rule.recipients
-          .filter((recipient) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(recipient))
-          .map(
-            async (recipient) =>
-              await this.mail.send({
-                to: recipient,
-                subject: title,
-                text: message,
-                html: `<p>${message}</p>`,
-              }),
-          ),
-      );
-    }
+    const isCritical = rule.severity === 'critical';
+    await this.alerts.dispatch({
+      key: `health-rule:${rule.key}:${component.id}`,
+      severity: isCritical ? 'critical' : 'warning',
+      title: rule.name,
+      message: `${component.name}: ${rule.metric} is ${value.toFixed(2)} (threshold ${rule.threshold.toFixed(2)}).`,
+      context: {
+        componentId: component.id,
+        alertRuleId: rule.id,
+        metric: rule.metric,
+        value: Number(value.toFixed(2)),
+        threshold: rule.threshold,
+      },
+      additionalEmailRecipients: rule.recipients,
+      channels: {
+        inApp: rule.channels.includes('in_app'),
+        email: isCritical || rule.channels.includes('email'),
+        webhook: isCritical || rule.channels.includes('email'),
+      },
+    });
   }
 
   private matchesComponent(pattern: string | null, id: string): boolean {

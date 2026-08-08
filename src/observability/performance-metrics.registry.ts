@@ -1,7 +1,37 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 
+import { processEnvReader } from '../common/utils/redis-connection.util';
+import { resolveAppEnvLabel } from '../config/app-env';
+import { resolveCommitSha, resolveRelease, resolveServiceVersion } from './release';
+
+/**
+ * Process-lifetime build identity, resolved once. Exposed as a
+ * `backend_build_info` gauge (see `renderBuildInfo`) so metric series can be
+ * joined to the deployment that produced them.
+ */
+const buildIdentity = {
+  version: resolveServiceVersion(processEnvReader()),
+  release: resolveRelease(processEnvReader()) ?? 'unknown',
+  commit: resolveCommitSha(processEnvReader()) ?? 'unknown',
+  environment: resolveAppEnvLabel(processEnvReader()),
+} as const;
+
 const DURATION_BUCKETS_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000] as const;
 const QUERY_COUNT_BUCKETS = [0, 1, 2, 3, 4, 5, 10, 20, 50] as const;
+
+/**
+ * Width of the rolling window used for the in-process alert-facing values.
+ *
+ * The cumulative counters below are correct for Prometheus — `rate()` and
+ * `increase()` are defined over monotonic counters — but they are WRONG as
+ * direct alert inputs: a lifetime error rate latches permanently once it
+ * crosses a threshold (re-firing every cooldown long after recovery), and a
+ * short spike is diluted to nothing by hours of healthy traffic. The in-house
+ * `HealthAlertService` reads a snapshot, not a time series, so it needs
+ * genuinely windowed values. Both views are maintained side by side.
+ */
+const WINDOW_MINUTES = 15;
+const MINUTE_MS = 60_000;
 
 /**
  * Domains whose failures are tracked as dedicated counters. These map to the
@@ -15,6 +45,40 @@ export type FailureDomain =
   | 'queue'
   | 'unhandled_exception'
   | 'unhandled_rejection';
+
+export const FAILURE_DOMAINS: readonly FailureDomain[] = Object.freeze([
+  'payment',
+  'webhook',
+  'email',
+  'queue',
+  'unhandled_exception',
+  'unhandled_rejection',
+]);
+
+/** One minute of the rolling window. Reset in place when its slot is reused. */
+interface MinuteBucket {
+  minuteIndex: number;
+  requests: number;
+  serverErrors: number;
+  clientErrors: number;
+  timeouts: number;
+  slowRequests: number;
+  durationMsSum: number;
+  failures: Map<FailureDomain, number>;
+}
+
+function emptyBucket(minuteIndex: number): MinuteBucket {
+  return {
+    minuteIndex,
+    requests: 0,
+    serverErrors: 0,
+    clientErrors: 0,
+    timeouts: 0,
+    slowRequests: 0,
+    durationMsSum: 0,
+    failures: new Map(),
+  };
+}
 
 // Event-loop delay histogram (nanoseconds). Enabled once at process start; read
 // lazily at scrape time. Cheap and dependency-free (Node built-in).
@@ -61,6 +125,24 @@ export interface CacheMetricSample {
   loadTimeMs?: number;
 }
 
+/**
+ * Rolling-window view over the last `WINDOW_MINUTES`. This is what alert rules
+ * and the health dashboard's "current state" read; the lifetime totals in the
+ * snapshot remain available for context and for Prometheus.
+ */
+export interface PerformanceWindowSnapshot {
+  windowMinutes: number;
+  requests: number;
+  serverErrors: number;
+  clientErrors: number;
+  serverErrorRatePercent: number;
+  clientErrorRatePercent: number;
+  timeoutRatePercent: number;
+  slowRequestRatePercent: number;
+  averageLatencyMs: number | null;
+  failures: Record<FailureDomain, number>;
+}
+
 export interface PerformanceMetricsSnapshot {
   requests: number;
   requestsPerMinute: number;
@@ -78,6 +160,8 @@ export interface PerformanceMetricsSnapshot {
   failedQueries: number;
   averageQueryLatencyMs: number;
   failures: Record<FailureDomain, number>;
+  /** Windowed counterpart of the rate/failure fields above. */
+  window: PerformanceWindowSnapshot;
   memory: {
     rssBytes: number;
     heapUsedBytes: number;
@@ -127,14 +211,78 @@ class PerformanceMetricsRegistry {
   private readonly failureCounts = new Map<FailureDomain, number>();
   private readonly cacheMetrics = new Map<string, { count: number; loadTimeMsSum: number }>();
   private readonly httpExceptions = new Map<string, number>();
+  /** Fixed-size ring: one slot per minute of the rolling window. */
+  private readonly window: MinuteBucket[] = Array.from({ length: WINDOW_MINUTES }, () =>
+    emptyBucket(-1),
+  );
 
   /**
    * Increment a business/runtime failure counter (payment, webhook, email,
    * queue, unhandled exception/rejection). Surfaced as
-   * `backend_failures_total{domain="…"}` and alerted on in Grafana.
+   * `backend_failures_total{domain="…"}` for Prometheus (cumulative) and as
+   * `window.failures[domain]` for the in-process alert rules (last
+   * `WINDOW_MINUTES`).
    */
   public recordFailure(domain: FailureDomain): void {
     this.failureCounts.set(domain, (this.failureCounts.get(domain) ?? 0) + 1);
+    const bucket = this.currentBucket();
+    bucket.failures.set(domain, (bucket.failures.get(domain) ?? 0) + 1);
+  }
+
+  /** The bucket for the current minute, reset if its ring slot is stale. */
+  private currentBucket(now = Date.now()): MinuteBucket {
+    const minuteIndex = Math.floor(now / MINUTE_MS);
+    const slot = minuteIndex % WINDOW_MINUTES;
+    const bucket = this.window[slot]!;
+    if (bucket.minuteIndex !== minuteIndex) {
+      this.window[slot] = emptyBucket(minuteIndex);
+      return this.window[slot]!;
+    }
+    return bucket;
+  }
+
+  /** Buckets still inside the window, newest-first ordering irrelevant. */
+  private liveBuckets(now = Date.now()): MinuteBucket[] {
+    const oldest = Math.floor(now / MINUTE_MS) - (WINDOW_MINUTES - 1);
+    return this.window.filter((bucket) => bucket.minuteIndex >= oldest);
+  }
+
+  private windowSnapshot(now = Date.now()): PerformanceWindowSnapshot {
+    const buckets = this.liveBuckets(now);
+    let requests = 0;
+    let serverErrors = 0;
+    let clientErrors = 0;
+    let timeouts = 0;
+    let slowRequests = 0;
+    let durationMsSum = 0;
+    const failures = {} as Record<FailureDomain, number>;
+    for (const domain of FAILURE_DOMAINS) failures[domain] = 0;
+
+    for (const bucket of buckets) {
+      requests += bucket.requests;
+      serverErrors += bucket.serverErrors;
+      clientErrors += bucket.clientErrors;
+      timeouts += bucket.timeouts;
+      slowRequests += bucket.slowRequests;
+      durationMsSum += bucket.durationMsSum;
+      for (const [domain, count] of bucket.failures) {
+        failures[domain] += count;
+      }
+    }
+
+    const rate = (value: number): number => (requests === 0 ? 0 : (value / requests) * 100);
+    return {
+      windowMinutes: WINDOW_MINUTES,
+      requests,
+      serverErrors,
+      clientErrors,
+      serverErrorRatePercent: rate(serverErrors),
+      clientErrorRatePercent: rate(clientErrors),
+      timeoutRatePercent: rate(timeouts),
+      slowRequestRatePercent: rate(slowRequests),
+      averageLatencyMs: requests === 0 ? null : durationMsSum / requests,
+      failures,
+    };
   }
 
   public recordHttp(sample: HttpPerformanceSample): void {
@@ -160,7 +308,17 @@ class PerformanceMetricsRegistry {
     metric.dbDurationMsSum += sample.dbDurationMs;
     metric.queryCountSum += sample.queryCount;
     metric.responseBytesSum += sample.responseBytes;
-    if (sample.durationMs >= 500) metric.slowRequestCount++;
+    const isSlow = sample.durationMs >= 500;
+    if (isSlow) metric.slowRequestCount++;
+
+    // Mirror into the rolling window so alert rules see CURRENT behaviour.
+    const bucket = this.currentBucket();
+    bucket.requests++;
+    bucket.durationMsSum += sample.durationMs;
+    if (isSlow) bucket.slowRequests++;
+    if (sample.status >= 500) bucket.serverErrors++;
+    else if (sample.status >= 400) bucket.clientErrors++;
+    if (sample.status === 408 || sample.status === 504) bucket.timeouts++;
 
     for (let index = 0; index < DURATION_BUCKETS_MS.length; index++) {
       if (sample.durationMs <= DURATION_BUCKETS_MS[index]!) {
@@ -274,19 +432,12 @@ class PerformanceMetricsRegistry {
     const elapsedMinutes = Math.max((Date.now() - this.startedAt) / 60_000, 1 / 60);
     const totalQueries = this.successfulQueries + this.failedQueries;
     const failures = {} as Record<FailureDomain, number>;
-    const domains: FailureDomain[] = [
-      'payment',
-      'webhook',
-      'email',
-      'queue',
-      'unhandled_exception',
-      'unhandled_rejection',
-    ];
-    for (const domain of domains) {
+    for (const domain of FAILURE_DOMAINS) {
       failures[domain] = this.failureCounts.get(domain) ?? 0;
     }
 
     return {
+      window: this.windowSnapshot(),
       requests,
       requestsPerMinute: requests / elapsedMinutes,
       averageLatencyMs: requests === 0 ? null : durationMs / requests,
@@ -392,6 +543,7 @@ class PerformanceMetricsRegistry {
     this.renderFailureCounters(lines);
     this.renderApplicationCacheMetrics(lines);
     this.renderRuntimeMetrics(lines);
+    this.renderBuildInfo(lines);
 
     lines.push('');
     return lines.join('\n');
@@ -475,19 +627,30 @@ class PerformanceMetricsRegistry {
       '# HELP backend_failures_total Domain failures by type.',
       '# TYPE backend_failures_total counter',
     );
-    const domains: FailureDomain[] = [
-      'payment',
-      'webhook',
-      'email',
-      'queue',
-      'unhandled_exception',
-      'unhandled_rejection',
-    ];
-    for (const domain of domains) {
+    for (const domain of FAILURE_DOMAINS) {
       lines.push(
         `backend_failures_total{domain="${domain}"} ${(this.failureCounts.get(domain) ?? 0).toString()}`,
       );
     }
+  }
+
+  /**
+   * Build identity as a Prometheus `*_build_info` gauge — the standard idiom
+   * for joining a metric series to the deployment that produced it
+   * (`... * on(instance) group_left(release) backend_build_info`). This is what
+   * makes "did errors rise after release X?" answerable from metrics, and it
+   * carries no runtime data, so it is safe on a scraped endpoint.
+   */
+  private renderBuildInfo(lines: string[]): void {
+    lines.push(
+      '# HELP backend_build_info Build/release identity of this process (always 1).',
+      '# TYPE backend_build_info gauge',
+      `backend_build_info{version="${escapeLabel(buildIdentity.version)}",release="${escapeLabel(
+        buildIdentity.release,
+      )}",commit="${escapeLabel(buildIdentity.commit)}",environment="${escapeLabel(
+        buildIdentity.environment,
+      )}",node="${escapeLabel(process.version)}"} 1`,
+    );
   }
 
   /** Process memory/CPU/uptime and event-loop lag, sampled at scrape time. */

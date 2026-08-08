@@ -7,6 +7,7 @@ import { DataSource } from 'typeorm';
 
 import { AppEnvironment, resolveAppEnv, resolveAppEnvLabel } from '../../config/app-env';
 import { MailService } from '../../mail/mail.service';
+import { resolveRelease } from '../../observability/release';
 import { isSentryEnabled } from '../../observability/sentry';
 import {
   PAYMENT_GATEWAY,
@@ -493,6 +494,9 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const startedAt = Date.now();
     const dsn = this.config.get<string>('SENTRY_DSN') ?? '';
     const explicitlyEnabled = this.config.get<string>('SENTRY_ENABLED') === 'true';
+    // `SENTRY_ENABLED=false` is now an actual kill-switch in `initSentry()`, not
+    // just a dashboard label — so "disabled" here and "not initialised" there
+    // mean the same thing instead of contradicting each other.
     const explicitlyDisabled = this.config.get<string>('SENTRY_ENABLED') === 'false';
     if (explicitlyDisabled || (!explicitlyEnabled && dsn === '')) {
       return this.disabled(
@@ -525,7 +529,10 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
         : 'Sentry is configured but the SDK is not initialized in this process.',
       metadata: {
         configured: true,
-        release: this.config.get<string>('SENTRY_RELEASE') ?? null,
+        // Resolved through the same fallback chain the SDK uses (explicit
+        // SENTRY_RELEASE → APP_VERSION → platform commit SHA), so the
+        // dashboard reports the release events are ACTUALLY tagged with.
+        release: resolveRelease(this.config.get.bind(this.config)) ?? null,
         traceSampleRate: this.config.get<number>('SENTRY_TRACES_SAMPLE_RATE') ?? null,
         // APP_ENV, not NODE_ENV — this label surfaces in the health dashboard
         // and must say which real deployment produced it. See

@@ -88,6 +88,10 @@ const FINGERPRINTED_SECRETS: readonly string[] = Object.freeze([
   'COOKIE_SECRET',
   'INIT_SECRET',
   'METRICS_BEARER_TOKEN',
+  // A Slack/Discord-style incoming webhook URL carries its token in the path.
+  // Fingerprinting it stops a staging deployment from paging the production
+  // on-call channel with staging noise.
+  'ALERT_WEBHOOK_URL',
   'BULL_BOARD_PASSWORD',
   'PAYMOB_API_KEY',
   'PAYMOB_SECRET_KEY',

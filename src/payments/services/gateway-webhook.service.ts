@@ -5,6 +5,9 @@ import { randomUUID } from 'crypto';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
+import { getCurrentRequestId } from '../../observability/performance-context';
+import { performanceMetrics } from '../../observability/performance-metrics.registry';
+import { ScheduledJobMonitorService } from '../../observability/scheduled-job-monitor.service';
 import { GatewayWebhookEvent, Payment, PaymentDomainEvent } from '../entities';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentsService } from './payments.service';
@@ -37,6 +40,7 @@ export class GatewayWebhookService {
     private readonly dataSource: DataSource,
     private readonly payments: PaymentsService,
     private readonly financialStateMachine: GatewayFinancialStateMachineService,
+    private readonly jobMonitor: ScheduledJobMonitorService,
   ) {}
 
   public async process(webhook: ProviderWebhookEvent): Promise<GatewayWebhookResponse> {
@@ -135,7 +139,26 @@ export class GatewayWebhookService {
         event.lease_token!,
         error instanceof Error ? error.message : 'Unknown webhook error',
       );
-      this.logger.error(`Gateway webhook transaction ${webhook.transactionId} failed`);
+      // An operational payment failure: the provider's event could not be
+      // applied. Deliberately NOT recorded for a declined card — that path
+      // goes through `processFailedPayment` above and is an expected business
+      // outcome, not an incident. Counted once per failed processing attempt;
+      // the terminal dead-letter is counted separately by the financial alert
+      // listener, because a give-up is a distinct incident from a retry.
+      performanceMetrics.recordFailure('payment');
+      this.logger.error(
+        JSON.stringify({
+          event: 'gateway_webhook_processing_failed',
+          requestId: getCurrentRequestId() ?? null,
+          provider: webhook.provider,
+          providerEventId: webhook.providerEventId,
+          transactionId: webhook.transactionId,
+          paymentId: payment.id,
+          webhookEventId: event.id,
+          attempt: event.attempt_count,
+          error: error instanceof Error ? error.message : 'Unknown webhook error',
+        }),
+      );
       throw error;
     }
   }
@@ -156,6 +179,15 @@ export class GatewayWebhookService {
       return 0;
     }
 
+    // If this cron stops firing, expired webhook leases are never reclaimed and
+    // captured payments silently stop being applied — with no failed job row
+    // anywhere to show it. Wrapped so a stall becomes visible.
+    return await this.jobMonitor.run('payments.webhook_recovery', async () =>
+      this.recoverStaleEventsCycle(limit),
+    );
+  }
+
+  private async recoverStaleEventsCycle(limit: number): Promise<number> {
     const now = new Date();
     const eventIds = await this.dataSource.transaction(async (manager) => {
       const candidates = await manager

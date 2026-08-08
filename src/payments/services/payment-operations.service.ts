@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { ScheduledJobMonitorService } from '../../observability/scheduled-job-monitor.service';
 import { AttendanceCode } from '../../attendance-codes/entities/attendance-code.entity';
 import { FinancialReportFilterDto, OrderFilterDto } from '../dto';
 import {
@@ -55,6 +56,7 @@ export class PaymentOperationsService {
     private readonly finalizer: PaymentFinalizationService,
     private readonly paymentService: PaymentsService,
     private readonly refunds: RefundsService,
+    private readonly jobMonitor: ScheduledJobMonitorService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -68,6 +70,16 @@ export class PaymentOperationsService {
       return;
     }
 
+    // Execution monitoring for the CYCLE. The per-task rows written by
+    // `runMonitoredMaintenanceTask` below record what each task did; this
+    // records that the cron fired at all — a wedged scheduler writes neither a
+    // success nor a failure row, and was previously invisible.
+    await this.jobMonitor.run('payments.finance_maintenance', async () =>
+      this.runMaintenanceCycle(),
+    );
+  }
+
+  private async runMaintenanceCycle(): Promise<void> {
     const guard = this.dataSource.createQueryRunner();
     await guard.connect();
     try {
@@ -210,6 +222,12 @@ export class PaymentOperationsService {
       return;
     }
 
+    await this.jobMonitor.run('payments.gateway_reconciliation', async () =>
+      this.reconcileGatewayAttemptsCycle(),
+    );
+  }
+
+  private async reconcileGatewayAttemptsCycle(): Promise<void> {
     let lastCreatedAt: Date | null = null;
     let lastId: string | null = null;
     for (;;) {

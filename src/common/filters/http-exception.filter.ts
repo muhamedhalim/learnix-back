@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import {
   ArgumentsHost,
   Catch,
@@ -17,7 +15,13 @@ import {
   translateMessage,
   translateMessages,
 } from '../../i18n/error-translator.util';
+import {
+  getCurrentRequestId,
+  REQUEST_ID_HEADER,
+  resolveRequestId,
+} from '../../observability/performance-context';
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
+import { captureHandledException } from '../../observability/sentry';
 
 /**
  * RFC 7807 Problem Details for HTTP APIs
@@ -59,16 +63,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-    const requestId = this.resolveRequestId(request.headers['x-request-id']);
-    response.setHeader?.('X-Request-ID', requestId);
+    // THE canonical id for this request, established once by
+    // RequestPerformanceMiddleware. Read from the AsyncLocalStorage context
+    // first, then the (middleware-normalised) request header. Minting a fresh
+    // id here is a last-resort fallback for a request that never passed
+    // through the middleware — previously it was the common path, which is
+    // why the id in this response body did not match any log line.
+    const requestId = getCurrentRequestId() ?? resolveRequestId(request.headers[REQUEST_ID_HEADER]);
+    response.setHeader?.('X-Request-Id', requestId);
 
     // Create RFC 7807 Problem Details response
     const locale = resolveRequestLocale(request);
     const problemDetails = this.createProblemDetails(exception, request, locale, requestId);
     const { status } = problemDetails;
+    const route = request.route?.path
+      ? `${request.baseUrl}${String(request.route.path)}`
+      : 'unmatched';
     performanceMetrics.recordHttpException({
       method: request.method,
-      route: request.route?.path ? `${request.baseUrl}${String(request.route.path)}` : 'unmatched',
+      route,
       status,
       exceptionType: exception instanceof Error ? exception.name : 'UnknownError',
     });
@@ -79,11 +92,26 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const logMessage = `[${requestId}] ${request.method} ${requestPath} - ${String(status)} ${problemDetails.title}: ${problemDetails.detail}`;
 
     if (logLevel === 'error') {
-      const includeStack = process.env['NODE_ENV'] !== 'production';
-      this.logger.error(
-        logMessage,
-        includeStack && exception instanceof Error ? exception.stack : undefined,
-      );
+      // The stack is logged in EVERY environment, production included. It is
+      // written to the server log only — `createProblemDetails` separately
+      // withholds internal detail from the client response (see the
+      // `isProduction` branch there), which is the control that actually
+      // protects the API surface. Suppressing it here as well meant a
+      // production 500 left no stack trace anywhere at all.
+      this.logger.error(logMessage, exception instanceof Error ? exception.stack : undefined);
+
+      // Server-side faults are the ones worth an alert. Expected client errors
+      // (400/401/403/404/409/422/429) are deliberately not reported: they are
+      // normal traffic, and reporting them would bury real incidents.
+      const user = (request as Request & { user?: { userId?: string; role?: string } }).user;
+      captureHandledException(exception, {
+        requestId,
+        method: request.method,
+        route,
+        status,
+        userId: user?.userId,
+        role: user?.role,
+      });
     } else if (logLevel === 'warn') {
       this.logger.warn(logMessage);
     } else {
@@ -194,13 +222,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     return problemDetails;
-  }
-
-  private resolveRequestId(value: string | string[] | undefined): string {
-    const candidate = Array.isArray(value) ? value[0] : value;
-    return candidate !== undefined && /^[A-Za-z0-9._:-]{1,128}$/u.test(candidate)
-      ? candidate
-      : randomUUID();
   }
 
   /**

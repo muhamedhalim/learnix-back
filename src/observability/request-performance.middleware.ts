@@ -1,11 +1,17 @@
-import { randomUUID } from 'node:crypto';
-
 import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 
 import type { NextFunction, Request, Response } from 'express';
 
-import { createRequestPerformanceContext, requestPerformanceStorage } from './performance-context';
+import { processEnvReader } from '../common/utils/redis-connection.util';
+import { resolveAppEnvLabel } from '../config/app-env';
+import {
+  createRequestPerformanceContext,
+  REQUEST_ID_HEADER,
+  requestPerformanceStorage,
+  resolveRequestId,
+} from './performance-context';
 import { performanceMetrics } from './performance-metrics.registry';
+import { resolveRelease } from './release';
 
 interface ExpressRoute {
   path?: unknown;
@@ -13,27 +19,32 @@ interface ExpressRoute {
 
 interface AuthenticatedUser {
   userId?: string;
+  role?: string;
   tenantId?: string;
 }
-
-const REQUEST_ID_HEADER = 'x-request-id';
 
 @Injectable()
 export class RequestPerformanceMiddleware implements NestMiddleware {
   private readonly logger = new Logger(RequestPerformanceMiddleware.name);
   private readonly httpLoggingEnabled = process.env['PERFORMANCE_HTTP_LOGGING'] !== 'false';
+  /** Resolved once: these are process-lifetime constants. */
+  private readonly environment = resolveAppEnvLabel(processEnvReader());
+  private readonly release = resolveRelease(processEnvReader()) ?? null;
 
   public use(request: Request, response: Response, next: NextFunction): void {
     const startedAt = process.hrtime.bigint();
-    const context = createRequestPerformanceContext();
 
-    // Stable per-request correlation id: honour an inbound X-Request-Id (from a
-    // load balancer / gateway) or mint a new UUID, and echo it on the response
-    // so clients and logs can be correlated.
-    const inboundId = request.headers[REQUEST_ID_HEADER];
-    const correlationId =
-      typeof inboundId === 'string' && inboundId !== '' ? inboundId : randomUUID();
-    response.setHeader(REQUEST_ID_HEADER, correlationId);
+    // THE canonical correlation id for this request. Honour a well-formed
+    // inbound X-Request-Id (load balancer / gateway / client) or mint a UUID —
+    // then write it back onto the request so every later reader sees the same
+    // value instead of minting its own. This, plus the AsyncLocalStorage
+    // context below, is what makes one request use one id in the access log,
+    // the error response body, the database timing log, and Sentry.
+    const correlationId = resolveRequestId(request.headers[REQUEST_ID_HEADER]);
+    request.headers[REQUEST_ID_HEADER] = correlationId;
+    response.setHeader('X-Request-Id', correlationId);
+
+    const context = createRequestPerformanceContext(correlationId);
 
     let completed = false;
 
@@ -58,13 +69,14 @@ export class RequestPerformanceMiddleware implements NestMiddleware {
 
       if (this.httpLoggingEnabled) {
         // Structured JSON. Only safe, non-PII fields are logged (no bodies,
-        // headers, tokens, emails). userId/tenantId identify the principal
-        // without exposing personal data.
+        // headers, tokens, emails). userId/role identify the principal
+        // without exposing personal data. `release` lets an error spike be
+        // attributed to the deployment that introduced it.
         const user = (request as Request & { user?: AuthenticatedUser }).user;
         this.logger.log(
           JSON.stringify({
             event: 'http_request',
-            requestId: correlationId,
+            requestId: context.requestId,
             method: sample.method,
             route: sample.route,
             statusCode: sample.status,
@@ -73,7 +85,10 @@ export class RequestPerformanceMiddleware implements NestMiddleware {
             queryCount: sample.queryCount,
             responseBytes: sample.responseBytes,
             userId: user?.userId ?? null,
+            role: user?.role ?? null,
             tenantId: user?.tenantId ?? null,
+            environment: this.environment,
+            release: this.release,
             ip: this.getClientIp(request),
             userAgent: request.headers['user-agent'] ?? null,
           }),

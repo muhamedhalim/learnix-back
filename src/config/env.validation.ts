@@ -283,6 +283,11 @@ export class EnvironmentVariables {
   @IsOptional()
   public SENTRY_DSN?: string;
 
+  /**
+   * Operator kill-switch. Exactly `'false'` prevents Sentry from initialising
+   * even when a DSN is present (see `observability/sentry.ts`). Any other
+   * value leaves the DSN-only behaviour unchanged.
+   */
   @IsString()
   @IsOptional()
   public SENTRY_ENABLED?: string;
@@ -295,6 +300,67 @@ export class EnvironmentVariables {
   @IsOptional()
   @Type(() => Number)
   public SENTRY_TRACES_SAMPLE_RATE?: number;
+
+  /**
+   * Human-readable build version. Also the second-choice release identifier
+   * after `SENTRY_RELEASE` (see `observability/release.ts`); when neither is
+   * set the platform commit SHA is used, so releases are tagged by default.
+   */
+  @IsString()
+  @IsOptional()
+  public APP_VERSION?: string;
+
+  // --- Operational alert delivery (see health/operational-alert.service.ts) ---
+  // Both destinations are optional and independent. With neither set, alerts
+  // remain in-app only — i.e. exactly the previous behaviour.
+
+  /** Comma-separated addresses that receive critical operational alerts. */
+  @IsString()
+  @IsOptional()
+  public ALERT_EMAIL_RECIPIENTS?: string;
+
+  /** Provider-agnostic JSON webhook (Slack/Discord-compatible payload). */
+  @IsString()
+  @IsOptional()
+  public ALERT_WEBHOOK_URL?: string;
+
+  @IsNumber()
+  @Min(500)
+  @Max(30_000)
+  @IsOptional()
+  @Type(() => Number)
+  public ALERT_WEBHOOK_TIMEOUT_MS?: number;
+
+  /** Minimum gap between external deliveries of the SAME incident key. */
+  @IsNumber()
+  @Min(0)
+  @Max(86_400)
+  @IsOptional()
+  @Type(() => Number)
+  public ALERT_MIN_INTERVAL_SECONDS?: number;
+
+  // --- Performance / metrics instrumentation ---
+  /** Bearer token required by `GET /metrics`. Endpoint fails closed without it. */
+  @IsString()
+  @IsOptional()
+  public METRICS_BEARER_TOKEN?: string;
+
+  @IsString()
+  @IsOptional()
+  public PERFORMANCE_HTTP_LOGGING?: string;
+
+  @IsString()
+  @IsOptional()
+  public PERFORMANCE_QUERY_LOGGING?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public PERFORMANCE_SLOW_QUERY_MS?: number;
+
+  @IsString()
+  @IsOptional()
+  public LOG_LEVELS?: string;
 
   // Bull Board dashboard credentials (HTTP Basic Auth for /admin/queues).
   // When unset the dashboard fails closed and rejects all requests.

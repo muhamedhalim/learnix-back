@@ -8,6 +8,7 @@ import { User } from '../users/entities/user.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { ObservabilityModule } from '../observability/observability.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
 import { AdminFinanceController } from './controllers/admin-finance.controller';
@@ -59,6 +60,10 @@ import { SettlementsService } from './services/settlements.service';
   imports: [
     forwardRef(() => DiscountCodesModule),
     ConfigModule,
+    // Supplies ScheduledJobMonitorService to the payment-critical @Cron jobs
+    // (finance maintenance, gateway reconciliation, webhook recovery). Safe to
+    // import: ObservabilityModule has no module dependencies of its own.
+    ObservabilityModule,
     TypeOrmModule.forFeature([
       Payment,
       // Manual method administration writes mandatory payment audit records.

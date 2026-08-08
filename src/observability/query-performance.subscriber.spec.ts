@@ -6,7 +6,7 @@ import { QueryPerformanceSubscriber } from './query-performance.subscriber';
 
 describe('QueryPerformanceSubscriber', () => {
   it('attributes query count and duration to the active request', () => {
-    const context = createRequestPerformanceContext();
+    const context = createRequestPerformanceContext('req-single');
     const subscriber = new QueryPerformanceSubscriber();
 
     requestPerformanceStorage.run(context, () => {
@@ -26,7 +26,12 @@ describe('QueryPerformanceSubscriber', () => {
 
   it('keeps 50 concurrent request contexts isolated', async () => {
     const subscriber = new QueryPerformanceSubscriber();
-    const contexts = Array.from({ length: 50 }, () => createRequestPerformanceContext());
+    // The canonical request id is now the string minted per HTTP request by
+    // RequestPerformanceMiddleware, not an internal counter — so the caller
+    // supplies it. Distinct ids here still prove context isolation.
+    const contexts = Array.from({ length: 50 }, (_, index) =>
+      createRequestPerformanceContext(`req-${index.toString()}`),
+    );
 
     await Promise.all(
       contexts.map((context, requestIndex) =>

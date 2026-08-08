@@ -140,19 +140,25 @@ jobs:
           path: backups/
           retention-days: 30
 
-      - name: Wait for health
+      - name: Wait for readiness
+        # READINESS, not liveness. `/api/v1/health` returns 200 unconditionally
+        # without touching PostgreSQL or Redis, so it cannot tell a working
+        # deployment from one that cannot reach its database — it would have
+        # passed this gate either way. `/api/v1/health/readiness` verifies both
+        # dependencies (2s bounded each) and returns 503 when either is down.
         run: |
           URL="${{ vars.PRODUCTION_BACKEND_URL }}"
           if [ -z "$URL" ]; then
-            echo "::warning::PRODUCTION_BACKEND_URL is not set — skipping the health wait. Set it once the correct live domain is confirmed (docs/PHASE_4_DASHBOARD_CHECKLIST.md §0.2 — the domain this repo historically assumed does not currently resolve)."
+            echo "::warning::PRODUCTION_BACKEND_URL is not set — skipping the readiness wait. Set it once the correct live domain is confirmed (docs/PHASE_4_DASHBOARD_CHECKLIST.md §0.2 — the domain this repo historically assumed does not currently resolve)."
             exit 0
           fi
           for i in $(seq 1 20); do
-            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health" || echo "000")
-            [ "$STATUS" = "200" ] && { echo "Healthy after $i attempt(s)."; exit 0; }
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 "$URL/api/v1/health/readiness" || echo "000")
+            [ "$STATUS" = "200" ] && { echo "Ready after $i attempt(s)."; exit 0; }
+            echo "Attempt $i: readiness returned $STATUS, retrying in 15s..."
             sleep 15
           done
-          echo "::error::Production never reported healthy after 20 attempts (5 minutes)."
+          echo "::error::Production never reported ready after 20 attempts (5 minutes). Check PostgreSQL and Redis connectivity."
           exit 1
 
       - name: Read-only production smoke test
