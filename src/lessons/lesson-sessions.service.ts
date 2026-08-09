@@ -134,12 +134,15 @@ export class LessonSessionsService {
       return await retryTransaction(this.dataSource, async (manager) => {
         const session = await manager.findOne(ScheduledLessonSession, {
           where: { id: sessionId },
-          relations: ['lesson'],
           lock: { mode: 'pessimistic_write' },
         });
-        if (!session || session.lesson.is_group) {
+        const lesson = session
+          ? await manager.findOne(Lesson, { where: { id: session.lesson_id } })
+          : null;
+        if (!session || !lesson || lesson.is_group) {
           throw new NotFoundException(biBody('Appointment not found', 'الموعد غير موجود'));
         }
+        session.lesson = lesson;
         this.assertBookable(session);
         const now = new Date();
         await manager.update(
@@ -391,9 +394,11 @@ export class LessonSessionsService {
   ): Promise<void> {
     const booking = await manager.findOne(LessonSessionBooking, {
       where: { id: bookingId },
-      relations: ['session'],
       lock: { mode: 'pessimistic_write' },
     });
+    const session = booking
+      ? await manager.findOne(ScheduledLessonSession, { where: { id: booking.scheduled_session_id } })
+      : null;
     const now = new Date();
     if (
       !booking ||
@@ -401,11 +406,12 @@ export class LessonSessionsService {
       booking.scheduled_session_id !== order.item_id ||
       booking.status !== LessonSessionBookingStatus.HELD ||
       booking.order_id !== null ||
-      booking.hold_expires_at <= now
+      booking.hold_expires_at <= now ||
+      !session
     ) {
       throw this.unavailable();
     }
-    const cutoff = this.cutoffAt(booking.session.start_at);
+    const cutoff = this.cutoffAt(session.start_at);
     if (requestedExpiry > cutoff) {
       throw new BadRequestException(
         biBody(
@@ -428,18 +434,23 @@ export class LessonSessionsService {
     if (order.item_type !== ItemType.LESSON_SESSION) return null;
     const booking = await manager.findOne(LessonSessionBooking, {
       where: { order_id: order.id },
-      relations: ['session', 'session.lesson'],
       lock: { mode: 'pessimistic_write' },
     });
+    const session = booking
+      ? await manager.findOne(ScheduledLessonSession, { where: { id: booking.scheduled_session_id } })
+      : null;
+    const lesson = session ? await manager.findOne(Lesson, { where: { id: session.lesson_id } }) : null;
     if (
       !booking ||
+      !session ||
+      !lesson ||
       booking.payment_id !== payment.id ||
       booking.student_id !== order.student_id ||
       booking.scheduled_session_id !== order.item_id ||
       booking.price_minor_snapshot !== order.original_amount_minor ||
       booking.currency !== order.currency ||
-      booking.session.status !== ScheduledLessonSessionStatus.SCHEDULED ||
-      booking.session.start_at <= new Date() ||
+      session.status !== ScheduledLessonSessionStatus.SCHEDULED ||
+      session.start_at <= new Date() ||
       ![
         LessonSessionBookingStatus.HELD,
         LessonSessionBookingStatus.PAYMENT_REVIEW,
@@ -453,6 +464,8 @@ export class LessonSessionsService {
       booking.confirmed_at = new Date();
       await manager.save(booking);
     }
+    booking.session = session;
+    booking.session.lesson = lesson;
     return booking;
   }
 
@@ -477,17 +490,20 @@ export class LessonSessionsService {
   public async refundForOrder(manager: EntityManager, orderId: string): Promise<void> {
     const booking = await manager.findOne(LessonSessionBooking, {
       where: { order_id: orderId },
-      relations: ['session'],
       lock: { mode: 'pessimistic_write' },
     });
     if (!booking) return;
+    const session = await manager.findOne(ScheduledLessonSession, {
+      where: { id: booking.scheduled_session_id },
+    });
+    if (!session) return;
     booking.status = LessonSessionBookingStatus.REFUNDED;
     booking.refunded_at = new Date();
     await manager.save(booking);
-    if (booking.session.status === ScheduledLessonSessionStatus.CANCELLATION_PENDING) {
-      booking.session.status = ScheduledLessonSessionStatus.CANCELLED;
-      booking.session.cancelled_at = new Date();
-      await manager.save(booking.session);
+    if (session.status === ScheduledLessonSessionStatus.CANCELLATION_PENDING) {
+      session.status = ScheduledLessonSessionStatus.CANCELLED;
+      session.cancelled_at = new Date();
+      await manager.save(session);
     }
   }
 
@@ -768,7 +784,6 @@ export class LessonSessionsService {
   ): Promise<ScheduledLessonSession> {
     const session = await manager.findOne(ScheduledLessonSession, {
       where: { id: sessionId, lesson_id: lessonId, teacher_id: teacherId },
-      relations: ['bookings', 'bookings.student', 'bookings.order', 'bookings.payment'],
       lock: { mode: 'pessimistic_write' },
     });
     if (!session) throw new ForbiddenException();

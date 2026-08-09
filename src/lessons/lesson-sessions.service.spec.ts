@@ -20,6 +20,7 @@ describe('LessonSessionsService booking lifecycle', () => {
   const futureSession = (status = ScheduledLessonSessionStatus.SCHEDULED) =>
     ({
       id: 'session-1',
+      lesson_id: 'lesson-1',
       start_at: new Date(Date.now() + 3 * 60 * 60_000),
       end_at: new Date(Date.now() + 4 * 60 * 60_000),
       status,
@@ -62,7 +63,7 @@ describe('LessonSessionsService booking lifecycle', () => {
   it('rejects attaching a payment window that extends beyond the booking cutoff', async () => {
     const held = booking({ order_id: null, payment_id: null });
     const manager = {
-      findOne: jest.fn().mockResolvedValue(held),
+      findOne: jest.fn().mockResolvedValueOnce(held).mockResolvedValueOnce(held.session),
       save: jest.fn(),
     } as unknown as EntityManager;
 
@@ -82,7 +83,11 @@ describe('LessonSessionsService booking lifecycle', () => {
   it('atomically confirms only the booking bound to the matching session order and payment', async () => {
     const held = booking();
     const manager = {
-      findOne: jest.fn().mockResolvedValue(held),
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(held)
+        .mockResolvedValueOnce(held.session)
+        .mockResolvedValueOnce(held.session.lesson),
       save: jest.fn().mockImplementation(async (value) => value),
     } as unknown as EntityManager;
 
@@ -94,7 +99,10 @@ describe('LessonSessionsService booking lifecycle', () => {
     );
 
     const mismatched = booking({ student_id: 'another-student' });
-    (manager.findOne as jest.Mock).mockResolvedValueOnce(mismatched);
+    (manager.findOne as jest.Mock)
+      .mockResolvedValueOnce(mismatched)
+      .mockResolvedValueOnce(mismatched.session)
+      .mockResolvedValueOnce(mismatched.session.lesson);
     await expect(service.confirmForOrder(manager, order, payment)).rejects.toBeInstanceOf(
       ConflictException,
     );
@@ -103,7 +111,7 @@ describe('LessonSessionsService booking lifecycle', () => {
   it('keeps a normal fully-refunded future slot scheduled but closes a teacher-cancelled slot', async () => {
     const normal = booking({ status: LessonSessionBookingStatus.CONFIRMED });
     const manager = {
-      findOne: jest.fn().mockResolvedValue(normal),
+      findOne: jest.fn().mockResolvedValueOnce(normal).mockResolvedValueOnce(normal.session),
       save: jest.fn().mockImplementation(async (value) => value),
     } as unknown as EntityManager;
 
@@ -115,7 +123,9 @@ describe('LessonSessionsService booking lifecycle', () => {
       status: LessonSessionBookingStatus.CONFIRMED,
       session: futureSession(ScheduledLessonSessionStatus.CANCELLATION_PENDING),
     });
-    (manager.findOne as jest.Mock).mockResolvedValueOnce(cancellation);
+    (manager.findOne as jest.Mock)
+      .mockResolvedValueOnce(cancellation)
+      .mockResolvedValueOnce(cancellation.session);
     await service.refundForOrder(manager, order.id);
     expect(cancellation.session.status).toBe(ScheduledLessonSessionStatus.CANCELLED);
   });
