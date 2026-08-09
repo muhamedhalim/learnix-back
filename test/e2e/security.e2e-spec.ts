@@ -166,7 +166,6 @@ describe('Security (e2e)', () => {
           name_ar: null,
           description: null,
           description_ar: null,
-          grade_level: 'grade_12',
           thumbnail: null,
         }),
       );

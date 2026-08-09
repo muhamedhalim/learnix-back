@@ -15,7 +15,6 @@ describe('StudentsService.findStudentProfile', () => {
       rejection_reason: null,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
     },
-    grade_level: null,
     country: null,
     governorate: null,
     school: null,

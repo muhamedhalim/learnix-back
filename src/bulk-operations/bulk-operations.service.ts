@@ -38,7 +38,6 @@ interface ParsedStudentRow {
   email?: string;
   phone?: string;
   parent_phone?: string;
-  grade_level?: string;
 }
 
 @Injectable()
@@ -100,7 +99,6 @@ export class BulkOperationsService {
           email: typeof row.email === 'string' ? row.email : '',
           phone: typeof row.phone === 'string' ? row.phone : '',
           parent_phone: row.parent_phone,
-          grade_level: row.grade_level,
         });
       }
     }
@@ -298,9 +296,6 @@ export class BulkOperationsService {
 
     const profile = manager.create(StudentProfile, {
       user_id: savedUser.id,
-
-      grade_level:
-        typeof row.grade_level === 'string' && row.grade_level !== '' ? row.grade_level : null,
     });
 
     await manager.save(StudentProfile, profile);
@@ -463,11 +458,6 @@ export class BulkOperationsService {
       .andWhere('user.is_active = true')
       .andWhere('user.deleted_at IS NULL');
 
-    if (typeof dto.filter.grade_level === 'string' && dto.filter.grade_level !== '') {
-      queryBuilder.andWhere('profile.grade_level = :gradeLevel', {
-        gradeLevel: dto.filter.grade_level,
-      });
-    }
     if (typeof dto.filter.status === 'string' && dto.filter.status !== 'all') {
       queryBuilder.andWhere('user.is_active = :isActive', {
         isActive: dto.filter.status === 'active',
@@ -618,12 +608,5 @@ export class BulkOperationsService {
       }
     }
 
-    if (typeof row.grade_level === 'string' && row.grade_level.trim() !== '') {
-      const grade = Number.parseInt(row.grade_level, 10);
-
-      if (isNaN(grade) || grade < 1 || grade > 12) {
-        errors.push('Grade level must be between 1 and 12');
-      }
-    }
   }
 }

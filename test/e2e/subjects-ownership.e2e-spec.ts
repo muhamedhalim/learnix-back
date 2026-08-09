@@ -62,7 +62,6 @@ describe('Subject ownership and approval (e2e)', () => {
     const res = await teacher.agent
       .post(`${API_PREFIX}/teacher/subjects`)
       .field('name', name)
-      .field('gradeLevel', 'grade_12')
       .expect(201);
     const body = res.body as { subject: { id: string; status: string } };
     return body.subject;
@@ -128,7 +127,6 @@ describe('Subject ownership and approval (e2e)', () => {
       await teacherB.agent
         .post(`${API_PREFIX}/teacher/subjects`)
         .field('name', '  PHYSICS a ')
-        .field('gradeLevel', 'grade_12')
         .expect(409);
     });
   });

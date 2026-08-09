@@ -119,14 +119,9 @@ export class TeacherSubjectsController {
         name: { type: 'string', example: 'الفيزياء' },
         name_ar: { type: 'string', example: 'الفيزياء' },
         description: { type: 'string' },
-        gradeLevel: {
-          type: 'string',
-          enum: ['grade_10', 'grade_11', 'grade_12'],
-          example: 'grade_12',
-        },
         thumbnail: { type: 'string', format: 'binary' },
       },
-      required: ['name', 'gradeLevel'],
+      required: ['name'],
     },
   })
   @ApiResponse({

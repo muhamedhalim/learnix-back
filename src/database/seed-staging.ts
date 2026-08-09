@@ -355,11 +355,10 @@ async function seedProfiles(
   }
 
   const studentProfiles = manager.getRepository(StudentProfile);
-  for (const [index, student] of students.entries()) {
+  for (const student of students) {
     await studentProfiles.save(
       studentProfiles.create({
         user_id: student.id,
-        grade_level: `grade_${String(9 + (index % 4))}`,
         country: 'Egypt',
         governorate: 'Cairo',
         school: 'Staging Test School',
@@ -425,7 +424,6 @@ async function seedCatalog(
           name: `${names[index] ?? `Subject ${pad(index + 1)}`} (staging)`,
           name_ar: `مادة اصطناعية ${pad(index + 1)}`,
           description: 'Synthetic subject for staging.',
-          grade_level: 'grade_12',
         }),
       ),
     );

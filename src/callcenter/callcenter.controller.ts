@@ -66,20 +66,13 @@ export class CallCenterController {
     @Param('studentId') studentId: string,
     @Body() dto: CallCenterUpdateStudentDto,
   ): Promise<{ message: string }> {
-    const { name, phone, grade_level: gradeLevel, parent_phone: parentPhone } = dto;
+    const { name, phone, parent_phone: parentPhone } = dto;
 
     // Update user fields
     if (name != null || phone != null) {
       await this.usersService.update(studentId, {
         ...(name != null && name !== '' && { name }),
         ...(phone != null && phone !== '' && { phone }),
-      });
-    }
-
-    // Update profile fields
-    if (gradeLevel != null && gradeLevel !== '') {
-      await this.studentsService.updateProfile(studentId, {
-        grade_level: gradeLevel,
       });
     }
 

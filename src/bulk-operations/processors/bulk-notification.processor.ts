@@ -89,9 +89,6 @@ export class BulkNotificationProcessor extends WorkerHost {
       .andWhere('user.is_active = true')
       .andWhere('user.deleted_at IS NULL');
 
-    if (typeof dto.filter.grade_level === 'string' && dto.filter.grade_level !== '') {
-      query.andWhere('profile.grade_level = :gradeLevel', { gradeLevel: dto.filter.grade_level });
-    }
     if (typeof dto.filter.status === 'string' && dto.filter.status !== 'all') {
       query.andWhere('user.is_active = :isActive', { isActive: dto.filter.status === 'active' });
     }

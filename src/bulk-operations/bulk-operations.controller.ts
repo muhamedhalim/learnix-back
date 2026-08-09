@@ -84,7 +84,7 @@ export class BulkOperationsController {
         file: {
           type: 'string',
           format: 'binary',
-          description: 'CSV file with columns: name, email, phone, parent_phone, grade_level',
+          description: 'CSV file with columns: name, email, phone, parent_phone',
         },
       },
     },
@@ -122,7 +122,7 @@ export class BulkOperationsController {
     summary: 'Bulk import students from CSV',
     description:
       'Imports students from a CSV file. CSV must have columns: name, email, phone. ' +
-      'Optional columns: parent_phone, grade_level. Duplicate emails are skipped.',
+      'Optional column: parent_phone. Duplicate emails are skipped.',
   })
   @ApiBody({
     schema: {
@@ -131,7 +131,7 @@ export class BulkOperationsController {
         file: {
           type: 'string',
           format: 'binary',
-          description: 'CSV file with columns: name, email, phone, parent_phone, grade_level',
+          description: 'CSV file with columns: name, email, phone, parent_phone',
         },
       },
     },

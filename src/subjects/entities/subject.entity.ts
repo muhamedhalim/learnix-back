@@ -31,16 +31,6 @@ export class Subject {
   @Column({ type: 'text', nullable: true })
   description_ar!: string | null;
 
-  @Column({
-    type: 'varchar',
-    length: 50,
-    nullable: false,
-    name: 'grade_level',
-    default: 'grade_12',
-  })
-  @Index('IDX_subjects_grade_level')
-  grade_level!: string;
-
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail!: string | null;
 

@@ -17,11 +17,6 @@ export class CallCenterUpdateStudentDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(50)
-  public grade_level?: string;
-
-  @IsOptional()
-  @IsString()
   @Matches(/^01[0125]\d{8}$/, { message: INVALID_EGYPTIAN_PHONE })
   public parent_phone?: string;
 }

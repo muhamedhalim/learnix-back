@@ -224,9 +224,7 @@ export class LeaderboardService {
   }
 
   private applyDemographicScope(qb: SelectQueryBuilder<ObjectLiteral>, query: LeaderboardQueryDto): void {
-    if (query.scope === LeaderboardScope.GRADE) {
-      qb.andWhere('sp.grade_level = :gradeLevel', { gradeLevel: query.grade_level });
-    } else if (query.scope === LeaderboardScope.GOVERNORATE) {
+    if (query.scope === LeaderboardScope.GOVERNORATE) {
       qb.andWhere('sp.governorate = :governorate', { governorate: query.governorate });
     }
   }
@@ -238,11 +236,6 @@ export class LeaderboardService {
           'subject_id is required for a subject leaderboard',
           'Ù…Ø¹Ø±Ù‘Ù Ø§Ù„Ù…Ø§Ø¯Ø© Ù…Ø·Ù„ÙˆØ¨ Ù„Ø¹Ø±Ø¶ Ù„ÙˆØ­Ø© ØµØ¯Ø§Ø±Ø© Ø®Ø§ØµØ© Ø¨Ø§Ù„Ù…Ø§Ø¯Ø©',
         ),
-      );
-    }
-    if (query.scope === LeaderboardScope.GRADE && !query.grade_level) {
-      throw new BadRequestException(
-        biBody('grade_level is required for a grade leaderboard', 'Ø§Ù„Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ø¯Ø±Ø§Ø³ÙŠØ© Ù…Ø·Ù„ÙˆØ¨Ø©'),
       );
     }
     if (query.scope === LeaderboardScope.GOVERNORATE && !query.governorate) {

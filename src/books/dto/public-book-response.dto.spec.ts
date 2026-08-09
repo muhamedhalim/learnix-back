@@ -16,7 +16,6 @@ describe('public book serialization', () => {
       id: 'subject-id',
       name: 'Math',
       name_ar: null,
-      grade_level: '10',
     });
     const book = Object.assign(new Book(), {
       id: 'book-id',

@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
   Query,
   UseGuards,
@@ -32,7 +31,6 @@ import {
   ApproveStudentDto,
   RejectStudentDto,
   StudentFilterDto,
-  UpdateGradeLevelDto,
 } from '../dto';
 import { StudentsService } from '../students.service';
 
@@ -52,7 +50,7 @@ export class AdminStudentsController {
   @ApiOperation({
     summary: 'Get all students',
     description:
-      'Returns a paginated list of all students. Admin can filter by status (pending, approved, rejected), grade level, search, and sort.',
+      'Returns a paginated list of all students. Admin can filter by status (pending, approved, rejected), search, and sort.',
   })
   @ApiQuery({
     name: 'search',
@@ -66,14 +64,9 @@ export class AdminStudentsController {
     description: 'Filter by approval status',
   })
   @ApiQuery({
-    name: 'grade_level',
-    required: false,
-    description: 'Filter by grade level',
-  })
-  @ApiQuery({
     name: 'sortBy',
     required: false,
-    enum: ['name', 'grade', 'created_at'],
+    enum: ['name', 'created_at'],
     description: 'Sort by field (default: created_at)',
   })
   @ApiQuery({
@@ -212,28 +205,6 @@ export class AdminStudentsController {
     const student = await this.studentsService.rejectStudent(id, rejectDto);
     return {
       message: 'Student rejected successfully',
-      student,
-    };
-  }
-
-  /**
-   * Update student's grade level
-   */
-  @Patch(':id/grade-level')
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid grade level',
-  })
-  public async updateGradeLevel(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateDto: UpdateGradeLevelDto,
-  ): Promise<{ message: string; student: unknown }> {
-    const student = await this.studentsService.updateGradeLevel(
-      id,
-      updateDto.grade_level,
-    );
-    return {
-      message: 'Grade level updated successfully',
       student,
     };
   }

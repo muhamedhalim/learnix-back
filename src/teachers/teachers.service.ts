@@ -421,7 +421,6 @@ export class TeachersService {
         'subjects.id',
         'subjects.name',
         'subjects.name_ar',
-        'subjects.grade_level',
       ])
       .where('teacher.deleted_at IS NULL')
       .andWhere('user.deleted_at IS NULL')

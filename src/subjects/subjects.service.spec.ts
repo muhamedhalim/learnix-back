@@ -4,7 +4,6 @@ import type { DataSource, Repository } from 'typeorm';
 
 import type { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import type { AuditEvent } from '../activity-logs/events/audit.events';
-import { GradeLevel } from './dto';
 import { SubjectStatus } from './entities/subject-status.enum';
 import type { Subject } from './entities/subject.entity';
 import { SubjectsService } from './subjects.service';
@@ -20,7 +19,6 @@ function buildSubject(overrides: Partial<Subject> = {}): Subject {
     name_ar: null,
     description: null,
     description_ar: null,
-    grade_level: 'grade_12',
     thumbnail: null,
     status: SubjectStatus.APPROVED,
     created_by_teacher_id: null,
@@ -103,7 +101,6 @@ function buildService(): Harness {
 
 const CREATE_DTO = {
   name: 'Physics',
-  gradeLevel: GradeLevel.GRADE_12,
 };
 
 describe('SubjectsService — creation', () => {
@@ -114,6 +111,7 @@ describe('SubjectsService — creation', () => {
 
     expect(subject.status).toBe(SubjectStatus.APPROVED);
     expect(subject.created_by_teacher_id).toBeNull();
+    expect(subject).not.toHaveProperty('grade_level');
     expect(save).toHaveBeenCalled();
   });
 

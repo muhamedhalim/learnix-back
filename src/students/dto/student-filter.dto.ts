@@ -26,23 +26,14 @@ export class StudentFilterDto {
   public status?: UserStatus;
 
   @ApiProperty({
-    description: 'Filter by grade level',
-    required: false,
-    example: 'Grade 10',
-  })
-  @IsString()
-  @IsOptional()
-  public grade_level?: string;
-
-  @ApiProperty({
     description: 'Sort by field',
     required: false,
-    enum: ['name', 'grade', 'created_at'],
+    enum: ['name', 'created_at'],
     example: 'created_at',
   })
   @IsString()
   @IsOptional()
-  public sortBy?: 'name' | 'grade' | 'created_at';
+  public sortBy?: 'name' | 'created_at';
 
   @ApiProperty({
     description: 'Sort order',

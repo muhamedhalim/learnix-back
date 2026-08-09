@@ -14,17 +14,6 @@ export class UpdateStudentProfileDto {
   @IsOptional()
   public is_public_profile?: boolean;
 
-  @ApiProperty({
-    description: 'Student grade level',
-    example: 'Grade 10',
-    required: false,
-    maxLength: 50,
-  })
-  @IsString()
-  @IsOptional()
-  @MaxLength(50)
-  public grade_level?: string;
-
   @ApiProperty({ description: 'Country (for public leaderboards)', required: false, maxLength: 100 })
   @IsString()
   @IsOptional()

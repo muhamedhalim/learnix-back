@@ -48,7 +48,6 @@ export interface LessonWithDetails {
   subject: {
     id: string;
     name: string;
-    grade_level: string;
   };
   thumbnail: string | null;
   /** Public URL for `thumbnail`, always routed through the media proxy — never a raw storage URL. */
@@ -84,7 +83,6 @@ interface LessonListRawRow {
   teacher_profile_picture_url: string | null;
   subject_id: string;
   subject_name: string;
-  subject_grade_level: string;
   thumbnail: string | null;
   bunny_video_id: string | null;
   bunny_video_status: string | null;
@@ -248,7 +246,6 @@ export class LessonsService {
       .addSelect('teacher.profile_picture_url', 'teacher_profile_picture_url')
       .addSelect('subject.id', 'subject_id')
       .addSelect('subject.name', 'subject_name')
-      .addSelect('subject.grade_level', 'subject_grade_level')
       .addSelect('lesson.thumbnail', 'thumbnail')
       .addSelect('lesson.bunny_video_id', 'bunny_video_id')
       .addSelect('lesson.bunny_video_status', 'bunny_video_status')
@@ -365,7 +362,6 @@ export class LessonsService {
       subject: {
         id: row.subject_id,
         name: row.subject_name,
-        grade_level: row.subject_grade_level,
       },
       thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),
@@ -1085,7 +1081,6 @@ export class LessonsService {
       subject: {
         id: lesson.subject.id,
         name: lesson.subject.name,
-        grade_level: lesson.subject.grade_level,
       },
       thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),

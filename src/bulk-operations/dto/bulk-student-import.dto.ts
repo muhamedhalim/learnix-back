@@ -46,13 +46,6 @@ export class StudentImportRowDto {
   })
   public parent_phone?: string | undefined;
 
-  @ApiPropertyOptional({
-    description: 'Grade level (1-12)',
-    example: '10',
-  })
-  @IsOptional()
-  @IsString()
-  public grade_level?: string | undefined;
 }
 
 /**

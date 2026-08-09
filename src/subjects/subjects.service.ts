@@ -54,7 +54,6 @@ const PUBLIC_SELECT = [
   'subject.name_ar',
   'subject.description',
   'subject.description_ar',
-  'subject.grade_level',
   'subject.thumbnail',
   'subject.created_at',
   'subject.updated_at',
@@ -547,7 +546,6 @@ export class SubjectsService {
       name_ar: dto.name_ar?.trim() ?? null,
       description: dto.description ?? null,
       description_ar: dto.description_ar ?? null,
-      grade_level: dto.gradeLevel,
       thumbnail: dto.thumbnail ?? null,
       status: ownership.status,
       created_by_teacher_id: ownership.ownerId,
@@ -582,10 +580,6 @@ export class SubjectsService {
     if (dto.description_ar !== undefined) {
       subject.description_ar = dto.description_ar;
       changedFields.push('description_ar');
-    }
-    if (dto.gradeLevel !== undefined) {
-      subject.grade_level = dto.gradeLevel;
-      changedFields.push('grade_level');
     }
     if (dto.thumbnail !== undefined) {
       subject.thumbnail = dto.thumbnail;

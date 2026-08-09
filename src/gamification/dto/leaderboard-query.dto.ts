@@ -7,7 +7,6 @@ import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query
 export enum LeaderboardScope {
   GLOBAL = 'global',
   SUBJECT = 'subject',
-  GRADE = 'grade',
   GOVERNORATE = 'governorate',
 }
 
@@ -47,11 +46,6 @@ export class LeaderboardQueryDto {
   @IsOptional()
   @IsUUID('4')
   public subject_id?: string;
-
-  @ApiPropertyOptional({ description: 'Required when scope=grade' })
-  @IsOptional()
-  @IsString()
-  public grade_level?: string;
 
   @ApiPropertyOptional({ description: 'Required when scope=governorate' })
   @IsOptional()

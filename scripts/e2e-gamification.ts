@@ -115,9 +115,9 @@ async function main(): Promise<void> {
   await client.query('DELETE FROM student_game_profiles WHERE user_id = $1', [studentId]);
   // Give the student demographic fields (for geo leaderboard).
   await client.query(
-    `INSERT INTO student_profiles (user_id, parent_phone, grade_level, governorate, school, notification_settings)
-     VALUES ($1,'01000000000','grade_10','Cairo','E2E School','{}')
-     ON CONFLICT (user_id) DO UPDATE SET governorate='Cairo', school='E2E School', grade_level='grade_10'`,
+    `INSERT INTO student_profiles (user_id, parent_phone, governorate, school, notification_settings)
+     VALUES ($1,'01000000000','Cairo','E2E School','{}')
+     ON CONFLICT (user_id) DO UPDATE SET governorate='Cairo', school='E2E School'`,
     [studentId],
   );
 

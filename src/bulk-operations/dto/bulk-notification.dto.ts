@@ -15,14 +15,6 @@ import {
  */
 export class NotificationFilterDto {
   @ApiPropertyOptional({
-    description: 'Filter by grade level (1-12)',
-    example: '10',
-  })
-  @IsOptional()
-  @IsString()
-  public grade_level?: string;
-
-  @ApiPropertyOptional({
     description: 'Filter by subject ID',
     example: 'uuid-here',
   })

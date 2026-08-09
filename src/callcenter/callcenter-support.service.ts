@@ -135,7 +135,6 @@ export class CallCenterSupportService {
       user: this.toSummary(user),
       profile: student
         ? {
-            grade_level: student.grade_level,
             country: student.country,
             governorate: student.governorate,
             school: student.school,

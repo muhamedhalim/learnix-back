@@ -40,7 +40,7 @@ export class StudentProfileController {
   @ApiOperation({
     summary: 'Get my profile',
     description:
-      "Returns the authenticated student's profile including parent phone, grade level, and notification settings. Student only.",
+      "Returns the authenticated student's profile and notification settings. Student only.",
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -69,13 +69,13 @@ export class StudentProfileController {
 
   /**
    * Update current student's profile
-   * Students can update their parent_phone and grade_level
+   * Students can update their profile preferences and optional demographics.
    */
   @Put()
   @ApiOperation({
     summary: 'Update my profile',
     description:
-      "Updates the authenticated student's profile. Can update parent phone and grade level. Student only.",
+      "Updates the authenticated student's profile. Student only.",
   })
   @ApiResponse({
     status: HttpStatus.OK,

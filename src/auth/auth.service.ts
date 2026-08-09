@@ -62,9 +62,10 @@ interface PendingAccountInput {
  * Column names carried by a Postgres `unique_violation`, parsed out of its
  * `Key (email)=(a@b.test) already exists.` detail string. Returns `null` for
  * anything that is not a 23505 so callers rethrow what they did not expect,
- * and an empty array when the driver withheld the detail — an unattributable
- * conflict is treated as a caller-identifier conflict, which is the answer
- * that leaks nothing.
+ * and an empty array when the driver withheld the detail. Callers must only
+ * suppress conflicts that this detail proves belong to caller-supplied user
+ * identifiers; an unattributable/internal conflict is a real persistence
+ * failure and must not be reported as a successful registration.
  */
 function uniqueViolationColumns(error: unknown): string[] | null {
   for (const candidate of [error, (error as { driverError?: unknown } | null)?.driverError]) {
@@ -219,8 +220,24 @@ export class AuthService {
       } catch (error) {
         const columns = uniqueViolationColumns(error);
         if (columns === null) throw error;
-        if (!columns.includes('username')) return false;
-        lastUsernameCollision = error;
+        if (columns.includes('username') || columns.includes('UQ_users_username')) {
+          lastUsernameCollision = error;
+          continue;
+        }
+        if (
+          columns.includes('email') ||
+          columns.includes('phone') ||
+          columns.includes('UQ_users_email') ||
+          columns.includes('UQ_users_phone')
+        ) {
+          return false;
+        }
+
+        // `phone_e164`, student/profile/link constraints, and unattributable
+        // 23505s are internal persistence failures. A guardian-phone race is
+        // recovered atomically in GuardiansService; swallowing one here would
+        // roll back the account while returning a false success acknowledgement.
+        throw error;
       }
     }
 
@@ -248,7 +265,6 @@ export class AuthService {
     if (input.requestedRole === UserRole.STUDENT) {
       const profile = manager.create(StudentProfile, {
         user_id: createdUser.id,
-        grade_level: null, // Unknown at registration; set by admin after approval.
         notification_settings: {
           sms_enabled: true,
           email_enabled: true,

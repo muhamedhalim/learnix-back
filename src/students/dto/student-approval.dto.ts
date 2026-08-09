@@ -24,8 +24,3 @@ export class RejectStudentDto {
   @MaxLength(1000)
   public reason!: string;
 }
-
-export class UpdateGradeLevelDto {
-  @MaxLength(50)
-  public grade_level!: string;
-}

@@ -18,13 +18,13 @@ export class StudentsController {
 
   /**
    * Get all approved students (public listing)
-   * Supports search, filtering by grade, sorting, and pagination
+   * Supports search, sorting, and pagination
    */
   @Get()
   @ApiOperation({
     summary: 'Get all approved students',
     description:
-      'Returns a paginated list of approved students. Supports search by name/email, filtering by grade level, sorting by name/grade/date.',
+      'Returns a paginated list of approved students. Supports search by name/email and sorting by name/date.',
   })
   @ApiQuery({
     name: 'search',
@@ -32,14 +32,9 @@ export class StudentsController {
     description: 'Search by name or email',
   })
   @ApiQuery({
-    name: 'grade_level',
-    required: false,
-    description: 'Filter by grade level',
-  })
-  @ApiQuery({
     name: 'sortBy',
     required: false,
-    enum: ['name', 'grade', 'created_at'],
+    enum: ['name', 'created_at'],
     description: 'Sort by field (default: created_at)',
   })
   @ApiQuery({

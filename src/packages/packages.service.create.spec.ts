@@ -27,7 +27,6 @@ const SUBJECT: Subject = {
   id: 'subject-1',
   name: 'Algebra',
   name_ar: 'الجبر',
-  grade_level: 'grade_10',
 } as unknown as Subject;
 
 function makePackage(overrides: Partial<LessonPackage> = {}): LessonPackage {
@@ -152,7 +151,6 @@ describe('PackagesService.create — subject_id', () => {
       id: 'subject-1',
       name: 'Algebra',
       name_ar: 'الجبر',
-      grade_level: 'grade_10',
     });
   });
 

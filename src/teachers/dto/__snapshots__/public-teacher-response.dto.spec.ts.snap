@@ -25,7 +25,6 @@ exports[`public teacher serialization allowlists professional fields and exclude
   ],
   "subjects": [
     {
-      "grade_level": "10",
       "id": "subject-id",
       "name": "Math",
       "name_ar": null,

@@ -20,8 +20,6 @@ class PublicLessonSubjectDto {
   @ApiProperty()
   public name!: string;
 
-  @ApiProperty()
-  public grade_level!: string;
 }
 
 /**

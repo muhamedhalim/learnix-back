@@ -21,7 +21,6 @@ describe('public teacher serialization', () => {
       id: 'subject-id',
       name: 'Math',
       name_ar: null,
-      grade_level: '10',
       deleted_at: new Date(),
     });
     const profile = Object.assign(new TeacherProfile(), {

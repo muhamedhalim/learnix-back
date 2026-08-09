@@ -109,7 +109,6 @@ describe('payment financial state machine (PostgreSQL)', () => {
         name_ar: null,
         description: null,
         description_ar: null,
-        grade_level: 'grade_12',
         thumbnail: null,
       }),
     );

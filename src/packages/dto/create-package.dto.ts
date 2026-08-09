@@ -72,7 +72,7 @@ export class CreatePackageDto {
 
   @ApiPropertyOptional({
     description: 'Package description in English',
-    example: 'A complete package covering all math topics for grade 10',
+    example: 'A complete package covering all math topics',
   })
   @IsOptional()
   @IsString()

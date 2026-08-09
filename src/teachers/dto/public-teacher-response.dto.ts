@@ -16,8 +16,6 @@ export class PublicTeacherSubjectDto {
   @ApiProperty({ nullable: true })
   public name_ar!: string | null;
 
-  @ApiProperty()
-  public grade_level!: string;
 }
 
 /**
@@ -107,7 +105,6 @@ export function toPublicTeacherResponse(
       id: subject.id,
       name: subject.name,
       name_ar: subject.name_ar,
-      grade_level: subject.grade_level,
     })),
     created_at: profile.created_at,
   };

@@ -54,7 +54,7 @@ describe('BulkOperationsService', () => {
     bulkNotificationsQueue.add.mockResolvedValue({ id: 'job-123' });
 
     const result = await service.sendBulkNotifications(
-      { message: 'A scheduled update is available.', filter: { grade_level: '10' } },
+      { message: 'A scheduled update is available.', filter: {} },
       'admin-id',
     );
 

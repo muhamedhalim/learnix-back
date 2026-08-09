@@ -47,7 +47,7 @@ describe('LeaderboardService public-practice policy', () => {
       {
         user_id: 'student-1', username: 'learner', name: 'Learner', avatar_url: null,
         score: '1234.5', rating: '1234.5', xp: '80', level: 2, current_streak: 1,
-        governorate: null, school: null, grade_level: null,
+        governorate: null, school: null,
         tier_slug: null, tier_name: null, tier_icon: null, tier_color: null, attempts: '2',
       },
     ]);

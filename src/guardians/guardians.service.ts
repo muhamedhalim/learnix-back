@@ -167,21 +167,7 @@ export class GuardiansService {
     const phone = toE164(input.phone);
     if (phone === null) throw new BadRequestException(new InvalidPhoneNumberError().message);
 
-    let guardian = await manager.findOne(Guardian, {
-      where: { phone_e164: phone, deleted_at: IsNull() },
-    });
-
-    guardian ??= await manager.save(
-      manager.create(Guardian, {
-        phone_e164: phone,
-        full_name: input.full_name ?? null,
-        preferred_language: input.preferred_language ?? PreferredLanguage.AR,
-        verification_status: GuardianVerificationStatus.UNVERIFIED,
-        // Optimistic: Egyptian mobiles are overwhelmingly on WhatsApp. Demoted
-        // to false the first time Meta reports the recipient as unreachable.
-        whatsapp_capable: isEgyptianMobile(phone),
-      }),
-    );
+    const guardian = await this.findOrCreateGuardian(manager, phone, input);
 
     const existing = await manager.findOne(StudentGuardian, {
       where: { student_id: studentId, guardian_id: guardian.id },
@@ -206,6 +192,58 @@ export class GuardiansService {
       `Linked guardian ${guardian.id} (${maskPhone(phone) ?? '***'}) to student ${studentId}`,
     );
     return link;
+  }
+
+  /**
+   * Resolve the guardian identity without a check-then-insert race.
+   *
+   * Two siblings may register at the same time with the same previously unseen
+   * guardian phone. A plain `findOne` followed by `save` lets both transactions
+   * observe no row and then collide on `guardians.phone_e164`; because the
+   * guardian write is inside account registration, the losing collision rolls
+   * back that student's user and profile as well.
+   *
+   * PostgreSQL's targeted `ON CONFLICT` makes the identity claim atomic. The
+   * losing statement waits for the winner, does nothing, and the following
+   * READ COMMITTED query sees and reuses the committed guardian. No guardian
+   * attributes are overwritten when an existing phone wins the conflict.
+   */
+  private async findOrCreateGuardian(
+    manager: EntityManager,
+    phone: string,
+    input: LinkGuardianInput,
+  ): Promise<Guardian> {
+    const existing = await manager.findOne(Guardian, {
+      where: { phone_e164: phone, deleted_at: IsNull() },
+    });
+    if (existing) return existing;
+
+    await manager.query(
+      `INSERT INTO "guardians"
+        ("phone_e164", "full_name", "preferred_language", "verification_status", "whatsapp_capable")
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT ("phone_e164") DO NOTHING`,
+      [
+        phone,
+        input.full_name ?? null,
+        input.preferred_language ?? PreferredLanguage.AR,
+        GuardianVerificationStatus.UNVERIFIED,
+        // Optimistic: Egyptian mobiles are overwhelmingly on WhatsApp. Demoted
+        // to false the first time Meta reports the recipient as unreachable.
+        isEgyptianMobile(phone),
+      ],
+    );
+
+    const guardian = await manager.findOne(Guardian, {
+      where: { phone_e164: phone, deleted_at: IsNull() },
+    });
+    if (!guardian) {
+      // A conflicting soft-deleted/corrupt identity is not a successful link.
+      // Surface it so the enclosing registration transaction rolls back with a
+      // real error rather than acknowledging an account that was never stored.
+      throw new Error('Guardian identity could not be resolved after atomic insert');
+    }
+    return guardian;
   }
 
   private async hasPrimary(manager: EntityManager, studentId: string): Promise<boolean> {

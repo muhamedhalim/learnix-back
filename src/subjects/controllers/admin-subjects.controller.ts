@@ -78,14 +78,9 @@ export class AdminSubjectsController {
           type: 'string',
           example: 'مادة الفيزياء للصف الثالث الثانوي',
         },
-        gradeLevel: {
-          type: 'string',
-          enum: ['grade_10', 'grade_11', 'grade_12'],
-          example: 'grade_12',
-        },
         thumbnail: { type: 'string', format: 'binary' },
       },
-      required: ['name', 'gradeLevel'],
+      required: ['name'],
     },
   })
   @ApiResponse({

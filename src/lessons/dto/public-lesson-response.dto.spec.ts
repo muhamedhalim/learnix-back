@@ -13,7 +13,7 @@ describe('toPublicLessonResponse', () => {
         name: 'Teacher',
         profile_picture_url: 'profiles/avatar.jpg',
       },
-      subject: { id: 'subject-1', name: 'Math', grade_level: '10' },
+      subject: { id: 'subject-1', name: 'Math' },
       thumbnail: 'images/lesson.jpg',
       thumbnail_url: 'https://api.example.test/api/v1/media/public/images/lesson.jpg',
       video_url: 'https://paid-provider.example/private-video',

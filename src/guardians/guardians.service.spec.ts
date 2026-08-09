@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import { DataSource } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { ParentEventType } from '../common/events/parent-event-type.enum';
 import {
@@ -91,7 +91,7 @@ describe('GuardiansService', () => {
     it('applies the per-event default when no explicit preference is stored', async () => {
       links.createQueryBuilder.mockReturnValue(makeQueryBuilder([row]));
 
-      // EXAM_GRADED defaults to true, LESSON_COMPLETED defaults to false.
+      // Both events currently default to true when no per-link override exists.
       await expect(
         service.findNotificationTargets('s1', ParentEventType.EXAM_GRADED),
       ).resolves.toHaveLength(1);
@@ -99,7 +99,7 @@ describe('GuardiansService', () => {
       links.createQueryBuilder.mockReturnValue(makeQueryBuilder([row]));
       await expect(
         service.findNotificationTargets('s1', ParentEventType.LESSON_COMPLETED),
-      ).resolves.toHaveLength(0);
+      ).resolves.toHaveLength(1);
     });
 
     it('honours an explicit per-event opt-out', async () => {
@@ -110,6 +110,73 @@ describe('GuardiansService', () => {
       await expect(
         service.findNotificationTargets('s1', ParentEventType.EXAM_GRADED),
       ).resolves.toHaveLength(0);
+    });
+  });
+
+  describe('linkGuardianWith', () => {
+    it('claims a new guardian phone atomically and then links the resolved row', async () => {
+      const guardian = { id: 'g1', phone_e164: '+201011111111' } as Guardian;
+      const link = {
+        id: 'link-1',
+        student_id: 's1',
+        guardian_id: guardian.id,
+        is_primary: false,
+      } as StudentGuardian;
+      const manager = {
+        findOne: jest
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(guardian)
+          .mockResolvedValueOnce(null),
+        query: jest.fn().mockResolvedValue([]),
+        create: jest.fn((_entity: unknown, value: unknown) => value),
+        save: jest.fn().mockResolvedValue(link),
+      } as unknown as EntityManager;
+
+      await expect(
+        service.linkGuardianWith(manager, 's1', {
+          phone: '01011111111',
+          is_primary: false,
+        }),
+      ).resolves.toBe(link);
+
+      expect(manager.query).toHaveBeenCalledWith(
+        expect.stringContaining('ON CONFLICT ("phone_e164") DO NOTHING'),
+        expect.arrayContaining(['+201011111111']),
+      );
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          student_id: 's1',
+          guardian_id: 'g1',
+        }),
+      );
+    });
+
+    it('reuses an existing guardian without overwriting guardian-wide attributes', async () => {
+      const guardian = {
+        id: 'g1',
+        phone_e164: '+201011111111',
+        full_name: 'Verified Parent',
+        verification_status: GuardianVerificationStatus.VERIFIED,
+      } as Guardian;
+      const manager = {
+        findOne: jest.fn().mockResolvedValueOnce(guardian).mockResolvedValueOnce(null),
+        query: jest.fn(),
+        create: jest.fn((_entity: unknown, value: unknown) => value),
+        save: jest.fn(async (value: unknown) => value),
+      } as unknown as EntityManager;
+
+      await service.linkGuardianWith(manager, 's2', {
+        phone: '01011111111',
+        full_name: 'Different Name',
+        is_primary: false,
+      });
+
+      expect(manager.query).not.toHaveBeenCalled();
+      expect(manager.save).toHaveBeenCalledTimes(1);
+      expect(manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({ guardian_id: guardian.id, student_id: 's2' }),
+      );
     });
   });
 

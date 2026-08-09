@@ -41,7 +41,6 @@ export interface StudentProfileWithDetails {
     rejection_reason: string | null;
     created_at: Date;
   };
-  grade_level: string | null;
   country: string | null;
   governorate: string | null;
   school: string | null;
@@ -86,7 +85,6 @@ export interface PublicStudentProfile {
     name: string;
     profile_picture_url: string | null;
   };
-  grade_level: string | null;
   country: string | null;
   governorate: string | null;
   school: string | null;
@@ -203,7 +201,7 @@ export class StudentsService {
 
   /**
    * Update student's own profile
-   * Students can update their parent_phone and grade_level
+   * Students can update their profile preferences and optional demographics.
    */
   public async updateProfile(
     userId: string,
@@ -223,9 +221,6 @@ export class StudentsService {
     // Guardian phone numbers are no longer editable here — see
     // `PATCH /student/guardians/:guardianId/phone`, which refuses to rewrite a
     // verified number without a fresh OTP.
-    if (dto.grade_level !== undefined) {
-      profile.grade_level = dto.grade_level;
-    }
     if (dto.country !== undefined) {
       profile.country = dto.country;
     }
@@ -304,7 +299,6 @@ export class StudentsService {
     const {
       search,
       status,
-      grade_level: gradeLevel,
       sortBy = 'created_at',
       order = 'desc',
       page = 1,
@@ -320,13 +314,6 @@ export class StudentsService {
     // Filter by user status
     if (status !== undefined) {
       queryBuilder.andWhere('user.status = :status', { status });
-    }
-
-    // Filter by grade level
-    if (gradeLevel !== undefined && gradeLevel !== '') {
-      queryBuilder.andWhere('student.grade_level = :gradeLevel', {
-        gradeLevel,
-      });
     }
 
     // Search by name or email. The unauthenticated public directory must not
@@ -350,9 +337,7 @@ export class StudentsService {
     const sortColumn =
       sortBy === 'name'
         ? 'user.first_name'
-        : sortBy === 'grade'
-          ? 'student.grade_level'
-          : 'student.created_at';
+        : 'student.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
     queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('student.id', sortOrder);
 
@@ -438,7 +423,6 @@ export class StudentsService {
           name: student.user.name,
           profile_picture_url: student.user.profile_picture_url,
         },
-        grade_level: student.grade_level,
         country: student.country,
         governorate: student.governorate,
         school: student.school,
@@ -572,31 +556,6 @@ export class StudentsService {
   }
 
   /**
-   * Admin update student's grade level
-   */
-  public async updateGradeLevel(
-    profileId: string,
-    gradeLevel: string,
-  ): Promise<StudentProfileWithDetails> {
-    const profile = await this.studentProfilesRepository.findOne({
-      where: [{ id: profileId }, { user_id: profileId }],
-      relations: ['user'],
-    });
-
-    if (!profile) {
-      throw new NotFoundException(
-        biBody(`Student with ID ${profileId} not found`, `الطالب بالمعرّف ${profileId} غير موجود`),
-      );
-    }
-
-    profile.grade_level = gradeLevel;
-
-    await this.studentProfilesRepository.save(profile);
-
-    return this.mapToProfileWithDetails(profile);
-  }
-
-  /**
    * Get student statistics
    * Returns lesson count, exam count, average score, etc.
    */
@@ -625,7 +584,7 @@ export class StudentsService {
    * Create a student profile for a user
    * Called during student registration
    */
-  public async createStudentProfile(userId: string, gradeLevel?: string): Promise<StudentProfile> {
+  public async createStudentProfile(userId: string): Promise<StudentProfile> {
     // Check if user exists and has student role
     const user = await this.usersRepository.findOne({
       where: { id: userId },
@@ -660,7 +619,6 @@ export class StudentsService {
     // Create profile with default notification settings
     const profile = this.studentProfilesRepository.create({
       user_id: userId,
-      grade_level: gradeLevel ?? null,
       notification_settings: {
         sms_enabled: true,
         email_enabled: true,
@@ -689,7 +647,6 @@ export class StudentsService {
         name: profile.user.name,
         profile_picture_url: profile.user.profile_picture_url,
       },
-      grade_level: profile.grade_level,
       country: profile.country,
       governorate: profile.governorate,
       school: profile.school,
@@ -713,7 +670,6 @@ export class StudentsService {
         rejection_reason: profile.user.rejection_reason,
         created_at: profile.user.created_at,
       },
-      grade_level: profile.grade_level,
       country: profile.country,
       governorate: profile.governorate,
       school: profile.school,

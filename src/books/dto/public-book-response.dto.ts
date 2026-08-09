@@ -23,8 +23,6 @@ export class PublicBookSubjectDto {
   @ApiProperty({ nullable: true })
   public name_ar!: string | null;
 
-  @ApiProperty()
-  public grade_level!: string;
 }
 
 /** Public book catalogue model. Private storage references are intentionally absent. */
@@ -78,7 +76,6 @@ export function toPublicBookResponse(
       id: book.subject.id,
       name: book.subject.name,
       name_ar: book.subject.name_ar,
-      grade_level: book.subject.grade_level,
     },
     cover_image: resolvePublicMedia(book.cover_image),
     price: Number(book.price),

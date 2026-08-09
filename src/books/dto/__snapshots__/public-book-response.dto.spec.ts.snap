@@ -10,7 +10,6 @@ exports[`public book serialization never exposes the paid object key or nested t
   "price": 20,
   "purchase_count": 3,
   "subject": {
-    "grade_level": "10",
     "id": "subject-id",
     "name": "Math",
     "name_ar": null,

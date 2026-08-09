@@ -80,7 +80,6 @@ describe('LessonsService.findAll', () => {
         teacher_profile_picture_url: null,
         subject_id: 'subject-1',
         subject_name: 'Math',
-        subject_grade_level: '10',
         thumbnail: 'thumbnail.jpg',
         video_url: null,
         video_platform: 'bunny',
@@ -175,7 +174,6 @@ describe('LessonsService lesson duration persistence', () => {
   const subject = {
     id: 'subject-1',
     name: 'Mathematics',
-    grade_level: '10',
   } as Subject;
 
   const lesson = {

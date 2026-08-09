@@ -434,7 +434,6 @@ describe('AuthService', () => {
     it.each([
       ['email', 'Key (email)=(test@test.com) already exists.'],
       ['phone', 'Key (phone)=(01000000000) already exists.'],
-      ['guardian phone', 'Key (phone_e164)=(+201011111111) already exists.'],
     ])(
       'acknowledges a simultaneous request that lost the %s unique constraint',
       async (_column, detail) => {
@@ -446,6 +445,26 @@ describe('AuthService', () => {
         );
       },
     );
+
+    it('surfaces an internal guardian uniqueness failure instead of acknowledging a rolled-back account', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(
+        uniqueViolation('Key (phone_e164)=(+201011111111) already exists.'),
+      );
+
+      await expect(service.register(studentRegisterDto)).rejects.toMatchObject({ code: '23505' });
+    });
+
+    it('surfaces an unattributable uniqueness failure instead of silently dropping registration', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key value violates unique constraint'), {
+          code: '23505',
+        }),
+      );
+
+      await expect(service.register(studentRegisterDto)).rejects.toMatchObject({ code: '23505' });
+    });
 
     it('acknowledges a race reported only on the nested TypeORM driverError', async () => {
       userRepository.findOne.mockResolvedValueOnce(null);
