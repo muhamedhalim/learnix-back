@@ -9,13 +9,19 @@ import {
 } from 'typeorm';
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { ScheduledLessonSession } from '../../lessons/entities/scheduled-lesson-session.entity';
 import { User } from '../../users/entities/user.entity';
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
 @Entity('attendance_records')
-@Index('IDX_attendance_student_lesson', ['student_id', 'lesson_id'], {
+@Index('UQ_attendance_legacy_student_lesson', ['student_id', 'lesson_id'], {
   unique: true,
+  where: '"scheduled_lesson_session_id" IS NULL',
+})
+@Index('UQ_attendance_student_scheduled_session', ['student_id', 'scheduled_lesson_session_id'], {
+  unique: true,
+  where: '"scheduled_lesson_session_id" IS NOT NULL',
 })
 export class AttendanceRecord {
   @PrimaryGeneratedColumn('uuid')
@@ -36,6 +42,13 @@ export class AttendanceRecord {
   @ManyToOne(() => Lesson)
   @JoinColumn({ name: 'lesson_id' })
   lesson!: Lesson;
+
+  @Column({ type: 'uuid', nullable: true, name: 'scheduled_lesson_session_id' })
+  scheduled_lesson_session_id!: string | null;
+
+  @ManyToOne(() => ScheduledLessonSession, { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'scheduled_lesson_session_id' })
+  scheduled_lesson_session!: ScheduledLessonSession | null;
 
   @Column({
     type: 'varchar',

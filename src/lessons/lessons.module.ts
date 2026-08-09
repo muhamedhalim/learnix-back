@@ -14,6 +14,10 @@ import {
   LessonsController,
   StudentLessonsController,
   TeacherLessonsController,
+  PublicLessonSessionsController,
+  StudentLessonSessionsController,
+  TeacherLessonSessionsController,
+  AdminLessonSessionsController,
 } from './controllers';
 import { TeacherLessonContentController } from './controllers/teacher-lesson-content.controller';
 import { StudentHomeworkController } from './controllers/student-homework.controller';
@@ -56,6 +60,10 @@ import { ProgressService } from './progress.service';
     LessonsController,
     StudentLessonsController,
     TeacherLessonsController,
+    PublicLessonSessionsController,
+    StudentLessonSessionsController,
+    TeacherLessonSessionsController,
+    AdminLessonSessionsController,
     TeacherLessonContentController,
     StudentHomeworkController,
     TeacherHomeworkController,

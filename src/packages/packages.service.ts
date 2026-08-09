@@ -667,6 +667,15 @@ export class PackagesService {
         ),
       );
     }
+    const individual = lessons.filter((lesson) => !lesson.is_group);
+    if (individual.length > 0) {
+      throw new BadRequestException(
+        biBody(
+          'Individual lessons cannot be added to packages',
+          'Individual lessons cannot be added to packages',
+        ),
+      );
+    }
   }
 
   /**

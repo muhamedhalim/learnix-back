@@ -22,6 +22,8 @@ import {
 } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { ScheduledLessonSession } from '../../lessons/entities/scheduled-lesson-session.entity';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
@@ -79,6 +81,7 @@ export class PaymentFinalizationService {
   constructor(
     private readonly dataSource: DataSource,
     config: ConfigService,
+    private readonly lessonSessions: LessonSessionsService,
   ) {
     this.refundHoldDays = Math.max(
       0,
@@ -172,6 +175,7 @@ export class PaymentFinalizationService {
 
     this.assertVerifiedFinancials(order, payment, input);
     await this.validateAndConsumeSource(manager, order, input);
+    await this.lessonSessions.confirmForOrder(manager, order, payment);
 
     payment.status = PaymentStatus.COMPLETED;
     payment.completed_at = new Date();
@@ -382,7 +386,9 @@ export class PaymentFinalizationService {
     const grantedAt = new Date();
     const duration = Number(order.metadata?.['access_duration_days']);
     const expiresAt =
-      order.item_type === ItemType.LESSON && Number.isFinite(duration) && duration > 0
+      [ItemType.LESSON, ItemType.LESSON_SESSION].includes(order.item_type) &&
+      Number.isFinite(duration) &&
+      duration > 0
         ? computeAccessExpiresAt(grantedAt, duration)
         : null;
     const entitlement = await manager.save(
@@ -430,6 +436,29 @@ export class PaymentFinalizationService {
         revocation_reason: null,
       });
       await manager.increment(Lesson, { id: order.item_id }, 'students_count', 1);
+      return;
+    }
+    if (order.item_type === ItemType.LESSON_SESSION) {
+      const session = await manager.findOne(ScheduledLessonSession, {
+        where: { id: order.item_id },
+        relations: ['lesson'],
+      });
+      if (!session) {
+        throw new NotFoundException(biBody('Appointment not found', 'الموعد غير موجود'));
+      }
+      const effectiveExpiry =
+        expiresAt ?? computeAccessExpiresAt(grantedAt, session.lesson.available_for_days || 7);
+      await manager.insert(LessonPurchase, {
+        student_id: order.student_id,
+        lesson_id: session.lesson_id,
+        payment_id: payment.id,
+        price_paid: fromMinorUnits(order.final_amount_minor),
+        access_granted_at: grantedAt,
+        access_expires_at: effectiveExpiry,
+        days_extended: 0,
+        revoked_at: null,
+        revocation_reason: null,
+      });
       return;
     }
     if (order.item_type === ItemType.PACKAGE) {

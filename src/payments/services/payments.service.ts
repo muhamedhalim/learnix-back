@@ -8,6 +8,8 @@ import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import { biBody } from '../../i18n/error-translator.util';
+import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { BillingDataDto } from '../dto/billing-data.dto';
 import { PaymentFilterDto, type PaymentSortField } from '../dto/payment-filter.dto';
 import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
@@ -132,6 +134,7 @@ export class PaymentsService {
     private readonly finalizer: PaymentFinalizationService,
     private readonly entitlementsService: EntitlementsService,
     private readonly refundsService: RefundsService,
+    private readonly lessonSessions: LessonSessionsService,
   ) {}
 
   public async purchaseLesson(dto: PurchaseLessonDto, userId: string): Promise<PaymentResponse> {
@@ -339,6 +342,11 @@ export class PaymentsService {
           },
           { status: OrderStatus.REJECTED },
         );
+        await this.lessonSessions.markForOrder(
+          manager,
+          payment.order_id,
+          LessonSessionBookingStatus.FAILED,
+        );
       }
 
       // The charge never happened — hand back any discount use consumed at
@@ -459,17 +467,27 @@ export class PaymentsService {
     page = 1,
     limit = 20,
   ): Promise<{ data: LessonPurchase[]; meta: PaginationMeta }> {
-    const [data, total] = await this.lessonPurchasesRepository.findAndCount({
-      where: {
-        student_id: userId,
-        access_expires_at: MoreThan(new Date()),
-        revoked_at: IsNull(),
-      },
-      relations: ['lesson', 'lesson.subject', 'lesson.teacher'],
-      order: { access_expires_at: 'ASC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const now = new Date();
+    const base = this.lessonPurchasesRepository
+      .createQueryBuilder('purchase')
+      .where('purchase.student_id = :userId', { userId })
+      .andWhere('purchase.access_expires_at > :now', { now })
+      .andWhere('purchase.revoked_at IS NULL');
+    const count = await base
+      .clone()
+      .select('COUNT(DISTINCT purchase.lesson_id)', 'total')
+      .getRawOne<{ total: string }>();
+    const total = Number(count?.total ?? 0);
+    const data = await base
+      .leftJoinAndSelect('purchase.lesson', 'lesson')
+      .leftJoinAndSelect('lesson.subject', 'subject')
+      .leftJoinAndSelect('lesson.teacher', 'teacher')
+      .distinctOn(['purchase.lesson_id'])
+      .orderBy('purchase.lesson_id', 'ASC')
+      .addOrderBy('purchase.access_expires_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
     const totalPages = Math.ceil(total / limit);
     return {
       data,

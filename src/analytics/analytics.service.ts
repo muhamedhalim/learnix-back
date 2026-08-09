@@ -258,7 +258,7 @@ export class AnalyticsService {
         'revenue_this_quarter',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :lessonType), 0) / 100.0',
+        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0) / 100.0',
         'lesson_revenue',
       )
       .addSelect(
@@ -276,6 +276,7 @@ export class AnalyticsService {
         completedStatus: PaymentStatus.COMPLETED,
         paidOrderStatus: OrderStatus.PAID,
         lessonType: ItemType.LESSON,
+        lessonSessionType: ItemType.LESSON_SESSION,
         packageType: ItemType.PACKAGE,
         bookType: ItemType.BOOK,
         startToday,

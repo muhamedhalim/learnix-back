@@ -10,6 +10,8 @@ import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { ScheduledJobMonitorService } from '../../observability/scheduled-job-monitor.service';
 import { AttendanceCode } from '../../attendance-codes/entities/attendance-code.entity';
+import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { FinancialReportFilterDto, OrderFilterDto } from '../dto';
 import {
   Entitlement,
@@ -57,6 +59,7 @@ export class PaymentOperationsService {
     private readonly paymentService: PaymentsService,
     private readonly refunds: RefundsService,
     private readonly jobMonitor: ScheduledJobMonitorService,
+    private readonly lessonSessions: LessonSessionsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -95,6 +98,9 @@ export class PaymentOperationsService {
       // block earned-fund release or the outbox, and the PostgreSQL session
       // lock prevents another worker from running the same cycle concurrently.
       await this.runMonitoredMaintenanceTask('expire_orders', () => this.expireOrders());
+      await this.runMonitoredMaintenanceTask('expire_lesson_session_holds', () =>
+        this.lessonSessions.expireStaleHolds(),
+      );
       await this.runMonitoredMaintenanceTask('release_held_earnings', () =>
         this.settlements.releaseAvailableEarnings(),
       );
@@ -818,6 +824,11 @@ export class PaymentOperationsService {
           );
           await this.discounts.releaseUsageForPayment(order.payment_id, manager);
         }
+        await this.lessonSessions.markForOrder(
+          manager,
+          order.id,
+          LessonSessionBookingStatus.EXPIRED,
+        );
         expired += 1;
       });
     }

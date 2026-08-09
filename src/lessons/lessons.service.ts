@@ -10,7 +10,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { LessThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, LessThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../config/feature-flags';
@@ -32,6 +32,7 @@ import { BunnyStreamService, BunnyVideoMetadata } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
 import { LessonVideoUploadSession } from './entities/lesson-video-upload-session.entity';
+import { LessonSessionsService } from './lesson-sessions.service';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -115,6 +116,8 @@ export class LessonsService {
     private readonly bunnyStream: BunnyStreamService,
     private readonly paymentsService: PaymentsService,
     private readonly media: MediaService,
+    private readonly lessonSessions: LessonSessionsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -122,6 +125,16 @@ export class LessonsService {
    * Only teachers can create lessons
    */
   public async create(teacherId: string, dto: CreateLessonDto): Promise<LessonWithDetails> {
+    if (dto.is_group === true && dto.session_slots?.length) {
+      throw new BadRequestException(
+        biBody('Group lessons cannot have appointments', 'لا يمكن إضافة مواعيد للدروس الجماعية'),
+      );
+    }
+    if (dto.is_group !== true && (!dto.duration || dto.duration <= 0)) {
+      throw new BadRequestException(
+        biBody('Individual lessons require a session duration', 'الدروس الفردية تتطلب مدة للجلسة'),
+      );
+    }
     // Validate teacher exists and has correct role
     const teacher = await this.usersRepository.findOne({
       where: { id: teacherId },
@@ -172,7 +185,13 @@ export class LessonsService {
       students_count: 0,
     });
 
-    const savedLesson = await this.lessonsRepository.save(lesson);
+    const savedLesson = await this.dataSource.transaction(async (manager) => {
+      const saved = await manager.save(Lesson, lesson);
+      if (!saved.is_group && dto.session_slots?.length) {
+        await this.lessonSessions.createManyWithManager(manager, saved, teacherId, dto.session_slots);
+      }
+      return saved;
+    });
 
     // Reload with relations
     const fullLesson = await this.lessonsRepository.findOne({
@@ -484,6 +503,33 @@ export class LessonsService {
     // Validate subject change
     await this.validateSubjectChange(dto, lesson, teacherId);
 
+    if (dto.is_group !== undefined && dto.is_group !== lesson.is_group) {
+      const dependencies = (await this.dataSource.query(
+        `SELECT
+           EXISTS (SELECT 1 FROM lesson_purchases WHERE lesson_id = $1) OR
+           EXISTS (SELECT 1 FROM orders WHERE item_type = 'lesson' AND item_id = $1) OR
+           EXISTS (SELECT 1 FROM lesson_package_items WHERE lesson_id = $1) OR
+           EXISTS (SELECT 1 FROM scheduled_lesson_sessions WHERE lesson_id = $1)
+           AS blocked`,
+        [lessonId],
+      )) as Array<{ blocked: boolean }>;
+      if (dependencies[0]?.blocked) {
+        throw new ConflictException(
+          biBody(
+            'Lesson type cannot change after purchases, package inclusion, or appointments exist',
+            'Lesson type cannot change after it has dependencies',
+          ),
+        );
+      }
+    }
+    const resultingIndividual = dto.is_group === false || (dto.is_group === undefined && !lesson.is_group);
+    const resultingDuration = dto.duration ?? lesson.duration;
+    if (resultingIndividual && (!resultingDuration || resultingDuration <= 0)) {
+      throw new BadRequestException(
+        biBody('Individual lessons require a session duration', 'تتطلب الدروس الفردية مدة للجلسة'),
+      );
+    }
+
     // Apply updates
     this.applyLessonUpdates(lesson, dto);
 
@@ -606,6 +652,8 @@ export class LessonsService {
       );
     }
 
+    await this.assertNoScheduledSessionHistory(lessonId);
+
     // Database state is authoritative: never delete external media before the
     // soft-delete succeeds, otherwise a failed write leaves a visible lesson
     // without its video.
@@ -629,7 +677,23 @@ export class LessonsService {
       );
     }
 
+    await this.assertNoScheduledSessionHistory(lessonId);
     await this.lessonsRepository.softDelete(lessonId);
+  }
+
+  private async assertNoScheduledSessionHistory(lessonId: string): Promise<void> {
+    const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
+      'SELECT EXISTS (SELECT 1 FROM scheduled_lesson_sessions WHERE lesson_id = $1) AS "exists"',
+      [lessonId],
+    );
+    if (rows[0]?.exists) {
+      throw new ConflictException(
+        biBody(
+          'Lessons with appointment history cannot be deleted; cancel future appointments instead',
+          'لا يمكن حذف درس يحتوي على سجل مواعيد؛ ألغِ المواعيد المستقبلية بدلاً من ذلك',
+        ),
+      );
+    }
   }
 
   /**

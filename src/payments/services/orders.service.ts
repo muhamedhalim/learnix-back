@@ -18,6 +18,7 @@ import { DiscountCodesService } from '../../discount-codes/discount-codes.servic
 import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { User } from '../../users/entities/user.entity';
 import { CheckoutQuoteDto, CreateOrderDto, OrderFilterDto, StartGatewayCheckoutDto } from '../dto';
@@ -50,6 +51,9 @@ interface ProductSnapshot {
   sellerName: string | null;
   priceMinor: number;
   accessDurationDays: number | null;
+  discountItemId?: string;
+  appointmentStartAt?: Date;
+  appointmentEndAt?: Date;
 }
 
 interface DiscountSnapshot {
@@ -128,10 +132,16 @@ export class OrdersService {
     private readonly discounts: DiscountCodesService,
     private readonly commissions: CommissionService,
     private readonly providers: PaymentProviderRegistry,
+    private readonly lessonSessions: LessonSessionsService,
   ) {}
 
   public async quote(dto: CheckoutQuoteDto, studentId: string): Promise<CheckoutQuote> {
     const product = await this.loadProduct(dto.item_type, dto.item_id);
+    if (dto.item_type === ItemType.LESSON_SESSION) {
+      await this.lessonSessions.assertCheckoutReservation(dto.booking_id, studentId, dto.item_id);
+    } else if (dto.booking_id !== undefined) {
+      throw new BadRequestException('booking_id is only valid for lesson sessions');
+    }
     await this.assertNotOwned(studentId, product.itemType, product.itemId);
     const discount = await this.resolveDiscount(product, dto.discount_code, studentId);
     const finalAmountMinor = product.priceMinor - discount.amountMinor;
@@ -157,9 +167,17 @@ export class OrdersService {
         currency: EGP_CURRENCY,
       },
       channels: {
-        activation_code: true,
+        activation_code: product.itemType !== ItemType.LESSON_SESSION,
         manual: manual
-          .filter((method) => this.withinLimits(method, finalAmountMinor))
+          .filter(
+            (method) =>
+              this.withinLimits(method, finalAmountMinor) &&
+              (!product.appointmentStartAt ||
+                this.lessonSessions.canPaymentWindowFit(
+                  product.appointmentStartAt,
+                  method.order_expiration_minutes,
+                )),
+          )
           .map((method) => ({
             id: method.id,
             name: method.name,
@@ -170,10 +188,17 @@ export class OrdersService {
             proof_required: method.proof_required,
             transaction_reference_required: method.transaction_reference_required,
           })),
-        gateway: this.providers.list().map((provider) => ({
-          name: provider.name,
-          supportsRefunds: provider.supportsRefunds,
-        })),
+        gateway: this.providers
+          .list()
+          .filter(
+            () =>
+              !product.appointmentStartAt ||
+              this.lessonSessions.canPaymentWindowFit(product.appointmentStartAt, 60),
+          )
+          .map((provider) => ({
+            name: provider.name,
+            supportsRefunds: provider.supportsRefunds,
+          })),
       },
       discount: discount.snapshot,
     };
@@ -207,6 +232,11 @@ export class OrdersService {
     }
 
     const product = await this.loadProduct(dto.item_type, dto.item_id);
+    if (dto.item_type === ItemType.LESSON_SESSION) {
+      await this.lessonSessions.assertCheckoutReservation(dto.booking_id, studentId, dto.item_id);
+    } else if (dto.booking_id !== undefined) {
+      throw new BadRequestException('booking_id is only valid for lesson sessions');
+    }
     if (!internalPricing?.skipOwnershipCheck) {
       await this.assertNotOwned(studentId, product.itemType, product.itemId);
     }
@@ -262,9 +292,17 @@ export class OrdersService {
       return await retryTransaction(this.dataSource, async (manager) => {
         await this.assertNoActiveOrder(manager, studentId, dto.item_type, dto.item_id);
         const now = new Date();
-        const expiresAt = new Date(
+        const normalExpiresAt = new Date(
           now.getTime() + (method?.order_expiration_minutes ?? 60) * 60 * 1000,
         );
+        const expiresAt = product.appointmentStartAt
+          ? new Date(
+              Math.min(
+                normalExpiresAt.getTime(),
+                product.appointmentStartAt.getTime() - 60 * 60_000,
+              ),
+            )
+          : normalExpiresAt;
         const order = manager.create(Order, {
           order_number: this.generateOrderNumber(),
           student_id: studentId,
@@ -300,6 +338,13 @@ export class OrdersService {
           metadata: {
             access_duration_days: product.accessDurationDays,
             manual_payment_method_id: method?.id ?? null,
+            ...(product.discountItemId ? { parent_lesson_id: product.discountItemId } : {}),
+            ...(product.appointmentStartAt
+              ? { appointment_start_at: product.appointmentStartAt.toISOString() }
+              : {}),
+            ...(product.appointmentEndAt
+              ? { appointment_end_at: product.appointmentEndAt.toISOString() }
+              : {}),
             ...(internalPricing?.metadata ?? {}),
           },
           expires_at: expiresAt,
@@ -335,6 +380,17 @@ export class OrdersService {
         const savedPayment = await manager.save(Payment, payment);
         savedOrder.payment_id = savedPayment.id;
         await manager.save(Order, savedOrder);
+
+        if (product.itemType === ItemType.LESSON_SESSION) {
+          await this.lessonSessions.attachOrder(
+            manager,
+            dto.booking_id!,
+            studentId,
+            savedOrder,
+            savedPayment,
+            expiresAt,
+          );
+        }
 
         if (discount.id) {
           await this.discounts.applyDiscount(
@@ -758,6 +814,14 @@ export class OrdersService {
       const repository = manager?.getRepository(Lesson) ?? this.lessons;
       const lesson = await repository.findOne({ where: { id: itemId, deleted_at: IsNull() } });
       if (!lesson) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+      if (!lesson.is_group) {
+        throw new BadRequestException(
+          biBody(
+            'Choose an appointment before purchasing an Individual lesson',
+            'اختر موعدًا قبل شراء الدرس الفردي',
+          ),
+        );
+      }
       const seller = await users.findOne({ where: { id: lesson.teacher_id } });
       return {
         itemType,
@@ -770,12 +834,45 @@ export class OrdersService {
         accessDurationDays: lesson.available_for_days,
       };
     }
+    if (itemType === ItemType.LESSON_SESSION) {
+      const { session, lesson } = await this.lessonSessions.getCheckoutProduct(itemId, manager);
+      const seller = await users.findOne({ where: { id: lesson.teacher_id } });
+      return {
+        itemType,
+        itemId,
+        title: `${lesson.title} - ${session.start_at.toISOString()}`,
+        titleAr: null,
+        teacherId: lesson.teacher_id,
+        sellerName: seller?.name ?? null,
+        priceMinor: toMinorUnits(lesson.price),
+        accessDurationDays: lesson.available_for_days,
+        discountItemId: lesson.id,
+        appointmentStartAt: session.start_at,
+        appointmentEndAt: session.end_at,
+      };
+    }
     if (itemType === ItemType.PACKAGE) {
       const repository = manager?.getRepository(LessonPackage) ?? this.packages;
       const pkg = await repository.findOne({
         where: { id: itemId, deleted_at: IsNull(), is_active: true },
       });
       if (!pkg) throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
+      const containsIndividual = (await (manager ?? this.dataSource.manager).query(
+        `SELECT 1
+           FROM lesson_package_items item
+           JOIN lessons lesson ON lesson.id = item.lesson_id
+          WHERE item.package_id = $1 AND lesson.is_group = false
+          LIMIT 1`,
+        [pkg.id],
+      )) as unknown[];
+      if (containsIndividual.length > 0) {
+        throw new BadRequestException(
+          biBody(
+            'This package contains an Individual lesson and is unavailable for new purchases',
+            'تحتوي هذه الباقة على درس فردي، لذلك لا يمكن شراؤها حاليًا',
+          ),
+        );
+      }
       const seller = await users.findOne({ where: { id: pkg.teacher_id } });
       return {
         itemType,
@@ -812,6 +909,7 @@ export class OrdersService {
     if (!code?.trim()) return { id: null, amountMinor: 0, snapshot: null };
     const applicable = {
       [ItemType.LESSON]: ApplicableItem.LESSON,
+      [ItemType.LESSON_SESSION]: ApplicableItem.LESSON,
       [ItemType.PACKAGE]: ApplicableItem.PACKAGE,
       [ItemType.BOOK]: ApplicableItem.BOOK,
     }[product.itemType];
@@ -819,7 +917,7 @@ export class OrdersService {
       {
         code,
         item_type: applicable,
-        item_id: product.itemId,
+        item_id: product.discountItemId ?? product.itemId,
         amount: fromMinorUnits(product.priceMinor),
       },
       studentId,
@@ -882,7 +980,7 @@ export class OrdersService {
           where: { student_id: studentId, package_id: itemId, revoked_at: IsNull() },
         }),
       );
-    } else {
+    } else if (itemType === ItemType.BOOK) {
       legacyOwned = Boolean(
         await this.bookPurchases.findOne({
           where: { student_id: studentId, book_id: itemId, revoked_at: IsNull() },

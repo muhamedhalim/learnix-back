@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
 import {
   ItemType,
@@ -95,6 +96,7 @@ describe('PaymentsService — canonical compatibility routes', () => {
           useValue: entitlements,
         },
         { provide: RefundsService, useValue: refunds },
+        { provide: LessonSessionsService, useValue: { markForOrder: jest.fn() } },
       ],
     }).compile();
 

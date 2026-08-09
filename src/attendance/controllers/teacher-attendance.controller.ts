@@ -80,6 +80,24 @@ export class TeacherAttendanceController {
     };
   }
 
+  @Post(':lessonId/sessions/:sessionId/attendance')
+  @ApiOperation({ summary: 'Mark attendance for a confirmed one-to-one appointment' })
+  public async markScheduledSessionAttendance(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Body() dto: MarkAttendanceDto,
+  ): Promise<{ message: string; data: unknown }> {
+    await this.validateOwnership(lessonId, user.userId);
+    const attendance = await this.attendanceService.markScheduledSessionAttendance(
+      user.userId,
+      lessonId,
+      sessionId,
+      Object.assign({}, dto, { lesson_id: lessonId }),
+    );
+    return { message: 'Attendance marked successfully', data: attendance };
+  }
+
   /**
    * Update attendance record
    */

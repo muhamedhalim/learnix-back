@@ -539,7 +539,7 @@ export class ReportsService {
     return this.ordersRepository
       .createQueryBuilder('order')
       .select(
-        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :lessonType), 0)`,
+        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0)`,
         'lessons_minor',
       )
       .addSelect(
@@ -561,6 +561,7 @@ export class ReportsService {
       )
       .setParameters({
         lessonType: ItemType.LESSON,
+        lessonSessionType: ItemType.LESSON_SESSION,
         packageType: ItemType.PACKAGE,
         bookType: ItemType.BOOK,
         completedPaymentStatus: PaymentStatus.COMPLETED,

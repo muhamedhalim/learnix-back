@@ -149,6 +149,7 @@ describe('PaymentFinalizationService', () => {
               : '120',
         ),
       } as unknown as ConfigService,
+      { confirmForOrder: jest.fn().mockResolvedValue(null) } as never,
     );
   });
 

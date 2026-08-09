@@ -64,6 +64,8 @@ describe('LessonsService.findAll', () => {
       {} as BunnyStreamService,
       {} as PaymentsService,
       media as unknown as MediaService,
+      {} as never,
+      {} as never,
     );
   });
 
@@ -222,6 +224,13 @@ describe('LessonsService lesson duration persistence', () => {
     normalizeStoredPublicReference: jest.fn((value: string) => value),
     resolveThumbnailUrl: jest.fn().mockReturnValue(null),
   };
+  const lessonSessions = { createManyWithManager: jest.fn() };
+  const dataSource = {
+    transaction: jest.fn(async (callback: (manager: { save: jest.Mock }) => Promise<Lesson>) =>
+      callback({ save: jest.fn(async (_entity: unknown, value: Lesson) => lessonRepository.save(value)) }),
+    ),
+    query: jest.fn().mockResolvedValue([{ exists: false }]),
+  };
   let service: LessonsService;
 
   beforeEach(() => {
@@ -249,14 +258,17 @@ describe('LessonsService lesson duration persistence', () => {
       bunny as unknown as BunnyStreamService,
       payments as unknown as PaymentsService,
       media as unknown as MediaService,
+      lessonSessions as never,
+      dataSource as never,
     );
   });
 
-  it('creates a lesson without a duration before video metadata is available', async () => {
+  it('keeps Group lesson creation valid without a session duration', async () => {
     const result = await service.create(teacher.id, {
       title: lesson.title,
       subject_id: subject.id,
       price: 0,
+      is_group: true,
     });
 
     expect(lessonRepository.create).toHaveBeenCalledWith(
@@ -272,6 +284,7 @@ describe('LessonsService lesson duration persistence', () => {
       subject_id: subject.id,
       price: 0,
       duration: 3_600,
+      is_group: false,
     });
 
     expect(lessonRepository.create).toHaveBeenCalledWith(
@@ -289,6 +302,7 @@ describe('LessonsService lesson duration persistence', () => {
       title: lesson.title,
       subject_id: subject.id,
       price: 0,
+      is_group: true,
       thumbnail: 'http://localhost:3001/api/v1/media/public/images/cover.jpg',
     });
 

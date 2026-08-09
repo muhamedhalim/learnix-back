@@ -62,4 +62,5 @@ export class LessonBaseDto {
   @IsOptional()
   @Min(0)
   duration?: number;
+
 }

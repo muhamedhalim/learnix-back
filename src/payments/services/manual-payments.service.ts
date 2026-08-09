@@ -15,6 +15,8 @@ import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
 import { biBody } from '../../i18n/error-translator.util';
+import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
@@ -65,6 +67,7 @@ export class ManualPaymentsService {
     private readonly finalizer: PaymentFinalizationService,
     @Inject(forwardRef(() => DiscountCodesService))
     private readonly discounts: DiscountCodesService,
+    private readonly lessonSessions: LessonSessionsService,
   ) {}
 
   public async createMethod(
@@ -287,6 +290,11 @@ export class ManualPaymentsService {
         );
         lockedOrder.status = OrderStatus.PAYMENT_SUBMITTED;
         await manager.save(Order, lockedOrder);
+        await this.lessonSessions.markForOrder(
+          manager,
+          lockedOrder.id,
+          LessonSessionBookingStatus.PAYMENT_REVIEW,
+        );
         await manager.insert(PaymentAuditLog, {
           actor_id: studentId,
           action: 'manual_payment_submitted',
@@ -490,6 +498,11 @@ export class ManualPaymentsService {
         order.status = OrderStatus.REJECTED;
         await manager.save(Order, order);
         await this.closeUnpaidPayment(manager, order, dto.reason_code);
+        await this.lessonSessions.markForOrder(
+          manager,
+          order.id,
+          LessonSessionBookingStatus.FAILED,
+        );
       }
       await this.reviewAudit(manager, adminId, 'manual_payment_rejected', submission, {
         reason_code: dto.reason_code,
@@ -555,6 +568,11 @@ export class ManualPaymentsService {
         order.status = OrderStatus.CANCELLED;
         await manager.save(Order, order);
         await this.closeUnpaidPayment(manager, order, dto.reason_code);
+        await this.lessonSessions.markForOrder(
+          manager,
+          order.id,
+          LessonSessionBookingStatus.CANCELLED,
+        );
       }
       await this.reviewAudit(manager, adminId, 'manual_payment_cancelled', submission, {
         reason_code: dto.reason_code,

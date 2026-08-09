@@ -39,6 +39,10 @@ export class CheckoutQuoteDto {
   public item_id!: string;
 
   @IsOptional()
+  @IsUUID('4')
+  public booking_id?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(50)
   public discount_code?: string;

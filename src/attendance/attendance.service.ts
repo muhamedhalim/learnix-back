@@ -13,6 +13,9 @@ import { IsNull, Repository } from 'typeorm';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { LessonSessionBookingStatus } from '../lessons/entities/lesson-session-booking-status.enum';
+import { LessonSessionBooking } from '../lessons/entities/lesson-session-booking.entity';
+import { ScheduledLessonSession } from '../lessons/entities/scheduled-lesson-session.entity';
 import { AttendanceMarkedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
 import { PaymentsService } from '../payments/services/payments.service';
 import { User } from '../users/entities/user.entity';
@@ -42,6 +45,10 @@ export class AttendanceService {
     private readonly sessionsRepository: Repository<LessonSession>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
+    @InjectRepository(ScheduledLessonSession)
+    private readonly scheduledSessionsRepository: Repository<ScheduledLessonSession>,
+    @InjectRepository(LessonSessionBooking)
+    private readonly scheduledBookingsRepository: Repository<LessonSessionBooking>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly events: EventEmitter2,
@@ -92,6 +99,7 @@ export class AttendanceService {
       marked_by: markerId,
       is_auto_marked: isAutoMarked,
       notes: dto.notes ?? (isAutoMarked ? 'Auto-marked: 80% video completion' : null),
+      scheduled_lesson_session_id: null,
     });
 
     const saved = await this.attendanceRepository.save(attendance);
@@ -122,6 +130,67 @@ export class AttendanceService {
       );
     }
 
+    return await this.findAttendanceById(saved.id);
+  }
+
+  /** Mark attendance for one confirmed live appointment. */
+  public async markScheduledSessionAttendance(
+    markerId: string,
+    lessonId: string,
+    sessionId: string,
+    dto: MarkAttendanceDto,
+  ): Promise<AttendanceRecord> {
+    const session = await this.scheduledSessionsRepository.findOne({
+      where: { id: sessionId, lesson_id: lessonId },
+      relations: ['lesson'],
+    });
+    if (!session) {
+      throw new NotFoundException(
+        biBody('Scheduled lesson session not found', 'موعد الدرس غير موجود'),
+      );
+    }
+
+    const booking = await this.scheduledBookingsRepository.findOne({
+      where: {
+        scheduled_session_id: sessionId,
+        student_id: dto.student_id,
+        status: LessonSessionBookingStatus.CONFIRMED,
+      },
+    });
+    if (!booking) {
+      throw new ForbiddenException(
+        biBody(
+          'Only the confirmed student can receive attendance for this appointment',
+          'يمكن تسجيل الحضور للطالب المؤكد لهذا الموعد فقط',
+        ),
+      );
+    }
+
+    const existing = await this.attendanceRepository.findOne({
+      where: {
+        student_id: dto.student_id,
+        scheduled_lesson_session_id: sessionId,
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        biBody('Attendance already marked for this appointment', 'تم تسجيل الحضور لهذا الموعد بالفعل'),
+      );
+    }
+
+    const attendance = this.attendanceRepository.create({
+      student_id: dto.student_id,
+      lesson_id: lessonId,
+      scheduled_lesson_session_id: sessionId,
+      status: dto.status,
+      marked_by: markerId,
+      is_auto_marked: false,
+      notes: dto.notes ?? null,
+    });
+    const saved = await this.attendanceRepository.save(attendance);
+    this.logger.log(
+      `Scheduled attendance marked: student ${dto.student_id}, session ${sessionId}, status ${dto.status}`,
+    );
     return await this.findAttendanceById(saved.id);
   }
 
@@ -171,6 +240,7 @@ export class AttendanceService {
       where: {
         student_id: studentId,
         lesson_id: lessonId,
+        scheduled_lesson_session_id: IsNull(),
       },
     });
   }
@@ -181,7 +251,7 @@ export class AttendanceService {
   public async findAttendanceById(id: string): Promise<AttendanceRecord> {
     const attendance = await this.attendanceRepository.findOne({
       where: { id },
-      relations: ['student', 'lesson', 'marker'],
+      relations: ['student', 'lesson', 'marker', 'scheduled_lesson_session'],
     });
 
     if (!attendance) {

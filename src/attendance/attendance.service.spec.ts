@@ -19,6 +19,8 @@ describe('AttendanceService record ownership scope', () => {
     lessonsRepository as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
     payments as never,
   );
 

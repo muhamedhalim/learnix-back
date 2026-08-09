@@ -6,6 +6,7 @@ export * from './homework.dto';
 export * from './teacher-homework.dto';
 export * from './lesson-filter.dto';
 export * from './lesson-progress.dto';
+export * from './lesson-session.dto';
 export * from './public-lesson-response.dto';
 export * from './update-lesson.dto';
 export * from './upsert-note.dto';

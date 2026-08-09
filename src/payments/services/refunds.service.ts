@@ -17,6 +17,7 @@ import {
 } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
@@ -56,6 +57,7 @@ export class RefundsService {
     private readonly refundAttempts: Repository<RefundAttempt>,
     private readonly dataSource: DataSource,
     private readonly providers: PaymentProviderRegistry,
+    private readonly lessonSessions: LessonSessionsService,
   ) {}
 
   public async request(dto: CreateRefundDto, adminId: string): Promise<Refund> {
@@ -697,6 +699,7 @@ export class RefundsService {
 
   private async revokeAccess(manager: EntityManager, order: Order, refund: Refund): Promise<void> {
     const reason = `refund:${refund.reason_code}`;
+    await this.lessonSessions.refundForOrder(manager, order.id);
     await manager.update(
       Entitlement,
       { order_id: order.id, status: EntitlementStatus.ACTIVE },
@@ -725,6 +728,8 @@ export class RefundsService {
     );
     if (order.item_type === ItemType.LESSON) {
       await manager.decrement(Lesson, { id: order.item_id }, 'students_count', 1);
+    } else if (order.item_type === ItemType.LESSON_SESSION) {
+      // Individual appointment counts are derived from bookings, not students_count.
     } else if (order.item_type === ItemType.BOOK) {
       await manager.decrement(Book, { id: order.item_id }, 'purchase_count', 1);
     } else {

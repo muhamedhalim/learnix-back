@@ -200,6 +200,14 @@ export class CartService {
         );
       }
 
+      if (!lesson.is_group) {
+        throw new BadRequestException(
+          biBody(
+            'Choose an appointment from the lesson page instead of adding this lesson to the cart',
+            'اختر موعدًا من صفحة الدرس بدلاً من إضافة الدرس إلى السلة',
+          ),
+        );
+      }
       return lesson.price;
     }
     // CartItemType.PACKAGE

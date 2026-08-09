@@ -8,6 +8,9 @@ import { User } from '../users/entities/user.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
 import { Lesson } from '../lessons/entities/lesson.entity';
+import { ScheduledLessonSession } from '../lessons/entities/scheduled-lesson-session.entity';
+import { LessonSessionBooking } from '../lessons/entities/lesson-session-booking.entity';
+import { LessonSessionsService } from '../lessons/lesson-sessions.service';
 import { ObservabilityModule } from '../observability/observability.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
@@ -85,6 +88,8 @@ import { SettlementsService } from './services/settlements.service';
       LessonPurchase,
       PackagePurchase,
       Lesson,
+      ScheduledLessonSession,
+      LessonSessionBooking,
       LessonPackage,
       Book,
       BookPurchase,
@@ -120,6 +125,7 @@ import { SettlementsService } from './services/settlements.service';
     PaymentOperationsService,
     GatewayWebhookService,
     GatewayFinancialStateMachineService,
+    LessonSessionsService,
     FinancePermissionsGuard,
   ],
   exports: [
@@ -129,6 +135,7 @@ import { SettlementsService } from './services/settlements.service';
     OrdersService,
     EntitlementsService,
     PaymentFinalizationService,
+    LessonSessionsService,
   ],
 })
 export class PaymentsModule implements OnModuleInit {

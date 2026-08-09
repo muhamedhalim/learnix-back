@@ -17,6 +17,7 @@ import type { LessonPurchase } from '../../payments/entities/lesson-purchase.ent
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import { LessonStatus } from './lesson-status.enum';
+import { ScheduledLessonSession } from './scheduled-lesson-session.entity';
 
 @Entity('lessons')
 @Index('IDX_lessons_active_created_id', ['created_at', 'id'], {
@@ -174,4 +175,7 @@ export class Lesson {
   // Phase 4: Payment relations
   @OneToMany('LessonPurchase', 'lesson')
   purchases!: Relation<LessonPurchase[]>;
+
+  @OneToMany(() => ScheduledLessonSession, (session) => session.lesson)
+  scheduled_sessions!: Relation<ScheduledLessonSession[]>;
 }

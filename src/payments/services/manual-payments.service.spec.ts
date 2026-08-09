@@ -5,6 +5,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { StorageService } from '../../storage/storage.service';
 import {
   ManualPaymentMethod,
@@ -85,6 +86,7 @@ describe('ManualPaymentsService — approval invariants', () => {
           provide: DiscountCodesService,
           useValue: { releaseUsageForPayment: jest.fn() },
         },
+        { provide: LessonSessionsService, useValue: { markForOrder: jest.fn() } },
       ],
     }).compile();
 

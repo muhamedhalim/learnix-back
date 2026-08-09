@@ -3,6 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 
 import { Order, OrderStatus, Payment, Refund, RefundAttempt, RefundStatus } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
@@ -72,6 +73,7 @@ describe('RefundsService — financial validation', () => {
         { provide: getRepositoryToken(Payment), useValue: payments },
         { provide: DataSource, useValue: dataSource },
         { provide: PaymentProviderRegistry, useValue: {} },
+        { provide: LessonSessionsService, useValue: { refundForOrder: jest.fn() } },
       ],
     }).compile();
 
