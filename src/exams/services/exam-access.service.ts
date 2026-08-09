@@ -9,11 +9,12 @@ import { Exam } from '../entities';
 /**
  * Canonical student-to-exam audience policy.
  *
- * Lesson-linked exams are restricted to students with current direct lesson
- * access or a course/package enrolment containing that lesson. Exams without a
- * lesson use the existing instructor roster relationship (a purchase from that
- * instructor). Public practice content is deliberately excluded from this
- * private student-exam surface.
+ * Lesson-linked exams are restricted to students with current lesson access.
+ * A package purchase creates that lesson access, but does not outlive the
+ * lesson's own access window. Exams without a lesson use the existing
+ * instructor roster relationship (a purchase from that instructor). Public
+ * practice content is deliberately excluded from this private student-exam
+ * surface.
  */
 @Injectable()
 export class ExamAccessService {
@@ -51,13 +52,6 @@ export class ExamAccessService {
         AND lp.revoked_at IS NULL
         AND lp.access_expires_at > :accessNow
     )`;
-    const courseLessonAccess = `EXISTS (
-      SELECT 1 FROM package_purchases pp
-      INNER JOIN lesson_package_items lpi ON lpi.package_id = pp.package_id
-      WHERE pp.student_id = :studentId
-        AND pp.revoked_at IS NULL
-        AND lpi.lesson_id = ${alias}.lesson_id
-    )`;
     const targetCourseAccess = `EXISTS (
       SELECT 1 FROM package_purchases target_pp
       WHERE target_pp.student_id = :studentId
@@ -79,7 +73,7 @@ export class ExamAccessService {
         AND roster_package.teacher_id = ${alias}.teacher_id
     )`;
 
-    return `((${alias}.lesson_id IS NOT NULL AND (${directLessonAccess} OR ${courseLessonAccess}))
+    return `((${alias}.lesson_id IS NOT NULL AND ${directLessonAccess})
       OR (${alias}.package_id IS NOT NULL AND ${targetCourseAccess})
       OR (${alias}.lesson_id IS NULL AND ${alias}.package_id IS NULL AND (${instructorRosterAccess})))`;
   }

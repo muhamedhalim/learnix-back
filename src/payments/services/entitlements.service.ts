@@ -25,23 +25,7 @@ export class EntitlementsService {
       .andWhere('entitlement.status = :status', { status: EntitlementStatus.ACTIVE })
       .andWhere('(entitlement.expires_at IS NULL OR entitlement.expires_at > :now)', { now })
       .getExists();
-    if (direct || itemType !== ItemType.LESSON) return direct;
-
-    return this.entitlements
-      .createQueryBuilder('entitlement')
-      .where('entitlement.student_id = :studentId', { studentId })
-      .andWhere('entitlement.item_type = :packageType', { packageType: ItemType.PACKAGE })
-      .andWhere('entitlement.status = :status', { status: EntitlementStatus.ACTIVE })
-      .andWhere('(entitlement.expires_at IS NULL OR entitlement.expires_at > :now)', { now })
-      .andWhere(
-        `EXISTS (
-          SELECT 1 FROM lesson_package_items item
-          WHERE item.package_id = entitlement.item_id
-            AND item.lesson_id = :itemId
-        )`,
-        { itemId },
-      )
-      .getExists();
+    return direct;
   }
 
   public async getActive(

@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -17,13 +17,18 @@ import { AttendanceCode, AttendanceCodeStatus, AttendanceCodeType } from './enti
 
 describe('AttendanceCodesService — redemption correctness', () => {
   let service: AttendanceCodesService;
-  let codesRepo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+  let codesRepo: {
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
   let lessonsRepo: { findOne: jest.Mock };
   let packagesRepo: { findOne: jest.Mock };
   let booksRepo: { findOne: jest.Mock };
   let orders: { createActivationCodeOrder: jest.Mock };
   let finalizer: { finalizeSuccessfulPayment: jest.Mock };
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: { transaction: jest.Mock; getRepository: jest.Mock };
   let manager: {
     findOne: jest.Mock;
     getRepository: jest.Mock;
@@ -83,8 +88,14 @@ describe('AttendanceCodesService — redemption correctness', () => {
         const fn = (typeof a === 'function' ? a : b) as (m: unknown) => unknown;
         return fn(manager);
       }),
+      getRepository: jest.fn(() => ({ findOne: jest.fn().mockResolvedValue(null) })),
     };
-    codesRepo = { findOne: jest.fn(), create: jest.fn((o: unknown) => o), save: jest.fn() };
+    codesRepo = {
+      findOne: jest.fn(),
+      create: jest.fn((o: unknown) => o),
+      save: jest.fn(),
+      createQueryBuilder: jest.fn(() => queryBuilder),
+    };
     lessonsRepo = { findOne: jest.fn() };
     packagesRepo = { findOne: jest.fn() };
     booksRepo = { findOne: jest.fn() };
@@ -129,6 +140,7 @@ describe('AttendanceCodesService — redemption correctness', () => {
 
     it('locks a lesson code and routes redemption through the canonical finalizer', async () => {
       lookupCode = buildCode();
+      managerFindOneByEntity.set(Lesson, { id: 'lesson-1', is_group: true });
       managerFindOneByEntity.set(LessonPurchase, null); // not already owned
 
       const result = await service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1');
@@ -169,6 +181,7 @@ describe('AttendanceCodesService — redemption correctness', () => {
 
     it('refuses to burn the code when the student already owns the item (409)', async () => {
       lookupCode = buildCode();
+      managerFindOneByEntity.set(Lesson, { id: 'lesson-1', is_group: true });
       managerFindOneByEntity.set(LessonPurchase, {
         id: 'lp-1',
         access_expires_at: new Date(Date.now() + 86_400_000),
@@ -190,6 +203,18 @@ describe('AttendanceCodesService — redemption correctness', () => {
         service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1'),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unredeemed Individual lesson code before it can create an order', async () => {
+      lookupCode = buildCode();
+      managerFindOneByEntity.set(Lesson, { id: 'lesson-1', is_group: false });
+
+      await expect(service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+
+      expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
+      expect(finalizer.finalizeSuccessfulPayment).not.toHaveBeenCalled();
     });
   });
 
@@ -226,6 +251,61 @@ describe('AttendanceCodesService — redemption correctness', () => {
 
       expect(codes).toHaveLength(2);
       expect(codesRepo.save).toHaveBeenCalled();
+    });
+
+    it('continues to generate codes for Group lessons', async () => {
+      lessonsRepo.findOne.mockResolvedValue({
+        id: 'lesson-1',
+        teacher_id: 'teacher-1',
+        price: 100,
+        is_group: true,
+      });
+      codesRepo.save.mockImplementation((codes: unknown) => Promise.resolve(codes));
+
+      await expect(
+        service.generateCodes(
+          { ...baseDto, type: AttendanceCodeType.LESSON, item_id: 'lesson-1' } as never,
+          'admin-1',
+        ),
+      ).resolves.toHaveLength(2);
+    });
+
+    it('rejects generating codes for Individual lessons', async () => {
+      lessonsRepo.findOne.mockResolvedValue({
+        id: 'lesson-1',
+        teacher_id: 'teacher-1',
+        price: 100,
+        is_group: false,
+      });
+
+      await expect(
+        service.generateCodes(
+          { ...baseDto, type: AttendanceCodeType.LESSON, item_id: 'lesson-1' } as never,
+          'admin-1',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(codesRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('verifyCodePublic', () => {
+    it('rejects verification of an unredeemed Individual lesson code', async () => {
+      lookupCode = buildCode();
+      lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1', is_group: false });
+
+      await expect(service.verifyCodePublic('abcd1234')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('keeps a redeemed legacy Individual code readable without changing it', async () => {
+      lookupCode = buildCode({ is_used: true, status: AttendanceCodeStatus.REDEEMED });
+      lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1', is_group: false, title: 'Legacy lesson' });
+
+      await expect(service.verifyCodePublic('abcd1234')).resolves.toMatchObject({
+        valid: false,
+        itemTitle: 'Legacy lesson',
+        isUsed: true,
+      });
     });
   });
 });

@@ -679,6 +679,7 @@ export class CodeBatchesService {
         where: { id: itemId, deleted_at: IsNull() },
       });
       if (!found) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+      this.assertGroupLessonCodeTarget(found);
       return {
         teacherId: found.teacher_id,
         priceMinor: toMinorUnits(found.price),
@@ -713,6 +714,7 @@ export class CodeBatchesService {
         where: { id: itemId, deleted_at: IsNull() },
       });
       if (!found) throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+      this.assertGroupLessonCodeTarget(found);
     } else if (type === AttendanceCodeType.PACKAGE) {
       const found = await this.packagesRepo.findOne({
         where: { id: itemId, deleted_at: IsNull() },
@@ -721,6 +723,17 @@ export class CodeBatchesService {
     }
     // BOOK items are validated by the books module elsewhere; parity with the
     // existing single-code generation which does not re-validate books here.
+  }
+
+  private assertGroupLessonCodeTarget(lesson: Pick<Lesson, 'is_group'>): void {
+    if (lesson.is_group === false) {
+      throw new BadRequestException(
+        biBody(
+          'Activation codes cannot be created for Individual lessons. Choose an appointment instead.',
+          'لا يمكن إنشاء رموز تفعيل للدروس الفردية. اختر موعدًا بدلًا من ذلك.',
+        ),
+      );
+    }
   }
 
   private async assertReceivableCreditAvailable(

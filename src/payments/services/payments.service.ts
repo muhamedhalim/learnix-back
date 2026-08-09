@@ -380,9 +380,9 @@ export class PaymentsService {
       };
     }
 
-    // A lesson can also be owned through an active package entitlement. This
-    // is deliberately checked through EntitlementsService, so checkout and
-    // content navigation use the same canonical ownership rule.
+    // Package ownership remains valid for the package itself, but a lesson
+    // inside that package is governed by its own compatibility purchase and
+    // access expiry below.
     if (await this.entitlementsService.hasItemAccess(userId, itemType, itemId)) {
       return { has_access: true };
     }
@@ -532,9 +532,9 @@ export class PaymentsService {
   }
 
   /**
-   * Whether a student may access a lesson through a purchase — either an active
-   * individual lesson purchase (7-day window) or a package (course) enrolment
-   * that contains the lesson (package purchases are permanent). Used to gate
+   * Whether a student may access a lesson through an unexpired direct or
+   * package-derived lesson purchase. Package ownership itself is permanent,
+   * but never bypasses the individual lesson's access window. Used to gate
    * signed video playback. Does not cover teacher-owner / admin access, which
    * the caller checks separately.
    */
@@ -551,19 +551,7 @@ export class PaymentsService {
       },
     });
     if (lessonPurchase) return true;
-
-    // Enrolled via any package whose curriculum includes this lesson.
-    const packageEnrolments = await this.packagePurchasesRepository
-      .createQueryBuilder('purchase')
-      .innerJoin('purchase.package', 'package')
-      .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', {
-        lessonId,
-      })
-      .where('purchase.student_id = :userId', { userId })
-      .andWhere('purchase.revoked_at IS NULL')
-      .getCount();
-
-    return packageEnrolments > 0;
+    return false;
   }
 
   /**

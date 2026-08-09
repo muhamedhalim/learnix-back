@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
@@ -75,6 +76,7 @@ describe('CodeBatchesService', () => {
         id: 'lesson-1',
         teacher_id: 'teacher-1',
         price: 100,
+        is_group: true,
       });
       batchRepo.save.mockResolvedValue({
         id: 'batch-1',
@@ -122,6 +124,31 @@ describe('CodeBatchesService', () => {
           'admin-1',
         ),
       ).rejects.toThrow('Lesson not found');
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('rejects a batch targeting an Individual lesson', async () => {
+      lessonsRepo.findOne.mockResolvedValue({
+        id: 'lesson-1',
+        teacher_id: 'teacher-1',
+        price: 100,
+        is_group: false,
+      });
+
+      await expect(
+        service.createBatch(
+          {
+            name: 'Individual',
+            type: AttendanceCodeType.LESSON,
+            item_id: 'lesson-1',
+            count: 1,
+            expires_at: '2030-01-01T00:00:00Z',
+          },
+          'admin-1',
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(batchRepo.save).not.toHaveBeenCalled();
       expect(queue.add).not.toHaveBeenCalled();
     });
   });

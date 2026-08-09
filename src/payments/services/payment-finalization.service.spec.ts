@@ -4,6 +4,7 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import {
   CollectionParty,
   Entitlement,
@@ -11,6 +12,7 @@ import {
   ItemType,
   LedgerDirection,
   LessonPurchase,
+  PackagePurchase,
   ManualPaymentSubmission,
   ManualPaymentSubmissionStatus,
   Order,
@@ -61,6 +63,7 @@ describe('PaymentFinalizationService', () => {
   let savedCompatibilityPurchases: unknown[];
   let manager: EntityManager;
   let service: PaymentFinalizationService;
+  let packageForFinalization: LessonPackage | null;
 
   beforeEach(() => {
     Object.assign(order, {
@@ -76,6 +79,7 @@ describe('PaymentFinalizationService', () => {
     entitlement = null;
     inserted = [];
     savedCompatibilityPurchases = [];
+    packageForFinalization = null;
 
     const managerShape = {
       query: jest.fn().mockResolvedValue(undefined),
@@ -96,6 +100,7 @@ describe('PaymentFinalizationService', () => {
         if (entity === Lesson) {
           return Promise.resolve({ id: 'lesson-1', available_for_days: 7 });
         }
+        if (entity === LessonPackage) return Promise.resolve(packageForFinalization);
         return Promise.resolve(null);
       }),
       create: jest.fn((_entity: unknown, value: unknown) => value),
@@ -288,5 +293,45 @@ describe('PaymentFinalizationService', () => {
       item_id: 'lesson-1',
     });
     expect(savedCompatibilityPurchases).toHaveLength(1);
+  });
+
+  it('gives each lesson in a finalized package its own available_for_days expiry', async () => {
+    order.item_type = ItemType.PACKAGE;
+    order.item_id = 'package-1';
+    order.metadata = {};
+    payment.item_type = ItemType.PACKAGE;
+    payment.item_id = 'package-1';
+    packageForFinalization = {
+      id: 'package-1',
+      items: [
+        { lesson: { id: 'lesson-a', available_for_days: 1 } },
+        { lesson: { id: 'lesson-b', available_for_days: 14 } },
+      ],
+    } as LessonPackage;
+
+    await service.finalizeSuccessfulPayment(
+      {
+        orderId: order.id,
+        paymentId: payment.id,
+        sourceReference: 'package-payment',
+        verifiedAmountMinor: 10_000,
+        verifiedCurrency: 'EGP',
+      },
+      manager,
+    );
+
+    const purchases = inserted
+      .filter((row) => row.target === LessonPurchase)
+      .map((row) => row.value)
+      .sort((a, b) => String(a.lesson_id).localeCompare(String(b.lesson_id)));
+    expect(inserted.some((row) => row.target === PackagePurchase)).toBe(true);
+    expect(purchases).toEqual([
+      expect.objectContaining({ lesson_id: 'lesson-a', access_expires_at: expect.any(Date) }),
+      expect.objectContaining({ lesson_id: 'lesson-b', access_expires_at: expect.any(Date) }),
+    ]);
+    expect(
+      (purchases[1]!.access_expires_at as Date).getTime() -
+        (purchases[0]!.access_expires_at as Date).getTime(),
+    ).toBe(13 * 24 * 60 * 60_000);
   });
 });

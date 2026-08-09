@@ -628,7 +628,7 @@ export class TeacherHomeworkService {
       qb.andWhere('submission.score <= :maxScore', { maxScore: filter.max_score });
   }
 
-  /** Existing access policy, expressed once for aggregate and roster queries. */
+  /** Active lesson access, expressed once for aggregate and roster queries. */
   private audienceSql(lessonIdExpression: string, accessNowParameter = ':accessNow'): string {
     return `
       SELECT DISTINCT audience.student_id
@@ -638,12 +638,6 @@ export class TeacherHomeworkService {
         WHERE purchase.lesson_id = ${lessonIdExpression}
           AND purchase.revoked_at IS NULL
           AND purchase.access_expires_at > ${accessNowParameter}
-        UNION
-        SELECT purchase.student_id
-        FROM package_purchases purchase
-        INNER JOIN lesson_package_items item ON item.package_id = purchase.package_id
-        WHERE item.lesson_id = ${lessonIdExpression}
-          AND purchase.revoked_at IS NULL
       ) audience
     `;
   }
@@ -777,13 +771,6 @@ export class TeacherHomeworkService {
         WHERE homework.id = ANY($1::uuid[])
           AND purchase.revoked_at IS NULL
           AND purchase.access_expires_at > $2::timestamptz
-        UNION
-        SELECT homework.id AS homework_id, purchase.student_id
-        FROM lesson_homework homework
-        INNER JOIN lesson_package_items item ON item.lesson_id = homework.lesson_id
-        INNER JOIN package_purchases purchase ON purchase.package_id = item.package_id
-        WHERE homework.id = ANY($1::uuid[])
-          AND purchase.revoked_at IS NULL
       )
       SELECT
         student.id AS student_id,

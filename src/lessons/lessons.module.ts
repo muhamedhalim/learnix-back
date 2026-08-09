@@ -5,7 +5,6 @@ import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { UploadModule } from '../uploads/upload.module';
@@ -46,7 +45,6 @@ import { ProgressService } from './progress.service';
       HomeworkSubmission,
       LessonNote,
       LessonPurchase,
-      PackagePurchase,
       User,
       Subject,
     ]),

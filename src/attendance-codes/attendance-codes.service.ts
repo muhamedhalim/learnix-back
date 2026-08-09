@@ -72,6 +72,7 @@ export class AttendanceCodesService {
       if (!lesson) {
         throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
       }
+      this.assertGroupLessonCodeTarget(lesson);
       teacherId = lesson.teacher_id;
       faceValueMinor = toMinorUnits(lesson.price);
     } else if (dto.type === AttendanceCodeType.PACKAGE) {
@@ -179,6 +180,13 @@ export class AttendanceCodesService {
       const lesson = await this.lessonsRepository.findOne({
         where: { id: attendanceCode.item_id, deleted_at: IsNull() },
       });
+      if (
+        lesson &&
+        !attendanceCode.is_used &&
+        attendanceCode.status !== AttendanceCodeStatus.REDEEMED
+      ) {
+        this.assertGroupLessonCodeTarget(lesson);
+      }
       itemTitle = lesson?.title;
       accessDurationDays = lesson?.available_for_days ?? null;
       price =
@@ -274,6 +282,15 @@ export class AttendanceCodesService {
           ),
         );
       }
+      if (code.type === AttendanceCodeType.LESSON) {
+        const lesson = await manager.findOne(Lesson, {
+          where: { id: code.item_id, deleted_at: IsNull() },
+        });
+        if (!lesson) {
+          throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+        }
+        this.assertGroupLessonCodeTarget(lesson);
+      }
       await this.assertNotAlreadyOwned(manager, userId, code.type, code.item_id);
       const { order, payment } = await this.ordersService.createActivationCodeOrder(
         manager,
@@ -334,6 +351,17 @@ export class AttendanceCodesService {
         biBody(
           'You already have access to this item — the code was not consumed',
           'لديك بالفعل صلاحية الوصول إلى هذا العنصر — لم يتم استهلاك الرمز',
+        ),
+      );
+    }
+  }
+
+  private assertGroupLessonCodeTarget(lesson: Pick<Lesson, 'is_group'>): void {
+    if (lesson.is_group === false) {
+      throw new BadRequestException(
+        biBody(
+          'Activation codes cannot be used for Individual lessons. Choose an appointment instead.',
+          'لا يمكن استخدام رموز التفعيل للدروس الفردية. اختر موعدًا بدلًا من ذلك.',
         ),
       );
     }

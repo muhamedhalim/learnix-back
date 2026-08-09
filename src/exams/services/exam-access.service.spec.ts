@@ -21,7 +21,7 @@ function queryBuilder(result: Exam | null = null): {
 }
 
 describe('ExamAccessService', () => {
-  it('scopes lesson exams to active direct access or course enrolment', () => {
+  it('scopes lesson exams to unexpired per-lesson access, not package ownership', () => {
     const { qb, andWhere } = queryBuilder();
     const service = new ExamAccessService({} as Repository<Exam>);
 
@@ -30,9 +30,7 @@ describe('ExamAccessService', () => {
     const sql = andWhere.mock.calls.map((call: unknown[]) => String(call[0])).join(' ');
     expect(sql).toContain('lesson_purchases');
     expect(sql).toContain('lp.access_expires_at > :accessNow');
-    expect(sql).toContain('package_purchases');
-    expect(sql).toContain('lesson_package_items');
-    expect(sql).toContain('lpi.lesson_id = exam.lesson_id');
+    expect(sql).not.toContain('lpi.lesson_id = exam.lesson_id');
   });
 
   it('scopes exams without a lesson to the instructor roster', () => {

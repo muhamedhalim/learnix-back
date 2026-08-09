@@ -67,6 +67,16 @@ describe('TeacherHomeworkService', () => {
     );
   });
 
+  it('builds homework audiences from unexpired lesson purchases, not package ownership', () => {
+    const sql = (service as unknown as { audienceSql: (lessonId: string) => string }).audienceSql(
+      'homework.lesson_id',
+    );
+
+    expect(sql).toContain('lesson_purchases');
+    expect(sql).toContain('purchase.access_expires_at > :accessNow');
+    expect(sql).not.toContain('package_purchases');
+  });
+
   it('returns 404 when the homework is not owned by the authenticated teacher', async () => {
     const qb = chain(['innerJoinAndSelect', 'where', 'andWhere']);
     qb.getOne = jest.fn().mockResolvedValue(null);

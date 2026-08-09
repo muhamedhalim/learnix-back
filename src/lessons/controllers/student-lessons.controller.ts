@@ -197,6 +197,15 @@ export class StudentLessonsController {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
 
+    if (!(await this.paymentsService.hasLessonPlaybackAccess(userId, lessonId))) {
+      throw new ForbiddenException(
+        biBody(
+          'You must have active access to this lesson to view progress.',
+          'يجب أن يكون لديك وصول فعّال لهذا الدرس لعرض التقدم.',
+        ),
+      );
+    }
+
     const progress = await this.progressService.getProgress(userId, lessonId);
 
     return { data: progress };
@@ -223,7 +232,12 @@ export class StudentLessonsController {
     }
 
     const progressRecords = await this.progressService.getAllProgress(userId);
+    const visibleRecords = await Promise.all(
+      progressRecords.map(async (record) =>
+        (await this.paymentsService.hasLessonPlaybackAccess(userId, record.lessonId)) ? record : null,
+      ),
+    );
 
-    return { data: progressRecords };
+    return { data: visibleRecords.filter((record) => record !== null) };
   }
 }

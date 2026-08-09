@@ -21,7 +21,6 @@ import { NotificationType } from '../notifications/entities';
 import { HomeworkAssignedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { StoredObject, StorageObjectNotFoundError } from '../storage/storage.interface';
 import { StorageService } from '../storage/storage.service';
 import { User } from '../users/entities/user.entity';
@@ -67,8 +66,6 @@ export class LessonContentService {
     private readonly notesRepository: Repository<LessonNote>,
     @InjectRepository(LessonPurchase)
     private readonly lessonPurchases: Repository<LessonPurchase>,
-    @InjectRepository(PackagePurchase)
-    private readonly packagePurchases: Repository<PackagePurchase>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly notifications: NotificationsService,
@@ -724,19 +721,13 @@ export class LessonContentService {
     studentId: string,
   ): void {
     qb.andWhere(
-      `(EXISTS (
+      `EXISTS (
         SELECT 1 FROM lesson_purchases lp
         WHERE lp.student_id = :studentId
           AND lp.lesson_id = homework.lesson_id
           AND lp.revoked_at IS NULL
           AND lp.access_expires_at > :accessNow
-      ) OR EXISTS (
-        SELECT 1 FROM package_purchases pp
-        INNER JOIN lesson_package_items lpi ON lpi.package_id = pp.package_id
-        WHERE pp.student_id = :studentId
-          AND pp.revoked_at IS NULL
-          AND lpi.lesson_id = homework.lesson_id
-      ))`,
+      )`,
       { studentId, accessNow: new Date() },
     );
   }
@@ -772,25 +763,15 @@ export class LessonContentService {
   }
 
   private async getLessonStudentIds(lessonId: string): Promise<string[]> {
-    const [direct, viaPackages] = await Promise.all([
-      this.lessonPurchases
-        .createQueryBuilder('purchase')
-        .where('purchase.lesson_id = :lessonId', { lessonId })
-        .andWhere('purchase.revoked_at IS NULL')
-        .andWhere('purchase.access_expires_at > :now', { now: new Date() })
-        .select('purchase.student_id', 'student_id')
-        .distinct(true)
-        .getRawMany<{ student_id: string }>(),
-      this.packagePurchases
-        .createQueryBuilder('purchase')
-        .innerJoin('purchase.package', 'package')
-        .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', { lessonId })
-        .where('purchase.revoked_at IS NULL')
-        .select('purchase.student_id', 'student_id')
-        .distinct(true)
-        .getRawMany<{ student_id: string }>(),
-    ]);
-    return [...new Set([...direct, ...viaPackages].map((row) => row.student_id))];
+    const purchases = await this.lessonPurchases
+      .createQueryBuilder('purchase')
+      .where('purchase.lesson_id = :lessonId', { lessonId })
+      .andWhere('purchase.revoked_at IS NULL')
+      .andWhere('purchase.access_expires_at > :now', { now: new Date() })
+      .select('purchase.student_id', 'student_id')
+      .distinct(true)
+      .getRawMany<{ student_id: string }>();
+    return purchases.map((row) => row.student_id);
   }
 
   private async dispatchHomeworkNotifications(

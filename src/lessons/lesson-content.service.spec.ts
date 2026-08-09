@@ -4,7 +4,6 @@ import type { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { StorageService } from '../storage/storage.service';
 import { User } from '../users/entities/user.entity';
@@ -22,7 +21,6 @@ describe('LessonContentService attachment and submission access', () => {
   const submissions = { findOne: jest.fn() };
   const notes = {};
   const lessonPurchases = {};
-  const packagePurchases = {};
   const users = {};
   const storage = { toKey: jest.fn(), tryDelete: jest.fn(), getObject: jest.fn() };
   const config = { get: jest.fn() };
@@ -38,7 +36,6 @@ describe('LessonContentService attachment and submission access', () => {
       submissions as unknown as Repository<HomeworkSubmission>,
       notes as unknown as Repository<LessonNote>,
       lessonPurchases as unknown as Repository<LessonPurchase>,
-      packagePurchases as unknown as Repository<PackagePurchase>,
       users as unknown as Repository<User>,
       {} as NotificationsService,
       {} as EventEmitter2,
@@ -84,5 +81,23 @@ describe('LessonContentService attachment and submission access', () => {
     expect(submissions.findOne).toHaveBeenCalledWith({
       where: { homework_id: 'homework-1', student_id: 'student-1' },
     });
+  });
+
+  it('uses only an unexpired lesson purchase for student homework access', async () => {
+    const chain: Record<string, jest.Mock> = {};
+    for (const method of ['where', 'andWhere', 'leftJoinAndSelect'] as const) {
+      chain[method] = jest.fn(() => chain);
+    }
+    chain['getOne'] = jest.fn().mockResolvedValue(null);
+    homework.createQueryBuilder.mockReturnValue(chain);
+
+    (service as unknown as {
+      applyStudentHomeworkAccess: (query: typeof chain, studentId: string) => void;
+    }).applyStudentHomeworkAccess(chain, 'student-1');
+
+    const sql = chain.andWhere.mock.calls.map(([value]) => String(value)).join(' ');
+    expect(sql).toContain('lesson_purchases');
+    expect(sql).toContain('access_expires_at > :accessNow');
+    expect(sql).not.toContain('package_purchases');
   });
 });

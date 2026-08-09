@@ -34,6 +34,8 @@ describe('PaymentsService — canonical compatibility routes', () => {
   let refunds: { completeProviderNotification: jest.Mock };
   let discounts: { releaseUsageForPayment: jest.Mock };
   let entitlements: { getActive: jest.Mock; hasItemAccess: jest.Mock };
+  let lessonPurchases: { findOne: jest.Mock };
+  let packagePurchases: { findOne: jest.Mock };
   let manager: {
     findOne: jest.Mock;
     save: jest.Mock;
@@ -68,6 +70,8 @@ describe('PaymentsService — canonical compatibility routes', () => {
       getActive: jest.fn().mockResolvedValue(null),
       hasItemAccess: jest.fn().mockResolvedValue(false),
     };
+    lessonPurchases = { findOne: jest.fn().mockResolvedValue(null) };
+    packagePurchases = { findOne: jest.fn().mockResolvedValue(null) };
     manager = {
       findOne: jest.fn(),
       save: jest.fn((_entity: unknown, value: unknown) => Promise.resolve(value)),
@@ -84,8 +88,8 @@ describe('PaymentsService — canonical compatibility routes', () => {
       providers: [
         PaymentsService,
         { provide: getRepositoryToken(Payment), useValue: payments },
-        { provide: getRepositoryToken(LessonPurchase), useValue: {} },
-        { provide: getRepositoryToken(PackagePurchase), useValue: {} },
+        { provide: getRepositoryToken(LessonPurchase), useValue: lessonPurchases },
+        { provide: getRepositoryToken(PackagePurchase), useValue: packagePurchases },
         { provide: getRepositoryToken(BookPurchase), useValue: {} },
         { provide: DataSource, useValue: dataSource },
         { provide: DiscountCodesService, useValue: discounts },
@@ -207,6 +211,30 @@ describe('PaymentsService — canonical compatibility routes', () => {
       ItemType.PACKAGE,
       'package-1',
     );
+  });
+
+  it('does not let permanent package ownership bypass an expired package lesson', async () => {
+    entitlements.getActive.mockResolvedValue(null);
+    entitlements.hasItemAccess.mockResolvedValue(false);
+    lessonPurchases.findOne.mockResolvedValue(null);
+
+    await expect(service.checkLessonAccess('student-1', 'expired-lesson')).resolves.toEqual({
+      has_access: false,
+    });
+    await expect(service.hasLessonPlaybackAccess('student-1', 'expired-lesson')).resolves.toBe(false);
+
+    expect(packagePurchases.findOne).not.toHaveBeenCalled();
+    expect(lessonPurchases.findOne).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps another lesson in the same package accessible through its active lesson purchase', async () => {
+    const expiresAt = new Date(Date.now() + 86_400_000);
+    lessonPurchases.findOne.mockResolvedValue({ access_expires_at: expiresAt });
+
+    await expect(service.checkLessonAccess('student-1', 'active-lesson')).resolves.toEqual(
+      expect.objectContaining({ has_access: true, expires_at: expiresAt }),
+    );
+    await expect(service.hasLessonPlaybackAccess('student-1', 'active-lesson')).resolves.toBe(true);
   });
 
   it('closes the active order and releases discounts after a verified failure', async () => {
