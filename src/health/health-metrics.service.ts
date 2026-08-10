@@ -46,7 +46,11 @@ export class HealthMetricsService {
         },
       }),
     );
-    await this.metrics.insert(rows);
+    // The bootstrap probe and the scheduled collector can observe the same
+    // bucket. The schema deliberately de-duplicates that sample, so recording
+    // must be idempotent instead of turning routine health collection into a
+    // unique-constraint failure.
+    await this.metrics.upsert(rows, ['component_id', 'resolution', 'bucket_start']);
   }
 
   public async enrich(components: HealthComponentResult[]): Promise<HealthComponentResult[]> {

@@ -45,15 +45,16 @@ function metric(status: HealthStatus, at: Date): HealthMetric {
 describe('HealthMetricsService', () => {
   it('records disabled probes as valid health metrics', async () => {
     const create = jest.fn((value: Partial<HealthMetric>) => value);
-    const insert = jest.fn().mockResolvedValue(undefined);
-    const repository = { create, insert } as unknown as Repository<HealthMetric>;
+    const upsert = jest.fn().mockResolvedValue(undefined);
+    const repository = { create, upsert } as unknown as Repository<HealthMetric>;
     const service = new HealthMetricsService(repository, {} as ConfigService);
 
     await service.record([component('disabled', new Date('2026-08-10T00:00:00.000Z'))]);
 
-    expect(insert).toHaveBeenCalledWith([
-      expect.objectContaining({ status: 'disabled', resolution: 'raw' }),
-    ]);
+    expect(upsert).toHaveBeenCalledWith(
+      [expect.objectContaining({ status: 'disabled', resolution: 'raw' })],
+      ['component_id', 'resolution', 'bucket_start'],
+    );
   });
 
   it('runs bounded hourly/daily aggregation and retention statements', async () => {
