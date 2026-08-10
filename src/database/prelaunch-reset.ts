@@ -599,10 +599,11 @@ export async function runPrelaunchReset(options: {
       printSection('Redis owned-key inventory', await redisInventory(redis, process.env));
     }
 
-    if (options.verify) {
+    if (options.verify || options.dryRun) {
       const queues = await auditQueues(process.env);
       printSection('Queue audit', queues);
       if (
+        options.verify &&
         queues &&
         (queues.repeatableJobs[JOB_TYPES.EXAM.AUTO_SUBMIT_SWEEP] !== 1 ||
           queues.repeatableJobs[JOB_TYPES.GAMIFICATION.STREAK_RESET_SWEEP] !== 1 ||
@@ -612,6 +613,9 @@ export async function runPrelaunchReset(options: {
           'Queue verification failed: expected exactly one of each global repeatable job and no entity-targeting jobs.',
         );
       }
+    }
+
+    if (options.verify) {
       printSection('Orphan rows', await orphanCount(dataSource));
       return;
     }

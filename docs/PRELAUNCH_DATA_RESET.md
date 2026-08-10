@@ -55,7 +55,9 @@ transaction through `AdminInitializationService`, using only
    `npm run db:reset:prelaunch:prod -- --dry-run`
 
 4. Review the printed non-secret host/database/environment, all table classes and
-   row counts, storage-reference counts and Redis key-category counts.
+   row counts, R2/local storage-reference counts, Redis key-category counts and
+   the BullMQ queue/repeatable-job inventory. The command always prints `Bunny
+   cleanup: SKIPPED BY USER REQUEST` and does not contact Bunny Stream.
 5. Execute with all guards set. `RESET_PRELAUNCH_TARGET` must exactly match the
    dry-run host/database string. Never put credentials in these variables.
 
