@@ -51,6 +51,186 @@ function notesLine(variables: Vars, label: string): string {
   return notes === '' ? '' : `\n${label}: ${notes}`;
 }
 
+/* ------------------------- Periodic report wording ------------------------- */
+
+/**
+ * Weekly and monthly reports share one pair of entries.
+ *
+ * The report engine stores *counts only* (`parent_reports.payload`) and never
+ * any prose — so all wording, in both languages, is decided here, from the same
+ * stored row. That is what lets one aggregation serve a father who reads Arabic
+ * and a mother who reads English without computing anything twice.
+ *
+ * The Meta template `parent_report_{ar,en}` takes three positional parameters
+ * (name, period, summary) and the summary is assembled below, so adding a
+ * metric to the report never requires re-approving a WhatsApp template.
+ *
+ * Sections with nothing in them are omitted rather than printed as zeros:
+ * these bodies also go out over SMS, where Arabic is UCS-2 at 70 characters per
+ * segment and every suppressed "Exams: 0" line is real money.
+ */
+
+/** Section reader tolerant of a payload written by an older engine version. */
+function section(variables: Vars, name: string): Vars {
+  const report = variables['report'];
+  if (typeof report !== 'object' || report === null) return {};
+  const part = (report as Record<string, unknown>)[name];
+  if (typeof part !== 'object' || part === null) return {};
+  return part as Vars;
+}
+
+function count(variables: Vars, sectionName: string, key: string): number {
+  return num(section(variables, sectionName), key);
+}
+
+/** Null-safe percentage: `null` means "nothing was graded", not "scored 0". */
+function percent(variables: Vars, sectionName: string): number | null {
+  const value = section(variables, sectionName)['averagePercent'];
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function hasActivity(variables: Vars): boolean {
+  const report = variables['report'];
+  if (typeof report !== 'object' || report === null) return false;
+  return (report as Record<string, unknown>)['hasActivity'] === true;
+}
+
+/** `YYYY-MM-DD` → a date at UTC noon, immune to either-way day slippage. */
+function atNoonUtc(dateString: string): Date {
+  return new Date(`${dateString}T12:00:00.000Z`);
+}
+
+function periodLabel(variables: Vars, locale: 'ar-EG' | 'en-GB'): string {
+  const start = str(variables, 'periodStart');
+  const end = str(variables, 'periodEnd');
+  if (start === '' || end === '') return '';
+
+  if (str(variables, 'periodType') === 'monthly') {
+    return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
+      atNoonUtc(start),
+    );
+  }
+
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' });
+  const dayMonthYear = new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return `${dayMonth.format(atNoonUtc(start))} – ${dayMonthYear.format(atNoonUtc(end))}`;
+}
+
+function reportSummaryAr(v: Vars): string {
+  if (!hasActivity(v)) {
+    return 'لا يوجد نشاط مسجَّل خلال هذه الفترة.';
+  }
+
+  const lines: string[] = [];
+
+  const minutes = count(v, 'study', 'minutes');
+  const lessons = count(v, 'study', 'lessons');
+  if (lessons > 0 || minutes > 0) {
+    lines.push(`الدروس: ${String(lessons)} — ${String(minutes)} دقيقة`);
+  }
+
+  const completed = count(v, 'study', 'completed');
+  if (completed > 0) lines.push(`دروس مكتملة: ${String(completed)}`);
+
+  const present = count(v, 'attendance', 'present');
+  const absent = count(v, 'attendance', 'absent');
+  const late = count(v, 'attendance', 'late');
+  if (count(v, 'attendance', 'total') > 0) {
+    lines.push(`الحضور: ${String(present)} حاضر، ${String(absent)} غائب، ${String(late)} متأخر`);
+  }
+
+  const examsGraded = count(v, 'exams', 'graded');
+  if (examsGraded > 0) {
+    const average = percent(v, 'exams');
+    lines.push(
+      `الامتحانات: ${String(examsGraded)}` +
+        (average === null ? '' : ` — المتوسط ${String(average)}%`) +
+        ` (ناجح ${String(count(v, 'exams', 'passed'))})`,
+    );
+  }
+
+  const submitted = count(v, 'homework', 'submitted');
+  const graded = count(v, 'homework', 'graded');
+  if (submitted > 0 || graded > 0) {
+    const average = percent(v, 'homework');
+    lines.push(
+      `الواجبات: ${String(submitted)} مُسلَّم` +
+        (graded > 0 ? `، ${String(graded)} مُصحَّح` : '') +
+        (average === null ? '' : ` — المتوسط ${String(average)}%`),
+    );
+  }
+
+  return lines.join('\n');
+}
+
+function reportSummaryEn(v: Vars): string {
+  if (!hasActivity(v)) {
+    return 'No recorded activity during this period.';
+  }
+
+  const lines: string[] = [];
+
+  const minutes = count(v, 'study', 'minutes');
+  const lessons = count(v, 'study', 'lessons');
+  if (lessons > 0 || minutes > 0) {
+    lines.push(`Lessons: ${String(lessons)} — ${String(minutes)} min`);
+  }
+
+  const completed = count(v, 'study', 'completed');
+  if (completed > 0) lines.push(`Completed: ${String(completed)}`);
+
+  if (count(v, 'attendance', 'total') > 0) {
+    lines.push(
+      `Attendance: ${String(count(v, 'attendance', 'present'))} present, ` +
+        `${String(count(v, 'attendance', 'absent'))} absent, ` +
+        `${String(count(v, 'attendance', 'late'))} late`,
+    );
+  }
+
+  const examsGraded = count(v, 'exams', 'graded');
+  if (examsGraded > 0) {
+    const average = percent(v, 'exams');
+    lines.push(
+      `Exams: ${String(examsGraded)}` +
+        (average === null ? '' : ` — avg ${String(average)}%`) +
+        ` (${String(count(v, 'exams', 'passed'))} passed)`,
+    );
+  }
+
+  const submitted = count(v, 'homework', 'submitted');
+  const graded = count(v, 'homework', 'graded');
+  if (submitted > 0 || graded > 0) {
+    const average = percent(v, 'homework');
+    lines.push(
+      `Homework: ${String(submitted)} submitted` +
+        (graded > 0 ? `, ${String(graded)} graded` : '') +
+        (average === null ? '' : ` — avg ${String(average)}%`),
+    );
+  }
+
+  return lines.join('\n');
+}
+
+const REPORT_ENTRY_AR: CatalogEntry = {
+  whatsappTemplateName: 'parent_report_ar',
+  parameters: (v) => [str(v, 'studentName'), periodLabel(v, 'ar-EG'), reportSummaryAr(v)],
+  body: (v) =>
+    `تقرير ${periodLabel(v, 'ar-EG')} لـ ${str(v, 'studentName')}:\n\n${reportSummaryAr(v)}`,
+};
+
+const REPORT_ENTRY_EN: CatalogEntry = {
+  whatsappTemplateName: 'parent_report_en',
+  parameters: (v) => [str(v, 'studentName'), periodLabel(v, 'en-GB'), reportSummaryEn(v)],
+  body: (v) =>
+    `${periodLabel(v, 'en-GB')} report for ${str(v, 'studentName')}:\n\n${reportSummaryEn(v)}`,
+};
+
 export const PARENT_TEMPLATE_CATALOG: Catalog = {
   [ParentEventType.EXAM_GRADED]: {
     [PreferredLanguage.AR]: {
@@ -180,33 +360,13 @@ export const PARENT_TEMPLATE_CATALOG: Catalog = {
   },
 
   [ParentEventType.WEEKLY_REPORT]: {
-    [PreferredLanguage.AR]: {
-      whatsappTemplateName: 'parent_report_ar',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) =>
-        `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
-    },
-    [PreferredLanguage.EN]: {
-      whatsappTemplateName: 'parent_report_en',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) =>
-        `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
-    },
+    [PreferredLanguage.AR]: REPORT_ENTRY_AR,
+    [PreferredLanguage.EN]: REPORT_ENTRY_EN,
   },
 
   [ParentEventType.MONTHLY_REPORT]: {
-    [PreferredLanguage.AR]: {
-      whatsappTemplateName: 'parent_report_ar',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) =>
-        `تقرير ${str(v, 'periodLabel')} لـ ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
-    },
-    [PreferredLanguage.EN]: {
-      whatsappTemplateName: 'parent_report_en',
-      parameters: (v) => [str(v, 'studentName'), str(v, 'periodLabel'), str(v, 'summary')],
-      body: (v) =>
-        `${str(v, 'periodLabel')} report for ${str(v, 'studentName')}:\n\n${str(v, 'summary')}`,
-    },
+    [PreferredLanguage.AR]: REPORT_ENTRY_AR,
+    [PreferredLanguage.EN]: REPORT_ENTRY_EN,
   },
 
   [ParentEventType.TEACHER_MESSAGE]: {

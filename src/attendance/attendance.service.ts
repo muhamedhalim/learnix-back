@@ -8,7 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
@@ -24,6 +24,15 @@ import { AttendanceRecord, AttendanceStatus } from './entities/attendance-record
 import { LessonSession } from './entities/lesson-session.entity';
 
 const AUTO_ATTENDANCE_THRESHOLD = 80; // 80% video watch = auto present
+
+/**
+ * Rows fetched per database round-trip while streaming an export. Chosen
+ * independently of the UI page size (DEF-008): the listing's `limit` is a
+ * presentation concern, this is purely a memory/round-trip trade-off. 1000
+ * projected rows is a few hundred KB — small enough to hold, large enough that
+ * a 100k-row export is 100 queries, not 5000.
+ */
+export const ATTENDANCE_EXPORT_CHUNK_SIZE = 1000;
 
 // Type interfaces for raw query results
 interface AttendanceStatsRaw {
@@ -614,7 +623,38 @@ export class AttendanceService {
       .leftJoinAndSelect('lesson.teacher', 'teacher')
       .leftJoinAndSelect('attendance.marker', 'marker');
 
-    // Apply filters
+    this.applyAdminAttendanceFilters(query, filter);
+    this.orderAdminAttendance(query);
+
+    const total = await query.getCount();
+
+    query.skip(skip).take(limit);
+
+    const records = await query.getMany();
+
+    const totalPages = Math.ceil(total / limit);
+    const meta: PaginationMeta = {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNextPage: page < totalPages,
+      hasPrevPage: page > 1,
+    };
+
+    return { data: records, meta };
+  }
+
+  /**
+   * The one place admin attendance filters are turned into SQL, shared by the
+   * paginated listing and by the export (DEF-008). A filter added here changes
+   * both surfaces at once — the two can never disagree about what "matching"
+   * means, which is what makes an exported row count trustworthy.
+   */
+  private applyAdminAttendanceFilters(
+    query: SelectQueryBuilder<AttendanceRecord>,
+    filter: AttendanceFilterDto,
+  ): void {
     if (typeof filter.student_id === 'string' && filter.student_id !== '') {
       query.andWhere('attendance.student_id = :studentId', {
         studentId: filter.student_id,
@@ -642,26 +682,83 @@ export class AttendanceService {
         toDate: filter.to_date,
       });
     }
+  }
 
+  /**
+   * The canonical admin attendance ordering: newest first, with the primary
+   * key as tiebreaker. The id tiebreaker is what makes the order a TOTAL one —
+   * `marked_at` alone is not unique (bulk marking stamps many rows in the same
+   * millisecond), and without it the export's chunk boundaries could skip or
+   * repeat rows that share a timestamp.
+   */
+  private orderAdminAttendance(query: SelectQueryBuilder<AttendanceRecord>): void {
     query.orderBy('attendance.marked_at', 'DESC').addOrderBy('attendance.id', 'DESC');
+  }
 
-    const total = await query.getCount();
+  /* ===================== Export (DEF-008) ===================== */
 
-    query.skip(skip).take(limit);
+  /** How many rows the export will contain — the same filters as the listing. */
+  public countAttendanceForExport(filter: AttendanceFilterDto): Promise<number> {
+    const query = this.attendanceRepository.createQueryBuilder('attendance');
+    this.applyAdminAttendanceFilters(query, filter);
+    return query.getCount();
+  }
 
-    const records = await query.getMany();
+  /**
+   * The complete filtered result set, yielded in bounded chunks.
+   *
+   * Uses KEYSET (cursor) iteration on the canonical `(marked_at DESC, id DESC)`
+   * order rather than OFFSET: each chunk asks for rows strictly "after" the
+   * last row of the previous one, so chunk boundaries cannot skip or duplicate
+   * a record even when many rows share a `marked_at`, and the cost of reaching
+   * chunk N does not grow with N.
+   *
+   * Selects only the columns the exporter renders and joins the two relations
+   * it needs once, so there is no N+1 and no needless payload per row.
+   * `page`/`limit` on the filter are deliberately ignored: UI pagination is not
+   * an export bound (that was the DEF-008 defect).
+   */
+  public async *iterateAttendanceForExport(
+    filter: AttendanceFilterDto,
+    chunkSize = ATTENDANCE_EXPORT_CHUNK_SIZE,
+  ): AsyncGenerator<AttendanceRecord[]> {
+    let cursor: { markedAt: Date; id: string } | null = null;
 
-    const totalPages = Math.ceil(total / limit);
-    const meta: PaginationMeta = {
-      page,
-      limit,
-      total,
-      totalPages,
-      hasNextPage: page < totalPages,
-      hasPrevPage: page > 1,
-    };
+    for (;;) {
+      const query = this.attendanceRepository
+        .createQueryBuilder('attendance')
+        .leftJoin('attendance.student', 'student')
+        .leftJoin('attendance.lesson', 'lesson')
+        .leftJoin('lesson.teacher', 'teacher')
+        .select([
+          'attendance.id',
+          'attendance.student_id',
+          'attendance.lesson_id',
+          'attendance.status',
+          'attendance.is_auto_marked',
+          'attendance.notes',
+          'attendance.marked_at',
+          'student.name',
+          'student.email',
+          'lesson.title',
+          'teacher.name',
+        ]);
+      this.applyAdminAttendanceFilters(query, filter);
+      if (cursor) {
+        query.andWhere(
+          '(attendance.marked_at, attendance.id) < (:cursorMarkedAt, :cursorId)',
+          { cursorMarkedAt: cursor.markedAt, cursorId: cursor.id },
+        );
+      }
+      this.orderAdminAttendance(query);
+      const chunk = await query.take(chunkSize).getMany();
+      if (chunk.length === 0) return;
 
-    return { data: records, meta };
+      yield chunk;
+      if (chunk.length < chunkSize) return;
+      const last = chunk[chunk.length - 1]!;
+      cursor = { markedAt: new Date(last.marked_at), id: last.id };
+    }
   }
 
   /**

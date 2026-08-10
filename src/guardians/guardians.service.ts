@@ -125,6 +125,65 @@ export class GuardiansService {
       }));
   }
 
+  /**
+   * One page of students who have at least one guardian eligible for
+   * `eventType`, ordered by id, starting after `afterStudentId`.
+   *
+   * This exists so the periodic-report sweep can walk the whole platform
+   * without ever holding more than `limit` ids in memory. Keyset pagination
+   * (`id > :cursor`) rather than OFFSET: a sweep of 200k students would make
+   * OFFSET re-scan everything it had already skipped on every page, and rows
+   * inserted mid-sweep would shift the window and cause skips.
+   *
+   * It is a **candidate** filter, not an authorisation decision. It answers
+   * "who is worth building a report for" cheaply and approximately-precisely;
+   * `findNotificationTargets` above is still the sole arbiter of who may
+   * actually receive one, and runs again per guardian at delivery time. A
+   * preference toggled off between sweep and delivery is therefore honoured.
+   *
+   * The preference predicate mirrors `prefersEvent`: an absent JSON key means
+   * "use the default", so a student whose link has never been touched must
+   * still be selected when that default is `true`.
+   */
+  public async findStudentsWithEligibleGuardians(
+    eventType: ParentEventType,
+    options: { afterStudentId?: string | undefined; limit: number },
+  ): Promise<string[]> {
+    const defaultsToOn =
+      DEFAULT_PARENT_NOTIFICATION_PREFERENCES[
+        eventType as keyof typeof DEFAULT_PARENT_NOTIFICATION_PREFERENCES
+      ] ?? false;
+
+    const qb = this.links
+      .createQueryBuilder('link')
+      .innerJoin('link.guardian', 'g')
+      .select('DISTINCT link.student_id', 'student_id')
+      .where('g.deleted_at IS NULL')
+      .andWhere('link.receives_notifications = true')
+      .andWhere('g.opted_out_at IS NULL')
+      .andWhere('g.verification_status = :verified', {
+        verified: GuardianVerificationStatus.VERIFIED,
+      })
+      .orderBy('link.student_id', 'ASC')
+      .limit(options.limit);
+
+    // `->>` yields NULL for an absent key, which is exactly the "no explicit
+    // preference" case the default governs.
+    qb.andWhere(
+      defaultsToOn
+        ? `COALESCE(link.notification_preferences ->> :prefKey, 'true') = 'true'`
+        : `link.notification_preferences ->> :prefKey = 'true'`,
+      { prefKey: eventType },
+    );
+
+    if (options.afterStudentId !== undefined) {
+      qb.andWhere('link.student_id > :cursor', { cursor: options.afterStudentId });
+    }
+
+    const rows = await qb.getRawMany<{ student_id: string }>();
+    return rows.map((row) => row.student_id);
+  }
+
   /** Sparse preference lookup with a per-event default. */
   private prefersEvent(
     preferences: Partial<Record<ParentEventType, boolean>> | null,

@@ -10,6 +10,7 @@ import { DataSource, EntityManager, In, Repository } from 'typeorm';
 
 import { Book } from '../../books/entities/book.entity';
 import { BookPurchase } from '../../books/entities/book-purchase.entity';
+import { CertificateEligibilityService } from '../../certificates/certificate-eligibility.service';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import {
   acquireTeacherFinancialLock,
@@ -46,6 +47,24 @@ import {
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
 
+/**
+ * Requested/completed refund amount exceeds the order's remaining refundable
+ * balance. Distinct from an unsupported-partial-refund case — partial refunds
+ * are fully supported (see `PARTIALLY_REFUNDED` order status below); this
+ * code fires only when the amount itself is too large.
+ */
+export const REFUND_AMOUNT_EXCEEDS_REMAINING_CODE = 'REFUND_AMOUNT_EXCEEDS_REMAINING';
+
+function refundAmountExceedsRemaining(): { code: string; message: string; message_ar: string } {
+  return {
+    code: REFUND_AMOUNT_EXCEEDS_REMAINING_CODE,
+    ...biBody(
+      'Requested refund amount exceeds the remaining refundable amount',
+      'مبلغ الاسترداد المطلوب أكبر من المبلغ المتبقي القابل للاسترداد',
+    ),
+  };
+}
+
 @Injectable()
 export class RefundsService {
   private readonly logger = new Logger(RefundsService.name);
@@ -58,6 +77,7 @@ export class RefundsService {
     private readonly dataSource: DataSource,
     private readonly providers: PaymentProviderRegistry,
     private readonly lessonSessions: LessonSessionsService,
+    private readonly certificateEligibility: CertificateEligibilityService,
   ) {}
 
   public async request(dto: CreateRefundDto, adminId: string): Promise<Refund> {
@@ -77,12 +97,7 @@ export class RefundsService {
       }
       const remaining = order.final_amount_minor - order.refunded_amount_minor;
       if (dto.amount_minor > remaining) {
-        throw new BadRequestException(
-          biBody(
-            'Partial refunds are not supported for the current content access model',
-            'الاسترداد الجزئي غير مدعوم لنموذج الوصول الحالي',
-          ),
-        );
+        throw new BadRequestException(refundAmountExceedsRemaining());
       }
       const existing = await manager.findOne(Refund, {
         where: {
@@ -394,12 +409,7 @@ export class RefundsService {
       if (!order) throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
       const remaining = order.final_amount_minor - order.refunded_amount_minor;
       if (refund.amount_minor > remaining) {
-        throw new BadRequestException(
-          biBody(
-            'Partial refunds are not supported for the current content access model',
-            'الاسترداد الجزئي غير مدعوم لنموذج الوصول الحالي',
-          ),
-        );
+        throw new BadRequestException(refundAmountExceedsRemaining());
       }
 
       refund.status = RefundStatus.SUCCEEDED;
@@ -697,6 +707,13 @@ export class RefundsService {
     };
   }
 
+  /**
+   * Withdraw everything a fully refunded order paid for. Called ONLY once the
+   * refund has reached SUCCEEDED and the order has become fully `REFUNDED`,
+   * from inside that same transaction — so access (and, since DEF-019, the
+   * course certificate that access justified) is never withdrawn on a merely
+   * *requested* refund, and never survives a completed one.
+   */
   private async revokeAccess(manager: EntityManager, order: Order, refund: Refund): Promise<void> {
     const reason = `refund:${refund.reason_code}`;
     await this.lessonSessions.refundForOrder(manager, order.id);
@@ -716,11 +733,17 @@ export class RefundsService {
       { payment_id: order.payment_id },
       { revoked_at: revokedAt, revocation_reason: reason },
     );
+    // Read the course purchases BEFORE revoking them: the certificate
+    // revocation below needs the (student, course) pairs this order granted.
+    const coursePurchases = await manager.find(PackagePurchase, {
+      where: { payment_id: order.payment_id },
+    });
     await manager.update(
       PackagePurchase,
       { payment_id: order.payment_id },
       { revoked_at: revokedAt, revocation_reason: reason },
     );
+    await this.revokeCourseCertificates(manager, order, refund, coursePurchases, reason);
     await manager.update(
       BookPurchase,
       { payment_id: order.payment_id },
@@ -739,6 +762,69 @@ export class RefundsService {
       for (const lesson of lessons) {
         await manager.decrement(Lesson, { id: lesson.lesson_id }, 'students_count', 1);
       }
+    }
+  }
+
+  /**
+   * DEF-019: a course certificate is valid only while the student holds a
+   * valid, non-revoked purchase for that course, so a completed FULL refund
+   * revokes it. Runs after the purchase rows above are already revoked in this
+   * same transaction, which closes the race with concurrent auto-issuance:
+   * whichever transaction takes the `package_purchases` row lock first wins,
+   * and the issuance path re-reads the committed revocation and refuses.
+   *
+   * Idempotent — an already-revoked certificate is left alone, so replaying a
+   * refund completion produces no second revocation record or event.
+   */
+  private async revokeCourseCertificates(
+    manager: EntityManager,
+    order: Order,
+    refund: Refund,
+    coursePurchases: PackagePurchase[],
+    reason: string,
+  ): Promise<void> {
+    for (const purchase of coursePurchases) {
+      const revoked = await this.certificateEligibility.revokeForWithdrawnAccess(manager, {
+        studentId: purchase.student_id,
+        packageId: purchase.package_id,
+        reason,
+        actorId: refund.completed_by ?? null,
+        context: {
+          source: 'refund',
+          refund_id: refund.id,
+          order_id: order.id,
+          package_purchase_id: purchase.id,
+          ...(order.payment_id ? { payment_id: order.payment_id } : {}),
+        },
+      });
+      if (!revoked) continue;
+      await this.event(
+        manager,
+        'certificate.revoked',
+        `refund:${refund.id}:certificate-revoked:${revoked.id}`,
+        {
+          certificate_id: revoked.id,
+          certificate_number: revoked.certificate_number,
+          student_id: purchase.student_id,
+          package_id: purchase.package_id,
+          refund_id: refund.id,
+          order_id: order.id,
+        },
+      );
+      await manager.insert(PaymentAuditLog, {
+        actor_id: refund.completed_by,
+        action: 'certificate_revoked_on_full_refund',
+        resource_type: 'certificate',
+        resource_id: revoked.id,
+        details: {
+          refund_id: refund.id,
+          order_id: order.id,
+          student_id: purchase.student_id,
+          package_id: purchase.package_id,
+          certificate_number: revoked.certificate_number,
+        } as never,
+        ip_address: null,
+      });
     }
   }
 

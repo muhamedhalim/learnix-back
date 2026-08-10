@@ -49,6 +49,17 @@ export const QUEUE_NAMES = {
   PARENT_NOTIFICATIONS: 'parent-notifications',
 
   /**
+   * Periodic guardian report *generation* — the weekly/monthly sweep and the
+   * per-student aggregation it fans out. Kept separate from
+   * PARENT_NOTIFICATIONS because the two have opposite shapes: a report job is
+   * a slow, database-heavy read that may take seconds, while a notification job
+   * is a fast provider call that a parent is waiting on. Sharing one worker
+   * pool would let a month-end sweep of every student starve exam-result
+   * messages behind it. Reports produce notifications, never bypass them.
+   */
+  PARENT_REPORTS: 'parent-reports',
+
+  /**
    * Outbound push (FCM) for in-app notifications. Separate from
    * PARENT_NOTIFICATIONS because the recipient is the *user*, not a guardian,
    * and the delivery model is per-device rather than per-channel-with-fallback.
@@ -118,6 +129,13 @@ export const JOB_TYPES = {
     DELIVER: 'deliver-parent-message',
     /** Re-attempt a single previously-failed `parent_messages` row. */
     REDELIVER: 'redeliver-parent-message',
+  },
+  PARENT_REPORT: {
+    /** Walk every student with an eligible guardian and fan out BUILD jobs. */
+    SWEEP_WEEKLY: 'sweep-weekly-parent-reports',
+    SWEEP_MONTHLY: 'sweep-monthly-parent-reports',
+    /** Aggregate and dispatch one student's report for one period. */
+    BUILD: 'build-parent-report',
   },
   NOTIFICATION: {
     /** Persist a large in-app broadcast in bounded database batches. */
@@ -354,6 +372,25 @@ export const QUEUE_CONFIGS = {
       attempts: 3,
       backoff: { type: 'exponential' as const, delay: 10_000 },
       removeOnFail: { age: 7 * 24 * 3600 },
+    },
+  },
+
+  [QUEUE_NAMES.PARENT_REPORTS]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Background aggregation: nobody is waiting on it, and the daily sweep
+      // re-runs the same deterministic period anyway, so a genuinely lost job
+      // self-heals tomorrow. Retries still matter for transient database
+      // errors — every step is guarded by the unique constraint on
+      // `parent_reports`, so a retry can neither duplicate a report nor
+      // re-notify a guardian.
+      priority: 4,
+      attempts: 3,
+      backoff: { type: 'exponential' as const, delay: 30_000 },
+      // A month-end sweep touching every student is exactly when you most want
+      // the failure trail; keep it as long as the guardian message trail.
+      removeOnFail: { age: 30 * 24 * 3600 },
     },
   },
 

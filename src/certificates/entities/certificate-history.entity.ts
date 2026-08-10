@@ -1,7 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
 import { CertificateStatus } from './certificate-status.enum';
-import { Certificate } from './certificate.entity';
+import { Certificate, type CertificateRevocationContext } from './certificate.entity';
 
 /** Immutable credential state retained before a revoked certificate is reissued. */
 @Entity('certificate_history')
@@ -35,6 +35,10 @@ export class CertificateHistory {
 
   @Column('uuid', { nullable: true, name: 'reissued_by' })
   reissued_by!: string | null;
+
+  /** The cause of the revocation these retired credentials were carrying. */
+  @Column('jsonb', { nullable: true, name: 'revocation_context' })
+  revocation_context!: CertificateRevocationContext | null;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;

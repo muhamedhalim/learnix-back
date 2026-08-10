@@ -37,6 +37,23 @@ export type CertificateTemplateSnapshot = Pick<
 >;
 
 /**
+ * Why a certificate was revoked, in machine-readable form.
+ *
+ * `manual` is an admin/teacher decision; `refund` is the automatic revocation
+ * that rides along with a completed FULL refund (DEF-019) and carries the
+ * refund/order/payment that withdrew the underlying course access;
+ * `refund_backfill` marks rows revoked by the one-off historical backfill for
+ * refunds that completed before that policy was enforced.
+ */
+export interface CertificateRevocationContext {
+  source: 'manual' | 'refund' | 'refund_backfill';
+  refund_id?: string;
+  order_id?: string;
+  payment_id?: string;
+  package_purchase_id?: string;
+}
+
+/**
  * An issued course-completion certificate.
  *
  * Student/course/teacher names AND the template design are snapshotted at
@@ -113,6 +130,14 @@ export class Certificate {
 
   @Column({ type: 'text', nullable: true, name: 'revoke_reason' })
   revoke_reason!: string | null;
+
+  /** Who asked for the revocation; null when the platform revoked automatically. */
+  @Column({ type: 'uuid', nullable: true, name: 'revoked_by' })
+  revoked_by!: string | null;
+
+  /** Machine-readable cause — which refund/order/payment withdrew access. */
+  @Column({ type: 'jsonb', nullable: true, name: 'revocation_context' })
+  revocation_context!: CertificateRevocationContext | null;
 
   @Column({ type: 'timestamptz', name: 'issued_at' })
   issued_at!: Date;

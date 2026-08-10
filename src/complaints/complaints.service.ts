@@ -496,6 +496,20 @@ export class ComplaintsService {
         assignedAgentId: filter.assigned_agent_id,
       });
     }
+    if (filter.unassigned === true) {
+      queryBuilder.andWhere('complaint.assigned_agent_id IS NULL');
+    }
+    if (filter.overdue === true) {
+      // Mirrors CallCenterSupportService.supportReport()'s `delayed` count
+      // exactly, so the dashboard's Overdue card total matches this list.
+      queryBuilder
+        .andWhere('complaint.status NOT IN (:...overdueTerminal)', {
+          overdueTerminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+        })
+        .andWhere(
+          '(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())',
+        );
+    }
     if (filter.search !== undefined && filter.search.trim() !== '') {
       queryBuilder.andWhere(
         '(complaint.ticket_number ILIKE :search OR complaint.subject ILIKE :search)',

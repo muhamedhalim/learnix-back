@@ -6,6 +6,7 @@ import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
 import { Cart } from '../cart/entities/cart.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
+import { CertificatesModule } from '../certificates/certificates.module';
 import { User } from '../users/entities/user.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
@@ -77,6 +78,11 @@ import { SettlementsService } from './services/settlements.service';
     // policy instead of calling MailService directly. NotificationsModule does
     // not import PaymentsModule, so this arrow does not close a cycle.
     NotificationsModule,
+    // Supplies CertificateEligibilityService so a completed FULL refund can
+    // revoke the course certificate inside the refund transaction (DEF-019).
+    // CertificatesModule imports only NotificationsModule + TypeORM features,
+    // so this arrow does not close a cycle.
+    CertificatesModule,
     TypeOrmModule.forFeature([
       Payment,
       CartCheckout,

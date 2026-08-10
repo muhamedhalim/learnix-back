@@ -46,6 +46,7 @@ import { FirebaseModule } from './firebase/firebase.module';
 import { GamificationModule } from './gamification/gamification.module';
 import { HealthModule } from './health/health.module';
 import { GuardiansModule } from './guardians/guardians.module';
+import { ParentReportsModule } from './parent-reports/parent-reports.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { LessonsModule } from './lessons/lessons.module';
 import { MailModule } from './mail/mail.module';
@@ -344,6 +345,9 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     AttendanceCodesModule,
     GuardiansModule,
     NotificationsModule,
+    // Periodic guardian reports. Must come after NotificationsModule — it
+    // produces ParentNotifications and never delivers anything itself.
+    ParentReportsModule,
     TeacherFollowUpModule,
 
     // Phase 5: Books & Attendance & Analytics & Cart

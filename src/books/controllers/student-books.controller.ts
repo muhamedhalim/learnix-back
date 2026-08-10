@@ -198,12 +198,24 @@ export class StudentBooksController {
   }
 
   /**
-   * Purchase a book
-   * Note: This endpoint initiates the purchase flow.
-   * For full payment integration, it should redirect to PaymentsService.
+   * @deprecated DEF-013: this endpoint never creates an Order/Payment and
+   * cannot complete a purchase — it only reports book/price info. Every
+   * current Learnix client purchases books through the Unified Checkout flow
+   * (`POST /payments/checkout/quote` then `POST /payments/orders` with
+   * `item_type: "book"`). Retained, truthful, for any external caller still
+   * pointed at this path; carries deprecation headers via
+   * `BooksModule`'s `DeprecationMiddleware`. Do not build a second book
+   * payment implementation here — delegate callers to Unified Checkout.
    */
   @Post('purchase')
-  @ApiOperation({ summary: 'Initiate book purchase' })
+  @ApiOperation({
+    summary: 'Initiate book purchase (deprecated — use Unified Checkout)',
+    description:
+      'Deprecated. This endpoint never creates an Order/Payment and cannot ' +
+      'complete a purchase. Use POST /payments/checkout/quote and then ' +
+      'POST /payments/orders with item_type "book" instead.',
+    deprecated: true,
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Book not found',
@@ -221,6 +233,7 @@ export class StudentBooksController {
     if (existing) {
       return {
         message: 'You have already purchased this book',
+        deprecated: true,
         already_purchased: true,
         purchase: existing,
       };
@@ -229,10 +242,18 @@ export class StudentBooksController {
     // Get book to check price
     const book = await this.booksService.findOne(dto.book_id);
 
-    // For now, return the book info and price
-    // Full payment integration would call PaymentsService here
+    // Truthful, non-payment-initiating response: this route has never called
+    // PaymentsService/OrdersService and must not claim otherwise. Real
+    // purchases go through the Unified Checkout endpoints below.
     return {
-      message: 'Book ready for purchase',
+      message:
+        'This endpoint is deprecated and does not start a payment. Use the ' +
+        'Unified Checkout flow instead: POST /payments/checkout/quote, then ' +
+        'POST /payments/orders with item_type "book".',
+      deprecated: true,
+      successor_endpoint: 'POST /payments/orders',
+      already_purchased: false,
+      redirect_to_payment: false,
       book: {
         id: book.id,
         title: book.title,
@@ -241,7 +262,6 @@ export class StudentBooksController {
       },
       discount_code: dto.discount_code ?? null,
       purchase_code: dto.purchase_code ?? null,
-      redirect_to_payment: true,
     };
   }
 }

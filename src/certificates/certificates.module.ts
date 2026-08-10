@@ -9,6 +9,7 @@ import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
+import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatesService } from './certificates.service';
 import {
@@ -46,10 +47,13 @@ import { CertificateNotificationListener } from './listeners/certificate-notific
   ],
   providers: [
     CertificatesService,
+    CertificateEligibilityService,
     CertificatePdfService,
     CertificateIssuanceListener,
     CertificateNotificationListener,
   ],
-  exports: [CertificatesService],
+  // `CertificateEligibilityService` is exported for the payments module: a
+  // completed FULL refund revokes the certificate inside its own transaction.
+  exports: [CertificatesService, CertificateEligibilityService],
 })
 export class CertificatesModule {}

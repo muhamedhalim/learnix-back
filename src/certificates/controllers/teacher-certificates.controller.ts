@@ -98,7 +98,7 @@ export class TeacherCertificatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RevokeCertificateDto,
   ): Promise<unknown> {
-    return this.certificatesService.revokeCertificate(id, dto.reason, user.userId);
+    return this.certificatesService.revokeCertificate(id, dto.reason, user.userId, user.userId);
   }
 
   @Post('issued/:id/reissue')
@@ -107,7 +107,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.reissueCertificate(id, user.userId);
+    return this.certificatesService.reissueCertificate(id, user.userId, user.userId);
   }
 
   @Get('templates')

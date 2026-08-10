@@ -57,3 +57,49 @@ describe('CallCenterController.updateStudent authorization (DEF-003)', () => {
     expect(guard.canActivate(contextFor('admin'))).toBe(true);
   });
 });
+
+/**
+ * DEF-012: the dashboard route must be scoped to the authenticated agent
+ * (never a client-supplied id) and must reuse the same active-SLA-policy
+ * resolution as the existing `sla()` route, rather than a second constant.
+ */
+describe('CallCenterController.dashboard (DEF-012)', () => {
+  it('is call_center-scoped, matching the rest of the support projection', () => {
+    expect(Reflect.getMetadata('roles', CallCenterController.prototype.dashboard)).toEqual([
+      'call_center',
+    ]);
+  });
+
+  it('resolves counts for the authenticated agent using the active SLA warning window', async () => {
+    const dashboardCounts = jest.fn().mockResolvedValue({ open_tickets: 3 });
+    const activePolicy = jest.fn().mockResolvedValue({ warning_window_hours: 6 });
+    const controller = new CallCenterController(
+      {} as never,
+      {} as never,
+      {} as never,
+      { dashboardCounts } as never,
+      { activePolicy } as never,
+    );
+
+    const result = await controller.dashboard({ userId: 'agent-1' } as never);
+
+    expect(dashboardCounts).toHaveBeenCalledWith('agent-1', 6);
+    expect(result).toEqual({ open_tickets: 3 });
+  });
+
+  it('falls back to the same default policy the sla() route uses when no policy is configured', async () => {
+    const dashboardCounts = jest.fn().mockResolvedValue({ open_tickets: 0 });
+    const activePolicy = jest.fn().mockResolvedValue(null);
+    const controller = new CallCenterController(
+      {} as never,
+      {} as never,
+      {} as never,
+      { dashboardCounts } as never,
+      { activePolicy } as never,
+    );
+
+    await controller.dashboard({ userId: 'agent-2' } as never);
+
+    expect(dashboardCounts).toHaveBeenCalledWith('agent-2', 4);
+  });
+});

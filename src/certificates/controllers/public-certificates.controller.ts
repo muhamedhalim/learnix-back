@@ -28,6 +28,16 @@ export class PublicCertificatesController {
     return this.certificatesService.getPublicCertificates(filter);
   }
 
+  /**
+   * Three outcomes, all distinguishable by the caller: an unknown code 404s,
+   * a live certificate returns `valid: true`, and a revoked one — including a
+   * certificate revoked because the course purchase was fully refunded
+   * (DEF-019) — returns `valid: false` with `status: 'revoked'` and the date it
+   * lost validity. The historical record is deliberately still served rather
+   * than hidden, so a holder of a revoked document gets a definite answer
+   * instead of "no such certificate". The reason itself is not published: it
+   * can reference an internal refund and is nobody else's business.
+   */
   @Get('verify/:code')
   @Throttle({ default: VERIFY_THROTTLE })
   @ApiOperation({ summary: 'Verify a certificate by its code (public)' })
@@ -41,6 +51,7 @@ export class PublicCertificatesController {
       completion_percentage: number;
       issued_at: Date;
       status: CertificateStatus;
+      revoked_at: Date | null;
       template_snapshot: CertificateTemplateSnapshot | null;
     };
   }> {
@@ -56,6 +67,7 @@ export class PublicCertificatesController {
         completion_percentage: cert.completion_percentage,
         issued_at: cert.issued_at,
         status: cert.status,
+        revoked_at: cert.status === CertificateStatus.ISSUED ? null : cert.revoked_at,
         // Formatting only: no IDs, storage paths, or private profile data.
         template_snapshot: templateSnapshot,
       },

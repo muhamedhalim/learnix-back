@@ -48,6 +48,21 @@ export class LessonProgress {
   @Column({ type: 'boolean', default: false })
   completed!: boolean;
 
+  /**
+   * When the lesson first crossed into `completed`, set once and never moved.
+   *
+   * `updated_at` cannot answer "what did this student finish last week?":
+   * `ProgressService.updateProgress` rewrites the row on every progress ping,
+   * so re-watching a lesson finished months ago would drag it into the current
+   * period. This column pins the completion to the moment it actually happened.
+   *
+   * Null for rows completed before the column existed — that history is not
+   * recoverable, and guessing it would be worse than reporting nothing.
+   */
+  @Column({ type: 'timestamptz', nullable: true, name: 'completed_at' })
+  @Index('IDX_lesson_progress_completed_at', { where: '"completed_at" IS NOT NULL' })
+  completed_at!: Date | null;
+
   @Column({ type: 'timestamp', name: 'last_watched_at' })
   last_watched_at!: Date;
 

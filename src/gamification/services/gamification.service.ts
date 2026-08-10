@@ -5,12 +5,7 @@ import { DataSource, Repository } from 'typeorm';
 
 import { Difficulty } from '../../exams/entities/difficulty.enum';
 import type { QuestionResponsePayload } from '../../exams/entities/content.types';
-import {
-  MIN_SOLVE_TIME_MS,
-  QUESTION_RATING_BY_DIFFICULTY,
-  STARTING_RATING,
-  STREAK_DAILY_BONUS,
-} from '../gamification.constants';
+import { MIN_SOLVE_TIME_MS, QUESTION_RATING_BY_DIFFICULTY, STARTING_RATING } from '../gamification.constants';
 import {
   PracticeSession,
   QuestionSolve,
@@ -25,6 +20,8 @@ import { ratingDelta } from '../logic/elo';
 import { levelForXp, levelProgress } from '../logic/leveling';
 import { appDateString, nextStreak, previousDay } from '../logic/streak';
 import { baseXpForDifficulty, comboBonusFor, streakMilestoneBonusFor } from '../logic/xp-rules';
+import { GamificationCampaignsService } from './gamification-campaigns.service';
+import { GamificationRulesService } from './gamification-rules.service';
 import { RankService } from './rank.service';
 
 /** Everything the caller (practice flow) knows about one solve event. */
@@ -90,6 +87,8 @@ export class GamificationService {
     private readonly profiles: Repository<StudentGameProfile>,
     @InjectRepository(QuestionSolve)
     private readonly solves: Repository<QuestionSolve>,
+    private readonly rulesService: GamificationRulesService,
+    private readonly campaignsService: GamificationCampaignsService,
   ) {}
 
   /** The authenticated student's own game summary (profile + level progress + tier). */
@@ -170,6 +169,13 @@ export class GamificationService {
         lock: { mode: 'pessimistic_write' },
       });
 
+      // DEF-018: the currently active admin-configured XP ruleset (falls
+      // back to the original hardcoded constants when no admin has ever
+      // created one). Resolved once per solve; every amount below is
+      // computed from this snapshot, then written immutably to the ledger —
+      // a later ruleset change can never alter an already-awarded amount.
+      const ruleSet = await this.rulesService.resolveCurrent(manager);
+
       // The profile lock serializes simultaneous submissions by one student.
       // The unique ledger constraint remains the final cross-process guard.
       const existing = await solveRepo.findOne({
@@ -228,8 +234,23 @@ export class GamificationService {
       // --- XP ---
       const breakdown: XpBreakdownItem[] = [];
       if (firstAttempt && legit) {
-        breakdown.push({ reason: XpReason.CORRECT_ANSWER, amount: baseXpForDifficulty(input.difficulty) });
+        breakdown.push({
+          reason: XpReason.CORRECT_ANSWER,
+          amount: baseXpForDifficulty(input.difficulty, ruleSet.xp_base_by_difficulty),
+        });
         state.xp_earned = true;
+
+        // DEF-018: a teacher-configured, time-boxed bonus for this specific
+        // lesson, if one is active right now. Folded into the same ledger
+        // write as the base award, so it inherits the one-row-per-(user,
+        // question) uniqueness guard for free — no separate idempotency
+        // tracking needed for the bonus.
+        if (input.lessonId) {
+          const campaign = await this.campaignsService.activeForLesson(input.lessonId, now, manager);
+          if (campaign) {
+            breakdown.push({ reason: XpReason.CAMPAIGN_BONUS, amount: campaign.bonus_xp });
+          }
+        }
       }
 
       // --- combo --- (count builds on any legit correct; BONUS xp only on a
@@ -237,7 +258,7 @@ export class GamificationService {
       const newCombo = legit ? profile.current_combo + 1 : 0;
       profile.current_combo = newCombo;
       if (newCombo > profile.longest_combo) profile.longest_combo = newCombo;
-      const comboBonus = legit && firstAttempt ? comboBonusFor(newCombo) : 0;
+      const comboBonus = legit && firstAttempt ? comboBonusFor(newCombo, ruleSet.combo_bonuses) : 0;
       if (comboBonus > 0) breakdown.push({ reason: XpReason.COMBO_BONUS, amount: comboBonus });
 
       // --- streak (advances on the first legit correct solve of a new day) ---
@@ -250,8 +271,8 @@ export class GamificationService {
           profile.last_active_date = today;
           if (ns.streak > profile.longest_streak) profile.longest_streak = ns.streak;
           streakExtendedToday = true;
-          breakdown.push({ reason: XpReason.STREAK_DAILY, amount: STREAK_DAILY_BONUS });
-          const milestone = streakMilestoneBonusFor(ns.streak);
+          breakdown.push({ reason: XpReason.STREAK_DAILY, amount: ruleSet.streak_daily_bonus });
+          const milestone = streakMilestoneBonusFor(ns.streak, ruleSet.streak_milestones);
           if (milestone > 0) {
             const existingAward = await milestoneRepo.findOne({
               where: { user_id: input.userId, days: ns.streak },

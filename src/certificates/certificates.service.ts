@@ -10,9 +10,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, LessThanOrEqual, QueryFailedError, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
@@ -109,27 +110,23 @@ export class CertificatesService {
     private readonly progressRepository: Repository<LessonProgress>,
     @InjectRepository(PackagePurchase)
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
-    @InjectRepository(User)
-    private readonly usersRepository: Repository<User>,
     private readonly pdfService: CertificatePdfService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly eligibility: CertificateEligibilityService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /* ===================== Completion ===================== */
 
   /**
    * Student-facing wrapper around `getCourseProgress`: only ever returns real
-   * numbers to a student who actually holds an active purchase for the
-   * course, so this can't be used to probe lesson counts on a
-   * draft/unpublished/unowned course. Internal callers that legitimately
-   * need the "no purchase" fallback (e.g. admin force-issuance, DEF-019)
-   * keep calling `getCourseProgress` directly.
+   * numbers to a student who actually holds a valid purchase for the course,
+   * so this can't be used to probe lesson counts on a draft/unpublished/
+   * unowned course. Uses the same canonical eligibility rule as issuance.
    */
   public async getMyCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
-    const owned = await this.packagePurchasesRepository.count({
-      where: { student_id: studentId, package_id: packageId, revoked_at: IsNull() },
-    });
-    if (owned === 0) {
+    const purchase = await this.eligibility.findActivePurchase(studentId, packageId);
+    if (!purchase) {
       return { total: 0, completed: 0, percentage: 0 };
     }
     return this.getCourseProgress(studentId, packageId);
@@ -141,8 +138,12 @@ export class CertificatesService {
    * currently, live, contains (DEF-002: adding/removing lessons after a sale
    * must never retroactively shift an existing purchaser's percentage).
    */
-  public async getCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
-    const versionId = await this.resolveProgressVersionId(studentId, packageId);
+  public async getCourseProgress(
+    studentId: string,
+    packageId: string,
+    manager?: EntityManager,
+  ): Promise<CourseProgress> {
+    const versionId = await this.resolveProgressVersionId(studentId, packageId, manager);
 
     // `versionId === null` covers a package with no version record at all —
     // e.g. a `lesson_packages` row inserted outside `PackagesService.create`
@@ -150,8 +151,16 @@ export class CertificatesService {
     // DEF-002 migration/bootstrap. Treat it the same as "still an unlocked
     // draft" below rather than short-circuiting to zero, so course progress
     // never regresses for a package that simply never got versioned.
+    const courseVersionItems = manager
+      ? manager.getRepository(CourseVersionItem)
+      : this.courseVersionItemsRepository;
+    const progress = manager ? manager.getRepository(LessonProgress) : this.progressRepository;
+    const packageItems = manager
+      ? manager.getRepository(LessonPackageItem)
+      : this.packageItemsRepository;
+
     const lockedTotal = versionId
-      ? await this.courseVersionItemsRepository.count({ where: { version_id: versionId } })
+      ? await courseVersionItems.count({ where: { version_id: versionId } })
       : 0;
 
     // `lockedTotal === 0` means this version has never been purchased by
@@ -160,7 +169,7 @@ export class CertificatesService {
     // PaymentFinalizationService). A genuinely empty *locked* version is
     // impossible: finalization refuses to sell a course with zero lessons.
     if (lockedTotal > 0) {
-      const completed = await this.progressRepository
+      const completed = await progress
         .createQueryBuilder('lp')
         .innerJoin('course_version_items', 'cvi', 'cvi.lesson_id = lp.lesson_id')
         .where('cvi.version_id = :versionId', { versionId })
@@ -174,11 +183,11 @@ export class CertificatesService {
       };
     }
 
-    const total = await this.packageItemsRepository.count({ where: { package_id: packageId } });
+    const total = await packageItems.count({ where: { package_id: packageId } });
     if (total === 0) {
       return { total: 0, completed: 0, percentage: 0 };
     }
-    const completed = await this.progressRepository
+    const completed = await progress
       .createQueryBuilder('lp')
       .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = lp.lesson_id')
       .where('lpi.package_id = :packageId', { packageId })
@@ -189,26 +198,25 @@ export class CertificatesService {
   }
 
   /**
-   * Which curriculum snapshot a student's completion should be judged
-   * against: their own active purchase's version when one exists — even a
-   * legacy row mid-backfill, whose `course_version_id` is momentarily still
-   * null, falls through to the same fallback as "no purchase at all" below.
-   * With no active purchase (e.g. an admin force-issuing without one — a
-   * separate, pre-existing gap tracked as DEF-019), fall back to the
-   * package's current version so that behavior isn't regressed.
+   * Which curriculum snapshot a student's completion should be judged against:
+   * the version their own valid purchase actually bought, resolved through the
+   * SAME canonical eligibility rule issuance uses, so progress and eligibility
+   * can never disagree about which purchase counts. A legacy row mid-backfill
+   * whose `course_version_id` is momentarily still null falls through to the
+   * package's current version, as does a caller with no valid purchase at all
+   * (e.g. the read-only student progress surface, which separately returns 0%).
    */
   private async resolveProgressVersionId(
     studentId: string,
     packageId: string,
+    manager?: EntityManager,
   ): Promise<string | null> {
-    const purchase = await this.packagePurchasesRepository.findOne({
-      where: { student_id: studentId, package_id: packageId, revoked_at: IsNull() },
-      order: { purchased_at: 'DESC' },
-    });
+    const purchase = await this.eligibility.findActivePurchase(studentId, packageId, manager);
     if (purchase?.course_version_id) {
       return purchase.course_version_id;
     }
-    const pkg = await this.packagesRepository.findOne({
+    const packages = manager ? manager.getRepository(LessonPackage) : this.packagesRepository;
+    const pkg = await packages.findOne({
       where: { id: packageId },
       select: { id: true, current_version_id: true },
     });
@@ -219,8 +227,23 @@ export class CertificatesService {
 
   /**
    * Issue (or return the existing) certificate for a completed course.
-   * Idempotent per (student, package). Throws if the course isn't fully
-   * completed unless `force` is set (admin override).
+   * Idempotent per (student, package).
+   *
+   * Two independent gates, both mandatory (DEF-019):
+   *
+   *  1. ELIGIBILITY — the student must hold a valid, non-revoked purchase /
+   *     entitlement for the course, resolved through the single canonical rule
+   *     in `CertificateEligibilityService`. `force` does NOT bypass this: it is
+   *     a completion override, not an entitlement override, so a fully refunded
+   *     student can never be certified through any path.
+   *  2. COMPLETION — 100% of the curriculum snapshot THEY purchased, unless
+   *     `force` is set (admin override).
+   *
+   * Runs in one transaction that row-locks the qualifying purchase, so a
+   * concurrent full refund either loses the lock (and then finds the
+   * certificate to revoke) or wins it (and this issuance re-reads the revoked
+   * purchase and refuses). There is no window in which a valid certificate can
+   * attach to a revoked purchase.
    */
   public async issueForCourse(
     studentId: string,
@@ -231,87 +254,141 @@ export class CertificatesService {
       where: { student_id: studentId, package_id: packageId },
     });
     if (existing) {
+      // A REVOKED certificate is not a successful issuance to hand back to a
+      // student who has lost their entitlement — say so instead of returning
+      // a dead document as though the request had been honoured. (Restoring
+      // one is `reissueCertificate`'s explicit, separately-gated job.)
+      if (existing.status === CertificateStatus.REVOKED) {
+        await this.eligibility.assertEligible(studentId, packageId);
+      }
       return existing;
     }
 
-    const progress = await this.getCourseProgress(studentId, packageId);
-    if (progress.total === 0) {
-      throw new BadRequestException(
-        biBody('This course has no lessons to complete.', 'لا تحتوي هذه الدورة على دروس لإكمالها.'),
-      );
-    }
-    if (progress.percentage < 100 && !options.force) {
-      throw new BadRequestException(
-        biBody(
-          'Course is not yet complete — a certificate cannot be issued.',
-          'الدورة لم تكتمل بعد — لا يمكن إصدار الشهادة.',
-        ),
-      );
-    }
+    try {
+      const outcome = await this.dataSource.transaction<{
+        certificate: Certificate;
+        created: boolean;
+      }>(async (manager) => {
+        const purchase = await this.eligibility.lockActivePurchase(manager, studentId, packageId);
+        if (!purchase) {
+          throw this.eligibility.ineligible();
+        }
+        // Re-check inside the lock: a concurrent issuance may have committed
+        // between the unlocked pre-check above and this transaction.
+        const raced = await manager.findOne(Certificate, {
+          where: { student_id: studentId, package_id: packageId },
+        });
+        if (raced) return { certificate: raced, created: false };
 
-    const [student, pkg] = await Promise.all([
-      this.usersRepository.findOne({ where: { id: studentId } }),
-      this.packagesRepository.findOne({
-        where: { id: packageId },
-        relations: ['teacher'],
-      }),
-    ]);
-    if (!student) {
-      throw new NotFoundException(biBody('Student not found', 'الطالب غير موجود'));
+        const progress = await this.getCourseProgress(studentId, packageId, manager);
+        if (progress.total === 0) {
+          throw new BadRequestException(
+            biBody(
+              'This course has no lessons to complete.',
+              'لا تحتوي هذه الدورة على دروس لإكمالها.',
+            ),
+          );
+        }
+        if (progress.percentage < 100 && !options.force) {
+          throw new BadRequestException(
+            biBody(
+              'Course is not yet complete — a certificate cannot be issued.',
+              'الدورة لم تكتمل بعد — لا يمكن إصدار الشهادة.',
+            ),
+          );
+        }
+
+        const [student, pkg] = await Promise.all([
+          manager.findOne(User, { where: { id: studentId } }),
+          manager.findOne(LessonPackage, {
+            where: { id: packageId },
+            relations: ['teacher'],
+          }),
+        ]);
+        if (!student) {
+          throw new NotFoundException(biBody('Student not found', 'الطالب غير موجود'));
+        }
+        if (!pkg) {
+          throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
+        }
+
+        const template = options.templateId
+          ? await this.resolveIssuanceTemplate(options.templateId, options.restrictTemplateOwner)
+          : pkg.certificate_template_id
+            ? await this.resolveIssuanceTemplate(pkg.certificate_template_id)
+            : ((await this.findDefaultTemplate(pkg.teacher_id)) ??
+              (await this.findDefaultTemplate()));
+        this.assertTemplateCanBeIssued(template);
+
+        const certificate = manager.create(Certificate, {
+          certificate_number: await this.uniqueNumber(),
+          verification_code: await this.uniqueCode(),
+          student_id: studentId,
+          package_id: packageId,
+          student_name: student.name,
+          course_title: pkg.title,
+          teacher_name: pkg.teacher?.name ?? null,
+          completion_percentage: progress.percentage,
+          template_id: template?.id ?? null,
+          // Freeze the design NOW — later template edits must never restyle
+          // this certificate.
+          template_snapshot: this.snapshotOf(template),
+          status: CertificateStatus.ISSUED,
+          revoked_at: null,
+          revoke_reason: null,
+          revoked_by: null,
+          revocation_context: null,
+          issued_at: new Date(),
+        });
+
+        const saved = await manager.save(Certificate, certificate);
+        this.logger.log(
+          `Certificate ${saved.certificate_number} issued to student ${studentId} for course ${packageId}`,
+        );
+        return { certificate: saved, created: true };
+      });
+      // Emitted only after COMMIT, and only for a certificate this call
+      // actually created: the notification listener reads the row back on its
+      // own connection and must never race an uncommitted insert.
+      if (outcome.created) {
+        this.eventEmitter.emit(CERTIFICATE_ISSUED_EVENT, {
+          certificateId: outcome.certificate.id,
+          studentId,
+          packageId,
+        } satisfies CertificateIssuedEvent);
+      }
+      return outcome.certificate;
+    } catch (error) {
+      // The (student, package) unique constraint is the last line of defense
+      // against two concurrent issuances; losing that race is still success.
+      if (error instanceof QueryFailedError && this.isUniqueViolation(error)) {
+        const winner = await this.certificatesRepository.findOne({
+          where: { student_id: studentId, package_id: packageId },
+        });
+        if (winner) return winner;
+      }
+      throw error;
     }
-    if (!pkg) {
-      throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
-    }
+  }
 
-    const template = options.templateId
-      ? await this.resolveIssuanceTemplate(options.templateId, options.restrictTemplateOwner)
-      : pkg.certificate_template_id
-        ? await this.resolveIssuanceTemplate(pkg.certificate_template_id)
-        : ((await this.findDefaultTemplate(pkg.teacher_id)) ?? (await this.findDefaultTemplate()));
-    this.assertTemplateCanBeIssued(template);
-
-    const certificate = this.certificatesRepository.create({
-      certificate_number: await this.uniqueNumber(),
-      verification_code: await this.uniqueCode(),
-      student_id: studentId,
-      package_id: packageId,
-      student_name: student.name,
-      course_title: pkg.title,
-      teacher_name: pkg.teacher?.name ?? null,
-      completion_percentage: progress.percentage,
-      template_id: template?.id ?? null,
-      // Freeze the design NOW — later template edits must never restyle this
-      // certificate.
-      template_snapshot: this.snapshotOf(template),
-      status: CertificateStatus.ISSUED,
-      issued_at: new Date(),
-    });
-
-    const saved = await this.certificatesRepository.save(certificate);
-    this.logger.log(
-      `Certificate ${saved.certificate_number} issued to student ${studentId} for course ${packageId}`,
-    );
-    this.eventEmitter.emit(CERTIFICATE_ISSUED_EVENT, {
-      certificateId: saved.id,
-      studentId,
-      packageId,
-    });
-    return saved;
+  private isUniqueViolation(error: QueryFailedError): boolean {
+    return (error.driverError as { code?: string } | undefined)?.code === '23505';
   }
 
   /**
-   * Auto-issue for every purchased course that contains the completed lesson and
-   * is now fully complete. Best-effort: a failure on one course is logged and
-   * does not block the others.
+   * Auto-issue for every VALIDLY purchased course that contains the completed
+   * lesson and is now fully complete. Best-effort: a failure on one course is
+   * logged and does not block the others.
    */
   public async autoIssueForCompletedLesson(studentId: string, lessonId: string): Promise<void> {
-    const rows = await this.packagePurchasesRepository
+    const query = this.packagePurchasesRepository
       .createQueryBuilder('pp')
       .innerJoin('course_version_items', 'cvi', 'cvi.version_id = pp.course_version_id')
       .where('pp.student_id = :studentId', { studentId })
       .andWhere('cvi.lesson_id = :lessonId', { lessonId })
-      .select('DISTINCT pp.package_id', 'package_id')
-      .getRawMany<{ package_id: string }>();
+      .select('DISTINCT pp.package_id', 'package_id');
+    this.eligibility.applyActivePurchase(query, 'pp');
+    const rows = await query.getRawMany<{ package_id: string }>();
 
     for (const { package_id } of rows) {
       try {
@@ -340,6 +417,20 @@ export class CertificatesService {
     });
     for (const failure of failures) {
       try {
+        // A retry queued before a full refund must never resurrect into a
+        // certificate afterwards. Losing eligibility is terminal, not
+        // transient, so close the failure out instead of retrying forever.
+        const purchase = await this.eligibility.findActivePurchase(
+          failure.student_id,
+          failure.package_id,
+        );
+        if (!purchase) {
+          failure.resolved_at = new Date();
+          failure.last_error =
+            'Abandoned: the student no longer holds a valid purchase for this course';
+          await this.autoIssuanceFailuresRepository.save(failure);
+          continue;
+        }
         const progress = await this.getCourseProgress(failure.student_id, failure.package_id);
         if (progress.percentage >= 100) {
           await this.issueForCourse(failure.student_id, failure.package_id);
@@ -482,14 +573,15 @@ export class CertificatesService {
   }
 
   /**
-   * Purchasers of a course who have completed every lesson in their OWN
+   * VALID purchasers of a course who have completed every lesson in their OWN
    * purchased version. Different purchasers of the same course may now
    * legitimately have different totals (a V1 buyer's 3 lessons vs. a V2
    * buyer's 4), so the completion check is evaluated per-row against each
    * purchase's own `course_version_id`, not one shared package-wide total.
+   * Refunded/revoked purchases are excluded by the canonical eligibility rule.
    */
   private async findCompletedPurchasers(packageId: string): Promise<string[]> {
-    const rows = await this.packagePurchasesRepository
+    const query = this.packagePurchasesRepository
       .createQueryBuilder('pp')
       .select('DISTINCT pp.student_id', 'student_id')
       .where('pp.package_id = :packageId', { packageId })
@@ -507,8 +599,9 @@ export class CertificatesService {
          >=
          (SELECT COUNT(*) FROM course_version_items cvi2
           WHERE cvi2.version_id = pp.course_version_id)`,
-      )
-      .getRawMany<{ student_id: string }>();
+      );
+    this.eligibility.applyActivePurchase(query, 'pp');
+    const rows = await query.getRawMany<{ student_id: string }>();
     return rows.map((r) => r.student_id);
   }
 
@@ -523,6 +616,7 @@ export class CertificatesService {
     id: string,
     reason?: string,
     teacherId?: string,
+    actorId?: string,
   ): Promise<Certificate> {
     const certificate = await this.getManagedCertificate(id, teacherId);
     if (certificate.status === CertificateStatus.REVOKED) {
@@ -531,6 +625,8 @@ export class CertificatesService {
     certificate.status = CertificateStatus.REVOKED;
     certificate.revoked_at = new Date();
     certificate.revoke_reason = reason?.trim() || null;
+    certificate.revoked_by = actorId ?? teacherId ?? null;
+    certificate.revocation_context = { source: 'manual' };
     certificate.is_public = false;
     const saved = await this.certificatesRepository.save(certificate);
     this.logger.log(`Certificate ${saved.certificate_number} revoked`);
@@ -542,14 +638,24 @@ export class CertificatesService {
    * (new number + verification code) so any copies of the revoked document
    * stay dead. The original issue-time design snapshot is preserved —
    * reissuing never restyles the certificate.
+   *
+   * Reissuance is an issuance path like any other, so it is subject to the
+   * same canonical eligibility rule (DEF-019): a certificate revoked because
+   * the course was refunded cannot be brought back to life while the purchase
+   * stays revoked.
    */
-  public async reissueCertificate(id: string, teacherId?: string): Promise<Certificate> {
+  public async reissueCertificate(
+    id: string,
+    teacherId?: string,
+    actorId?: string,
+  ): Promise<Certificate> {
     const certificate = await this.getManagedCertificate(id, teacherId);
     if (certificate.status !== CertificateStatus.REVOKED) {
       throw new BadRequestException(
         biBody('Only a revoked certificate can be reissued', 'لا يمكن إعادة إصدار إلا شهادة ملغاة'),
       );
     }
+    await this.eligibility.assertEligible(certificate.student_id, certificate.package_id);
     await this.certificateHistoryRepository.save(
       this.certificateHistoryRepository.create({
         certificate_id: certificate.id,
@@ -558,7 +664,8 @@ export class CertificatesService {
         status: certificate.status,
         revoked_at: certificate.revoked_at,
         revoke_reason: certificate.revoke_reason,
-        reissued_by: teacherId ?? null,
+        revocation_context: certificate.revocation_context,
+        reissued_by: actorId ?? teacherId ?? null,
       }),
     );
     certificate.certificate_number = await this.uniqueNumber();
@@ -567,6 +674,8 @@ export class CertificatesService {
     certificate.issued_at = new Date();
     certificate.revoked_at = null;
     certificate.revoke_reason = null;
+    certificate.revoked_by = null;
+    certificate.revocation_context = null;
     const saved = await this.certificatesRepository.save(certificate);
     this.logger.log(`Certificate reissued as ${saved.certificate_number}`);
     this.eventEmitter.emit(CERTIFICATE_ISSUED_EVENT, {
@@ -756,6 +865,30 @@ export class CertificatesService {
     return certificate;
   }
 
+  /**
+   * The student's own download. A revoked certificate stays VISIBLE in their
+   * list (with its revoked state) but is never rendered as a document —
+   * otherwise a fully refunded student could still produce a clean,
+   * valid-looking PDF and pass it off as proof (DEF-019). Admin/teacher
+   * previews are deliberately unaffected: support and audit need to see the
+   * historical document.
+   */
+  public async getOwnedDownloadableCertificate(
+    id: string,
+    studentId: string,
+  ): Promise<Certificate> {
+    const certificate = await this.getOwnedCertificate(id, studentId);
+    if (certificate.status !== CertificateStatus.ISSUED) {
+      throw new BadRequestException(
+        biBody(
+          'This certificate has been revoked and can no longer be downloaded.',
+          'تم إلغاء هذه الشهادة ولم يعد بالإمكان تنزيلها.',
+        ),
+      );
+    }
+    return certificate;
+  }
+
   /** Public verification by code — returns the certificate (any status). */
   public async getByVerificationCode(code: string): Promise<Certificate> {
     const certificate = await this.certificatesRepository.findOne({
@@ -767,13 +900,15 @@ export class CertificatesService {
     return certificate;
   }
 
-  /** A downloadable public document is available only while the certificate is valid. */
+  /**
+   * A downloadable public document is available only while the certificate is
+   * valid. A revoked certificate — including one revoked by a full refund —
+   * is never rendered as a document, so it can never be presented as proof.
+   */
   public async getVerifiedCertificateByCode(code: string): Promise<Certificate> {
     const certificate = await this.getByVerificationCode(code);
     if (certificate.status !== CertificateStatus.ISSUED) {
-      throw new NotFoundException(
-        biBody('Certificate not found', 'Ø§Ù„Ø´Ù‡Ø§Ø¯Ø© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©'),
-      );
+      throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
     }
     return certificate;
   }

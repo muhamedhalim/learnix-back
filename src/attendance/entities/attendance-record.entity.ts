@@ -23,6 +23,9 @@ export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
   unique: true,
   where: '"scheduled_lesson_session_id" IS NOT NULL',
 })
+// Serves the canonical admin ordering `(marked_at DESC, id DESC)` and, with
+// it, the export's keyset cursor `(marked_at, id) < (…)` (DEF-008).
+@Index('IDX_attendance_records_marked_at_id', ['marked_at', 'id'])
 export class AttendanceRecord {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

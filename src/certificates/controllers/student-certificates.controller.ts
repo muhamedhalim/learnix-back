@@ -79,7 +79,10 @@ export class StudentCertificatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() request: Request,
   ): Promise<StreamableFile> {
-    const certificate = await this.certificatesService.getOwnedCertificate(id, user.userId);
+    const certificate = await this.certificatesService.getOwnedDownloadableCertificate(
+      id,
+      user.userId,
+    );
     const pdf = await this.certificatesService.renderPdf(
       certificate,
       resolveRequestLocale(request),

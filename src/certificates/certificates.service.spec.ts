@@ -1,8 +1,15 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
+
+import { DataSource } from 'typeorm';
 
 import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
@@ -10,6 +17,7 @@ import { LessonPackageItem } from '../packages/entities/lesson-package-item.enti
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
+import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatesService } from './certificates.service';
 import { Certificate } from './entities/certificate.entity';
@@ -69,6 +77,41 @@ describe('CertificatesService', () => {
   const users = { findOne: jest.fn() };
   const pdf = { render: jest.fn() };
   const emitter = { emit: jest.fn() };
+  const eligibility = {
+    findActivePurchase: jest.fn(),
+    lockActivePurchase: jest.fn(),
+    assertEligible: jest.fn(),
+    applyActivePurchase: jest.fn(<T>(query: T) => query),
+    ineligible: jest.fn(() => new UnprocessableEntityException('no valid purchase')),
+    revokeForWithdrawnAccess: jest.fn(),
+  };
+
+  /** Route `EntityManager` calls made inside a transaction to the same mocks. */
+  const repositoryFor = (entity: unknown): Record<string, jest.Mock> => {
+    const byEntity = new Map<unknown, Record<string, jest.Mock>>([
+      [Certificate, certificates],
+      [CertificateHistory, certificateHistory],
+      [CertificateTemplate, templates],
+      [LessonPackage, packages],
+      [LessonPackageItem, packageItems],
+      [CourseVersionItem, courseVersionItems],
+      [LessonProgress, progress],
+      [PackagePurchase, purchases],
+      [User, users],
+    ]);
+    const repository = byEntity.get(entity);
+    if (!repository) throw new Error('Unexpected entity in transaction');
+    return repository;
+  };
+  const manager = {
+    getRepository: jest.fn((entity: unknown) => repositoryFor(entity)),
+    findOne: jest.fn((entity: unknown, options: unknown) => repositoryFor(entity).findOne?.(options)),
+    save: jest.fn((entity: unknown, value: unknown) => repositoryFor(entity).save?.(value)),
+    create: jest.fn((entity: unknown, value: unknown) => repositoryFor(entity).create?.(value)),
+  };
+  const dataSource = {
+    transaction: jest.fn(async (run: (m: typeof manager) => Promise<unknown>) => run(manager)),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -79,6 +122,12 @@ describe('CertificatesService', () => {
     // a value configured by an earlier test would otherwise leak forward.
     purchases.findOne.mockResolvedValue(null);
     purchases.count.mockResolvedValue(0);
+    eligibility.findActivePurchase.mockResolvedValue(null);
+    eligibility.lockActivePurchase.mockResolvedValue(null);
+    eligibility.applyActivePurchase.mockImplementation((query: unknown) => query);
+    eligibility.ineligible.mockImplementation(
+      () => new UnprocessableEntityException('no valid purchase'),
+    );
     courseVersionItems.count.mockResolvedValue(0);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -95,6 +144,8 @@ describe('CertificatesService', () => {
         { provide: getRepositoryToken(User), useValue: users },
         { provide: CertificatePdfService, useValue: pdf },
         { provide: EventEmitter2, useValue: emitter },
+        { provide: CertificateEligibilityService, useValue: eligibility },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
     service = module.get(CertificatesService);
@@ -120,7 +171,7 @@ describe('CertificatesService', () => {
     });
 
     it("judges completion against the purchaser's own locked version, not live curriculum", async () => {
-      purchases.findOne.mockResolvedValue({ id: 'pp1', course_version_id: 'v1' });
+      eligibility.findActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: 'v1' });
       courseVersionItems.count.mockResolvedValue(3);
       progress.createQueryBuilder.mockReturnValue(qb(3));
 
@@ -134,15 +185,15 @@ describe('CertificatesService', () => {
   });
 
   describe('getMyCourseProgress', () => {
-    it('never reveals real numbers for a course the student has not purchased', async () => {
-      purchases.count.mockResolvedValue(0);
+    it('never reveals real numbers for a course the student has not validly purchased', async () => {
+      eligibility.findActivePurchase.mockResolvedValue(null);
       const result = await service.getMyCourseProgress('S1', 'P1');
       expect(result).toEqual({ total: 0, completed: 0, percentage: 0 });
       expect(packages.findOne).not.toHaveBeenCalled();
     });
 
     it('delegates to getCourseProgress for an owning student', async () => {
-      purchases.count.mockResolvedValue(1);
+      eligibility.findActivePurchase.mockResolvedValue({ id: 'pp1' });
       const spy = jest
         .spyOn(service, 'getCourseProgress')
         .mockResolvedValue({ total: 3, completed: 3, percentage: 100 });
@@ -163,16 +214,40 @@ describe('CertificatesService', () => {
 
     it('refuses to issue when the course is incomplete', async () => {
       certificates.findOne.mockResolvedValue(null);
+      eligibility.lockActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: null });
       packages.findOne.mockResolvedValue({ id: 'P1', current_version_id: 'v1' });
       packageItems.count.mockResolvedValue(4);
       progress.createQueryBuilder.mockReturnValue(qb(2)); // 50%
       await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('refuses a 100%-complete student with no valid purchase (DEF-019)', async () => {
+      certificates.findOne.mockResolvedValue(null);
+      eligibility.lockActivePurchase.mockResolvedValue(null);
+      packageItems.count.mockResolvedValue(2);
+      progress.createQueryBuilder.mockReturnValue(qb(2)); // 100%
+
+      await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(certificates.save).not.toHaveBeenCalled();
+    });
+
+    it('refuses a refunded (revoked-purchase) student even under an admin force override', async () => {
+      certificates.findOne.mockResolvedValue(null);
+      eligibility.lockActivePurchase.mockResolvedValue(null);
+
+      await expect(
+        service.issueForCourse('S1', 'P1', { force: true }),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(certificates.save).not.toHaveBeenCalled();
+    });
+
     it('uses the course-assigned template before owner defaults, snapshots names, and emits when complete', async () => {
       certificates.findOne
         .mockResolvedValueOnce(null) // no existing cert
-        .mockResolvedValue(null); // unique number/code checks
+        .mockResolvedValue(null); // in-transaction re-check + unique number/code
+      eligibility.lockActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: null });
       packageItems.count.mockResolvedValue(2);
       progress.createQueryBuilder.mockReturnValue(qb(2)); // 100%
       users.findOne.mockResolvedValue({ id: 'S1', name: 'Ada Lovelace' });
@@ -433,6 +508,7 @@ describe('CertificatesService', () => {
   describe('issuance template gate', () => {
     const completeCourse = () => {
       certificates.findOne.mockResolvedValue(null);
+      eligibility.lockActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: null });
       packageItems.count.mockResolvedValue(1);
       progress.createQueryBuilder.mockReturnValue(qb(1)); // 100%
       users.findOne.mockResolvedValue({ id: 'S1', name: 'Ada' });
@@ -652,6 +728,73 @@ describe('CertificatesService', () => {
     it('reissue refuses a certificate that is not revoked', async () => {
       certificates.findOne.mockResolvedValue({ id: 'c1', status: CertificateStatus.ISSUED });
       await expect(service.reissueCertificate('c1')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('reissue cannot resurrect a certificate whose course purchase was refunded', async () => {
+      certificates.findOne.mockResolvedValue({
+        id: 'c1',
+        student_id: 'S1',
+        package_id: 'P1',
+        status: CertificateStatus.REVOKED,
+      });
+      eligibility.assertEligible.mockRejectedValue(
+        new UnprocessableEntityException('no valid purchase'),
+      );
+
+      await expect(service.reissueCertificate('c1')).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
+      expect(certificates.save).not.toHaveBeenCalled();
+    });
+
+    it('records the manual revocation cause for the audit trail', async () => {
+      certificates.findOne.mockResolvedValue({ id: 'c1', status: CertificateStatus.ISSUED });
+      certificates.save.mockImplementation((value: unknown) => Promise.resolve(value));
+
+      const revoked = await service.revokeCertificate('c1', 'duplicate', undefined, 'admin-9');
+
+      expect(revoked.revoked_by).toBe('admin-9');
+      expect(revoked.revocation_context).toEqual({ source: 'manual' });
+    });
+  });
+
+  describe('auto-issuance retry after a refund', () => {
+    it('abandons a queued retry once the student loses their purchase', async () => {
+      autoIssuanceFailures.find.mockResolvedValue([
+        { id: 'f1', student_id: 'S1', lesson_id: 'L1', package_id: 'P1', attempts: 1 },
+      ]);
+      eligibility.findActivePurchase.mockResolvedValue(null);
+      const issueSpy = jest.spyOn(service, 'issueForCourse');
+      autoIssuanceFailures.save.mockImplementation((value: unknown) => Promise.resolve(value));
+
+      await service.retryPendingAutoIssuanceFailures();
+
+      expect(issueSpy).not.toHaveBeenCalled();
+      expect(autoIssuanceFailures.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'f1',
+          resolved_at: expect.any(Date),
+          last_error: expect.stringContaining('no longer holds a valid purchase'),
+        }),
+      );
+    });
+
+    it('still retries a student who is genuinely eligible', async () => {
+      autoIssuanceFailures.find.mockResolvedValue([
+        { id: 'f1', student_id: 'S1', lesson_id: 'L1', package_id: 'P1', attempts: 1 },
+      ]);
+      eligibility.findActivePurchase.mockResolvedValue({ id: 'pp1' });
+      jest
+        .spyOn(service, 'getCourseProgress')
+        .mockResolvedValue({ total: 2, completed: 2, percentage: 100 });
+      const issueSpy = jest
+        .spyOn(service, 'issueForCourse')
+        .mockResolvedValue({ id: 'c1' } as Certificate);
+      autoIssuanceFailures.save.mockImplementation((value: unknown) => Promise.resolve(value));
+
+      await service.retryPendingAutoIssuanceFailures();
+
+      expect(issueSpy).toHaveBeenCalledWith('S1', 'P1');
     });
   });
 

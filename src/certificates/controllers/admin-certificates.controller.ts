@@ -22,8 +22,10 @@ import type { Request } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { THROTTLE } from '../../common/constants';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
 import {
@@ -87,16 +89,20 @@ export class AdminCertificatesController {
   @Post(':id/revoke')
   @ApiOperation({ summary: 'Revoke an issued certificate' })
   public revoke(
+    @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RevokeCertificateDto,
   ): Promise<unknown> {
-    return this.certificatesService.revokeCertificate(id, dto.reason);
+    return this.certificatesService.revokeCertificate(id, dto.reason, undefined, user.userId);
   }
 
   @Post(':id/reissue')
   @ApiOperation({ summary: 'Reissue a revoked certificate under fresh credentials' })
-  public reissue(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.reissueCertificate(id);
+  public reissue(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    return this.certificatesService.reissueCertificate(id, undefined, user.userId);
   }
 
   /* ----- Templates ----- */

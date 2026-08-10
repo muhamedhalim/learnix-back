@@ -399,6 +399,51 @@ export class CallCenterSupportService {
     return { first_response_overdue: firstResponseOverdue, resolution_overdue: resolutionOverdue };
   }
 
+  /**
+   * DEF-012: the counts the dashboard landing page needs that `supportReport`/
+   * `slaSummary` don't already provide — workload split by agent and
+   * near-breach (not yet overdue) SLA risk. `warningWindowHours` mirrors the
+   * same active SLA policy the `sla()` endpoint already resolves, so "approaching"
+   * uses one canonical warning window rather than a second, divergent constant.
+   */
+  public async dashboardCounts(
+    agentId: string,
+    warningWindowHours: number,
+  ): Promise<Record<string, unknown>> {
+    const now = new Date();
+    const warningHorizon = new Date(now.getTime() + warningWindowHours * 60 * 60 * 1000);
+    const terminal = [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED];
+    const openBase = () =>
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .where('complaint.deleted_at IS NULL')
+        .andWhere('complaint.status NOT IN (:...terminal)', { terminal });
+
+    const [openTickets, assignedToMe, unassignedTickets, firstResponseApproaching, resolutionApproaching] =
+      await Promise.all([
+        openBase().getCount(),
+        openBase().andWhere('complaint.assigned_agent_id = :agentId', { agentId }).getCount(),
+        openBase().andWhere('complaint.assigned_agent_id IS NULL').getCount(),
+        openBase()
+          .andWhere('complaint.first_response_at IS NULL')
+          .andWhere('complaint.first_response_due_at > :now', { now })
+          .andWhere('complaint.first_response_due_at <= :horizon', { horizon: warningHorizon })
+          .getCount(),
+        openBase()
+          .andWhere('complaint.resolution_due_at > :now', { now })
+          .andWhere('complaint.resolution_due_at <= :horizon', { horizon: warningHorizon })
+          .getCount(),
+      ]);
+
+    return {
+      open_tickets: openTickets,
+      assigned_to_me: assignedToMe,
+      unassigned_tickets: unassignedTickets,
+      first_response_approaching: firstResponseApproaching,
+      resolution_approaching: resolutionApproaching,
+    };
+  }
+
   private async rawPage(
     query: SelectQueryBuilder<ObjectLiteral>,
     filter: PageFilter,

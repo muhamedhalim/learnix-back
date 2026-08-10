@@ -11,4 +11,6 @@ export enum XpReason {
   DAILY_CHALLENGE = 'daily_challenge',
   WEEKLY_CHALLENGE = 'weekly_challenge',
   ACHIEVEMENT = 'achievement',
+  /** DEF-018: teacher-configured lesson bonus (see `GamificationCampaign`). */
+  CAMPAIGN_BONUS = 'campaign_bonus',
 }

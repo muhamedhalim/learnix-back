@@ -15,9 +15,10 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { THROTTLE } from '../common/constants';
-import type { UserRequest } from '../common/interfaces/user-request.interface';
+import type { JwtPayload, UserRequest } from '../common/interfaces/user-request.interface';
 import { Throttle } from '@nestjs/throttler';
 import { GuardiansService } from '../guardians/guardians.service';
 import { StudentFilterDto } from '../students/dto';
@@ -144,6 +145,21 @@ export class CallCenterController {
     @Query() filter: CallCenterNotificationFilterDto,
   ): Promise<unknown> {
     return await this.supportService.listSupportNotifications(filter);
+  }
+
+  /**
+   * DEF-012: the workload-triage counts the dashboard landing page needs
+   * (open/assigned-to-me/unassigned/near-SLA-breach) that `reports()`/`sla()`
+   * don't already cover. Scoped to the authenticated agent — "assigned to me"
+   * is never derivable from a client-supplied id.
+   */
+  @Get('dashboard')
+  @Roles('call_center')
+  @ApiOperation({ summary: 'View Call Center dashboard workload counts for the current agent' })
+  public async dashboard(@GetUser() user: JwtPayload): Promise<unknown> {
+    const policy = await this.supportManagement.activePolicy();
+    const warningWindowHours = policy?.warning_window_hours ?? 4;
+    return await this.supportService.dashboardCounts(user.userId, warningWindowHours);
   }
 
   @Get('reports')

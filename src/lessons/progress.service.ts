@@ -5,7 +5,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
-import { LessonCompletedEvent as ParentLessonCompletedEvent, PARENT_EVENT_CHANNEL } from '../notifications/events/parent-events';
+import {
+  LessonCompletedEvent as ParentLessonCompletedEvent,
+  PARENT_EVENT_CHANNEL,
+} from '../notifications/events/parent-events';
 import { User } from '../users/entities/user.entity';
 import type { LessonProgressDto } from './dto/lesson-progress.dto';
 import { Lesson } from './entities/lesson.entity';
@@ -92,6 +95,7 @@ export class ProgressService {
         total_duration: totalDuration,
         progress_percent: progressPercent,
         completed,
+        completed_at: completed ? new Date() : null,
         last_watched_at: new Date(),
       });
     } else {
@@ -101,6 +105,13 @@ export class ProgressService {
       progress.progress_percent = progressPercent;
       progress.completed = completed;
       progress.last_watched_at = new Date();
+
+      // Stamp the *first* completion only. Re-watching a finished lesson must
+      // not move the date, or periodic reports would keep re-counting it; and a
+      // dip back below 100% must not erase the fact that it was once finished.
+      if (completed && progress.completed_at === null) {
+        progress.completed_at = new Date();
+      }
     }
 
     const savedProgress = await this.progressRepository.save(progress);

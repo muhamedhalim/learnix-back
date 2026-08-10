@@ -11,6 +11,8 @@ import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import {
+  GamificationCampaign,
+  GamificationRuleSet,
   PracticeSession,
   PracticeQuestionServe,
   QuestionSolve,
@@ -21,11 +23,15 @@ import {
   StreakMilestoneAward,
   XpEvent,
 } from './entities';
+import { AdminGamificationController } from './controllers/admin-gamification.controller';
 import { GamificationPublicController } from './controllers/gamification-public.controller';
 import { StudentPracticeController } from './controllers/student-practice.controller';
+import { TeacherGamificationController } from './controllers/teacher-gamification.controller';
 import { GameSweepProcessor } from './processors/game-sweep.processor';
 import { GameJobsService } from './services/game-jobs.service';
 import { GameNotificationsService } from './services/game-notifications.service';
+import { GamificationCampaignsService } from './services/gamification-campaigns.service';
+import { GamificationRulesService } from './services/gamification-rules.service';
 import { GamificationService } from './services/gamification.service';
 import { LeaderboardService } from './services/leaderboard.service';
 import { PracticeService } from './services/practice.service';
@@ -52,6 +58,8 @@ import { RankService } from './services/rank.service';
       PracticeSession,
       PracticeQuestionServe,
       StreakMilestoneAward,
+      GamificationRuleSet,
+      GamificationCampaign,
       // Read access to shared tables (repos; entities also registered elsewhere)
       Question,
       ExamAttempt,
@@ -71,11 +79,18 @@ import { RankService } from './services/rank.service';
       config: QUEUE_CONFIGS[QUEUE_NAMES.GAMIFICATION],
     }),
   ],
-  controllers: [StudentPracticeController, GamificationPublicController],
+  controllers: [
+    StudentPracticeController,
+    GamificationPublicController,
+    AdminGamificationController,
+    TeacherGamificationController,
+  ],
   providers: [
     RankSeederService,
     RankService,
     GamificationService,
+    GamificationRulesService,
+    GamificationCampaignsService,
     PracticeService,
     LeaderboardService,
     PublicProfileService,

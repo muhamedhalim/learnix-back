@@ -1,4 +1,7 @@
 export { RankTier } from './rank-tier.entity';
+export { GamificationRuleSet } from './gamification-rule-set.entity';
+export type { ComboBonusRule, StreakMilestoneRule } from './gamification-rule-set.entity';
+export { GamificationCampaign } from './gamification-campaign.entity';
 export { StudentGameProfile } from './student-game-profile.entity';
 export { StudentSubjectRating } from './student-subject-rating.entity';
 export { StudentQuestionState } from './student-question-state.entity';

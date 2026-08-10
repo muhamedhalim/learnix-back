@@ -1,4 +1,5 @@
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ComplaintStatus } from '../enums/complaint-status.enum';
@@ -29,6 +30,22 @@ export class ComplaintFilterDto {
   @IsOptional()
   @IsUUID()
   public assigned_agent_id?: string;
+
+  /** DEF-012: filters to tickets with no assigned agent (dashboard deep-link). */
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  public unassigned?: boolean;
+
+  /**
+   * DEF-012: filters to the same "delayed" ticket set the dashboard's
+   * Overdue card counts (mirrors `supportReport().delayed`), so the number
+   * on the card and the size of the list it links to always agree.
+   */
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  public overdue?: boolean;
 
   @IsOptional()
   @IsString()
