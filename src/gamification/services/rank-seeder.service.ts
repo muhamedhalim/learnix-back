@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
 
-import { RANK_TIER_SEEDS } from '../gamification.constants';
 import { RankTier } from '../entities';
+import { seedRankTiers } from '../../database/system-seed';
 
 /**
  * Seeds the rank-tier ladder on boot if the table is empty. Idempotent — a
@@ -22,19 +22,7 @@ export class RankSeederService implements OnModuleInit {
   public async onModuleInit(): Promise<void> {
     const count = await this.ranks.count();
     if (count > 0) return;
-    await this.ranks.save(
-      RANK_TIER_SEEDS.map((seed) =>
-        this.ranks.create({
-          slug: seed.slug,
-          name: seed.name,
-          icon_key: seed.icon_key,
-          color: seed.color,
-          min_rating: seed.min_rating,
-          min_xp: seed.min_xp,
-          sort_order: seed.order,
-        }),
-      ),
-    );
-    this.logger.log(`Seeded ${String(RANK_TIER_SEEDS.length)} rank tiers`);
+    const seeded = await seedRankTiers(this.ranks.manager);
+    this.logger.log(`Seeded ${String(seeded)} rank tiers`);
   }
 }

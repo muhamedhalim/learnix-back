@@ -6,132 +6,7 @@ import { Repository } from 'typeorm';
 import { HealthAlertRule } from './entities';
 import type { HealthComponentResult } from './health.types';
 import { OperationalAlertService } from './operational-alert.service';
-
-const DEFAULT_RULES: Array<
-  Pick<
-    HealthAlertRule,
-    | 'key'
-    | 'name'
-    | 'component_id'
-    | 'metric'
-    | 'operator'
-    | 'threshold'
-    | 'duration_seconds'
-    | 'cooldown_seconds'
-    | 'severity'
-  >
-> = [
-  {
-    key: 'component-down',
-    name: 'Component goes down',
-    component_id: null,
-    metric: 'statusRank',
-    operator: 'gte',
-    threshold: 5,
-    duration_seconds: 120,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'component-degraded',
-    name: 'Component becomes degraded',
-    component_id: null,
-    metric: 'statusRank',
-    operator: 'gte',
-    threshold: 4,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'warning',
-  },
-  {
-    key: 'api-latency',
-    name: 'API latency exceeds threshold',
-    component_id: 'backend-api',
-    metric: 'averageLatencyMs',
-    operator: 'gte',
-    threshold: 750,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'warning',
-  },
-  {
-    key: 'api-error-rate',
-    name: 'API error rate exceeds threshold',
-    component_id: 'backend-api',
-    metric: 'errorRatePercent',
-    operator: 'gte',
-    threshold: 5,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'queue-backlog',
-    name: 'Queue backlog exceeds threshold',
-    component_id: 'queue-*',
-    metric: 'backlog',
-    operator: 'gte',
-    threshold: 250,
-    duration_seconds: 600,
-    cooldown_seconds: 1800,
-    severity: 'warning',
-  },
-  {
-    key: 'redis-memory',
-    name: 'Redis memory exceeds threshold',
-    component_id: 'redis',
-    metric: 'memoryUsagePercent',
-    operator: 'gte',
-    threshold: 85,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'database-connections',
-    name: 'Database connection usage exceeds threshold',
-    component_id: 'postgresql',
-    metric: 'connectionUsagePercent',
-    operator: 'gte',
-    threshold: 85,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'scheduled-job-missed',
-    name: 'Scheduled health job is missed',
-    component_id: 'scheduled-jobs',
-    metric: 'missedHealthCollections',
-    operator: 'gte',
-    threshold: 2,
-    duration_seconds: 120,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'repeated-payment-failures',
-    name: 'Repeated payment failures',
-    component_id: 'backend-api',
-    metric: 'paymentFailures',
-    operator: 'gte',
-    threshold: 3,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'critical',
-  },
-  {
-    key: 'repeated-email-failures',
-    name: 'Repeated email failures',
-    component_id: 'backend-api',
-    metric: 'emailFailures',
-    operator: 'gte',
-    threshold: 3,
-    duration_seconds: 300,
-    cooldown_seconds: 1800,
-    severity: 'warning',
-  },
-];
+import { seedHealthAlertRules } from '../database/system-seed';
 
 @Injectable()
 export class HealthAlertService implements OnModuleInit {
@@ -143,20 +18,7 @@ export class HealthAlertService implements OnModuleInit {
   ) {}
 
   public async onModuleInit(): Promise<void> {
-    for (const rule of DEFAULT_RULES) {
-      const existing = await this.rules.findOneBy({ key: rule.key });
-      if (!existing) {
-        await this.rules.save(
-          this.rules.create({
-            ...rule,
-            channels: ['in_app'],
-            recipients: [],
-            enabled: true,
-            last_triggered_at: null,
-          }),
-        );
-      }
-    }
+    await seedHealthAlertRules(this.rules.manager);
   }
 
   public async list(): Promise<HealthAlertRule[]> {

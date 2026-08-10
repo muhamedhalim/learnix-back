@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import * as bcrypt from 'bcryptjs';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -63,53 +63,9 @@ export class AdminInitializationService {
     const email = rawEmail.trim().toLowerCase();
 
     try {
-      return await this.dataSource.transaction(async (manager) => {
-        const userRepo = manager.getRepository(User);
-
-        // Case 2: an admin already exists anywhere in the system (not
-        // necessarily at this exact email) — this bootstrap step is done.
-        // Never touches an existing row: no password reset, no overwrite.
-        const existingAdmin = await userRepo.findOne({ where: { role: UserRole.ADMIN } });
-        if (existingAdmin) {
-          this.logger.log('Administrator already exists. Skipping initialization.');
-          return { outcome: 'already_exists', adminEmail: existingAdmin.email };
-        }
-
-        const bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
-        const password_hash = await bcrypt.hash(rawPassword, bcryptRounds);
-
-        const admin = userRepo.create({
-          name: 'Admin User',
-          username: 'admin',
-          email,
-          phone: '01099999999',
-          password_hash,
-          role: UserRole.ADMIN,
-          finance_permissions: [...FINANCE_PERMISSIONS],
-          status: UserStatus.APPROVED,
-          is_active: true,
-        });
-
-        try {
-          await userRepo.save(admin);
-        } catch (error) {
-          // A concurrent process (e.g. `npm run seed:admin` racing this same
-          // boot) may have inserted the same row between our check and our
-          // insert — the unique constraint on `email` catches it. Treat that
-          // as success, not a crash: the invariant ("exactly one admin
-          // exists") still holds, just created by the other caller.
-          if (this.isUniqueViolation(error)) {
-            this.logger.log(
-              'Administrator already exists (created concurrently). Skipping initialization.',
-            );
-            return { outcome: 'already_exists' };
-          }
-          throw error;
-        }
-
-        this.logger.log('Initial administrator created successfully');
-        return { outcome: 'created', adminEmail: email };
-      });
+      return await this.dataSource.transaction(async (manager) =>
+        this.initializeWithManager(manager, email, rawPassword),
+      );
     } catch (error) {
       this.logger.error(
         'Admin initialization failed',
@@ -117,6 +73,64 @@ export class AdminInitializationService {
       );
       throw error;
     }
+  }
+
+  /** Official admin seed implementation that can join a maintenance transaction. */
+  public async initializeWithManager(
+    manager: EntityManager,
+    normalizedEmail?: string,
+    password?: string,
+  ): Promise<AdminInitResult> {
+    const email =
+      normalizedEmail ?? this.configService.get<string>('ADMIN_INIT_EMAIL')?.trim().toLowerCase();
+    const rawPassword = password ?? this.configService.get<string>('ADMIN_INIT_PASSWORD');
+    if (!email || !rawPassword) return { outcome: 'skipped_missing_env' };
+
+    const userRepo = manager.getRepository(User);
+
+    // Case 2: an admin already exists anywhere in the system (not
+    // necessarily at this exact email) — this bootstrap step is done.
+    // Never touches an existing row: no password reset, no overwrite.
+    const existingAdmin = await userRepo.findOne({ where: { role: UserRole.ADMIN } });
+    if (existingAdmin) {
+      this.logger.log('Administrator already exists. Skipping initialization.');
+      return { outcome: 'already_exists', adminEmail: existingAdmin.email };
+    }
+
+    const bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
+    const password_hash = await bcrypt.hash(rawPassword, bcryptRounds);
+
+    const admin = userRepo.create({
+      name: 'Admin User',
+      username: 'admin',
+      email,
+      phone: '01099999999',
+      password_hash,
+      role: UserRole.ADMIN,
+      finance_permissions: [...FINANCE_PERMISSIONS],
+      status: UserStatus.APPROVED,
+      is_active: true,
+    });
+
+    try {
+      await userRepo.save(admin);
+    } catch (error) {
+      // A concurrent process (e.g. `npm run seed:admin` racing this same
+      // boot) may have inserted the same row between our check and our
+      // insert — the unique constraint on `email` catches it. Treat that
+      // as success, not a crash: the invariant ("exactly one admin
+      // exists") still holds, just created by the other caller.
+      if (this.isUniqueViolation(error)) {
+        this.logger.log(
+          'Administrator already exists (created concurrently). Skipping initialization.',
+        );
+        return { outcome: 'already_exists' };
+      }
+      throw error;
+    }
+
+    this.logger.log('Initial administrator created successfully');
+    return { outcome: 'created', adminEmail: email };
   }
 
   private isUniqueViolation(error: unknown): boolean {
