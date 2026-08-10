@@ -17,7 +17,9 @@ schema and TypeORM migration history. It is a CLI task, not an HTTP endpoint.
 - Redis owns cache, throttling state, idempotency records, distributed locks,
   health-collector coordination, leaderboards and all BullMQ queue state.
 - R2 is the primary private object store for non-video media. Bunny Stream owns
-  lesson videos. Generated attendance-code exports are temporary local files.
+  lesson videos and is explicitly out of scope for this reset: no Bunny API is
+  called and all Bunny assets are intentionally preserved. Generated
+  attendance-code exports are temporary local files.
 
 ## Table classification
 
@@ -82,8 +84,9 @@ command rejects it when `APP_ENV=production`.
 
 ## Failure behavior
 
-Record-derived storage objects are deleted first, Redis second, and PostgreSQL
-last. Any storage/Bunny failure aborts before database deletion. PostgreSQL
-truncation, system seeding and admin recreation are one transaction. A failure
-after external cleanup is safe to retry because object deletion, Redis cleanup,
-system seeds and admin initialization are idempotent.
+Record-derived R2/local storage objects are deleted first, Redis second, and
+PostgreSQL last. Bunny Stream is never contacted. Any in-scope storage failure
+aborts before database deletion. PostgreSQL truncation, system seeding and admin
+recreation are one transaction. A failure after external cleanup is safe to
+retry because object deletion, Redis cleanup, system seeds and admin
+initialization are idempotent.

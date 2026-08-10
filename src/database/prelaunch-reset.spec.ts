@@ -1,5 +1,6 @@
 import {
   assertExecutionGuards,
+  BUNNY_CLEANUP_STATUS,
   classifyTables,
   databaseIdentity,
   redisOwnedPatterns,
@@ -70,5 +71,9 @@ describe('prelaunch reset safety', () => {
     expect(patterns).toContain('bull:exam-auto-submit:*');
     expect(patterns).toContain('bull:gamification:*');
     expect(patterns).not.toContain('*');
+  });
+
+  it('always preserves Bunny Stream assets during the pre-launch reset', () => {
+    expect(BUNNY_CLEANUP_STATUS).toBe('SKIPPED BY USER REQUEST');
   });
 });

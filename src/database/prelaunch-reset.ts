@@ -19,7 +19,6 @@ import {
 } from '../common/utils/redis-namespace.util';
 import { AppEnvironment, recordReader, resolveAppEnv } from '../config/app-env';
 import { typeOrmArtifactPaths } from '../data-source';
-import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { StorageService } from '../storage/storage.service';
 import { seedRequiredSystemData } from './system-seed';
@@ -92,10 +91,11 @@ export interface TableClassification {
 
 export interface StorageManifest {
   objectKeys: string[];
-  bunnyVideoIds: string[];
   unresolvedReferences: string[];
   localExportFiles: string[];
 }
+
+export const BUNNY_CLEANUP_STATUS = 'SKIPPED BY USER REQUEST';
 
 export class UnsafePrelaunchResetError extends Error {
   public constructor(message: string) {
@@ -241,7 +241,6 @@ function safeObjectKey(storage: StorageService, value: string, exactKey: boolean
 async function collectStorageManifest(
   dataSource: DataSource,
   storage: StorageService,
-  config: ConfigService,
 ): Promise<StorageManifest> {
   const keys = new Set<string>();
   const unresolved = new Set<string>();
@@ -276,30 +275,12 @@ async function collectStorageManifest(
     });
   }
 
-  const configuredLibrary = config.get<string>('BUNNY_STREAM_LIBRARY_ID') ?? '';
-  const lessonVideos = (await dataSource.query(
-    `SELECT bunny_video_id AS id, bunny_library_id AS library_id
-     FROM lessons WHERE bunny_video_id IS NOT NULL`,
-  )) as Array<{ id: string; library_id: string | null }>;
-  const sessionVideos = (await dataSource.query(
-    `SELECT bunny_video_id AS id FROM lesson_video_upload_sessions
-     UNION SELECT previous_bunny_video_id AS id FROM lesson_video_upload_sessions WHERE previous_bunny_video_id IS NOT NULL`,
-  )) as Array<{ id: string }>;
-  const videos = new Set(sessionVideos.map((row) => row.id));
-  lessonVideos.forEach((row) => {
-    if (row.library_id && row.library_id !== configuredLibrary) {
-      unresolved.add(`lessons.bunny_library_id:${row.id}`);
-    } else {
-      videos.add(row.id);
-    }
-  });
   const exports = (await dataSource.query(
     `SELECT file_path AS path FROM code_exports WHERE file_path IS NOT NULL`,
   )) as Array<{ path: string }>;
 
   return {
     objectKeys: [...keys].sort(),
-    bunnyVideoIds: [...videos].sort(),
     unresolvedReferences: [...unresolved].sort(),
     localExportFiles: [...new Set(exports.map((row) => row.path))].sort(),
   };
@@ -308,18 +289,13 @@ async function collectStorageManifest(
 async function cleanupStorage(
   manifest: StorageManifest,
   storage: StorageService,
-  bunny: BunnyStreamService,
   config: ConfigService,
-): Promise<{ objectsDeleted: number; videosDeleted: number; localFilesDeleted: number }> {
+): Promise<{
+  objectsDeleted: number;
+  bunnyCleanup: typeof BUNNY_CLEANUP_STATUS;
+  localFilesDeleted: number;
+}> {
   const objectsDeleted = await cleanupObjectKeys(manifest.objectKeys, storage, config);
-
-  let videosDeleted = 0;
-  for (const id of manifest.bunnyVideoIds) {
-    if (!(await bunny.deleteVideo(id))) {
-      throw new Error(`Bunny Stream video cleanup failed: ${id}`);
-    }
-    videosDeleted++;
-  }
 
   let localFilesDeleted = 0;
   const exportRoot = resolve(config.get<string>('CODE_EXPORT_DIR') ?? './exports');
@@ -338,7 +314,7 @@ async function cleanupStorage(
       },
     );
   }
-  return { objectsDeleted, videosDeleted, localFilesDeleted };
+  return { objectsDeleted, bunnyCleanup: BUNNY_CLEANUP_STATUS, localFilesDeleted };
 }
 
 function isNotFound(error: unknown): boolean {
@@ -608,13 +584,13 @@ export async function runPrelaunchReset(options: {
     printSection('Row counts', countsBefore);
 
     const storage = new StorageService(config);
-    const manifest = await collectStorageManifest(dataSource, storage, config);
+    const manifest = await collectStorageManifest(dataSource, storage);
     printSection('Storage manifest', {
       objects: manifest.objectKeys.length,
-      bunnyVideos: manifest.bunnyVideoIds.length,
       localExports: manifest.localExportFiles.length,
       unresolvedReferences: manifest.unresolvedReferences,
     });
+    printSection('Bunny cleanup', BUNNY_CLEANUP_STATUS);
 
     const redisUrl = resolveRedisUrl((key) => process.env[key]);
     if (redisUrl) {
@@ -651,7 +627,6 @@ export async function runPrelaunchReset(options: {
       const storageResult = await cleanupStorage(
         manifest,
         storage,
-        new BunnyStreamService(config),
         config,
       );
       printSection('Storage cleanup', storageResult);
