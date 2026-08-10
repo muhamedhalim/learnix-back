@@ -563,7 +563,7 @@ export class ReviewsService {
       take: limit,
     });
 
-    const aggregates = await this.teacherAggregates(teacherId);
+    const aggregates = await this.getTeacherAggregates(teacherId);
 
     const data = reviews.map((r) => this.toReviewWithStudent(r, true));
     return { data, meta: this.buildMeta(page, limit, total), aggregates };
@@ -589,7 +589,7 @@ export class ReviewsService {
       take: limit,
     });
 
-    const aggregates = await this.lessonAggregates(lessonId);
+    const aggregates = await this.getLessonAggregates(lessonId);
 
     const data = reviews.map((r) => this.toReviewWithStudent(r, true));
     return { data, meta: this.buildMeta(page, limit, total), aggregates };
@@ -662,7 +662,13 @@ export class ReviewsService {
     };
   }
 
-  private async lessonAggregates(lessonId: string): Promise<ReviewAggregates> {
+  /**
+   * Approved-review rating aggregate for one lesson — the single definition of
+   * a lesson's rating, shared with `LessonsService.getLessonStats` (DEF-007).
+   * Only APPROVED reviews count, so a flagged or rejected review can never move
+   * a public average.
+   */
+  public async getLessonAggregates(lessonId: string): Promise<ReviewAggregates> {
     const row = await this.lessonReviewsRepository
       .createQueryBuilder('r')
       .where('r.lesson_id = :lessonId', { lessonId })
@@ -678,7 +684,12 @@ export class ReviewsService {
     return this.toRatingAggregates(row);
   }
 
-  private async teacherAggregates(teacherId: string): Promise<ReviewAggregates> {
+  /**
+   * Approved-review rating aggregate for one teacher. This is the canonical
+   * teacher rating; the denormalised `teacher_profiles.rating` column is legacy
+   * and was never maintained by any code path (see the DEF-007 write-up).
+   */
+  public async getTeacherAggregates(teacherId: string): Promise<ReviewAggregates> {
     const row = await this.teacherReviewsRepository
       .createQueryBuilder('r')
       .where('r.teacher_id = :teacherId', { teacherId })
@@ -692,6 +703,40 @@ export class ReviewsService {
       .addSelect('COUNT(*) FILTER (WHERE r.rating = 5)', 'rating_5')
       .getRawOne<RatingAggregateRow>();
     return this.toRatingAggregates(row);
+  }
+
+  /**
+   * Teacher ratings for many teachers in one grouped query.
+   *
+   * The teacher directory renders a rating per row; asking
+   * {@link getTeacherAggregates} once per teacher would be an N+1 on a
+   * paginated public endpoint. Same definition (approved reviews only), just
+   * batched — teachers with no approved reviews are absent from the map, and
+   * callers render that as "not rated" rather than zero stars.
+   */
+  public async getTeacherRatingsBatch(
+    teacherIds: readonly string[],
+  ): Promise<Map<string, { average: number; count: number }>> {
+    if (teacherIds.length === 0) return new Map();
+    const rows = await this.teacherReviewsRepository
+      .createQueryBuilder('r')
+      .where('r.teacher_id IN (:...teacherIds)', { teacherIds: [...teacherIds] })
+      .andWhere('r.status = :status', { status: ReviewStatus.APPROVED })
+      .select('r.teacher_id', 'teacher_id')
+      .addSelect('AVG(r.rating)', 'average')
+      .addSelect('COUNT(*)', 'total')
+      .groupBy('r.teacher_id')
+      .getRawMany<{ teacher_id: string; average: string; total: string }>();
+
+    return new Map(
+      rows.map((row) => [
+        row.teacher_id,
+        {
+          average: Number.parseFloat(Number(row.average).toFixed(2)),
+          count: Number.parseInt(row.total, 10),
+        },
+      ]),
+    );
   }
 
   private toRatingAggregates(row: RatingAggregateRow | null | undefined): ReviewAggregates {

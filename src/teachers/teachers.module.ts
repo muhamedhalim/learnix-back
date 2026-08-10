@@ -2,7 +2,9 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
+import { MetricsModule } from '../common/metrics';
 import { MediaModule } from '../media/media.module';
+import { ReviewsModule } from '../reviews/reviews.module';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import {
@@ -18,6 +20,10 @@ import { TeachersService } from './teachers.service';
     TypeOrmModule.forFeature([TeacherProfile, User, Subject]),
     MediaModule,
     ActivityLogsModule,
+    MetricsModule,
+    // Supplies the canonical teacher rating (approved teacher_reviews).
+    // ReviewsModule imports no feature module, so this is not circular.
+    ReviewsModule,
   ],
   controllers: [
     AdminTeachersController,

@@ -3,14 +3,22 @@ import { Logger } from '@nestjs/common';
 
 import { Job, UnrecoverableError } from 'bullmq';
 
-import { ParentEventType } from '../../common/events/parent-event-type.enum';
+import {
+  ParentEventType,
+  TRANSACTIONAL_PARENT_EVENTS,
+} from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { GuardiansService, type GuardianTarget } from '../../guardians/guardians.service';
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
 import { ChannelRegistryService } from '../channels/channel-registry.service';
-import type { ChannelSendResult, ChannelTarget } from '../channels/parent-channel.interface';
-import { MessageChannel, ParentMessageStatus } from '../entities';
+import type {
+  ChannelSendResult,
+  ChannelTarget,
+  ParentChannel,
+} from '../channels/parent-channel.interface';
+import { MessageChannel, NotificationChannel, ParentMessageStatus } from '../entities';
+import { NotificationChannelPolicyService } from '../services/notification-channel-policy.service';
 import { ParentMessageService } from '../services/parent-message.service';
 import {
   ParentNotificationJobsService,
@@ -50,6 +58,7 @@ export class ParentNotificationProcessor extends WorkerHost {
     private readonly channels: ChannelRegistryService,
     private readonly messages: ParentMessageService,
     private readonly jobs: ParentNotificationJobsService,
+    private readonly channelPolicy: NotificationChannelPolicyService,
   ) {
     super();
   }
@@ -64,9 +73,7 @@ export class ParentNotificationProcessor extends WorkerHost {
     // that has deliberately switched delivery off should not accumulate a
     // backlog of failed jobs and DLQ entries for the duration.
     if (!isFeatureEnabled(FEATURE_FLAGS.NOTIFICATIONS)) {
-      this.logger.log(
-        `Guardian notification ${job.name} skipped: ENABLE_NOTIFICATIONS=false.`,
-      );
+      this.logger.log(`Guardian notification ${job.name} skipped: ENABLE_NOTIFICATIONS=false.`);
       return;
     }
 
@@ -88,6 +95,12 @@ export class ParentNotificationProcessor extends WorkerHost {
       throw new UnrecoverableError('No parent notification channel configured');
     }
 
+    // EVENT ELIGIBILITY. `findNotificationTargets` is the canonical guardian
+    // preference check: link exists, phone verified, not opted out, master
+    // switch on, and the per-(student, guardian) `notification_preferences` key
+    // for THIS event on. Nothing else in the codebase decides guardian event
+    // eligibility — the four `notify_parent_on_*` columns that used to look
+    // like a second opinion were removed in migration 2079000000000.
     const targets = await this.guardians.findNotificationTargets(studentId, eventType);
     if (targets.length === 0) {
       // Not an error worth retrying — the student simply has no verified,
@@ -96,11 +109,31 @@ export class ParentNotificationProcessor extends WorkerHost {
       return;
     }
 
+    // CHANNEL PREFERENCE, applied on top of event eligibility: a channel the
+    // student switched off overrides an otherwise-eligible event.
+    //
+    // Transactional events are exempt. A guardian verification code is how a
+    // number becomes verified in the first place, so allowing a *student* to
+    // suppress it would let them permanently prevent any guardian from being
+    // verified — precisely the outcome guardian verification exists to stop.
+    // This mirrors the exemption `findNotificationTargets` already applies to
+    // opt-out and verification gating.
+    const allowedChannels = TRANSACTIONAL_PARENT_EVENTS.has(eventType)
+      ? null
+      : await this.resolveAllowedChannels(studentId);
+
     const transientFailures: string[] = [];
     let permanentFailures = 0;
     for (const target of targets) {
       try {
-        await this.deliverToGuardian(eventType, subjectId, variables, target, job.attemptsMade + 1);
+        await this.deliverToGuardian(
+          eventType,
+          subjectId,
+          variables,
+          target,
+          job.attemptsMade + 1,
+          allowedChannels,
+        );
       } catch (error) {
         // Collect and rethrow after the loop so one guardian's transient
         // failure does not deprive the others of their message.
@@ -125,12 +158,30 @@ export class ParentNotificationProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Which `MessageChannel`s the student's preferences permit for this student.
+   *
+   * SMS maps to `sms_enabled`. WhatsApp has no user-facing toggle and is left
+   * enabled: it is a distinct transport with its own consent path (a guardian
+   * opts out through `guardians.opted_out_at`), and inventing a suppression
+   * rule for it here would be a business-rule change nobody asked for. What is
+   * guaranteed is the stated contract — `sms_enabled = false` ⇒ no SMS.
+   */
+  private async resolveAllowedChannels(studentId: string): Promise<ReadonlySet<MessageChannel>> {
+    const allowed = new Set<MessageChannel>([MessageChannel.WHATSAPP]);
+    if (await this.channelPolicy.isAllowed(studentId, NotificationChannel.SMS)) {
+      allowed.add(MessageChannel.SMS);
+    }
+    return allowed;
+  }
+
   private async deliverToGuardian(
     eventType: ParentEventType,
     subjectId: string,
     variables: Record<string, unknown>,
     target: GuardianTarget,
     attempt: number,
+    allowedChannels: ReadonlySet<MessageChannel> | null,
   ): Promise<void> {
     const rendered = this.renderer.render({
       eventType,
@@ -144,8 +195,22 @@ export class ParentNotificationProcessor extends WorkerHost {
       whatsappCapable: target.whatsapp_capable,
     };
 
-    const available = this.channels.resolve(channelTarget);
+    const configured = this.channels.resolve(channelTarget);
+    const available: ParentChannel[] =
+      allowedChannels === null
+        ? configured
+        : configured.filter((channel) => allowedChannels.has(channel.channel));
+
     if (available.length === 0) {
+      if (configured.length > 0) {
+        // A transport exists but the student switched it off. Not a delivery
+        // failure and not worth a retry — the preference will still be off.
+        this.logger.log(
+          `Guardian ${target.guardian_id}: every available channel is disabled by ` +
+            `student ${target.student_id}'s notification preferences — nothing sent`,
+        );
+        return;
+      }
       throw new UnrecoverableError(`No channel can address guardian ${target.guardian_id}`);
     }
 

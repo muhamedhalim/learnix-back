@@ -26,6 +26,7 @@ import {
   PaymentStatus,
 } from '../entities';
 import { EntitlementsService } from './entitlements.service';
+import { CartCheckoutService } from './cart-checkout.service';
 import { OrdersService } from './orders.service';
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { RefundsService } from './refunds.service';
@@ -135,6 +136,7 @@ export class PaymentsService {
     private readonly entitlementsService: EntitlementsService,
     private readonly refundsService: RefundsService,
     private readonly lessonSessions: LessonSessionsService,
+    private readonly cartCheckout: CartCheckoutService,
   ) {}
 
   public async purchaseLesson(dto: PurchaseLessonDto, userId: string): Promise<PaymentResponse> {
@@ -247,6 +249,24 @@ export class PaymentsService {
     const payment = await this.paymentsRepository.findOne({
       where: { id: paymentId },
     });
+    if (payment?.cart_checkout_id && payment.order_id === null) {
+      await this.dataSource.transaction((manager) =>
+        this.cartCheckout.finalizeSuccessfulGatewayPayment(
+          {
+            paymentId: payment.id,
+            sourceReference:
+              verification?.transactionId ?? payment.provider_reference ?? `payment-${payment.id}`,
+            verifiedAmountMinor: verification?.amountCents ?? payment.amount_minor ?? 0,
+            verifiedCurrency: verification?.currency ?? payment.currency,
+            ...(verification?.occurredAt === undefined
+              ? {}
+              : { verifiedOccurredAt: verification.occurredAt }),
+          },
+          manager,
+        ),
+      );
+      return;
+    }
     if (!payment?.order_id) {
       throw new NotFoundException(
         biBody('Canonical payment order not found', 'طلب الدفع الأساسي غير موجود'),
@@ -283,6 +303,18 @@ export class PaymentsService {
     const payment = await this.paymentsRepository.findOne({
       where: { id: paymentId },
     });
+    if (payment?.cart_checkout_id && payment.order_id === null) {
+      await this.dataSource.transaction((manager) =>
+        this.cartCheckout.completeProviderRefundNotification(
+          manager,
+          payment.id,
+          verification?.transactionId ?? payment.provider_reference ?? paymentId,
+          verification?.amountCents ?? payment.amount_minor ?? 0,
+          verification?.currency ?? payment.currency,
+        ),
+      );
+      return;
+    }
     if (!payment?.order_id) {
       throw new NotFoundException(
         biBody('Canonical payment order not found', 'طلب الدفع الأساسي غير موجود'),
@@ -310,6 +342,7 @@ export class PaymentsService {
     verification?: PaymentVerificationContext,
   ): Promise<void> {
     const reason = failureReason ?? 'Payment declined';
+    if (await this.cartCheckout.failGatewayPayment(paymentId, reason)) return;
     await retryTransaction(this.dataSource, async (manager) => {
       const payment = await manager.findOne(Payment, {
         where: { id: paymentId },
@@ -567,7 +600,12 @@ export class PaymentsService {
 
     const queryBuilder = this.paymentsRepository
       .createQueryBuilder('payment')
-      .where('payment.user_id = :userId', { userId });
+      .where('payment.user_id = :userId', { userId })
+      // A CartCheckout owns one aggregate gateway charge plus one product
+      // payment per child Order.  Purchase history is product-oriented, so
+      // show the allocated child payments and keep the aggregate as audit
+      // infrastructure only.
+      .andWhere('(payment.cart_checkout_id IS NULL OR payment.order_id IS NOT NULL)');
 
     if (filter.status !== undefined) {
       queryBuilder.andWhere('payment.status = :status', {
@@ -625,7 +663,11 @@ export class PaymentsService {
     const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.paymentsRepository.createQueryBuilder('payment');
+    const queryBuilder = this.paymentsRepository
+      .createQueryBuilder('payment')
+      // See getMyPurchases: do not duplicate a cart purchase with its
+      // aggregate gateway payment in operational product-payment lists.
+      .where('(payment.cart_checkout_id IS NULL OR payment.order_id IS NOT NULL)');
 
     if (filter.user_id !== undefined && filter.user_id !== '') {
       queryBuilder.andWhere('payment.user_id = :userId', {

@@ -81,9 +81,18 @@ export class TeacherProfile {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   certificates!: CertificateEntry[];
 
+  /**
+   * @deprecated Legacy denormalised rating. No code path has ever written it —
+   * `ReviewsService` stores ratings in `teacher_reviews` and the old
+   * `TeachersService.updateTeacherRating` had no caller — so it reads `0.00` for
+   * every teacher. Ratings are derived from approved reviews on read via
+   * `ReviewsService.getTeacherRatingsBatch`. Kept so existing rows and the
+   * column-level schema stay untouched; do not read it.
+   */
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   rating!: number;
 
+  /** @deprecated Companion of the legacy {@link rating} column; always `0`. */
   @Column({ type: 'int', default: 0, name: 'total_ratings' })
   total_ratings!: number;
 

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { CertificateTemplate } from '../certificates/entities/certificate-template.entity';
+import { MetricsModule } from '../common/metrics';
 import { MediaModule } from '../media/media.module';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { ReviewsModule } from '../reviews/reviews.module';
@@ -17,6 +18,8 @@ import {
 } from './controllers';
 import { CoursePreviewService } from './course-preview.service';
 import { CourseChapter } from './entities/course-chapter.entity';
+import { CourseVersion } from './entities/course-version.entity';
+import { CourseVersionItem } from './entities/course-version-item.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 import { PackagesService } from './packages.service';
@@ -27,6 +30,8 @@ import { PackagesService } from './packages.service';
       LessonPackage,
       LessonPackageItem,
       CourseChapter,
+      CourseVersion,
+      CourseVersionItem,
       Lesson,
       User,
       TeacherProfile,
@@ -35,6 +40,7 @@ import { PackagesService } from './packages.service';
       CertificateTemplate,
     ]),
     MediaModule,
+    MetricsModule,
     ReviewsModule,
   ],
   controllers: [

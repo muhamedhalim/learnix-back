@@ -115,6 +115,10 @@ export class Order {
   @Column({ type: 'uuid', nullable: true, name: 'payment_id' })
   payment_id!: string | null;
 
+  /** Parent aggregate checkout when this order came from the student cart. */
+  @Column({ type: 'uuid', nullable: true, name: 'cart_checkout_id' })
+  cart_checkout_id!: string | null;
+
   @Column({ type: 'varchar', length: 30, default: CollectionParty.UNKNOWN })
   collection_party!: CollectionParty;
 

@@ -27,7 +27,10 @@ import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
+import { CourseVersion } from '../../packages/entities/course-version.entity';
+import { CourseVersionItem } from '../../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
+import { LessonPackageItem } from '../../packages/entities/lesson-package-item.entity';
 import {
   CollectionParty,
   Entitlement,
@@ -462,21 +465,74 @@ export class PaymentFinalizationService {
       return;
     }
     if (order.item_type === ItemType.PACKAGE) {
+      // Lock the package row first, then its current version — the same
+      // lock order `PackagesService.ensureOpenVersionForEdit` uses, so a
+      // concurrent curriculum edit and this purchase always serialize
+      // instead of racing to produce a mixed/partial snapshot.
       const pkg = await manager.findOne(LessonPackage, {
         where: { id: order.item_id },
-        relations: ['items', 'items.lesson'],
+        lock: { mode: 'pessimistic_write' },
       });
       if (!pkg) throw new NotFoundException(biBody('Package not found', 'الباقة غير موجودة'));
+      if (!pkg.current_version_id) {
+        throw new UnprocessableEntityException(
+          biBody('Course has no purchasable version', 'لا يوجد إصدار قابل للشراء لهذه الدورة'),
+        );
+      }
+      const version = await manager.findOne(CourseVersion, {
+        where: { id: pkg.current_version_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!version) {
+        throw new UnprocessableEntityException(
+          biBody('Course version not found', 'إصدار الدورة غير موجود'),
+        );
+      }
+      if (version.locked_at === null) {
+        // First purchase of this version: freeze whatever the live
+        // curriculum currently holds into an immutable snapshot before
+        // granting access. Every later purchase of this same version reuses
+        // this snapshot untouched, regardless of subsequent curriculum edits
+        // (those edits roll over to a new version instead — see
+        // `PackagesService.ensureOpenVersionForEdit`).
+        const liveItems = await manager.find(LessonPackageItem, {
+          where: { package_id: pkg.id },
+        });
+        if (liveItems.length === 0) {
+          throw new UnprocessableEntityException(
+            biBody(
+              'This course has no lessons and cannot be purchased',
+              'هذه الدورة لا تحتوي على دروس ولا يمكن شراؤها',
+            ),
+          );
+        }
+        await manager.insert(
+          CourseVersionItem,
+          liveItems.map((item) => ({
+            version_id: version.id,
+            lesson_id: item.lesson_id,
+            order_index: item.order_index,
+            chapter_id: item.chapter_id,
+          })),
+        );
+        version.locked_at = grantedAt;
+        await manager.save(CourseVersion, version);
+      }
+      const versionItems = await manager.find(CourseVersionItem, {
+        where: { version_id: version.id },
+        relations: ['lesson'],
+      });
       await manager.insert(PackagePurchase, {
         student_id: order.student_id,
         package_id: order.item_id,
+        course_version_id: version.id,
         payment_id: payment.id,
         price_paid: fromMinorUnits(order.final_amount_minor),
         purchased_at: grantedAt,
         revoked_at: null,
         revocation_reason: null,
       });
-      for (const item of pkg.items) {
+      for (const item of versionItems) {
         const lessonExpiry = computeAccessExpiresAt(grantedAt, item.lesson.available_for_days || 7);
         await manager.insert(LessonPurchase, {
           student_id: order.student_id,

@@ -29,9 +29,19 @@ describe('TeachersService administrative actions', () => {
     subjects: [],
   });
 
+  /** Minimal `ProductFinancialMetrics` shape with only the fields read here. */
+  const financialMetrics = (teacherEarningsMinor: number, currency = 'EGP') => ({
+    primary: { currency, teacher_earnings_minor: teacherEarningsMinor },
+    by_currency: [],
+    mixed_currency: false,
+  });
+
   const build = (overrides: {
     found?: unknown;
     query?: jest.Mock;
+    teacherEarningsMinor?: number;
+    uniqueStudents?: number;
+    rating?: { average_rating: number; total_reviews: number };
   } = {}) => {
     const recordAuditEvent = jest.fn().mockResolvedValue(undefined);
     const save = jest.fn().mockResolvedValue(undefined);
@@ -42,6 +52,18 @@ describe('TeachersService administrative actions', () => {
       .mockResolvedValue('found' in overrides ? overrides.found : profile());
     const query = overrides.query ?? jest.fn().mockResolvedValue([]);
 
+    const getTeacherFinancialMetrics = jest
+      .fn()
+      .mockResolvedValue(financialMetrics(overrides.teacherEarningsMinor ?? 0));
+    const getTeacherUniqueStudentCount = jest
+      .fn()
+      .mockResolvedValue(overrides.uniqueStudents ?? 0);
+    const getTeacherAggregates = jest
+      .fn()
+      .mockResolvedValue(
+        overrides.rating ?? { average_rating: 0, total_reviews: 0, rating_distribution: {} },
+      );
+
     const service = new TeachersService(
       { findOne } as unknown as Repository<TeacherProfile>,
       { save } as unknown as Repository<User>,
@@ -50,23 +72,41 @@ describe('TeachersService administrative actions', () => {
       { invalidate: jest.fn().mockResolvedValue(undefined) } as unknown as ApplicationCacheService,
       {} as unknown as MediaService,
       { recordAuditEvent } as unknown as ActivityLogsService,
+      { getTeacherAggregates } as never,
+      { getTeacherFinancialMetrics, getTeacherUniqueStudentCount } as never,
     );
 
     // `mapToProfileWithDetails` is not under test here.
     jest
       .spyOn(service as unknown as { mapToProfileWithDetails: () => unknown }, 'mapToProfileWithDetails')
-      .mockReturnValue({});
+      .mockResolvedValue({});
 
-    return { service, recordAuditEvent, findOne, query, save };
+    return {
+      service,
+      recordAuditEvent,
+      findOne,
+      query,
+      save,
+      getTeacherFinancialMetrics,
+      getTeacherUniqueStudentCount,
+      getTeacherAggregates,
+    };
   };
 
   describe('getTeacherStats', () => {
     it('reports ledger-backed figures keyed on users.id, not the profile id', async () => {
-      const query = jest
-        .fn()
-        .mockResolvedValueOnce([{ lessons_count: '7' }])
-        .mockResolvedValueOnce([{ students_count: '23', total_earnings_minor: '154000' }]);
-      const { service } = build({ query });
+      const query = jest.fn().mockResolvedValueOnce([{ lessons_count: '7' }]);
+      const {
+        service,
+        getTeacherFinancialMetrics,
+        getTeacherUniqueStudentCount,
+        getTeacherAggregates,
+      } = build({
+        query,
+        teacherEarningsMinor: 154_000,
+        uniqueStudents: 23,
+        rating: { average_rating: 4.5, total_reviews: 12 },
+      });
 
       const stats = await service.getTeacherStats('profile-1');
 
@@ -75,34 +115,41 @@ describe('TeachersService administrative actions', () => {
         studentsCount: 23,
         // Minor units, matching every other financial figure the API returns.
         totalEarnings: 154_000,
+        currency: 'EGP',
         averageRating: 4.5,
+        reviewCount: 12,
       });
-      // Content and commerce rows key on users.id.
+      // Content and commerce rows key on users.id, never the profile id.
       expect(query.mock.calls[0][1]).toEqual(['user-1']);
-      expect(query.mock.calls[1][1]).toEqual(['user-1']);
+      expect(getTeacherFinancialMetrics).toHaveBeenCalledWith('user-1');
+      expect(getTeacherUniqueStudentCount).toHaveBeenCalledWith('user-1');
+      expect(getTeacherAggregates).toHaveBeenCalledWith('user-1');
     });
 
-    it('counts only paid orders towards earnings and students', async () => {
-      const query = jest
-        .fn()
-        .mockResolvedValueOnce([{ lessons_count: '0' }])
-        .mockResolvedValueOnce([{ students_count: '0', total_earnings_minor: '0' }]);
-      const { service } = build({ query });
+    it('delegates earnings to the canonical metrics service rather than its own SQL', async () => {
+      const query = jest.fn().mockResolvedValueOnce([{ lessons_count: '0' }]);
+      const { service, getTeacherFinancialMetrics } = build({ query });
 
       await service.getTeacherStats('profile-1');
 
-      expect(query.mock.calls[1][0]).toContain("status = 'paid'");
-      expect(query.mock.calls[1][0]).toContain('teacher_earning_minor');
+      // Exactly one query is issued here (the lesson count); every financial
+      // figure comes from ProductFinancialMetricsService, so a competing
+      // `status = 'paid'` formula cannot creep back into this service.
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(query.mock.calls[0][0]).toContain('FROM lessons');
+      expect(getTeacherFinancialMetrics).toHaveBeenCalledTimes(1);
     });
 
-    it('returns zeros rather than NaN when a teacher has no activity', async () => {
+    it('reports an unrated teacher as null, not zero stars', async () => {
       const { service } = build({ query: jest.fn().mockResolvedValue([]) });
 
       await expect(service.getTeacherStats('profile-1')).resolves.toEqual({
         lessonsCount: 0,
         studentsCount: 0,
         totalEarnings: 0,
-        averageRating: 4.5,
+        currency: 'EGP',
+        averageRating: null,
+        reviewCount: 0,
       });
     });
 

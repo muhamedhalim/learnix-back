@@ -11,7 +11,7 @@ import { DataSource, EntityManager, LessThanOrEqual } from 'typeorm';
 
 import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
-import { MailService } from '../mail/mail.service';
+import { NotificationEmailService } from '../notifications/services/notification-email.service';
 import { Notification } from '../notifications/entities/notification.entity';
 import { NotificationStatus } from '../notifications/entities/notification-status.enum';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
@@ -44,7 +44,15 @@ export class LessonSessionsService {
   public constructor(
     private readonly dataSource: DataSource,
     config: ConfigService,
-    private readonly mailService: MailService,
+    /**
+     * Optional notification mail, not raw transport. These session emails
+     * merely mirror an in-app notification the user could read in the app, so
+     * they are exactly what the "Email notifications" preference is for — and
+     * routing them through this service is what makes that toggle real. Nothing
+     * here is transactional or security-critical (see `NotificationEmailService`
+     * for the enumerated boundary).
+     */
+    private readonly notificationEmail: NotificationEmailService,
   ) {
     this.holdMinutes = Math.max(
       1,
@@ -653,21 +661,24 @@ export class LessonSessionsService {
         .returning('id')
         .execute();
       if (insert.identifiers.length === 0 || !recipient.email) continue;
+      const notificationId = insert.identifiers[0]?.['id'] as string | undefined;
       const meetingLine =
         recipient.id === teacher.id || booking.status === LessonSessionBookingStatus.CONFIRMED
           ? `\n${arabic ? 'رابط الاجتماع' : 'Meeting'}: ${session.meeting_url ?? (arabic ? 'غير محدد' : 'Not set')}`
           : '';
-      try {
-        await this.mailService.send({
-          to: recipient.email,
-          recipientName: recipient.name,
-          subject: copy.title,
-          text: `${copy.message}\nTime: ${start}${meetingLine}`,
-        });
-      } catch {
-        // The persisted in-app notification remains the durable delivery record.
-        // Mail delivery is intentionally best-effort and must not roll back a booking action.
-      }
+      // Enforces `email_enabled` before MailerSend is touched, and records the
+      // outcome (sent / skipped_preference / failed) against the notification
+      // row inserted just above. Never throws — the persisted in-app
+      // notification remains the durable delivery record, and mail must not
+      // roll back a booking action.
+      await this.notificationEmail.send({
+        userId: recipient.id,
+        ...(notificationId === undefined ? {} : { notificationId }),
+        to: recipient.email,
+        recipientName: recipient.name,
+        subject: copy.title,
+        text: `${copy.message}\nTime: ${start}${meetingLine}`,
+      });
     }
   }
 

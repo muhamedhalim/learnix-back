@@ -49,6 +49,13 @@ export const QUEUE_NAMES = {
   PARENT_NOTIFICATIONS: 'parent-notifications',
 
   /**
+   * Outbound push (FCM) for in-app notifications. Separate from
+   * PARENT_NOTIFICATIONS because the recipient is the *user*, not a guardian,
+   * and the delivery model is per-device rather than per-channel-with-fallback.
+   */
+  PUSH_NOTIFICATIONS: 'push-notifications',
+
+  /**
    * Terminal parking lot for guardian messages that exhausted every retry.
    * Nothing consumes it — it exists so a permanently-failed message stays
    * visible in Bull Board and can be replayed by an admin rather than vanishing.
@@ -115,6 +122,10 @@ export const JOB_TYPES = {
   NOTIFICATION: {
     /** Persist a large in-app broadcast in bounded database batches. */
     DELIVER_BULK: 'deliver-bulk-notifications',
+  },
+  PUSH: {
+    /** Fan one in-app notification out to every active device of its recipient. */
+    DELIVER: 'deliver-push-notification',
   },
 } as const;
 
@@ -327,6 +338,22 @@ export const QUEUE_CONFIGS = {
       // Keep the full trail: failed guardian messages are an operational
       // concern, not noise.
       removeOnFail: { age: 30 * 24 * 3600 },
+    },
+  },
+
+  [QUEUE_NAMES.PUSH_NOTIFICATIONS]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // User-visible, but strictly less urgent than a parent waiting on a
+      // grade. Retries are safe: every device leg is claimed in
+      // `notification_deliveries` under a UNIQUE dedupe key before the provider
+      // is called, so a retry re-attempts only the legs that actually failed
+      // and can never double-push a device.
+      priority: 3,
+      attempts: 3,
+      backoff: { type: 'exponential' as const, delay: 10_000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
     },
   },
 

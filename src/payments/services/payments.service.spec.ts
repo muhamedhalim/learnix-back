@@ -17,6 +17,7 @@ import {
   PaymentStatus,
 } from '../entities';
 import { EntitlementsService } from './entitlements.service';
+import { CartCheckoutService } from './cart-checkout.service';
 import { OrdersService } from './orders.service';
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { PaymentsService } from './payments.service';
@@ -101,6 +102,14 @@ describe('PaymentsService — canonical compatibility routes', () => {
         },
         { provide: RefundsService, useValue: refunds },
         { provide: LessonSessionsService, useValue: { markForOrder: jest.fn() } },
+        {
+          provide: CartCheckoutService,
+          useValue: {
+            finalizeSuccessfulGatewayPayment: jest.fn(),
+            completeProviderRefundNotification: jest.fn(),
+            failGatewayPayment: jest.fn().mockResolvedValue(false),
+          },
+        },
       ],
     }).compile();
 

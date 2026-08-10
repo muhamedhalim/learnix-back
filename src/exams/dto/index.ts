@@ -9,4 +9,6 @@ export { AdminExamFilterDto } from './admin-exam-filter.dto';
 export { ReorderExamItemsDto, UpsertSectionDto } from './exam-section.dto';
 export { AttachQuestionDto } from './attach-question.dto';
 export { SaveAnswerItemDto, SaveAnswersDto, SubmitAttemptDto, GradeAnswerDto } from './attempt.dto';
-export { CreateOmrSheetDto } from './create-omr-sheet.dto';
+export { GenerateOmrSheetsDto } from './generate-omr-sheets.dto';
+export { ScanOmrSheetDto } from './scan-omr-sheet.dto';
+export { PatchOmrAnswerDto } from './patch-omr-answer.dto';

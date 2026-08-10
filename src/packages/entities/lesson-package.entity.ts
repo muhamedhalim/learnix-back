@@ -17,6 +17,7 @@ import type { CertificateTemplate } from '../../certificates/entities/certificat
 import { Subject } from '../../subjects/entities/subject.entity';
 import { User } from '../../users/entities/user.entity';
 import { CourseStatus } from './course-status.enum';
+import type { CourseVersion } from './course-version.entity';
 import type { LessonPackageItem } from './lesson-package-item.entity';
 
 @Entity('lesson_packages')
@@ -72,6 +73,19 @@ export class LessonPackage {
   @ManyToOne('CertificateTemplate', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'certificate_template_id' })
   certificate_template!: Relation<CertificateTemplate> | null;
+
+  /**
+   * The version that current and future purchases resolve to. Nullable only
+   * for the instant between inserting the package row and inserting its
+   * first `CourseVersion` inside the same transaction (see
+   * `PackagesService.create`) — every reachable package always has one.
+   */
+  @Column('uuid', { nullable: true, name: 'current_version_id' })
+  current_version_id!: string | null;
+
+  @ManyToOne('CourseVersion', { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'current_version_id' })
+  current_version!: Relation<CourseVersion> | null;
 
   @Column('decimal', { precision: 10, scale: 2 })
   price!: number;

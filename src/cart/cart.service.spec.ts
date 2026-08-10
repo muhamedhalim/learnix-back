@@ -4,6 +4,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { CartCheckoutService } from '../payments/services/cart-checkout.service';
 import { CartService } from './cart.service';
 import { Cart } from './entities/cart.entity';
 import { CartItem, CartItemType } from './entities/cart-item.entity';
@@ -24,6 +25,7 @@ describe('CartService.findCart — bulk title resolution (no N+1)', () => {
         { provide: getRepositoryToken(CartItem), useValue: cartItemsRepo },
         { provide: getRepositoryToken(Lesson), useValue: lessonsRepo },
         { provide: getRepositoryToken(LessonPackage), useValue: packagesRepo },
+        { provide: CartCheckoutService, useValue: { checkout: jest.fn() } },
       ],
     }).compile();
     service = module.get(CartService);

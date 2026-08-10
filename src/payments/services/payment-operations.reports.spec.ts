@@ -15,6 +15,7 @@ describe('PaymentOperationsService financial reporting', () => {
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   );
 
   beforeEach(() => {

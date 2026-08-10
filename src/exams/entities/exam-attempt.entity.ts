@@ -18,6 +18,9 @@ import type { ExamAttemptAnswer } from './exam-attempt-answer.entity';
 import type { Exam } from './exam.entity';
 import { numericTransformer } from './numeric.transformer';
 
+/** How an attempt was created — see the `origin` column doc comment below. */
+export type AttemptOrigin = 'online' | 'omr';
+
 /**
  * A single student attempt at an exam. Timing is server-authoritative:
  * `deadline_at` is computed from `started_at + duration` and enforced on submit
@@ -28,11 +31,7 @@ import { numericTransformer } from './numeric.transformer';
  * (exam, student) so concurrent starts can't create duplicates.
  */
 @Entity('exam_attempts')
-@Unique('UQ_exam_attempts_exam_student_number', [
-  'exam_id',
-  'student_id',
-  'attempt_number',
-])
+@Unique('UQ_exam_attempts_exam_student_number', ['exam_id', 'student_id', 'attempt_number'])
 // At most one IN_PROGRESS attempt per (exam, student): makes concurrent "start"
 // clicks fail atomically at the DB (translated to a clean 409 by the service).
 @Index('UQ_exam_attempts_open_per_student', ['exam_id', 'student_id'], {
@@ -149,6 +148,16 @@ export class ExamAttempt {
     name: 'idempotency_key',
   })
   idempotency_key!: string | null;
+
+  /**
+   * How this attempt was created: `'online'` (student-driven, the default —
+   * `startAttempt`) or `'omr'` (teacher-driven, confirm-time — see
+   * `AttemptService.createOmrAttempt`). Lets the OMR confirm path tell a
+   * genuine live/finalised online session apart from its own prior attempt
+   * for the same (exam, student), instead of silently reusing either.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'online' })
+  origin!: AttemptOrigin;
 
   @OneToMany('ExamAttemptAnswer', 'attempt')
   answers!: Relation<ExamAttemptAnswer[]>;

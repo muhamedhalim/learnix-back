@@ -14,19 +14,26 @@ import { User } from '../../users/entities/user.entity';
 import type { QuestionResponsePayload } from './content.types';
 import type { Exam } from './exam.entity';
 import type { ExamAttempt } from './exam-attempt.entity';
+import type { OmrTemplate } from './omr-template.entity';
+import type { OmrRecognizedAnswer } from './omr-template.types';
 import { OmrSheetStatus } from './omr-sheet-status.enum';
 
-/** One detected answer from an (externally-scanned/entered) OMR answer sheet. */
+/** One final, confirmed answer feeding the attempt engine (`AttemptService.saveAnswers`'s shape). */
 export interface OmrDetectedAnswer {
   exam_question_id: string;
   response: QuestionResponsePayload | null;
 }
 
 /**
- * A submitted OMR answer sheet: the uploaded scan image (kept for audit) plus
- * the already-detected marks (structured JSON — this pipeline does not itself
- * perform image/bubble detection, see `OmrProcessor`). Processing is queued
- * and asynchronous; `status`/`error_message`/`attempt_id` track the outcome.
+ * One physical OMR answer sheet, from generation through to grading.
+ *
+ * `image_key`/`detected_answers` are null until a scan is uploaded and
+ * confirmed respectively — see `OmrSheetStatus` for the full lifecycle.
+ * `recognized_answers` is the CV pipeline's raw, auditable output
+ * (per-question confidence/status/fill-ratio metadata); `detected_answers` is
+ * the FINAL, teacher-confirmed answer set in the exact shape the attempt
+ * engine consumes — kept as two separate columns so a teacher's correction
+ * never silently overwrites the original recognition evidence.
  */
 @Entity('omr_sheets')
 @Index('IDX_omr_sheets_exam_id', ['exam_id'])
@@ -57,13 +64,47 @@ export class OmrSheet {
   @JoinColumn({ name: 'teacher_id' })
   teacher!: Relation<User>;
 
-  /** Storage key for the uploaded scan image (kept for audit; not analyzed). */
-  @Column({ type: 'varchar', length: 500, name: 'image_key' })
-  image_key!: string;
+  /** The layout this sheet was printed/scanned against. Null only for legacy pre-recognition rows. */
+  @Column({ type: 'uuid', nullable: true, name: 'template_id' })
+  template_id!: string | null;
 
-  /** Pre-detected marks, as submitted (structured input, not CV output). */
-  @Column({ type: 'jsonb', name: 'detected_answers' })
-  detected_answers!: OmrDetectedAnswer[];
+  @ManyToOne('OmrTemplate', { onDelete: 'RESTRICT', nullable: true })
+  @JoinColumn({ name: 'template_id' })
+  template!: Relation<OmrTemplate> | null;
+
+  /** Storage key for the uploaded scan image. Null until a scan is uploaded. */
+  @Column({ type: 'varchar', length: 500, nullable: true, name: 'image_key' })
+  image_key!: string | null;
+
+  /**
+   * Final, confirmed answers — same shape `saveAnswers` expects. Null until a
+   * teacher confirms (or, for legacy rows created before this pipeline
+   * existed, this was populated directly from client input at upload time).
+   */
+  @Column({ type: 'jsonb', nullable: true, name: 'detected_answers' })
+  detected_answers!: OmrDetectedAnswer[] | null;
+
+  /** Raw CV output per question — audit/debug trail, never the grading source of truth. */
+  @Column({ type: 'jsonb', nullable: true, name: 'recognized_answers' })
+  recognized_answers!: OmrRecognizedAnswer[] | null;
+
+  /** Which flagged (low-confidence/multiple-marks) questions the teacher has explicitly addressed. */
+  @Column({ type: 'jsonb', name: 'resolved_question_ids', default: () => "'[]'" })
+  resolved_question_ids!: string[];
+
+  /** Name/version of the `OmrRecognitionProvider` implementation that produced `recognized_answers`. */
+  @Column({ type: 'varchar', length: 100, nullable: true, name: 'recognition_provider' })
+  recognition_provider!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true, name: 'confirmed_at' })
+  confirmed_at!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true, name: 'reviewed_by' })
+  reviewed_by!: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reviewed_by' })
+  reviewer!: Relation<User> | null;
 
   @Column({ type: 'enum', enum: OmrSheetStatus, default: OmrSheetStatus.PENDING })
   status!: OmrSheetStatus;

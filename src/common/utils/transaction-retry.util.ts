@@ -11,9 +11,20 @@ import type { DataSource, EntityManager } from 'typeorm';
  * The advisory lock is the cross-table serialization point. It keeps refund,
  * settlement, and scheduled-release flows from acquiring their later row locks
  * in conflicting orders while retaining normal PostgreSQL transactions.
+ *
+ * A separate, independent rung exists for course curriculum versioning: (1)
+ * a `LessonPackage` row, then (2) its current `CourseVersion` row — always in
+ * that order, in both `PackagesService.ensureOpenVersionForEdit` (teacher
+ * curriculum edits) and `PaymentFinalizationService.writeCompatibilityPurchase`
+ * (package purchase finalization). This rung never overlaps the financial
+ * lock order above (curriculum edits never touch Order/Payment/ledger rows),
+ * so the two chains cannot deadlock against each other — keep it that way if
+ * either flow ever needs to acquire a lock from the other's chain.
  */
 export const TEACHER_FINANCIAL_LOCK_ORDER =
   'teacher advisory -> settlement/refund -> orders (ascending id) -> ledger (ascending id)' as const;
+
+export const COURSE_VERSION_LOCK_ORDER = 'lesson_package row -> current course_version row' as const;
 
 /** Acquire a PostgreSQL transaction-scoped lock for one teacher's finances. */
 export async function acquireTeacherFinancialLock(

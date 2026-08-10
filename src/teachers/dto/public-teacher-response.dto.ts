@@ -67,10 +67,14 @@ export class PublicTeacherResponseDto {
   @ApiProperty({ type: [Object] })
   public certificates!: CertificateEntry[];
 
-  @ApiProperty()
-  public rating!: number;
+  /**
+   * Mean approved review rating, 2 dp. `null` means the teacher has no approved
+   * reviews yet — render an empty state, not zero stars.
+   */
+  @ApiProperty({ nullable: true, description: 'Mean approved rating; null when unrated' })
+  public rating!: number | null;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Approved reviews backing `rating`' })
   public total_ratings!: number;
 
   @ApiProperty({ type: [PublicTeacherSubjectDto] })
@@ -80,9 +84,15 @@ export class PublicTeacherResponseDto {
   public created_at!: Date;
 }
 
+/**
+ * @param rating live aggregate of approved teacher reviews. Passed in rather
+ *   than read from `profile.rating`, because that denormalised column was never
+ *   maintained and always read 0 (DEF-007).
+ */
 export function toPublicTeacherResponse(
   profile: TeacherProfile,
   resolvePublicMedia: (value: string | null) => string | null,
+  rating: { average: number | null; count: number },
 ): PublicTeacherResponseDto {
   return {
     id: profile.id,
@@ -99,8 +109,8 @@ export function toPublicTeacherResponse(
     skills: profile.skills,
     education: profile.education,
     certificates: profile.certificates,
-    rating: profile.rating,
-    total_ratings: profile.total_ratings,
+    rating: rating.average,
+    total_ratings: rating.count,
     subjects: profile.subjects.map((subject) => ({
       id: subject.id,
       name: subject.name,

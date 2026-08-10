@@ -42,7 +42,7 @@ import { EGP_CURRENCY, fromMinorUnits, toMinorUnits } from '../money.util';
 import { CommissionService } from './commission.service';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
 
-interface ProductSnapshot {
+export interface ProductSnapshot {
   itemType: ItemType;
   itemId: string;
   title: string;
@@ -54,6 +54,17 @@ interface ProductSnapshot {
   discountItemId?: string;
   appointmentStartAt?: Date;
   appointmentEndAt?: Date;
+}
+
+/** Input accepted by the aggregate cart checkout; Books and sessions stay out of Cart. */
+export interface CartCheckoutProductInput {
+  cartItemId: string;
+  itemType: ItemType.LESSON | ItemType.PACKAGE;
+  itemId: string;
+}
+
+export interface CartCheckoutProduct extends ProductSnapshot {
+  cartItemId: string;
 }
 
 interface DiscountSnapshot {
@@ -202,6 +213,34 @@ export class OrdersService {
       },
       discount: discount.snapshot,
     };
+  }
+
+  /**
+   * Reuses the canonical product and ownership rules for the cart.  It runs
+   * under the caller's transaction so checkout cannot rely on cart snapshots
+   * or race a concurrent individual order for the same product.
+   */
+  public async prepareCartProducts(
+    items: CartCheckoutProductInput[],
+    studentId: string,
+    manager: EntityManager,
+  ): Promise<CartCheckoutProduct[]> {
+    const seen = new Set<string>();
+    const products: CartCheckoutProduct[] = [];
+    for (const item of items) {
+      const key = `${item.itemType}:${item.itemId}`;
+      if (seen.has(key)) {
+        throw new BadRequestException(
+          biBody('Cart contains a duplicate product', 'تحتوي السلة على منتج مكرر'),
+        );
+      }
+      seen.add(key);
+      const product = await this.loadProduct(item.itemType, item.itemId, manager);
+      await this.assertNotOwned(studentId, product.itemType, product.itemId, manager);
+      await this.assertNoActiveOrder(manager, studentId, product.itemType, product.itemId);
+      products.push({ ...product, cartItemId: item.cartItemId });
+    }
+    return products;
   }
 
   public async createOrder(
@@ -943,8 +982,13 @@ export class OrdersService {
     studentId: string,
     itemType: ItemType,
     itemId: string,
+    manager?: EntityManager,
   ): Promise<void> {
-    const entitlement = await this.entitlements.findOne({
+    const entitlements = manager?.getRepository(Entitlement) ?? this.entitlements;
+    const lessonPurchases = manager?.getRepository(LessonPurchase) ?? this.lessonPurchases;
+    const packagePurchases = manager?.getRepository(PackagePurchase) ?? this.packagePurchases;
+    const bookPurchases = manager?.getRepository(BookPurchase) ?? this.bookPurchases;
+    const entitlement = await entitlements.findOne({
       where: [
         {
           student_id: studentId,
@@ -965,7 +1009,7 @@ export class OrdersService {
     let legacyOwned = false;
     if (itemType === ItemType.LESSON) {
       legacyOwned = Boolean(
-        await this.lessonPurchases.findOne({
+        await lessonPurchases.findOne({
           where: {
             student_id: studentId,
             lesson_id: itemId,
@@ -976,13 +1020,13 @@ export class OrdersService {
       );
     } else if (itemType === ItemType.PACKAGE) {
       legacyOwned = Boolean(
-        await this.packagePurchases.findOne({
+        await packagePurchases.findOne({
           where: { student_id: studentId, package_id: itemId, revoked_at: IsNull() },
         }),
       );
     } else if (itemType === ItemType.BOOK) {
       legacyOwned = Boolean(
-        await this.bookPurchases.findOne({
+        await bookPurchases.findOne({
           where: { student_id: studentId, book_id: itemId, revoked_at: IsNull() },
         }),
       );

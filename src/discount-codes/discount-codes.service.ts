@@ -11,6 +11,7 @@ import { EntityManager, IsNull, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
+import { toMinorUnits } from '../payments/money.util';
 import {
   CreateDiscountCodeDto,
   DiscountFilterDto,
@@ -19,6 +20,22 @@ import {
   VerifyDiscountCodeDto,
 } from './dto';
 import { DiscountCode, DiscountCodeUsage, DiscountType } from './entities';
+
+/** A server-side cart line.  `key` is the immutable cart-item id used for allocation. */
+export interface CartDiscountItem {
+  key: string;
+  item_type: string;
+  item_id: string;
+  amount_minor: number;
+}
+
+export interface CartDiscountQuote {
+  discount_code_id: string | null;
+  discount_amount_minor: number;
+  applicable_subtotal_minor: number;
+  allocations_minor: Record<string, number>;
+  snapshot: Record<string, unknown> | null;
+}
 
 @Injectable()
 export class DiscountCodesService {
@@ -383,6 +400,114 @@ export class DiscountCodesService {
   }
 
   /**
+   * Resolve one discount-code redemption for an entire cart.  The code is
+   * redeemed once (not once per line); targeting is evaluated per product and
+   * a fixed or capped discount is allocated deterministically to qualifying
+   * lines.  The caller must use the returned allocation for the Orders it
+   * creates and reserve the code with `applyDiscount` in the same transaction.
+   */
+  public async quoteCartDiscount(
+    items: CartDiscountItem[],
+    rawCode: string | undefined,
+    userId: string,
+    manager: EntityManager,
+  ): Promise<CartDiscountQuote> {
+    if (!rawCode?.trim()) {
+      return {
+        discount_code_id: null,
+        discount_amount_minor: 0,
+        applicable_subtotal_minor: 0,
+        allocations_minor: Object.fromEntries(items.map((item) => [item.key, 0])),
+        snapshot: null,
+      };
+    }
+    if (items.length === 0 || items.some((item) => !Number.isSafeInteger(item.amount_minor) || item.amount_minor <= 0)) {
+      throw new BadRequestException(biBody('Cart contains an invalid amount', 'تحتوي السلة على مبلغ غير صالح'));
+    }
+
+    const code = await manager.findOne(DiscountCode, {
+      where: { code: rawCode.trim().toUpperCase(), deleted_at: IsNull() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!code) {
+      throw new BadRequestException(biBody('Discount code is invalid', 'رمز الخصم غير صالح'));
+    }
+    this.assertRedeemable(code);
+    this.assertDiscountRules(
+      code.discount_type,
+      Number(code.discount_value),
+      code.max_discount_amount === null ? null : Number(code.max_discount_amount),
+    );
+    if (code.used_count >= code.max_uses) {
+      throw new BadRequestException(
+        biBody('Discount code usage limit reached', 'تم الوصول إلى الحد الأقصى لاستخدام كود الخصم'),
+      );
+    }
+    const usageCount = await manager.count(DiscountCodeUsage, {
+      where: { discount_code_id: code.id, user_id: userId },
+    });
+    if (usageCount >= code.max_uses_per_user) {
+      throw new BadRequestException(
+        biBody('You have already used this discount code', 'لقد استخدمت كود الخصم بالفعل'),
+      );
+    }
+
+    const qualifying = items.filter(
+      (item) =>
+        code.applicable_to.includes(item.item_type) &&
+        (code.item_ids === null || code.item_ids.length === 0 || code.item_ids.includes(item.item_id)),
+    );
+    if (qualifying.length === 0) {
+      throw new BadRequestException(
+        biBody('Discount code does not apply to items in this cart', 'كود الخصم لا ينطبق على عناصر السلة'),
+      );
+    }
+    const applicableSubtotal = qualifying.reduce((sum, item) => sum + item.amount_minor, 0);
+    const minimum = toMinorUnits(code.min_purchase_amount);
+    if (applicableSubtotal < minimum) {
+      throw new BadRequestException(
+        biBody(
+          `Minimum purchase amount is ${String(code.min_purchase_amount)} EGP`,
+          `الحد الأدنى للشراء هو ${String(code.min_purchase_amount)} جنيه`,
+        ),
+      );
+    }
+
+    let totalDiscount =
+      code.discount_type === DiscountType.PERCENTAGE
+        ? Math.round((applicableSubtotal * toMinorUnits(code.discount_value)) / 10_000)
+        : toMinorUnits(code.discount_value);
+    if (code.discount_type === DiscountType.PERCENTAGE && code.max_discount_amount !== null) {
+      totalDiscount = Math.min(totalDiscount, toMinorUnits(code.max_discount_amount));
+    }
+    totalDiscount = Math.min(totalDiscount, applicableSubtotal);
+    if (totalDiscount <= 0) {
+      throw new BadRequestException(
+        biBody('Discount code does not reduce this cart total', 'كود الخصم لا يخفض إجمالي هذه السلة'),
+      );
+    }
+    const allocations = this.allocateCartDiscount(qualifying, applicableSubtotal, totalDiscount);
+    const allocations_minor = Object.fromEntries(items.map((item) => [item.key, allocations[item.key] ?? 0]));
+
+    return {
+      discount_code_id: code.id,
+      discount_amount_minor: totalDiscount,
+      applicable_subtotal_minor: applicableSubtotal,
+      allocations_minor,
+      snapshot: {
+        code: code.code,
+        discount_code_id: code.id,
+        discount_type: code.discount_type,
+        discount_value: Number(code.discount_value),
+        applicable_subtotal_minor: applicableSubtotal,
+        discount_amount_minor: totalDiscount,
+        eligible_cart_item_ids: qualifying.map((item) => item.key),
+        allocation_minor: allocations_minor,
+      },
+    };
+  }
+
+  /**
    * Apply discount code to a payment (with race condition protection)
    * Uses pessimistic locking to prevent double redemption
    */
@@ -561,6 +686,33 @@ export class DiscountCodesService {
         ),
       );
     }
+  }
+
+  /** Largest-remainder allocation keeps the exact integer total deterministic. */
+  private allocateCartDiscount(
+    items: CartDiscountItem[],
+    subtotalMinor: number,
+    discountMinor: number,
+  ): Record<string, number> {
+    if (discountMinor === 0) return Object.fromEntries(items.map((item) => [item.key, 0]));
+    const provisional = items.map((item) => {
+      const numerator = discountMinor * item.amount_minor;
+      const amount = Math.floor(numerator / subtotalMinor);
+      return { item, amount, remainder: numerator % subtotalMinor };
+    });
+    let remaining = discountMinor - provisional.reduce((sum, line) => sum + line.amount, 0);
+    provisional.sort(
+      (left, right) =>
+        right.remainder - left.remainder || left.item.key.localeCompare(right.item.key),
+    );
+    for (const line of provisional) {
+      if (remaining <= 0) break;
+      if (line.amount < line.item.amount_minor) {
+        line.amount += 1;
+        remaining -= 1;
+      }
+    }
+    return Object.fromEntries(provisional.map((line) => [line.item.key, line.amount]));
   }
 
   private assertDiscountRules(

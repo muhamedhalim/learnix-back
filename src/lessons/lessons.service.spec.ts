@@ -66,6 +66,9 @@ describe('LessonsService.findAll', () => {
       media as unknown as MediaService,
       {} as never,
       {} as never,
+      {} as never,
+      { getLessonStudentCounts: jest.fn().mockResolvedValue(new Map()) } as never,
+      {} as never,
     );
   });
 
@@ -260,6 +263,12 @@ describe('LessonsService lesson duration persistence', () => {
       media as unknown as MediaService,
       lessonSessions as never,
       dataSource as never,
+      {} as never,
+      // The student count is a live lesson_purchases aggregate now, not the
+      // dead `lesson.students_count` column, so the mapper needs the metrics
+      // service even on paths that only assert on duration/thumbnail.
+      { getLessonStudentCounts: jest.fn().mockResolvedValue(new Map()) } as never,
+      {} as never,
     );
   });
 

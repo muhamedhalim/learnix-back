@@ -8,7 +8,8 @@ import { PreferredLanguage } from '../../guardians/entities';
 import { JOB_TYPES } from '../../queues/queues.constants';
 import { ChannelRegistryService } from '../channels/channel-registry.service';
 import type { ChannelSendResult, ParentChannel } from '../channels/parent-channel.interface';
-import { MessageChannel } from '../entities';
+import { MessageChannel, NotificationChannel } from '../entities';
+import { NotificationChannelPolicyService } from '../services/notification-channel-policy.service';
 import { ParentMessageService } from '../services/parent-message.service';
 import { ParentNotificationJobsService } from '../services/parent-notification-jobs.service';
 import { TemplateRendererService } from '../templates/template-renderer.service';
@@ -60,6 +61,7 @@ describe('ParentNotificationProcessor', () => {
     resetForRetry: jest.Mock;
   };
   let jobs: { deadLetter: jest.Mock; enqueueDelivery: jest.Mock };
+  let channelPolicy: { isAllowed: jest.Mock };
 
   beforeEach(async () => {
     guardians = {
@@ -76,6 +78,9 @@ describe('ParentNotificationProcessor', () => {
       resetForRetry: jest.fn(async () => true),
     };
     jobs = { deadLetter: jest.fn(), enqueueDelivery: jest.fn() };
+    // Default: every channel permitted, so the pre-existing expectations below
+    // continue to describe the "nothing switched off" case.
+    channelPolicy = { isAllowed: jest.fn(async () => true) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -85,6 +90,7 @@ describe('ParentNotificationProcessor', () => {
         { provide: ChannelRegistryService, useValue: channels },
         { provide: ParentMessageService, useValue: messages },
         { provide: ParentNotificationJobsService, useValue: jobs },
+        { provide: NotificationChannelPolicyService, useValue: channelPolicy },
       ],
     }).compile();
 
@@ -187,6 +193,91 @@ describe('ParentNotificationProcessor', () => {
     channels.anyConfigured.mockReturnValue(false);
 
     await expect(processor.process(deliverJob())).rejects.toThrow(UnrecoverableError);
+  });
+
+  /**
+   * DEF-005. These assert SUPPRESSION OF A REAL SEND, not persistence: the
+   * channel adapter's `send` must never be reached when the student switched
+   * that channel off, and a switched-off channel must not be mistaken for a
+   * delivery failure worth retrying.
+   */
+  describe('channel preference enforcement (DEF-005)', () => {
+    it('does not send SMS when the student has sms_enabled = false', async () => {
+      const sms = makeChannel(MessageChannel.SMS, { accepted: true });
+      channels.resolve.mockReturnValue([sms]);
+      channelPolicy.isAllowed.mockResolvedValue(false);
+
+      await expect(processor.process(deliverJob())).resolves.toBeUndefined();
+
+      expect(sms.send).not.toHaveBeenCalled();
+      // Nothing was reserved, so no message row claims to exist for a send that
+      // never happened.
+      expect(messages.claim).not.toHaveBeenCalled();
+      expect(messages.markFailed).not.toHaveBeenCalled();
+      expect(messages.markDead).not.toHaveBeenCalled();
+      expect(channelPolicy.isAllowed).toHaveBeenCalledWith('s1', NotificationChannel.SMS);
+    });
+
+    it('channel OFF overrides an otherwise eligible guardian event', async () => {
+      // The guardian IS an eligible target for this event — the only reason
+      // nothing goes out is the channel preference.
+      guardians.findNotificationTargets.mockResolvedValue([TARGET]);
+      const sms = makeChannel(MessageChannel.SMS, { accepted: true });
+      channels.resolve.mockReturnValue([sms]);
+      channelPolicy.isAllowed.mockResolvedValue(false);
+
+      await processor.process(deliverJob());
+
+      expect(guardians.findNotificationTargets).toHaveBeenCalled();
+      expect(sms.send).not.toHaveBeenCalled();
+    });
+
+    it('still delivers over WhatsApp when only SMS is disabled', async () => {
+      const whatsapp = makeChannel(MessageChannel.WHATSAPP, { accepted: true });
+      const sms = makeChannel(MessageChannel.SMS, { accepted: true });
+      channels.resolve.mockReturnValue([whatsapp, sms]);
+      channelPolicy.isAllowed.mockResolvedValue(false);
+
+      await processor.process(deliverJob());
+
+      expect(whatsapp.send).toHaveBeenCalled();
+      expect(sms.send).not.toHaveBeenCalled();
+    });
+
+    it('sends SMS again once the preference is switched back on', async () => {
+      const sms = makeChannel(MessageChannel.SMS, { accepted: true });
+      channels.resolve.mockReturnValue([sms]);
+
+      channelPolicy.isAllowed.mockResolvedValue(false);
+      await processor.process(deliverJob());
+      expect(sms.send).not.toHaveBeenCalled();
+
+      channelPolicy.isAllowed.mockResolvedValue(true);
+      await processor.process(deliverJob());
+      expect(sms.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('never lets a student suppress a guardian verification code', async () => {
+      // Transactional: a student who could mute OTP delivery could permanently
+      // prevent any guardian from being verified.
+      const sms = makeChannel(MessageChannel.SMS, { accepted: true });
+      channels.resolve.mockReturnValue([sms]);
+      channelPolicy.isAllowed.mockResolvedValue(false);
+
+      await processor.process(
+        deliverJob({
+          data: {
+            eventType: ParentEventType.GUARDIAN_VERIFICATION,
+            studentId: 's1',
+            subjectId: 'g1:123',
+            variables: { code: '123456', ttlMinutes: 10 },
+          },
+        } as Partial<Job>),
+      );
+
+      expect(sms.send).toHaveBeenCalled();
+      expect(channelPolicy.isAllowed).not.toHaveBeenCalled();
+    });
   });
 
   describe('dead-letter hook', () => {

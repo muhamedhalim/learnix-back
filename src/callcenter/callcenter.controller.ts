@@ -37,8 +37,9 @@ import { CallCenterUpdateStudentDto } from './dto/update-student.dto';
 @ApiTags('Call Center')
 @Controller('callcenter')
 @UseGuards(HybridAuthGuard, RolesGuard)
-// Legacy student lookup/update actions are explicitly Admin-only below. The
-// Call Center receives only the permission-scoped support projection.
+// Legacy student lookup/update actions (GET/PUT students/:studentId, GET
+// students) are explicitly Admin-only below — DEF-003. The Call Center
+// receives only the permission-scoped support projection (users/* below).
 @Roles('call_center', 'admin')
 @ApiBearerAuth('JWT-auth')
 export class CallCenterController {
@@ -59,7 +60,7 @@ export class CallCenterController {
   }
 
   @Put('students/:studentId')
-  @Roles('call_center', 'admin')
+  @Roles('admin')
   @ApiOperation({ summary: 'Update student profile (call center)' })
   @ApiResponse({ status: 200, description: 'Student updated successfully' })
   public async updateStudent(

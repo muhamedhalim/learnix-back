@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CourseVersion } from '../packages/entities/course-version.entity';
+import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -27,6 +29,8 @@ import { CertificateNotificationListener } from './listeners/certificate-notific
       CertificateAutoIssuanceFailure,
       CertificateHistory,
       CertificateTemplate,
+      CourseVersion,
+      CourseVersionItem,
       LessonPackage,
       LessonPackageItem,
       LessonProgress,

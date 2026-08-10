@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
+import { TeachersModule } from '../teachers/teachers.module';
 import { UploadModule } from '../uploads/upload.module';
 import {
   AdminSubjectsController,
@@ -12,7 +13,15 @@ import { Subject } from './entities/subject.entity';
 import { SubjectsService } from './subjects.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Subject]), UploadModule, ActivityLogsModule],
+  imports: [
+    TypeOrmModule.forFeature([Subject]),
+    UploadModule,
+    ActivityLogsModule,
+    // Supplies the canonical public teacher directory behind
+    // GET /subjects/:id/teachers. TeachersModule pulls in only the Subject
+    // *entity*, not SubjectsModule, so this is not a circular import.
+    TeachersModule,
+  ],
   controllers: [AdminSubjectsController, TeacherSubjectsController, SubjectsController],
   providers: [SubjectsService],
   exports: [SubjectsService, TypeOrmModule],

@@ -49,11 +49,17 @@ export class Payment {
   @JoinColumn({ name: 'user_id' })
   user!: User;
 
-  @Column({ type: 'enum', enum: ItemType, name: 'item_type' })
+  /** Null in the database only for the aggregate gateway payment owned by a CartCheckout. */
+  @Column({ type: 'enum', enum: ItemType, nullable: true, name: 'item_type' })
   item_type!: ItemType;
 
-  @Column({ type: 'uuid', name: 'item_id' })
+  /** Null in the database only for the aggregate gateway payment owned by a CartCheckout. */
+  @Column({ type: 'uuid', nullable: true, name: 'item_id' })
   item_id!: string;
+
+  /** Links both the aggregate charge and allocated product payments to the cart checkout. */
+  @Column({ type: 'uuid', nullable: true, name: 'cart_checkout_id' })
+  cart_checkout_id!: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   amount!: number;

@@ -300,4 +300,39 @@ describe('DiscountCodesService', () => {
       expect(manager.save).not.toHaveBeenCalled();
     });
   });
+
+  describe('quoteCartDiscount', () => {
+    it('applies one targeted redemption and allocates a capped percentage deterministically', async () => {
+      const code = buildCode({
+        applicable_to: [ApplicableItem.LESSON, ApplicableItem.PACKAGE],
+        discount_value: 10,
+        max_discount_amount: 0.3 as never,
+      });
+      const manager = {
+        findOne: jest.fn().mockResolvedValue(code),
+        count: jest.fn().mockResolvedValue(0),
+      };
+
+      const quote = await service.quoteCartDiscount(
+        [
+          { key: 'lesson-line', item_type: ApplicableItem.LESSON, item_id: 'lesson-1', amount_minor: 101 },
+          { key: 'package-line', item_type: ApplicableItem.PACKAGE, item_id: 'package-1', amount_minor: 199 },
+          { key: 'book-line', item_type: ApplicableItem.BOOK, item_id: 'book-1', amount_minor: 1_000 },
+        ],
+        'save20',
+        'user-1',
+        manager as never,
+      );
+
+      expect(quote.discount_code_id).toBe('dc-1');
+      expect(quote.applicable_subtotal_minor).toBe(300);
+      expect(quote.discount_amount_minor).toBe(30);
+      expect(quote.allocations_minor).toEqual({
+        'lesson-line': 10,
+        'package-line': 20,
+        'book-line': 0,
+      });
+      expect(quote.snapshot).toMatchObject({ code: 'SAVE20', discount_amount_minor: 30 });
+    });
+  });
 });

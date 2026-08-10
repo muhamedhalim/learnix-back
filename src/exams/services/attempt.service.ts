@@ -198,12 +198,21 @@ export class AttemptService {
 
   /**
    * Find-or-create an attempt for a server-triggered (non-interactive) grading
-   * path (currently: OMR). Unlike `startAttempt`, this never races a
-   * concurrent student click, so there's no conflict-retry dance — and it
-   * deliberately skips `jobs.scheduleAutoSubmit`, since the caller finalises
-   * this attempt synchronously moments later (a delayed job that would only
-   * ever be cancelled is wasted work). Idempotent: returns an existing
-   * attempt (in progress or already finalised) as-is rather than duplicating.
+   * path (currently: OMR confirm). Deliberately skips `jobs.scheduleAutoSubmit`,
+   * since the caller finalises this attempt synchronously moments later (a
+   * delayed job that would only ever be cancelled is wasted work).
+   *
+   * Idempotent for its OWN prior attempts (returns an existing `origin:'omr'`
+   * attempt — in progress or already finalised — as-is rather than
+   * duplicating), but will NOT silently adopt an attempt it didn't create:
+   * if a student already has ANY attempt for this exam whose `origin` isn't
+   * `'omr'` (a genuine live online session, or a prior online result,
+   * regardless of state), this throws a 409 rather than hijacking or
+   * discarding it — `ExamAttempt` has no per-exam multi-attempt policy wired
+   * into this path, so "any pre-existing non-OMR attempt blocks OMR" is the
+   * conservative, safe default. The caller sees this as an immediate,
+   * synchronous conflict at confirm-time rather than a silently-discarded
+   * scan sheet.
    */
   public async createOmrAttempt(examId: string, studentId: string): Promise<ExamAttempt> {
     await this.access.assertCanAccessPrivateExam(studentId, examId);
@@ -211,7 +220,17 @@ export class AttemptService {
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.origin !== 'omr') {
+        throw new ConflictException(
+          biBody(
+            'This student already has an existing exam attempt for this exam',
+            'يوجد للطالب بالفعل محاولة سابقة لهذا الاختبار',
+          ),
+        );
+      }
+      return existing;
+    }
 
     const exam = await this.exams.findOneOrFail({ where: { id: examId } });
     const examQuestions = await this.examQuestions.find({ where: { exam_id: examId } });
@@ -225,35 +244,48 @@ export class AttemptService {
     const deadline = new Date(now.getTime() + exam.config.duration_seconds * 1000);
     const seed = randomInt(1, 2 ** 31 - 1);
 
-    return this.dataSource.transaction(async (manager) => {
-      const created = manager.create(ExamAttempt, {
-        exam_id: examId,
-        student_id: studentId,
-        attempt_number: 1,
-        state: AttemptState.IN_PROGRESS,
-        shuffle_seed: seed,
-        started_at: now,
-        deadline_at: deadline,
-        max_score: exam.total_marks,
-        session_token: randomUUID(),
-      });
-      const savedAttempt = await manager.save(ExamAttempt, created);
+    try {
+      return await retryTransaction(this.dataSource, async (manager) => {
+        const created = manager.create(ExamAttempt, {
+          exam_id: examId,
+          student_id: studentId,
+          attempt_number: 1,
+          state: AttemptState.IN_PROGRESS,
+          shuffle_seed: seed,
+          started_at: now,
+          deadline_at: deadline,
+          max_score: exam.total_marks,
+          session_token: randomUUID(),
+          origin: 'omr',
+        });
+        const savedAttempt = await manager.save(ExamAttempt, created);
 
-      const ordered = this.orderQuestions(examQuestions, exam.config, seed);
-      const rows = ordered.map((eq, index) =>
-        manager.create(ExamAttemptAnswer, {
-          attempt_id: savedAttempt.id,
-          exam_question_id: eq.id,
-          question_id: eq.question_id,
-          question_version: eq.question_version,
-          order_index: index,
-          response: null,
-          max_score: eq.marks,
-        }),
-      );
-      await manager.save(ExamAttemptAnswer, rows);
-      return savedAttempt;
-    });
+        const ordered = this.orderQuestions(examQuestions, exam.config, seed);
+        const rows = ordered.map((eq, index) =>
+          manager.create(ExamAttemptAnswer, {
+            attempt_id: savedAttempt.id,
+            exam_question_id: eq.id,
+            question_id: eq.question_id,
+            question_version: eq.question_version,
+            order_index: index,
+            response: null,
+            max_score: eq.marks,
+          }),
+        );
+        await manager.save(ExamAttemptAnswer, rows);
+        return savedAttempt;
+      });
+    } catch (err) {
+      if (this.isOpenAttemptConflict(err)) {
+        // Concurrent OMR confirm for the same (exam, student) — reuse whichever won the race.
+        const raced = await this.attempts.findOne({
+          where: { exam_id: examId, student_id: studentId },
+          order: { attempt_number: 'DESC' },
+        });
+        if (raced) return raced;
+      }
+      throw err;
+    }
   }
 
   /** Resume/get an attempt (lazily finalises if the deadline already passed). */
@@ -261,6 +293,20 @@ export class AttemptService {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
     await this.access.assertCanAccessExam(studentId, attempt.exam_id);
     return this.renderAttempt(await this.finalizeIfExpired(attempt));
+  }
+
+  /**
+   * Read-only summary for an attempt that was finalised elsewhere (e.g. an
+   * OMR sheet whose `confirm()` call is replaying idempotently against an
+   * already-graded attempt) — the same accurate `pending_manual` computation
+   * `finalize()` uses for its own already-finalised branch, without
+   * re-running any grading.
+   */
+  public async getSummary(attemptId: string): Promise<SubmissionSummary | null> {
+    const attempt = await this.attempts.findOne({ where: { id: attemptId } });
+    if (!attempt) return null;
+    const answers = await this.answers.find({ where: { attempt_id: attemptId } });
+    return this.toSummary(attempt, answers);
   }
 
   // ==================== AUTOSAVE ====================
@@ -556,7 +602,9 @@ export class AttemptService {
   }
 
   private async loadOwnedAttempt(studentId: string, attemptId: string): Promise<ExamAttempt> {
-    const attempt = await this.attempts.findOne({ where: { id: attemptId, student_id: studentId } });
+    const attempt = await this.attempts.findOne({
+      where: { id: attemptId, student_id: studentId },
+    });
     if (!attempt) throw new NotFoundException(biBody('Attempt not found', 'المحاولة غير موجودة'));
     return attempt;
   }

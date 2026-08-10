@@ -11,6 +11,10 @@ import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
 import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
+import {
+  PUSH_PROVIDER,
+  type PushProvider,
+} from '../../../src/notifications/push/push-provider.interface';
 import { StorageService } from '../../../src/storage/storage.service';
 
 export interface E2EContext {
@@ -20,6 +24,14 @@ export interface E2EContext {
 
 export interface E2EOverrides {
   storageService?: Partial<StorageService>;
+  /**
+   * Substitute the push transport. Push is the one notification channel whose
+   * "did it actually go out?" question cannot be answered from the database, so
+   * specs that assert real dispatch swap in a recording double here rather than
+   * contacting FCM. Everything above the provider — preference policy, device
+   * selection, delivery records, invalid-token handling — remains the real code.
+   */
+  pushProvider?: Partial<PushProvider>;
 }
 
 /** Shared bootstrap; `withCsrfGuard` controls whether CsrfGuard is installed. */
@@ -32,6 +44,9 @@ async function bootstrapE2EApp(
   });
   if (overrides?.storageService !== undefined) {
     builder = builder.overrideProvider(StorageService).useValue(overrides.storageService);
+  }
+  if (overrides?.pushProvider !== undefined) {
+    builder = builder.overrideProvider(PUSH_PROVIDER).useValue(overrides.pushProvider);
   }
   const moduleFixture: TestingModule = await builder.compile();
 

@@ -9,13 +9,18 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { CertificateTemplate, CertificateTemplateStatus } from '../certificates/entities';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { LearningMetricsService, ProductFinancialMetricsService } from '../common/metrics';
+import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
+import { ItemType } from '../payments/entities/item-type.enum';
+import { fromMinorUnits } from '../payments/money.util';
+import { ReviewsService } from '../reviews/reviews.service';
 import { Subject } from '../subjects/entities/subject.entity';
 import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import { User } from '../users/entities/user.entity';
@@ -34,6 +39,7 @@ import {
 } from './dto';
 import { CourseChapter } from './entities/course-chapter.entity';
 import { CourseStatus } from './entities/course-status.enum';
+import { CourseVersion } from './entities/course-version.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 
@@ -79,10 +85,59 @@ export interface PackageWithDetails {
   updated_at: Date;
 }
 
+/**
+ * Statistics for one course, as returned by `GET /admin/packages/:id/stats`.
+ *
+ * ## Course-version aggregation policy
+ * These are **product-level** stats for the course's public identity, summed
+ * over every version of it. `orders.item_id` is the course id regardless of
+ * which `CourseVersion` was current at checkout, so financial totals are
+ * naturally version-agnostic; `unique_students` uses `COUNT(DISTINCT
+ * student_id)` so a student who re-bought after a curriculum change is one
+ * student, not two. `purchased_version_count` is the escape hatch for
+ * "how many snapshots are live" — per-version financial breakdowns are
+ * deliberately not exposed, since no surface asks for them.
+ *
+ * Money is in major units (EGP), matching `package.price`.
+ */
 export interface PackageStats {
+  /** Settled orders for this course, across all versions. */
   total_purchases: number;
+  /** Unique students behind those orders; repeat buyers count once. */
+  unique_students: number;
+  /**
+   * Unique students holding non-revoked `package_purchases` access. Differs
+   * from `unique_students` when access was granted outside a settled order or
+   * revoked after a full refund.
+   */
+  students_with_access: number;
+  /** Distinct `CourseVersion`s with at least one live purchase. */
+  purchased_version_count: number;
+  /** **Net** revenue: charged after discount, minus refunds. */
   total_revenue: number;
-  average_rating: number;
+  /** Charged after discount, before refunds. */
+  gross_revenue: number;
+  /** Discount granted at checkout across settled orders. */
+  discount_amount: number;
+  /** Cumulative refunds against settled orders. */
+  refunded_amount: number;
+  /** Teacher entitlement after proportional refund reversal. */
+  teacher_earnings: number;
+  /** Platform commission after proportional refund reversal. */
+  platform_commission: number;
+  /** Currency of every monetary field above. */
+  currency: string;
+  /** True when settled orders span more than one currency. */
+  mixed_currency: boolean;
+  /**
+   * Mean approved rating of the lessons in this course — courses have no review
+   * table of their own, so `ReviewsService.getPackageAggregates` rolls up the
+   * approved `lesson_reviews` of its curriculum. **`null` means "not yet
+   * rated"**, never 0 stars.
+   */
+  average_rating: number | null;
+  /** Approved lesson reviews backing `average_rating`. */
+  review_count: number;
 }
 
 @Injectable()
@@ -104,6 +159,9 @@ export class PackagesService {
     private readonly subjectsRepository: Repository<Subject>,
     private readonly dataSource: DataSource,
     private readonly media: MediaService,
+    private readonly productFinancialMetrics: ProductFinancialMetricsService,
+    private readonly learningMetrics: LearningMetricsService,
+    private readonly reviewsService: ReviewsService,
   ) {}
 
   /**
@@ -144,9 +202,25 @@ export class PackagesService {
     if (dto.thumbnail !== undefined) {
       packageInput.thumbnail = this.media.normalizeStoredPublicReference(dto.thumbnail);
     }
-    const pkg = this.packagesRepository.create(packageInput);
 
-    const savedPackage = await this.packagesRepository.save(pkg);
+    // Every course starts on an unlocked draft version 1: its content lives
+    // in `LessonPackageItem` until a purchase locks it (see
+    // `ensureOpenVersionForEdit` and `PaymentFinalizationService`).
+    const savedPackage = await this.dataSource.transaction(async (manager) => {
+      const pkg = manager.create(LessonPackage, packageInput);
+      const saved = await manager.save(LessonPackage, pkg);
+      const version = await manager.save(
+        CourseVersion,
+        manager.create(CourseVersion, {
+          package_id: saved.id,
+          version_number: 1,
+          locked_at: null,
+        }),
+      );
+      await manager.update(LessonPackage, { id: saved.id }, { current_version_id: version.id });
+      return saved;
+    });
+
     return await this.findOne(savedPackage.id);
   }
 
@@ -430,6 +504,59 @@ export class PackagesService {
   }
 
   /**
+   * Locks the package row and its current version (serializing against a
+   * concurrent payment finalization racing to lock the same version — see
+   * `PaymentFinalizationService.writeCompatibilityPurchase`). If that version
+   * is already locked (it has been sold at least once), it must never be
+   * mutated again: roll over to a fresh unlocked version and repoint the
+   * package at it before the caller applies its `LessonPackageItem` edit. If
+   * it is still an unsold draft, the caller edits it in place — "editing an
+   * unsold draft is allowed."
+   *
+   * Must be called as the first statement inside the same transaction that
+   * performs the `LessonPackageItem` mutation.
+   */
+  private async ensureOpenVersionForEdit(
+    manager: EntityManager,
+    packageId: string,
+  ): Promise<void> {
+    const pkg = await manager.findOne(LessonPackage, {
+      where: { id: packageId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!pkg?.current_version_id) {
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
+    }
+    const version = await manager.findOne(CourseVersion, {
+      where: { id: pkg.current_version_id },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!version) {
+      throw new NotFoundException(biBody('Course version not found', 'إصدار الدورة غير موجود'));
+    }
+    if (version.locked_at === null) {
+      // Still an unsold draft — the caller may mutate LessonPackageItem
+      // directly, no rollover needed.
+      return;
+    }
+    const rolledOver = await manager.save(
+      CourseVersion,
+      manager.create(CourseVersion, {
+        package_id: packageId,
+        version_number: version.version_number + 1,
+        locked_at: null,
+      }),
+    );
+    await manager.update(
+      LessonPackage,
+      { id: packageId },
+      { current_version_id: rolledOver.id },
+    );
+  }
+
+  /**
    * Add lessons to a package (with transaction)
    */
   public async addLessons(
@@ -475,7 +602,8 @@ export class PackagesService {
       );
     }
 
-    await this.dataSource.transaction(async (manager) => {
+    await retryTransaction(this.dataSource, async (manager) => {
+      await this.ensureOpenVersionForEdit(manager, packageId);
       const items = dto.lessons.map((lesson) =>
         manager.create(LessonPackageItem, {
           package_id: packageId,
@@ -516,13 +644,16 @@ export class PackagesService {
       );
     }
 
-    await this.packageItemsRepository
-      .createQueryBuilder()
-      .delete()
-      .from(LessonPackageItem)
-      .where('package_id = :packageId', { packageId })
-      .andWhere('lesson_id IN (:...lessonIds)', { lessonIds: dto.lessonIds })
-      .execute();
+    await retryTransaction(this.dataSource, async (manager) => {
+      await this.ensureOpenVersionForEdit(manager, packageId);
+      await manager
+        .createQueryBuilder()
+        .delete()
+        .from(LessonPackageItem)
+        .where('package_id = :packageId', { packageId })
+        .andWhere('lesson_id IN (:...lessonIds)', { lessonIds: dto.lessonIds })
+        .execute();
+    });
 
     await this.calculateOriginalPrice(packageId);
 
@@ -617,11 +748,17 @@ export class PackagesService {
   }
 
   /**
-   * Get package statistics (placeholder for Purchases module)
+   * Course statistics from the canonical sources only — settled `orders` for
+   * money and purchase counts, `package_purchases` for live access, and the
+   * approved lesson reviews of the curriculum for the rating.
+   *
+   * Replaces the three hardcoded zeros this method used to return (DEF-007).
+   * See {@link PackageStats} for the version-aggregation policy.
    */
   public async getPackageStats(packageId: string): Promise<PackageStats> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId, deleted_at: IsNull() },
+      select: { id: true },
     });
 
     if (!pkg) {
@@ -630,10 +767,28 @@ export class PackagesService {
       );
     }
 
+    const [financial, engagement, rating] = await Promise.all([
+      this.productFinancialMetrics.getProductFinancialMetrics(ItemType.PACKAGE, packageId),
+      this.learningMetrics.getPackageEngagementMetrics(packageId),
+      this.reviewsService.getPackageAggregates(packageId),
+    ]);
+
+    const money = financial.primary;
     return {
-      total_purchases: 0,
-      total_revenue: 0,
-      average_rating: 0,
+      total_purchases: money.order_count,
+      unique_students: money.unique_student_count,
+      students_with_access: engagement.students_with_access,
+      purchased_version_count: engagement.purchased_version_count,
+      total_revenue: fromMinorUnits(money.net_revenue_minor),
+      gross_revenue: fromMinorUnits(money.gross_sales_minor),
+      discount_amount: fromMinorUnits(money.discount_amount_minor),
+      refunded_amount: fromMinorUnits(money.refund_amount_minor),
+      teacher_earnings: fromMinorUnits(money.teacher_earnings_minor),
+      platform_commission: fromMinorUnits(money.platform_commission_minor),
+      currency: money.currency,
+      mixed_currency: financial.mixed_currency,
+      average_rating: rating.total_reviews === 0 ? null : rating.average_rating,
+      review_count: rating.total_reviews,
     };
   }
 

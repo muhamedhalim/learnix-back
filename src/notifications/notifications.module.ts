@@ -14,17 +14,33 @@ import {
   AdminNotificationsController,
   NotificationsController,
   NotificationSettingsController,
+  PushDevicesController,
 } from './controllers';
 import { AdminParentMessagesController } from './controllers/admin-parent-messages.controller';
 import { WhatsAppWebhookController } from './controllers/whatsapp-webhook.controller';
-import { Notification, NotificationSettings, ParentMessage } from './entities';
+import {
+  Notification,
+  NotificationDelivery,
+  NotificationSettings,
+  ParentMessage,
+  PushDevice,
+} from './entities';
 import { ParentNotificationListener } from './listeners/parent-notification.listener';
 import { PurchaseParentNotificationListener } from './listeners/purchase-parent-notification.listener';
 import { Order } from '../payments/entities/order.entity';
 import { ParentNotificationProcessor } from './processors/parent-notification.processor';
+import { PushNotificationProcessor } from './processors/push-notification.processor';
+import { FirebasePushProvider } from './push/firebase-push.provider';
+import { PUSH_PROVIDER } from './push/push-provider.interface';
 import {
+  NotificationChannelPolicyService,
+  NotificationDeliveryService,
+  NotificationEmailService,
   NotificationsService,
   NotificationTriggersService,
+  PushDeviceService,
+  PushDispatchService,
+  PushNotificationJobsService,
   SmsSenderService,
 } from './services';
 import { ParentMessageAdminService } from './services/parent-message-admin.service';
@@ -33,16 +49,27 @@ import { ParentNotificationJobsService } from './services/parent-notification-jo
 import { TemplateRendererService } from './templates/template-renderer.service';
 
 /**
- * Notifications: in-app records, plus the guardian delivery pipeline.
+ * Notifications: in-app records, the guardian delivery pipeline, and the user
+ * push pipeline.
  *
- * The pipeline is strictly one-directional:
+ * Both pipelines are strictly one-directional and share one policy chokepoint:
  *
  *   domain event → listener (enqueue only) → BullMQ → worker
- *     → guardians (who) → renderer (what) → channel (how) → parent_messages (proof)
+ *     → who (guardians / push devices)
+ *     → may we (NotificationChannelPolicyService)
+ *     → what (renderer / notification row)
+ *     → how (ParentChannel / PushProvider)
+ *     → proof (parent_messages / notification_deliveries)
  *
- * Nothing upstream of the worker knows a provider exists, and the worker never
- * decides policy — eligibility lives in `GuardiansService`, wording in the
- * template catalogue, transport preference in `ChannelRegistryService`.
+ * Nothing upstream of a worker knows a provider exists, and no worker decides
+ * policy: guardian *event* eligibility lives in `GuardiansService`, *channel*
+ * eligibility in `NotificationChannelPolicyService`, wording in the template
+ * catalogue, transport choice in `ChannelRegistryService` / `PUSH_PROVIDER`.
+ *
+ * `PUSH_PROVIDER` is bound to `FirebasePushProvider` here and nowhere else.
+ * That single binding is the entire Firebase surface of the notification
+ * domain — business code depends on the `PushProvider` interface, so replacing
+ * FCM means changing this one line.
  */
 @Module({
   imports: [
@@ -50,7 +77,8 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     GuardiansModule,
     // The Meta Cloud API adapter is the only HTTP consumer here.
     HttpModule,
-    // NoopQueue-backed when Redis isn't configured in development.
+    // NoopQueue-backed when Redis isn't configured in development. Push falls
+    // back to inline dispatch in that case — see PushNotificationJobsService.
     registerQueues(
       {
         name: QUEUE_NAMES.PARENT_NOTIFICATIONS,
@@ -60,20 +88,38 @@ import { TemplateRendererService } from './templates/template-renderer.service';
         name: QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ,
         config: QUEUE_CONFIGS[QUEUE_NAMES.PARENT_NOTIFICATIONS_DLQ],
       },
+      {
+        name: QUEUE_NAMES.PUSH_NOTIFICATIONS,
+        config: QUEUE_CONFIGS[QUEUE_NAMES.PUSH_NOTIFICATIONS],
+      },
     ),
-    TypeOrmModule.forFeature([Notification, NotificationSettings, ParentMessage, User, Order]),
+    TypeOrmModule.forFeature([
+      Notification,
+      NotificationDelivery,
+      NotificationSettings,
+      ParentMessage,
+      PushDevice,
+      User,
+      Order,
+    ]),
   ],
   controllers: [
     AdminNotificationsController,
     AdminParentMessagesController,
     NotificationsController,
     NotificationSettingsController,
+    PushDevicesController,
     WhatsAppWebhookController,
   ],
   providers: [
     NotificationsService,
     NotificationTriggersService,
     SmsSenderService,
+
+    // Preference policy + delivery ledger (shared by every channel)
+    NotificationChannelPolicyService,
+    NotificationDeliveryService,
+    NotificationEmailService,
 
     // Guardian pipeline
     TemplateRendererService,
@@ -85,17 +131,31 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     ParentNotificationJobsService,
     ParentNotificationListener,
     PurchaseParentNotificationListener,
-    // The worker needs a real queue connection to pull jobs from; skip it
-    // entirely when queues are disabled rather than let it attempt one.
-    ...(areQueuesEnabled() ? [ParentNotificationProcessor] : []),
+
+    // Push pipeline
+    FirebasePushProvider,
+    { provide: PUSH_PROVIDER, useExisting: FirebasePushProvider },
+    PushDeviceService,
+    PushDispatchService,
+    PushNotificationJobsService,
+
+    // The workers need a real queue connection to pull jobs from; skip them
+    // entirely when queues are disabled rather than let them attempt one.
+    ...(areQueuesEnabled() ? [ParentNotificationProcessor, PushNotificationProcessor] : []),
   ],
   exports: [
     NotificationsService,
     NotificationTriggersService,
+    NotificationChannelPolicyService,
+    NotificationDeliveryService,
+    NotificationEmailService,
     SmsSenderService,
     ParentMessageService,
     ParentMessageAdminService,
     ParentNotificationJobsService,
+    PushDeviceService,
+    PushDispatchService,
+    PushNotificationJobsService,
   ],
 })
 export class NotificationsModule {}

@@ -1,9 +1,11 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { MetricsModule } from '../common/metrics';
 import { MediaModule } from '../media/media.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { ReviewsModule } from '../reviews/reviews.module';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
@@ -50,7 +52,9 @@ import { ProgressService } from './progress.service';
     ]),
     PaymentsModule,
     MediaModule,
+    MetricsModule,
     NotificationsModule,
+    ReviewsModule,
     UploadModule,
   ],
   controllers: [

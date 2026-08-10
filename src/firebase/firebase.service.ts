@@ -68,6 +68,32 @@ export class FirebaseService {
     }
   }
 
+  /**
+   * Whether server-side Firebase credentials are present.
+   *
+   * The same service account backs two unrelated features — ID-token
+   * verification for sign-in, and Cloud Messaging for push — so callers that
+   * need one must be able to ask without assuming the other is in use.
+   */
+  public isConfigured(): boolean {
+    return this.firebaseApp !== undefined;
+  }
+
+  /**
+   * Firebase Cloud Messaging handle, or `null` when unconfigured.
+   *
+   * Returns `null` rather than throwing so the push provider can report itself
+   * unconfigured — a deployment without Firebase credentials must degrade to
+   * "push is unavailable", never to a boot failure or a 500 on an unrelated
+   * notification.
+   *
+   * Only `FirebasePushProvider` may call this. Business code depends on the
+   * `PushProvider` interface, not on Firebase.
+   */
+  public getMessaging(): admin.messaging.Messaging | null {
+    return this.firebaseApp?.messaging() ?? null;
+  }
+
   public async verifyToken(idToken: string): Promise<admin.auth.DecodedIdToken> {
     if (!this.firebaseApp) {
       throw new UnauthorizedException(

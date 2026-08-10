@@ -14,8 +14,10 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { UserApprovedEvent, UserRejectedEvent } from '../activity-logs/events/audit.events';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import { ProductFinancialMetricsService } from '../common/metrics';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
+import { ReviewsService } from '../reviews/reviews.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { usableSubjectWhere } from '../subjects/subject-visibility.util';
@@ -59,12 +61,34 @@ export interface TeacherProfileWithDetails {
   skills: string[];
   education: EducationEntry[];
   certificates: CertificateEntry[];
-  rating: number;
+  /**
+   * Mean approved review rating, 2 dp. **`null` means "not yet rated"** — the
+   * legacy `teacher_profiles.rating` column reported `0` for every teacher on
+   * the platform because nothing maintained it (DEF-007).
+   */
+  rating: number | null;
+  /** Approved reviews backing `rating`. */
   total_ratings: number;
   subjects: Subject[];
   created_at: Date;
   updated_at: Date;
 }
+
+/** Batch rating lookup keyed on `users.id`. @see ReviewsService.getTeacherRatingsBatch */
+type TeacherRatingMap = Map<string, { average: number; count: number }>;
+
+/**
+ * `sortBy=rating` ordering key: the live average of approved reviews.
+ *
+ * Unrated teachers sort as 0 so they land at the bottom of a descending list
+ * rather than being dropped by a NULL comparison — the response still reports
+ * their rating as `null`, which is the distinction the UI renders.
+ */
+const TEACHER_RATING_SORT_SQL = `COALESCE((
+  SELECT AVG(tr.rating)
+    FROM teacher_reviews tr
+   WHERE tr.teacher_id = teacher.user_id AND tr.status = 'approved'
+), 0)`;
 
 /**
  * Sanitized, public-facing teacher projection.
@@ -76,10 +100,23 @@ export interface TeacherProfileWithDetails {
  * Summary stats for a teacher
  */
 export interface TeacherStats {
+  /** Non-deleted lessons owned by the teacher, in any publishing state. */
   lessonsCount: number;
+  /** Unique students who have ever settled an order with this teacher. */
   studentsCount: number;
+  /**
+   * Teacher entitlement in **minor units**, net of refund reversals — the same
+   * definition `ProductFinancialMetricsService` uses everywhere else. Previously
+   * summed `teacher_earning_minor` over `status = 'paid'` alone, which counted
+   * refunded sales at full value and dropped partially-refunded ones entirely.
+   */
   totalEarnings: number;
-  averageRating: number;
+  /** Currency of `totalEarnings`. */
+  currency: string;
+  /** Mean approved review rating, 2 dp. `null` when the teacher has no reviews. */
+  averageRating: number | null;
+  /** Approved reviews backing `averageRating`. */
+  reviewCount: number;
 }
 
 @Injectable()
@@ -97,6 +134,8 @@ export class TeachersService {
     private readonly applicationCache: ApplicationCacheService,
     private readonly media: MediaService,
     private readonly activityLogs: ActivityLogsService,
+    private readonly reviewsService: ReviewsService,
+    private readonly productFinancialMetrics: ProductFinancialMetricsService,
   ) {}
 
   /**
@@ -123,7 +162,7 @@ export class TeachersService {
       );
     }
 
-    return this.mapToProfileWithDetails(profile);
+    return await this.mapToProfileWithDetails(profile);
   }
 
   /**
@@ -203,7 +242,7 @@ export class TeachersService {
       );
     }
 
-    return this.mapToProfileWithDetails(updatedProfile);
+    return await this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
@@ -259,7 +298,9 @@ export class TeachersService {
       sortBy === 'name'
         ? 'user.first_name'
         : sortBy === 'rating'
-          ? 'teacher.rating'
+          ? // Sorts on the live review average, not the dead denormalised
+            // column — which ordered every teacher identically at 0.
+            TEACHER_RATING_SORT_SQL
           : 'teacher.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
     queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
@@ -285,7 +326,9 @@ export class TeachersService {
     };
 
     return {
-      data: teachers.map((t) => this.mapToProfileWithDetails(t)),
+      data: await this.mapAllWithRatings(teachers, (t, ratings) =>
+        this.mapToProfileWithDetails(t, ratings),
+      ),
       meta,
     };
   }
@@ -350,7 +393,9 @@ export class TeachersService {
       sortBy === 'name'
         ? 'user.name'
         : sortBy === 'rating'
-          ? 'teacher.rating'
+          ? // Sorts on the live review average, not the dead denormalised
+            // column — which ordered every teacher identically at 0.
+            TEACHER_RATING_SORT_SQL
           : 'teacher.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
     query.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
@@ -363,7 +408,9 @@ export class TeachersService {
     const totalPages = Math.ceil(total / limit);
 
     return {
-      data: profiles.map((profile) => this.mapToPublicProfile(profile)),
+      data: await this.mapAllWithRatings(profiles, (profile, ratings) =>
+        this.mapToPublicProfile(profile, ratings),
+      ),
       meta: {
         total,
         page,
@@ -390,7 +437,7 @@ export class TeachersService {
       );
     }
 
-    return this.mapToPublicProfile(profile);
+    return await this.mapToPublicProfile(profile);
   }
 
   /** Query boundary for public teacher data: private User columns are never selected. */
@@ -401,6 +448,9 @@ export class TeachersService {
       .leftJoin('teacher.subjects', 'subjects')
       .select([
         'teacher.id',
+        // Needed to look up the teacher's reviews, which key on users.id.
+        // Not a PII widening — the same id is already exposed as `user.id`.
+        'teacher.user_id',
         'teacher.qualifications',
         'teacher.years_of_experience',
         'teacher.bio',
@@ -443,7 +493,7 @@ export class TeachersService {
       );
     }
 
-    return this.mapToProfileWithDetails(profile);
+    return await this.mapToProfileWithDetails(profile);
   }
 
   /**
@@ -503,7 +553,7 @@ export class TeachersService {
 
     await this.invalidateAdminDashboard();
 
-    return this.mapToProfileWithDetails(profile);
+    return await this.mapToProfileWithDetails(profile);
   }
 
   /**
@@ -557,7 +607,7 @@ export class TeachersService {
 
     await this.invalidateAdminDashboard();
 
-    return this.mapToProfileWithDetails(profile);
+    return await this.mapToProfileWithDetails(profile);
   }
 
   /**
@@ -620,7 +670,7 @@ export class TeachersService {
       );
     }
 
-    return this.mapToProfileWithDetails(updatedProfile);
+    return await this.mapToProfileWithDetails(updatedProfile);
   }
 
   /**
@@ -641,31 +691,29 @@ export class TeachersService {
     // Content and commerce rows key on `users.id`, not on the profile id.
     const userId = profile.user_id;
 
-    const [lessonRows, orderRows] = await Promise.all([
+    const [lessonRows, financial, studentsCount, rating] = await Promise.all([
       this.dataSource.query<Array<{ lessons_count: string }>>(
         `SELECT COUNT(*)::text AS lessons_count
            FROM lessons
           WHERE teacher_id = $1 AND deleted_at IS NULL`,
         [userId],
       ),
-      // Paid orders are the canonical sale. `teacher_earning_minor` is the
-      // commission-adjusted entitlement snapshotted onto the order at
-      // finalization, so summing it needs no further arithmetic here.
-      this.dataSource.query<Array<{ students_count: string; total_earnings_minor: string }>>(
-        `SELECT COUNT(DISTINCT student_id)::text AS students_count,
-                COALESCE(SUM(teacher_earning_minor), 0)::text AS total_earnings_minor
-           FROM orders
-          WHERE teacher_id = $1 AND status = 'paid'`,
-        [userId],
-      ),
+      // Delegated so earnings here mean exactly what they mean in every other
+      // financial surface — settled orders, net of proportional refund
+      // reversal — instead of this method's former private formula.
+      this.productFinancialMetrics.getTeacherFinancialMetrics(userId),
+      this.productFinancialMetrics.getTeacherUniqueStudentCount(userId),
+      this.reviewsService.getTeacherAggregates(userId),
     ]);
 
     return {
       lessonsCount: Number(lessonRows[0]?.lessons_count ?? 0),
-      studentsCount: Number(orderRows[0]?.students_count ?? 0),
+      studentsCount,
       /** Minor units (piastres), consistent with every other financial figure. */
-      totalEarnings: Number(orderRows[0]?.total_earnings_minor ?? 0),
-      averageRating: profile.rating,
+      totalEarnings: financial.primary.teacher_earnings_minor,
+      currency: financial.primary.currency,
+      averageRating: rating.total_reviews === 0 ? null : rating.average_rating,
+      reviewCount: rating.total_reviews,
     };
   }
 
@@ -808,32 +856,15 @@ export class TeachersService {
     return this.findTeacherById(profileId);
   }
 
-  /**
-   * Update teacher rating (called when a student rates)
-   * Recalculates average rating
+  /*
+   * `updateTeacherRating` used to live here: it incrementally folded a new
+   * rating into `teacher_profiles.rating`/`total_ratings`. Nothing ever called
+   * it — `ReviewsService` writes `teacher_reviews` and never touched the
+   * profile — so those columns stayed at 0 for every teacher while being
+   * published as "rating" (DEF-007). Ratings are now derived from approved
+   * reviews on read via `ReviewsService.getTeacherRatingsBatch`, so there is no
+   * counter to keep in sync and no way for the two to drift apart.
    */
-  public async updateTeacherRating(profileId: string, newRating: number): Promise<void> {
-    const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: profileId },
-    });
-
-    if (!profile) {
-      throw new NotFoundException(
-        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
-      );
-    }
-
-    // Calculate new average rating
-    const currentTotal = profile.rating * profile.total_ratings;
-    const newTotalRatings = profile.total_ratings + 1;
-    const newAverageRating = (currentTotal + newRating) / newTotalRatings;
-
-    // Update profile
-    profile.rating = Math.round(newAverageRating * 100) / 100; // Round to 2 decimal places
-    profile.total_ratings = newTotalRatings;
-
-    await this.teacherProfilesRepository.save(profile);
-  }
 
   /**
    * Helper method to map TeacherProfile entity to response type
@@ -842,11 +873,58 @@ export class TeachersService {
    * Map a teacher profile to the sanitized, PII-free public projection.
    * Never include email/phone/parent_phone/status here.
    */
-  private mapToPublicProfile(profile: TeacherProfile): PublicTeacherResponseDto {
-    return toPublicTeacherResponse(profile, (value) => this.media.resolveThumbnailUrl(value));
+  private async mapToPublicProfile(
+    profile: TeacherProfile,
+    preloaded?: TeacherRatingMap,
+  ): Promise<PublicTeacherResponseDto> {
+    const rating = await this.resolveRating(profile, preloaded);
+    return toPublicTeacherResponse(
+      profile,
+      (value) => this.media.resolveThumbnailUrl(value),
+      rating,
+    );
   }
 
-  private mapToProfileWithDetails(profile: TeacherProfile): TeacherProfileWithDetails {
+  /**
+   * The teacher's live rating from approved reviews.
+   *
+   * `teacher_profiles.rating` / `.total_ratings` are legacy columns that no code
+   * path ever wrote (`updateTeacherRating` had no caller), so every teacher on
+   * the platform was published with a hard `0` rating — including on the
+   * unauthenticated directory and its `sortBy=rating` ordering (DEF-007).
+   * `ReviewsService` owns the definition; this only chooses between the batch
+   * map a list already loaded and a single lookup for detail responses.
+   */
+  private async resolveRating(
+    profile: TeacherProfile,
+    preloaded?: TeacherRatingMap,
+  ): Promise<{ average: number | null; count: number }> {
+    const found = preloaded
+      ? preloaded.get(profile.user_id)
+      : (await this.reviewsService.getTeacherRatingsBatch([profile.user_id])).get(profile.user_id);
+    // Absent from the map means no approved reviews: "not rated", not 0 stars.
+    return { average: found?.average ?? null, count: found?.count ?? 0 };
+  }
+
+  /**
+   * Map a page of profiles with their ratings loaded in a single query, so a
+   * paginated list never issues one rating lookup per row.
+   */
+  private async mapAllWithRatings<T>(
+    profiles: readonly TeacherProfile[],
+    map: (profile: TeacherProfile, ratings: TeacherRatingMap) => Promise<T>,
+  ): Promise<T[]> {
+    const ratings = await this.reviewsService.getTeacherRatingsBatch(
+      profiles.map((profile) => profile.user_id),
+    );
+    return await Promise.all(profiles.map((profile) => map(profile, ratings)));
+  }
+
+  private async mapToProfileWithDetails(
+    profile: TeacherProfile,
+    preloaded?: TeacherRatingMap,
+  ): Promise<TeacherProfileWithDetails> {
+    const rating = await this.resolveRating(profile, preloaded);
     return {
       id: profile.id,
       user: {
@@ -870,8 +948,8 @@ export class TeachersService {
       skills: profile.skills,
       education: profile.education,
       certificates: profile.certificates,
-      rating: profile.rating,
-      total_ratings: profile.total_ratings,
+      rating: rating.average,
+      total_ratings: rating.count,
       subjects: profile.subjects,
       created_at: profile.created_at,
       updated_at: profile.updated_at,

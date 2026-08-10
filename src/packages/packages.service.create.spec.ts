@@ -6,7 +6,8 @@ import type { Subject } from '../subjects/entities/subject.entity';
 import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import type { User } from '../users/entities/user.entity';
 import { CourseStatus } from './entities/course-status.enum';
-import type { LessonPackage } from './entities/lesson-package.entity';
+import { CourseVersion } from './entities/course-version.entity';
+import { LessonPackage } from './entities/lesson-package.entity';
 import { PackagesService } from './packages.service';
 
 /**
@@ -115,6 +116,27 @@ function buildService(options: {
     normalizeStoredPublicReference,
   };
 
+  // `create()` now opens a transaction to atomically create the package
+  // alongside its initial (unlocked) CourseVersion. Route the manager's
+  // entity-aware create/save back through the same repository-level mocks
+  // above so existing assertions on `create`/`save` still see exactly what
+  // was persisted for the package itself.
+  const dataSource = {
+    transaction: jest.fn(async (work: (manager: unknown) => Promise<unknown>) => {
+      const manager = {
+        create: (entity: unknown, value: unknown) => (entity === LessonPackage ? create(value) : value),
+        save: (entity: unknown, value: unknown) =>
+          entity === LessonPackage
+            ? save(value)
+            : entity === CourseVersion
+              ? Promise.resolve({ id: 'version-1', ...(value as object) })
+              : Promise.resolve(value),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+      return work(manager);
+    }),
+  } as unknown as DataSource;
+
   const service = new PackagesService(
     packagesRepository,
     {} as never,
@@ -122,7 +144,7 @@ function buildService(options: {
     {} as never,
     usersRepository,
     subjectsRepository,
-    {} as DataSource,
+    dataSource,
     media as never,
   );
 

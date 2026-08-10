@@ -8,29 +8,64 @@ describe('exam ownership non-disclosure', () => {
   it('returns the same not-found status for a foreign authoring exam', async () => {
     const exams = { findOne: jest.fn().mockResolvedValue(null) };
     const service = new ExamAuthoringService(
-      exams as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+      exams as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
 
-    await expect(service.getExamForTeacher('exam-1', 'teacher-1')).rejects.toBeInstanceOf(NotFoundException);
-    expect(exams.findOne).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'exam-1', teacher_id: 'teacher-1' }),
-    }));
+    await expect(service.getExamForTeacher('exam-1', 'teacher-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(exams.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'exam-1', teacher_id: 'teacher-1' }),
+      }),
+    );
   });
 
   it('returns the same not-found status for foreign grading and OMR exams', async () => {
     const exams = { findOne: jest.fn().mockResolvedValue(null) };
     const grading = new TeacherGradingService(
-      exams as never, { findAndCount: jest.fn() } as never, {} as never, {} as never,
-      {} as never, {} as never, {} as never, {} as never,
+      exams as never,
+      { findAndCount: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
     );
     const omr = new OmrSheetsService(
-      exams as never, { findAndCount: jest.fn() } as never, {} as never, {} as never,
+      exams as never,
+      { findAndCount: jest.fn() } as never, // sheets
+      {} as never, // templates
+      {} as never, // examQuestions
+      {} as never, // users
+      {} as never, // dataSource
+      {} as never, // storage
+      {} as never, // jobs
+      {} as never, // access
+      {} as never, // templatesService
+      {} as never, // attemptService
+      {} as never, // questionTypes
+      {} as never, // pdfService
     );
 
-    await expect(grading.getSubmissions('exam-1', 'teacher-1')).rejects.toBeInstanceOf(NotFoundException);
-    await expect(omr.findMany('exam-1', 'teacher-1', 1, 20)).rejects.toBeInstanceOf(NotFoundException);
-    expect(exams.findOne).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: 'exam-1', teacher_id: 'teacher-1' }),
-    }));
+    await expect(grading.getSubmissions('exam-1', 'teacher-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(omr.findMany('exam-1', 'teacher-1', 1, 20)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(exams.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'exam-1', teacher_id: 'teacher-1' }),
+      }),
+    );
   });
 });

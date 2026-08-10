@@ -13,9 +13,13 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource, LessThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
+import { LearningMetricsService, ProductFinancialMetricsService } from '../common/metrics';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../config/feature-flags';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
+import { ItemType } from '../payments/entities/item-type.enum';
+import { fromMinorUnits } from '../payments/money.util';
+import { ReviewsService } from '../reviews/reviews.service';
 import { Subject } from '../subjects/entities/subject.entity';
 import { usableSubjectByIdWhere } from '../subjects/subject-visibility.util';
 import { User } from '../users/entities/user.entity';
@@ -70,10 +74,58 @@ export interface LessonWithDetails {
   created_at: Date;
   updated_at: Date;
 }
+/**
+ * Statistics for one lesson, as returned by `GET /admin/lessons/:id/stats`.
+ *
+ * Every field is derived from a canonical source (DEF-007) — there is no
+ * estimate here. Money is in **major units** (EGP), matching `lesson.price`,
+ * and `currency` says which currency that is.
+ */
 export interface LessonStats {
+  /**
+   * Settled *direct* purchases of this lesson: orders with `item_type` of
+   * `lesson` or `lesson_session` that reached a paid state behind a finalised
+   * payment. Buying the lesson inside a course is **not** counted here — that
+   * sale belongs to the course.
+   */
   purchaseCount: number;
+  /** Unique students behind `purchaseCount`; a repeat buyer counts once. */
+  uniqueStudentCount: number;
+  /**
+   * Unique students who can actually open the lesson, from direct sales *and*
+   * from courses that contain it. This is the "how many students have this
+   * lesson" number, and it is normally larger than `uniqueStudentCount`.
+   */
+  studentsWithAccessCount: number;
+  /** Students who have marked the lesson complete in `lesson_progress`. */
+  completedCount: number;
+  /**
+   * **Net** revenue from direct sales: what students were charged after
+   * discounts, minus everything refunded. This is the figure to label simply
+   * "revenue"; `grossRevenue` and `refundedAmount` break it down.
+   */
   totalRevenue: number;
-  averageRating: number;
+  /** Charged after discount, before refunds. */
+  grossRevenue: number;
+  /** Discount granted at checkout across settled direct orders. */
+  discountAmount: number;
+  /** Cumulative refunds against settled direct orders. */
+  refundedAmount: number;
+  /** Teacher entitlement after proportional refund reversal. */
+  teacherEarnings: number;
+  /** Platform commission after proportional refund reversal. */
+  platformCommission: number;
+  /** Currency of every monetary field above. */
+  currency: string;
+  /** True when this lesson has settled orders in more than one currency. */
+  mixedCurrency: boolean;
+  /**
+   * Mean approved review rating, 2 dp. **`null` means "not yet rated"** — it is
+   * deliberately not `0`, which would read as one star.
+   */
+  averageRating: number | null;
+  /** Approved reviews backing `averageRating`. */
+  reviewCount: number;
 }
 interface LessonListRawRow {
   id: string;
@@ -94,11 +146,40 @@ interface LessonListRawRow {
   duration: number | null;
   is_group: boolean;
   available_for_days: number;
-  students_count: number;
+  /** `COUNT()` from the live subquery — pg returns bigint aggregates as strings. */
+  students_count: string | number;
   status: LessonStatus;
   created_at: Date | string;
   updated_at: Date | string;
 }
+
+/**
+ * Live student count for a lesson, as a correlated subquery.
+ *
+ * Replaces reads of the denormalised `lessons.students_count`, which is
+ * rendered as "Students" in the admin, teacher and public surfaces but does not
+ * mean that (DEF-007):
+ *
+ * - It counts **orders**, not students. `PaymentFinalizationService` increments
+ *   it once per settled purchase, so a student who re-buys after expiry is
+ *   counted twice.
+ * - `RefundsService.revokeAccess` decrements it only on a *full* refund, and
+ *   nothing reconciles the two, so any missed decrement is permanent — it can
+ *   even go negative if a refund lands on a purchase made before the counter
+ *   existed.
+ * - The column was added by `1820000004000-FixLessonsColumns` with `DEFAULT 0`
+ *   and no backfill, so every purchase predating that migration is missing.
+ *
+ * Counting `lesson_purchases` instead is drift-proof by construction, gives the
+ * unique-student meaning the UI implies, covers direct sales and course-bundled
+ * access alike, and stays usable as a SQL sort key. Requires
+ * `IDX_lesson_purchases_lesson_student_live`.
+ */
+const LESSON_STUDENT_COUNT_SQL = `(
+  SELECT COUNT(DISTINCT lp.student_id)
+    FROM lesson_purchases lp
+   WHERE lp.lesson_id = lesson.id AND lp.revoked_at IS NULL
+)`;
 
 @Injectable()
 export class LessonsService {
@@ -118,6 +199,9 @@ export class LessonsService {
     private readonly media: MediaService,
     private readonly lessonSessions: LessonSessionsService,
     private readonly dataSource: DataSource,
+    private readonly productFinancialMetrics: ProductFinancialMetricsService,
+    private readonly learningMetrics: LearningMetricsService,
+    private readonly reviewsService: ReviewsService,
   ) {}
 
   /**
@@ -205,7 +289,7 @@ export class LessonsService {
       );
     }
 
-    return this.mapToLessonWithDetails(fullLesson);
+    return await this.mapToLessonWithDetails(fullLesson);
   }
 
   /**
@@ -275,7 +359,7 @@ export class LessonsService {
       .addSelect('lesson.duration', 'duration')
       .addSelect('lesson.is_group', 'is_group')
       .addSelect('lesson.available_for_days', 'available_for_days')
-      .addSelect('lesson.students_count', 'students_count')
+      .addSelect(LESSON_STUDENT_COUNT_SQL, 'students_count')
       .addSelect('lesson.status', 'status')
       .addSelect('lesson.created_at', 'created_at')
       .addSelect('lesson.updated_at', 'updated_at')
@@ -360,7 +444,10 @@ export class LessonsService {
         : sortBy === 'title'
           ? 'lesson.title'
           : sortBy === 'students_count'
-            ? 'lesson.students_count'
+            ? // Sorting has to happen in SQL over the whole filtered set, so it
+              // uses the same live subquery the projection does rather than the
+              // dead denormalised column.
+              LESSON_STUDENT_COUNT_SQL
             : 'lesson.created_at';
 
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
@@ -393,7 +480,8 @@ export class LessonsService {
       duration: row.duration,
       is_group: row.is_group,
       available_for_days: row.available_for_days,
-      students_count: row.students_count,
+      // COUNT() arrives as a string on the raw-row path.
+      students_count: Number(row.students_count),
       status: row.status,
       created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
       updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
@@ -455,7 +543,7 @@ export class LessonsService {
       );
     }
 
-    return this.mapToLessonWithDetails(lesson);
+    return await this.mapToLessonWithDetails(lesson);
   }
 
   public async findOnePublic(id: string): Promise<PublicLessonResponseDto> {
@@ -468,7 +556,7 @@ export class LessonsService {
       throw new NotFoundException(biBody('Lesson not found', 'Lesson not found'));
     }
 
-    return toPublicLessonResponse(this.mapToLessonWithDetails(lesson), (value) =>
+    return toPublicLessonResponse(await this.mapToLessonWithDetails(lesson), (value) =>
       this.media.resolveThumbnailUrl(value),
     );
   }
@@ -547,7 +635,7 @@ export class LessonsService {
       );
     }
 
-    return this.mapToLessonWithDetails(fullLesson);
+    return await this.mapToLessonWithDetails(fullLesson);
   }
 
   /**
@@ -615,7 +703,7 @@ export class LessonsService {
       lesson.status = LessonStatus.PUBLISHED;
       await this.lessonsRepository.save(lesson);
     }
-    return this.mapToLessonWithDetails(lesson);
+    return await this.mapToLessonWithDetails(lesson);
   }
 
   /** Teachers may hide or return a lesson to draft, but never publish here. */
@@ -627,7 +715,7 @@ export class LessonsService {
     const lesson = await this.findOwnedLesson(lessonId, teacherId, ['teacher', 'subject']);
     lesson.status = visibility;
     await this.lessonsRepository.save(lesson);
-    return this.mapToLessonWithDetails(lesson);
+    return await this.mapToLessonWithDetails(lesson);
   }
 
   /**
@@ -710,12 +798,27 @@ export class LessonsService {
   }
 
   /**
-   * Get lesson statistics
-   * Returns purchase count, revenue, etc.
+   * Statistics for one lesson, from the canonical sources only.
+   *
+   * Each group of fields comes from the one service that owns that definition,
+   * so this method contains no business arithmetic of its own:
+   *
+   * | Fields                    | Source                                            |
+   * |---------------------------|---------------------------------------------------|
+   * | money, purchase counts    | `ProductFinancialMetricsService` (settled `orders`) |
+   * | access / completion       | `LearningMetricsService` (`lesson_purchases`, `lesson_progress`) |
+   * | rating                    | `ReviewsService` (approved `lesson_reviews`)      |
+   *
+   * The previous implementation estimated revenue as `lesson.price ×
+   * students_count` and hardcoded the rating to `0` (DEF-007). That estimate
+   * silently ignored discounts, refunds and commission, charged the *current*
+   * catalogue price against historical sales, and counted course-bundled
+   * grants — which pay nothing towards this lesson — as full-price purchases.
    */
   public async getLessonStats(lessonId: string): Promise<LessonStats> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
+      select: { id: true },
     });
 
     if (!lesson) {
@@ -724,32 +827,37 @@ export class LessonsService {
       );
     }
 
-    // TODO: Implement actual stats queries when Purchases module is ready
-    // For now, return placeholder stats
+    const [financial, engagement, rating] = await Promise.all([
+      // A lesson sells as an outright purchase or as a bookable session; both
+      // are direct sales of this lesson, matching the pairing ReportsService
+      // uses for its "lessons" revenue bucket.
+      this.productFinancialMetrics.getProductFinancialMetricsForTypes(
+        [ItemType.LESSON, ItemType.LESSON_SESSION],
+        lessonId,
+      ),
+      this.learningMetrics.getLessonEngagementMetrics(lessonId),
+      this.reviewsService.getLessonAggregates(lessonId),
+    ]);
+
+    const money = financial.primary;
     return {
-      purchaseCount: lesson.students_count,
-      totalRevenue: lesson.price * lesson.students_count,
-      averageRating: 0,
+      purchaseCount: money.order_count,
+      uniqueStudentCount: money.unique_student_count,
+      studentsWithAccessCount: engagement.students_with_access,
+      completedCount: engagement.students_completed,
+      totalRevenue: fromMinorUnits(money.net_revenue_minor),
+      grossRevenue: fromMinorUnits(money.gross_sales_minor),
+      discountAmount: fromMinorUnits(money.discount_amount_minor),
+      refundedAmount: fromMinorUnits(money.refund_amount_minor),
+      teacherEarnings: fromMinorUnits(money.teacher_earnings_minor),
+      platformCommission: fromMinorUnits(money.platform_commission_minor),
+      currency: money.currency,
+      mixedCurrency: financial.mixed_currency,
+      // ReviewsService reports 0 for "no reviews"; the API contract here is an
+      // explicit null so the UI shows "not rated" rather than one star.
+      averageRating: rating.total_reviews === 0 ? null : rating.average_rating,
+      reviewCount: rating.total_reviews,
     };
-  }
-
-  /**
-   * Increment students count when a lesson is purchased
-   * Called internally by Purchases module
-   */
-  public async incrementStudentsCount(lessonId: string): Promise<void> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId },
-    });
-
-    if (!lesson) {
-      throw new NotFoundException(
-        biBody(`Lesson with ID ${lessonId} not found`, `الدرس بالمعرّف ${lessonId} غير موجود`),
-      );
-    }
-
-    lesson.students_count += 1;
-    await this.lessonsRepository.save(lesson);
   }
 
   /* ============================================================
@@ -1131,8 +1239,11 @@ export class LessonsService {
   /**
    * Helper method to map Lesson entity to response type
    */
-  private mapToLessonWithDetails(lesson: Lesson): LessonWithDetails {
+  private async mapToLessonWithDetails(lesson: Lesson): Promise<LessonWithDetails> {
     const thumbnail = this.media.canonicalPublicReference(lesson.thumbnail);
+    // Live count from lesson_purchases; the denormalised `lesson.students_count`
+    // counts orders and can drift (see LESSON_STUDENT_COUNT_SQL) and is not read.
+    const studentCounts = await this.learningMetrics.getLessonStudentCounts([lesson.id]);
     return {
       id: lesson.id,
       title: lesson.title,
@@ -1159,7 +1270,7 @@ export class LessonsService {
       is_group: lesson.is_group,
       is_free_preview: lesson.is_free_preview,
       available_for_days: lesson.available_for_days,
-      students_count: lesson.students_count,
+      students_count: studentCounts.get(lesson.id) ?? 0,
       status: lesson.status,
       created_at: lesson.created_at,
       updated_at: lesson.updated_at,

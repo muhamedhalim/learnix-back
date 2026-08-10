@@ -1,36 +1,35 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { BillingDataDto } from '../../payments/dto/billing-data.dto';
+import { PaymentMethod } from '../../payments/entities/payment-method.enum';
 
 /**
- * Payment method types for cart checkout
- */
-export enum PaymentMethod {
-  PAYMOB = 'paymob',
-  ATTENDANCE_CODE = 'attendance_code',
-}
-
-/**
- * DTO for checking out cart
+ * Cart checkout intentionally supports only the configured hosted gateway.
+ * Activation codes remain product-specific and must be redeemed separately.
  */
 export class CheckoutCartDto {
-  @IsEnum(PaymentMethod)
-  public paymentMethod!: PaymentMethod;
+  @IsIn([PaymentMethod.CARD])
+  public payment_method!: PaymentMethod.CARD;
 
-  @ApiPropertyOptional({
-    description: 'Discount code to apply (optional)',
-    example: 'SUMMER2024',
-  })
+  @ValidateNested()
+  @Type(() => BillingDataDto)
+  public billing_data!: BillingDataDto;
+
   @IsOptional()
   @IsString()
-  public discountCode?: string;
+  @MaxLength(50)
+  public discount_code?: string;
 
-  @ApiPropertyOptional({
-    description:
-      'Attendance code (required if paymentMethod is attendance_code)',
-    example: 'ABC123',
-  })
+  /** Reusing this value returns the original checkout instead of a new charge. */
   @IsOptional()
   @IsString()
-  public attendanceCode?: string;
+  @MaxLength(255)
+  public idempotency_key?: string;
 }

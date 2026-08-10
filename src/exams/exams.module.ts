@@ -25,10 +25,13 @@ import {
   ExamQuestion,
   ExamSection,
   OmrSheet,
+  OmrTemplate,
   Question,
   QuestionVersion,
 } from './entities';
 import { GradingService } from './grading/grading.service';
+import { FiducialMarkerOmrRecognitionProvider } from './omr-recognition/fiducial-marker-recognition.provider';
+import { OMR_RECOGNITION_PROVIDER } from './omr-recognition/omr-recognition.interface';
 import { ExamAiGradingProcessor } from './processors/exam-ai-grading.processor';
 import { ExamAnalyticsProcessor } from './processors/exam-analytics.processor';
 import { ExamAutoSubmitProcessor } from './processors/exam-auto-submit.processor';
@@ -42,7 +45,9 @@ import { ExamAccessService } from './services/exam-access.service';
 import { ExamAuthoringService } from './services/exam-authoring.service';
 import { ExamGradedPublisher } from './services/exam-graded-publisher.service';
 import { ExamJobsService } from './services/exam-jobs.service';
+import { OmrSheetPdfService } from './services/omr-sheet-pdf.service';
 import { OmrSheetsService } from './services/omr-sheets.service';
+import { OmrTemplatesService } from './services/omr-templates.service';
 import { QuestionBankService } from './services/question-bank.service';
 import { TeacherGradingService } from './services/teacher-grading.service';
 
@@ -62,6 +67,13 @@ import { TeacherGradingService } from './services/teacher-grading.service';
       ExamAttempt,
       ExamAttemptAnswer,
       OmrSheet,
+      // `OmrSheet.template` points here. Without the registration
+      // `autoLoadEntities` never sees this entity and TypeORM fails to build
+      // metadata for the whole DataSource ("Entity metadata for
+      // OmrSheet#template was not found"), which prevents the application from
+      // booting at all. Unrelated to DEF-005 — repaired here because no E2E
+      // suite in this working tree could start otherwise.
+      OmrTemplate,
       Subject,
       Lesson,
       LessonPackage,
@@ -102,7 +114,12 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     TeacherGradingService,
     ExamAiGradingService,
     AdminExamsService,
+    OmrTemplatesService,
     OmrSheetsService,
+    OmrSheetPdfService,
+    // Behind an interface — the rest of the app depends only on
+    // OMR_RECOGNITION_PROVIDER, never on this concrete CV implementation.
+    { provide: OMR_RECOGNITION_PROVIDER, useClass: FiducialMarkerOmrRecognitionProvider },
     // Emits ExamGradedEvent post-commit; the notifications module listens.
     ExamGradedPublisher,
     // Jobs (producer + workers)

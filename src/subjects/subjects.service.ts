@@ -21,6 +21,7 @@ import {
 } from '../activity-logs/events/audit.events';
 import { PaginatedResponse } from '../common/interfaces/pagination.interface';
 import { biBody } from '../i18n/error-translator.util';
+import { TeachersService } from '../teachers/teachers.service';
 import {
   AdminSubjectFilterDto,
   ApproveSubjectDto,
@@ -45,6 +46,13 @@ type Audience =
 interface ActorContext {
   actorId: string;
   ipAddress?: string | undefined;
+}
+
+/** Parsed relationship counts for one subject. @see SubjectsService.loadSubjectCounts */
+interface SubjectCountsRow {
+  teachersCount: number;
+  lessonsCount: number;
+  coursesCount: number;
 }
 
 /** Fields the public catalogue exposes. Deliberately excludes owner + status. */
@@ -94,6 +102,7 @@ export class SubjectsService {
     private readonly subjectsRepository: Repository<Subject>,
     private readonly dataSource: DataSource,
     private readonly activityLogs: ActivityLogsService,
+    private readonly teachersService: TeachersService,
   ) {}
 
   // ───────────────────────────────────────────────────────── creation ──────
@@ -483,38 +492,45 @@ export class SubjectsService {
   // ──────────────────────────────────────────────────────── legacy API ─────
 
   /**
-   * Find teachers by subject ID
-   * Returns teachers who teach this subject with their stats
+   * Teachers who teach this subject — `GET /subjects/:id/teachers`.
+   *
+   * The relationship is the explicit `teacher_subjects` join table, not an
+   * inference from who happens to own content tagged with the subject: a
+   * teacher declares their subjects on their profile, and that declaration is
+   * what the directory is built on.
+   *
+   * Delegates to `TeachersService.findApprovedTeachersPublic` rather than
+   * querying here, so this unauthenticated route returns exactly the sanitized
+   * public projection (no email, phone or status) and applies exactly the same
+   * visibility rule — approved, non-deleted teacher with a non-deleted user.
+   * Previously this returned a hardcoded empty page (DEF-007).
    */
   public async findTeachersBySubject(
     subjectId: string,
     page = 1,
     limit = 20,
   ): Promise<PaginatedResponse<Record<string, unknown>>> {
-    // First verify the subject exists and is publicly visible
+    // 404s unless the subject exists and is in the public catalogue, so this
+    // route cannot be used to probe pending/suspended subjects.
     await this.findOnePublic(subjectId);
 
-    // TODO: Implement when TeachersService is expanded
-    // For now, return empty array structure
-    const total = 0;
-    const totalPages = Math.ceil(total / limit);
+    const result = await this.teachersService.findApprovedTeachersPublic({
+      subjectId,
+      page,
+      limit,
+    });
 
     return {
-      data: [],
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-      },
+      data: result.data as unknown as Record<string, unknown>[],
+      meta: result.meta,
     };
   }
 
   /**
-   * Get subjects with teacher and lesson counts
-   * Used for admin dashboard
+   * Every subject with its relationship counts — `GET /admin/subjects/counts`.
+   *
+   * Counts come from one grouped query over the returned page rather than a
+   * count per subject; see {@link loadSubjectCounts} for the definitions.
    */
   public async getSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
     const subjects = await this.subjectsRepository.find({
@@ -522,13 +538,8 @@ export class SubjectsService {
       take: 100,
     });
 
-    // TODO: Add actual counts when relations are established
-    return subjects.map((subject) =>
-      Object.assign({}, subject, {
-        teachersCount: 0,
-        lessonsCount: 0,
-      }),
-    );
+    const counts = await this.loadSubjectCounts(subjects.map((subject) => subject.id));
+    return subjects.map((subject) => this.withCounts(subject, counts));
   }
 
   // ────────────────────────────────────────────────────────── private ──────
@@ -762,8 +773,9 @@ export class SubjectsService {
     audience: Audience,
   ): Promise<PaginatedResponse<SubjectWithCounts>> {
     const { rows, meta } = await this.runListQuery(filter, audience, false);
+    const counts = await this.loadSubjectCounts(rows.map((subject) => subject.id));
     return {
-      data: rows.map((subject) => this.withCounts(subject)),
+      data: rows.map((subject) => this.withCounts(subject, counts)),
       meta,
     };
   }
@@ -774,9 +786,10 @@ export class SubjectsService {
     audience: Audience,
   ): Promise<PaginatedResponse<SubjectAdminView>> {
     const { rows, meta } = await this.runListQuery(filter, audience, true);
+    const counts = await this.loadSubjectCounts(rows.map((subject) => subject.id));
     return {
       data: rows.map((subject) =>
-        Object.assign(this.withCounts(subject), {
+        Object.assign(this.withCounts(subject, counts), {
           owner_name: subject.created_by_teacher?.name ?? null,
         }),
       ),
@@ -784,12 +797,76 @@ export class SubjectsService {
     };
   }
 
-  private withCounts(subject: Subject): SubjectWithCounts {
+  private withCounts(subject: Subject, counts: Map<string, SubjectCountsRow>): SubjectWithCounts {
+    const row = counts.get(subject.id);
     return Object.assign({}, subject, {
-      // TODO: optimize with subqueries when teachers/lessons counts are needed
-      teachersCount: 0,
-      lessonsCount: 0,
+      teachersCount: row?.teachersCount ?? 0,
+      lessonsCount: row?.lessonsCount ?? 0,
+      coursesCount: row?.coursesCount ?? 0,
     });
+  }
+
+  /**
+   * Relationship counts for a page of subjects, in a single grouped query.
+   *
+   * These used to be hardcoded zeros while being rendered as "Teachers" and
+   * "Lessons" columns in the admin catalogue (DEF-007). The definitions:
+   *
+   * - **teachersCount** — teachers linked through the `teacher_subjects` join
+   *   table whose profile and user are both live and whose user is `approved`.
+   *   Identical to the population `GET /subjects/:id/teachers` lists, so the
+   *   count and the list can never disagree.
+   * - **lessonsCount** — non-deleted lessons carrying this `subject_id`, in any
+   *   publishing state. Draft lessons are included deliberately: this matches
+   *   the reference count the delete guard enforces, so a subject showing 5
+   *   lessons is exactly a subject whose deletion will be blocked by 5 lessons.
+   * - **coursesCount** — non-deleted courses (`lesson_packages`), same rule.
+   *
+   * `COUNT(DISTINCT …)` on the teacher join guards against a subject being
+   * counted twice if a profile ever gains duplicate join rows.
+   */
+  private async loadSubjectCounts(
+    subjectIds: readonly string[],
+  ): Promise<Map<string, SubjectCountsRow>> {
+    if (subjectIds.length === 0) return new Map();
+
+    const rows = await this.dataSource.query<
+      Array<{
+        subject_id: string;
+        teachers_count: string;
+        lessons_count: string;
+        courses_count: string;
+      }>
+    >(
+      `SELECT s.id AS subject_id,
+              (SELECT COUNT(DISTINCT ts.teacher_profile_id)
+                 FROM teacher_subjects ts
+                 INNER JOIN teacher_profiles tp ON tp.id = ts.teacher_profile_id
+                 INNER JOIN users u ON u.id = tp.user_id
+                WHERE ts.subject_id = s.id
+                  AND tp.deleted_at IS NULL
+                  AND u.deleted_at IS NULL
+                  AND u.status = 'approved')::text AS teachers_count,
+              (SELECT COUNT(*)
+                 FROM lessons l
+                WHERE l.subject_id = s.id AND l.deleted_at IS NULL)::text AS lessons_count,
+              (SELECT COUNT(*)
+                 FROM lesson_packages p
+                WHERE p.subject_id = s.id AND p.deleted_at IS NULL)::text AS courses_count
+         FROM unnest($1::uuid[]) AS s(id)`,
+      [[...subjectIds]],
+    );
+
+    return new Map(
+      rows.map((row) => [
+        row.subject_id,
+        {
+          teachersCount: Number.parseInt(row.teachers_count, 10),
+          lessonsCount: Number.parseInt(row.lessons_count, 10),
+          coursesCount: Number.parseInt(row.courses_count, 10),
+        },
+      ]),
+    );
   }
 
   /** Shared list query for every audience. */

@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -12,6 +11,7 @@ import { In, IsNull, Repository } from 'typeorm';
 import { biBody } from '../i18n/error-translator.util';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { CartCheckoutService } from '../payments/services/cart-checkout.service';
 import { AddToCartDto, CartItemResponseDto, CartResponseDto, CheckoutCartDto } from './dto';
 import { Cart } from './entities/cart.entity';
 import { CartItem, CartItemType } from './entities/cart-item.entity';
@@ -29,6 +29,7 @@ export class CartService {
     private readonly lessonsRepository: Repository<Lesson>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
+    private readonly cartCheckout: CartCheckoutService,
   ) {}
 
   /**
@@ -159,30 +160,16 @@ export class CartService {
   }
 
   /**
-   * Checkout cart.
-   *
-   * NOT YET IMPLEMENTED. Multi-item cart checkout requires a payment design that
-   * does not exist yet: the Payment schema models a single item per payment, so
-   * a cart of N items needs either a "cart order" concept (the gateway charges
-   * one order) or a bulk attendance-code redemption + bulk access grant.
-   *
-   * The previous placeholder was actively harmful: it returned a fake payment URL
-   * and, for the attendance-code path, CLEARED THE CART and reported success
-   * without redeeming the code or granting any access (silent data loss + a lie
-   * to the user). Until the real flow is built we fail honestly with 501 so the
-   * client shows an error instead of a false success; students purchase items
-   * individually through the payments endpoints in the meantime.
+   * Starts the aggregate hosted-gateway checkout.  The Checkout service
+   * revalidates the cart and creates one external charge with normal,
+   * product-scoped child Orders; it never clears a cart at initiation.
    */
-  public checkout(
-    _userId: string,
-    _dto: CheckoutCartDto,
+  public async checkout(
+    userId: string,
+    dto: CheckoutCartDto,
   ): Promise<{ message: string; data: unknown }> {
-    throw new NotImplementedException(
-      biBody(
-        'Cart checkout is not available yet. Please purchase items individually.',
-        'الدفع من السلة غير متاح حاليًا. يرجى شراء العناصر بشكل منفصل.',
-      ),
-    );
+    const checkout = await this.cartCheckout.checkout(userId, dto);
+    return { message: 'Cart checkout created', data: checkout };
   }
 
   /**

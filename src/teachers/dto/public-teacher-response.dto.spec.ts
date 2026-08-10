@@ -43,8 +43,12 @@ describe('public teacher serialization', () => {
       created_at: new Date('2026-01-01T00:00:00Z'),
     });
 
-    const result = toPublicTeacherResponse(profile, (value) =>
-      value ? `https://api.example.com/api/v1/media/public/${value}` : null,
+    const result = toPublicTeacherResponse(
+      profile,
+      (value) => (value ? `https://api.example.com/api/v1/media/public/${value}` : null),
+      // Ratings are supplied by the caller from approved reviews; the legacy
+      // `profile.rating` column above is deliberately ignored (DEF-007).
+      { average: 4.8, count: 12 },
     );
     expect(result).toMatchSnapshot();
     expect(result).toMatchObject({

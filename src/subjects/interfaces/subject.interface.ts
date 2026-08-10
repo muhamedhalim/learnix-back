@@ -1,11 +1,19 @@
 import type { Subject } from '../entities/subject.entity';
 
 /**
- * Subject with aggregated counts for listing
+ * Subject with aggregated relationship counts for listing.
+ *
+ * All three are real `COUNT`s over the canonical relations — see
+ * `SubjectsService.loadSubjectCounts` for the exact definitions and why draft
+ * content is included.
  */
 export interface SubjectWithCounts extends Subject {
+  /** Approved, non-deleted teachers linked through `teacher_subjects`. */
   teachersCount: number;
+  /** Non-deleted lessons carrying this `subject_id`, in any publishing state. */
   lessonsCount: number;
+  /** Non-deleted courses carrying this `subject_id`, in any publishing state. */
+  coursesCount: number;
 }
 
 /**

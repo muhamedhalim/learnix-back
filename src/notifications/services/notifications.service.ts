@@ -17,10 +17,13 @@ import {
 } from '../dto';
 import {
   Notification,
+  NotificationChannel,
   NotificationSettings,
   NotificationStatus,
   NotificationType,
 } from '../entities';
+import { NotificationChannelPolicyService } from './notification-channel-policy.service';
+import { PushNotificationJobsService } from './push-notification-jobs.service';
 import { SmsSenderService } from './sms-sender.service';
 
 export interface PaginatedNotifications {
@@ -51,6 +54,15 @@ export type SupportTicketNotificationEvent =
 
 interface NotificationCreateOptions {
   dedupeKey?: string;
+  /**
+   * Fan the persisted notification out to the recipient's registered push
+   * devices. Default `true`: an in-app notification is *the* notification, and
+   * push is one of its transports. Enforcement of `push_enabled` happens inside
+   * `PushDispatchService`, never here — one policy chokepoint, not two.
+   *
+   * Set `false` only for records that are not user-facing announcements.
+   */
+  push?: boolean;
 }
 
 const SUPPORT_TICKET_COPY: Readonly<
@@ -110,20 +122,50 @@ const SUPPORT_TICKET_COPY: Readonly<
 };
 
 const SUPPORT_TICKET_COPY_AR: Readonly<
-  Record<SupportTicketNotificationEvent, { title: string; message: (ticketNumber: string) => string }>
+  Record<
+    SupportTicketNotificationEvent,
+    { title: string; message: (ticketNumber: string) => string }
+  >
 > = {
   created: { title: 'تم استلام طلب الدعم', message: (number) => `تم استلام طلب الدعم ${number}.` },
-  assigned: { title: 'تم تعيين التذكرة', message: (number) => `تم تعيين تذكرة الدعم ${number} إليك.` },
-  agent_reply: { title: 'وصل رد من الدعم', message: (number) => `يوجد رد جديد في تذكرة الدعم ${number}.` },
-  waiting_for_user: { title: 'مطلوب معلومات للدعم', message: (number) => `ينتظر الدعم ردك على التذكرة ${number}.` },
-  escalated: { title: 'طلب الدعم قيد المراجعة', message: (number) => `تذكرة الدعم ${number} قيد مراجعة إضافية.` },
+  assigned: {
+    title: 'تم تعيين التذكرة',
+    message: (number) => `تم تعيين تذكرة الدعم ${number} إليك.`,
+  },
+  agent_reply: {
+    title: 'وصل رد من الدعم',
+    message: (number) => `يوجد رد جديد في تذكرة الدعم ${number}.`,
+  },
+  waiting_for_user: {
+    title: 'مطلوب معلومات للدعم',
+    message: (number) => `ينتظر الدعم ردك على التذكرة ${number}.`,
+  },
+  escalated: {
+    title: 'طلب الدعم قيد المراجعة',
+    message: (number) => `تذكرة الدعم ${number} قيد مراجعة إضافية.`,
+  },
   resolved: { title: 'تم حل طلب الدعم', message: (number) => `تم حل تذكرة الدعم ${number}.` },
   closed: { title: 'تم إغلاق طلب الدعم', message: (number) => `تم إغلاق تذكرة الدعم ${number}.` },
-  reopened: { title: 'تمت إعادة فتح طلب الدعم', message: (number) => `تمت إعادة فتح تذكرة الدعم ${number}.` },
-  sla_first_response_warning: { title: 'اقترب موعد الرد الأول', message: (number) => `اقترب موعد الرد الأول لتذكرة ${number}.` },
-  sla_first_response_exceeded: { title: 'تجاوز موعد الرد الأول', message: (number) => `تجاوزت التذكرة ${number} موعد الرد الأول.` },
-  sla_resolution_warning: { title: 'اقترب موعد الحل', message: (number) => `اقترب موعد حل التذكرة ${number}.` },
-  sla_resolution_exceeded: { title: 'تجاوز موعد الحل', message: (number) => `تجاوزت التذكرة ${number} موعد الحل.` },
+  reopened: {
+    title: 'تمت إعادة فتح طلب الدعم',
+    message: (number) => `تمت إعادة فتح تذكرة الدعم ${number}.`,
+  },
+  sla_first_response_warning: {
+    title: 'اقترب موعد الرد الأول',
+    message: (number) => `اقترب موعد الرد الأول لتذكرة ${number}.`,
+  },
+  sla_first_response_exceeded: {
+    title: 'تجاوز موعد الرد الأول',
+    message: (number) => `تجاوزت التذكرة ${number} موعد الرد الأول.`,
+  },
+  sla_resolution_warning: {
+    title: 'اقترب موعد الحل',
+    message: (number) => `اقترب موعد حل التذكرة ${number}.`,
+  },
+  sla_resolution_exceeded: {
+    title: 'تجاوز موعد الحل',
+    message: (number) => `تجاوزت التذكرة ${number} موعد الحل.`,
+  },
 };
 
 @Injectable()
@@ -133,12 +175,12 @@ export class NotificationsService {
   constructor(
     @InjectRepository(Notification)
     private readonly notificationsRepository: Repository<Notification>,
-    @InjectRepository(NotificationSettings)
-    private readonly settingsRepository: Repository<NotificationSettings>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly guardiansService: GuardiansService,
     private readonly smsSenderService: SmsSenderService,
+    private readonly channelPolicy: NotificationChannelPolicyService,
+    private readonly pushJobs: PushNotificationJobsService,
   ) {}
 
   /**
@@ -212,6 +254,20 @@ export class NotificationsService {
     // Fan out to guardians if requested.
     if (sendSms && dto.send_sms !== false) {
       await this.dispatchToGuardians(saved);
+    }
+
+    // Fan out to the recipient's own devices. Enqueued rather than awaited on
+    // the provider, and never allowed to fail the caller: a push problem must
+    // not roll back the exam grade or homework submission that produced this.
+    if (options.push !== false) {
+      try {
+        await this.pushJobs.enqueueDelivery(saved.id);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to enqueue push for notification ${saved.id}: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
     }
 
     return saved;
@@ -404,8 +460,16 @@ export class NotificationsService {
       return;
     }
 
-    const settings = await this.getOrCreateSettings(notification.user_id);
-    if (!settings.sms_enabled) {
+    // Channel policy, via the single chokepoint. Behaviour is unchanged from
+    // the inline `settings.sms_enabled` check this replaces — the student's SMS
+    // preference has always gated the guardian fan-out — but it is now the same
+    // check the modern queue-backed pipeline makes, so the toggle cannot mean
+    // one thing on one path and nothing on the other.
+    const smsAllowed = await this.channelPolicy.isAllowed(
+      notification.user_id,
+      NotificationChannel.SMS,
+    );
+    if (!smsAllowed) {
       await this.notificationsRepository.update(notification.id, {
         status: NotificationStatus.SENT,
         attempts,
@@ -644,62 +708,30 @@ export class NotificationsService {
   }
 
   /**
-   * Get or create notification settings for a user
+   * Get or create notification settings for a user.
+   *
+   * Delegates to `NotificationChannelPolicyService`, which owns the settings
+   * row. Kept here because existing callers (the settings controller, specs)
+   * address it through this service — but there is exactly one implementation,
+   * so what the Settings screen reads and what a dispatcher enforces cannot
+   * diverge.
    */
   public async getOrCreateSettings(userId: string): Promise<NotificationSettings> {
-    let settings = await this.settingsRepository.findOne({
-      where: { user_id: userId },
-    });
-
-    if (!settings) {
-      settings = this.settingsRepository.create({
-        user_id: userId,
-        sms_enabled: true,
-        email_enabled: false,
-        push_enabled: false,
-        notify_parent_on_attendance: true,
-        notify_parent_on_exam_grade: true,
-        notify_parent_on_lesson_expiry: true,
-        notify_on_purchase: true,
-      });
-      settings = await this.settingsRepository.save(settings);
-    }
-
-    return settings;
+    return await this.channelPolicy.getOrCreateSettings(userId);
   }
 
   /**
-   * Update notification settings for a user
+   * Update notification settings for a user.
+   *
+   * Channel fields only. The four `notify_parent_on_*` names the DTO still
+   * accepts are deprecated no-ops — guardian event preferences live on the
+   * guardian link (`PUT /student/guardians/:guardianId/preferences`). See
+   * `UpdateNotificationSettingsDto` and migration 2079000000000.
    */
   public async updateSettings(
     userId: string,
     dto: UpdateNotificationSettingsDto,
   ): Promise<NotificationSettings> {
-    const settings = await this.getOrCreateSettings(userId);
-
-    // Update only provided fields
-    if (dto.sms_enabled !== undefined) {
-      settings.sms_enabled = dto.sms_enabled;
-    }
-    if (dto.email_enabled !== undefined) {
-      settings.email_enabled = dto.email_enabled;
-    }
-    if (dto.push_enabled !== undefined) {
-      settings.push_enabled = dto.push_enabled;
-    }
-    if (dto.notify_parent_on_attendance !== undefined) {
-      settings.notify_parent_on_attendance = dto.notify_parent_on_attendance;
-    }
-    if (dto.notify_parent_on_exam_grade !== undefined) {
-      settings.notify_parent_on_exam_grade = dto.notify_parent_on_exam_grade;
-    }
-    if (dto.notify_parent_on_lesson_expiry !== undefined) {
-      settings.notify_parent_on_lesson_expiry = dto.notify_parent_on_lesson_expiry;
-    }
-    if (dto.notify_on_purchase !== undefined) {
-      settings.notify_on_purchase = dto.notify_on_purchase;
-    }
-
-    return await this.settingsRepository.save(settings);
+    return await this.channelPolicy.updateSettings(userId, dto);
   }
 }

@@ -373,7 +373,15 @@ export class EnvironmentVariables {
   @MinLength(12)
   public BULL_BOARD_PASSWORD?: string;
 
-  // Firebase (optional - for SMS notifications)
+  /**
+   * Firebase Admin credentials. Optional, and used for exactly two things:
+   * verifying Firebase ID tokens at sign-in, and Cloud Messaging — the push
+   * transport behind `PushProvider`. When unset, ID-token sign-in and push both
+   * report themselves unavailable; nothing else changes.
+   *
+   * SERVER-ONLY. The browser receives only the public web config, which lives
+   * in the frontend's own NEXT_PUBLIC_FIREBASE_* variables.
+   */
   @IsString()
   @IsOptional()
   public FIREBASE_PROJECT_ID?: string;

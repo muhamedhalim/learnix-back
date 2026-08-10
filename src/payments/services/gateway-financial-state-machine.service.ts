@@ -13,6 +13,7 @@ import {
 } from '../entities';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentFinalizationService } from './payment-finalization.service';
+import { CartCheckoutService } from './cart-checkout.service';
 import { RefundsService } from './refunds.service';
 
 /**
@@ -26,6 +27,7 @@ export class GatewayFinancialStateMachineService {
     private readonly dataSource: DataSource,
     private readonly finalizer: PaymentFinalizationService,
     private readonly refunds: RefundsService,
+    private readonly cartCheckout: CartCheckoutService,
   ) {}
 
   public async apply(
@@ -47,6 +49,54 @@ export class GatewayFinancialStateMachineService {
         where: { id: paymentId },
         lock: { mode: 'pessimistic_write' },
       });
+      if (payment?.cart_checkout_id && payment.order_id === null) {
+        if (webhook.outcome === 'succeeded' || webhook.outcome === 'refunded') {
+          try {
+            await this.cartCheckout.finalizeSuccessfulGatewayPayment(
+              {
+                paymentId: payment.id,
+                sourceReference: webhook.transactionId,
+                verifiedAmountMinor: webhook.amountMinor,
+                verifiedCurrency: webhook.currency,
+                ...(webhook.occurredAt === undefined
+                  ? {}
+                  : { verifiedOccurredAt: webhook.occurredAt }),
+              },
+              manager,
+            );
+            if (webhook.outcome === 'refunded') {
+              await this.cartCheckout.completeProviderRefundNotification(
+                manager,
+                payment.id,
+                webhook.transactionId,
+                webhook.amountMinor,
+                webhook.currency,
+              );
+            }
+          } catch (error) {
+            if (error instanceof UnprocessableEntityException || error instanceof NotFoundException) {
+              await this.cartCheckout.markFulfillmentReconciliation(
+                manager,
+                payment.id,
+                webhook.transactionId,
+                error.message,
+              );
+              return 'reconciliation_required';
+            }
+            throw error;
+          }
+          event.status = 'processed';
+          event.processed_at = new Date();
+          event.error_message = null;
+          event.last_error = null;
+          event.lease_token = null;
+          event.claimed_by = null;
+          event.lease_expires_at = null;
+          event.next_retry_at = null;
+          await manager.save(event);
+        }
+        return 'completed';
+      }
       if (!payment?.order_id) throw new NotFoundException('Payment not found');
       const order = await manager.findOne(Order, {
         where: { id: payment.order_id },

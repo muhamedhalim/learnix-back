@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Book } from '../books/entities/book.entity';
 import { BookPurchase } from '../books/entities/book-purchase.entity';
+import { Cart } from '../cart/entities/cart.entity';
+import { CartItem } from '../cart/entities/cart-item.entity';
 import { User } from '../users/entities/user.entity';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 // External modules
@@ -11,6 +13,7 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { ScheduledLessonSession } from '../lessons/entities/scheduled-lesson-session.entity';
 import { LessonSessionBooking } from '../lessons/entities/lesson-session-booking.entity';
 import { LessonSessionsService } from '../lessons/lesson-sessions.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ObservabilityModule } from '../observability/observability.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
@@ -25,6 +28,7 @@ import { TeacherPaymentsController } from './controllers/teacher-payments.contro
 // Entities
 import {
   Entitlement,
+  CartCheckout,
   FinancialLedgerEntry,
   FinancialMaintenanceRun,
   GatewayWebhookEvent,
@@ -45,6 +49,7 @@ import { PAYMENT_GATEWAY } from './providers/payment-gateway.interface';
 import { PaymobGateway } from './providers/paymob/paymob.gateway';
 // Services
 import { CommissionService } from './services/commission.service';
+import { CartCheckoutService } from './services/cart-checkout.service';
 import { EntitlementsService } from './services/entitlements.service';
 import { GatewayWebhookService } from './services/gateway-webhook.service';
 import { GatewayFinancialStateMachineService } from './services/gateway-financial-state-machine.service';
@@ -67,8 +72,14 @@ import { SettlementsService } from './services/settlements.service';
     // (finance maintenance, gateway reconciliation, webhook recovery). Safe to
     // import: ObservabilityModule has no module dependencies of its own.
     ObservabilityModule,
+    // Supplies NotificationEmailService to LessonSessionsService (provided
+    // here), so session lifecycle mail passes the `email_enabled` channel
+    // policy instead of calling MailService directly. NotificationsModule does
+    // not import PaymentsModule, so this arrow does not close a cycle.
+    NotificationsModule,
     TypeOrmModule.forFeature([
       Payment,
+      CartCheckout,
       // Manual method administration writes mandatory payment audit records.
       // Register the exact barrel-exported class that services use with
       // DataSource/EntityManager so autoLoadEntities includes its metadata.
@@ -93,6 +104,8 @@ import { SettlementsService } from './services/settlements.service';
       LessonPackage,
       Book,
       BookPurchase,
+      Cart,
+      CartItem,
       User,
     ]),
   ],
@@ -115,6 +128,7 @@ import { SettlementsService } from './services/settlements.service';
     },
     PaymentProviderRegistry,
     CommissionService,
+    CartCheckoutService,
     OrdersService,
     EntitlementsService,
     PaymentFinalizationService,
@@ -132,6 +146,7 @@ import { SettlementsService } from './services/settlements.service';
     PaymentsService,
     PAYMENT_GATEWAY,
     CommissionService,
+    CartCheckoutService,
     OrdersService,
     EntitlementsService,
     PaymentFinalizationService,

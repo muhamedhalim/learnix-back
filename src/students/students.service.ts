@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import { LearningMetricsService } from '../common/metrics';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
@@ -92,13 +93,31 @@ export interface PublicStudentProfile {
 }
 
 /**
- * Summary stats for a student
+ * Summary stats for a student, as returned by `GET /admin/students/:id/stats`
+ * and `GET /student/profile/stats`.
+ *
+ * Every field is a real query against the canonical tables (DEF-007); the
+ * previous implementation returned four hardcoded zeros.
  */
 export interface StudentStats {
+  /** Distinct lessons marked completed in `lesson_progress`. */
   lessonsCompleted: number;
+  /**
+   * Distinct lessons the student holds non-revoked access to — direct lesson
+   * purchases *and* lessons inside purchased courses, since both write a
+   * `lesson_purchases` row. Access revoked by a full refund is excluded.
+   */
   lessonsPurchased: number;
+  /** Distinct courses the student holds non-revoked access to. */
+  coursesPurchased: number;
+  /** Exam attempts in the terminal `graded` state. */
   examsCompleted: number;
-  averageScore: number;
+  /**
+   * Mean percentage score across graded attempts (`score_total / max_score`),
+   * 2 dp. **`null` means "has never completed a graded exam"** — reporting `0`
+   * there would misread as a failing student.
+   */
+  averageScore: number | null;
 }
 
 @Injectable()
@@ -116,6 +135,7 @@ export class StudentsService {
     private readonly examAttemptsRepository: Repository<ExamAttempt>,
     private readonly applicationCache: ApplicationCacheService,
     private readonly guardiansService: GuardiansService,
+    private readonly learningMetrics: LearningMetricsService,
   ) {}
 
   /**
@@ -556,12 +576,18 @@ export class StudentsService {
   }
 
   /**
-   * Get student statistics
-   * Returns lesson count, exam count, average score, etc.
+   * Get student statistics from the canonical learning tables.
+   *
+   * @param profileId accepts either a `student_profiles.id` or the underlying
+   *   `users.id`, matching the existing lookup contract. Purchases, progress
+   *   and attempts all key on the **user** id, so the profile is resolved first
+   *   and `profile.user_id` is what the metrics layer is asked about — passing
+   *   the profile id straight through would silently return zeros.
    */
   public async getStudentStats(profileId: string): Promise<StudentStats> {
     const profile = await this.studentProfilesRepository.findOne({
       where: [{ id: profileId }, { user_id: profileId }],
+      select: { id: true, user_id: true },
     });
 
     if (!profile) {
@@ -570,13 +596,14 @@ export class StudentsService {
       );
     }
 
-    // TODO: Implement actual stats queries when Lessons, Purchases, and Exams modules are ready
-    // For now, return placeholder stats
+    const metrics = await this.learningMetrics.getStudentLearningMetrics(profile.user_id);
+
     return {
-      lessonsCompleted: 0,
-      lessonsPurchased: 0,
-      examsCompleted: 0,
-      averageScore: 0,
+      lessonsCompleted: metrics.lessons_completed,
+      lessonsPurchased: metrics.lessons_purchased,
+      coursesPurchased: metrics.courses_purchased,
+      examsCompleted: metrics.exams_completed,
+      averageScore: metrics.average_score_percent,
     };
   }
 

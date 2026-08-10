@@ -138,6 +138,19 @@ export class Lesson {
   @Column({ type: 'int', default: 7, name: 'available_for_days' })
   available_for_days!: number;
 
+  /**
+   * @deprecated Denormalised purchase counter, still written by
+   * `PaymentFinalizationService` (increment) and `RefundsService.revokeAccess`
+   * (decrement on full refund only) but no longer read by any API.
+   *
+   * It counts settled *orders*, not students — a repeat buyer increments it
+   * twice — it has no backfill for purchases predating the migration that added
+   * it, and nothing reconciles the increment/decrement pair, so it drifts.
+   * Every surface now derives the student count live from `lesson_purchases`;
+   * see `LESSON_STUDENT_COUNT_SQL` in `LessonsService` and
+   * `LearningMetricsService`. Left in place so the writes stay harmless and the
+   * column-level schema is untouched; do not read it.
+   */
   @Column({ type: 'int', default: 0, name: 'students_count' })
   students_count!: number;
 

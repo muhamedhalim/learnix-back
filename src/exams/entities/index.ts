@@ -23,7 +23,26 @@ export { Exam } from './exam.entity';
 export { ExamSection } from './exam-section.entity';
 export { ExamQuestion } from './exam-question.entity';
 export { ExamAttempt } from './exam-attempt.entity';
+export type { AttemptOrigin } from './exam-attempt.entity';
 export { ExamAttemptAnswer } from './exam-attempt-answer.entity';
 export { OmrSheet } from './omr-sheet.entity';
 export type { OmrDetectedAnswer } from './omr-sheet.entity';
-export { OmrSheetStatus } from './omr-sheet-status.enum';
+export {
+  OmrSheetStatus,
+  OMR_SHEET_TERMINAL_STATUSES,
+  OMR_SHEET_MUTABLE_STATUSES,
+} from './omr-sheet-status.enum';
+export { OmrTemplate } from './omr-template.entity';
+export type {
+  OmrBubbleSpec,
+  OmrOptionBubble,
+  OmrBooleanBubble,
+  OmrQuestionLayout,
+  OmrQuestionType,
+  OmrMarkerSpec,
+  OmrQrSpec,
+  OmrTemplateLayout,
+  OmrMarkStatus,
+  OmrRecognizedAnswer,
+} from './omr-template.types';
+export { markNeedsReview } from './omr-template.types';

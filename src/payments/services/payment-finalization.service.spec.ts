@@ -4,7 +4,10 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { CourseVersion } from '../../packages/entities/course-version.entity';
+import { CourseVersionItem } from '../../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
+import { LessonPackageItem } from '../../packages/entities/lesson-package-item.entity';
 import {
   CollectionParty,
   Entitlement,
@@ -64,6 +67,20 @@ describe('PaymentFinalizationService', () => {
   let manager: EntityManager;
   let service: PaymentFinalizationService;
   let packageForFinalization: LessonPackage | null;
+  let courseVersionForFinalization: {
+    id: string;
+    version_number: number;
+    locked_at: Date | null;
+  } | null;
+  let liveItemsForFinalization: Array<{
+    lesson_id: string;
+    order_index: number;
+    chapter_id: string | null;
+  }>;
+  let courseVersionItemsForFinalization: Array<{
+    lesson_id: string;
+    lesson: { id: string; available_for_days: number };
+  }>;
 
   beforeEach(() => {
     Object.assign(order, {
@@ -80,6 +97,9 @@ describe('PaymentFinalizationService', () => {
     inserted = [];
     savedCompatibilityPurchases = [];
     packageForFinalization = null;
+    courseVersionForFinalization = null;
+    liveItemsForFinalization = [];
+    courseVersionItemsForFinalization = [];
 
     const managerShape = {
       query: jest.fn().mockResolvedValue(undefined),
@@ -101,13 +121,23 @@ describe('PaymentFinalizationService', () => {
           return Promise.resolve({ id: 'lesson-1', available_for_days: 7 });
         }
         if (entity === LessonPackage) return Promise.resolve(packageForFinalization);
+        if (entity === CourseVersion) return Promise.resolve(courseVersionForFinalization);
         return Promise.resolve(null);
+      }),
+      find: jest.fn((entity: unknown) => {
+        if (entity === LessonPackageItem) return Promise.resolve(liveItemsForFinalization);
+        if (entity === CourseVersionItem) return Promise.resolve(courseVersionItemsForFinalization);
+        return Promise.resolve([]);
       }),
       create: jest.fn((_entity: unknown, value: unknown) => value),
       save: jest.fn((entity: unknown, value: unknown) => {
         if (entity === Entitlement) {
           entitlement = { id: 'entitlement-1', ...(value as object) } as Entitlement;
           return Promise.resolve(entitlement);
+        }
+        if (entity === CourseVersion && courseVersionForFinalization) {
+          Object.assign(courseVersionForFinalization, value);
+          return Promise.resolve(courseVersionForFinalization);
         }
         return Promise.resolve(value);
       }),
@@ -295,43 +325,118 @@ describe('PaymentFinalizationService', () => {
     expect(savedCompatibilityPurchases).toHaveLength(1);
   });
 
-  it('gives each lesson in a finalized package its own available_for_days expiry', async () => {
-    order.item_type = ItemType.PACKAGE;
-    order.item_id = 'package-1';
-    order.metadata = {};
-    payment.item_type = ItemType.PACKAGE;
-    payment.item_id = 'package-1';
-    packageForFinalization = {
-      id: 'package-1',
-      items: [
-        { lesson: { id: 'lesson-a', available_for_days: 1 } },
-        { lesson: { id: 'lesson-b', available_for_days: 14 } },
-      ],
-    } as LessonPackage;
+  describe('package purchases (versioned curriculum snapshot)', () => {
+    beforeEach(() => {
+      order.item_type = ItemType.PACKAGE;
+      order.item_id = 'package-1';
+      order.metadata = {};
+      payment.item_type = ItemType.PACKAGE;
+      payment.item_id = 'package-1';
+      packageForFinalization = {
+        id: 'package-1',
+        current_version_id: 'version-1',
+      } as unknown as LessonPackage;
+    });
 
-    await service.finalizeSuccessfulPayment(
-      {
-        orderId: order.id,
-        paymentId: payment.id,
-        sourceReference: 'package-payment',
-        verifiedAmountMinor: 10_000,
-        verifiedCurrency: 'EGP',
-      },
-      manager,
-    );
+    it('gives each lesson in a finalized package its own available_for_days expiry', async () => {
+      courseVersionForFinalization = { id: 'version-1', version_number: 1, locked_at: null };
+      liveItemsForFinalization = [
+        { lesson_id: 'lesson-a', order_index: 0, chapter_id: null },
+        { lesson_id: 'lesson-b', order_index: 1, chapter_id: null },
+      ];
+      courseVersionItemsForFinalization = [
+        { lesson_id: 'lesson-a', lesson: { id: 'lesson-a', available_for_days: 1 } },
+        { lesson_id: 'lesson-b', lesson: { id: 'lesson-b', available_for_days: 14 } },
+      ];
 
-    const purchases = inserted
-      .filter((row) => row.target === LessonPurchase)
-      .map((row) => row.value)
-      .sort((a, b) => String(a.lesson_id).localeCompare(String(b.lesson_id)));
-    expect(inserted.some((row) => row.target === PackagePurchase)).toBe(true);
-    expect(purchases).toEqual([
-      expect.objectContaining({ lesson_id: 'lesson-a', access_expires_at: expect.any(Date) }),
-      expect.objectContaining({ lesson_id: 'lesson-b', access_expires_at: expect.any(Date) }),
-    ]);
-    expect(
-      (purchases[1]!.access_expires_at as Date).getTime() -
-        (purchases[0]!.access_expires_at as Date).getTime(),
-    ).toBe(13 * 24 * 60 * 60_000);
+      await service.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: 'package-payment',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+        },
+        manager,
+      );
+
+      const purchases = inserted
+        .filter((row) => row.target === LessonPurchase)
+        .map((row) => row.value)
+        .sort((a, b) => String(a.lesson_id).localeCompare(String(b.lesson_id)));
+      const packagePurchaseRow = inserted.find((row) => row.target === PackagePurchase)?.value;
+      expect(packagePurchaseRow).toMatchObject({ course_version_id: 'version-1' });
+      expect(purchases).toEqual([
+        expect.objectContaining({ lesson_id: 'lesson-a', access_expires_at: expect.any(Date) }),
+        expect.objectContaining({ lesson_id: 'lesson-b', access_expires_at: expect.any(Date) }),
+      ]);
+      expect(
+        (purchases[1]!.access_expires_at as Date).getTime() -
+          (purchases[0]!.access_expires_at as Date).getTime(),
+      ).toBe(13 * 24 * 60 * 60_000);
+
+      // First purchase of an unlocked version snapshots live items and locks it.
+      const versionItemInsert = inserted.find((row) => row.target === CourseVersionItem);
+      expect(versionItemInsert?.value).toEqual([
+        expect.objectContaining({ version_id: 'version-1', lesson_id: 'lesson-a' }),
+        expect.objectContaining({ version_id: 'version-1', lesson_id: 'lesson-b' }),
+      ]);
+      expect(courseVersionForFinalization?.locked_at).toBeInstanceOf(Date);
+    });
+
+    it('reuses an already-locked version snapshot without re-copying it', async () => {
+      courseVersionForFinalization = {
+        id: 'version-1',
+        version_number: 1,
+        locked_at: new Date('2026-01-01T00:00:00Z'),
+      };
+      liveItemsForFinalization = [
+        { lesson_id: 'lesson-c', order_index: 0, chapter_id: null },
+      ];
+      courseVersionItemsForFinalization = [
+        { lesson_id: 'lesson-a', lesson: { id: 'lesson-a', available_for_days: 1 } },
+        { lesson_id: 'lesson-b', lesson: { id: 'lesson-b', available_for_days: 14 } },
+      ];
+
+      await service.finalizeSuccessfulPayment(
+        {
+          orderId: order.id,
+          paymentId: payment.id,
+          sourceReference: 'package-payment-2',
+          verifiedAmountMinor: 10_000,
+          verifiedCurrency: 'EGP',
+        },
+        manager,
+      );
+
+      // The already-locked snapshot is reused verbatim — never re-derived
+      // from whatever the live curriculum (lesson-c) now holds.
+      expect(inserted.some((row) => row.target === CourseVersionItem)).toBe(false);
+      const purchases = inserted
+        .filter((row) => row.target === LessonPurchase)
+        .map((row) => row.value);
+      expect(purchases.map((p) => p.lesson_id).sort()).toEqual(['lesson-a', 'lesson-b']);
+    });
+
+    it('refuses to sell a course version with no lessons', async () => {
+      courseVersionForFinalization = { id: 'version-1', version_number: 1, locked_at: null };
+      liveItemsForFinalization = [];
+
+      await expect(
+        service.finalizeSuccessfulPayment(
+          {
+            orderId: order.id,
+            paymentId: payment.id,
+            sourceReference: 'package-payment-empty',
+            verifiedAmountMinor: 10_000,
+            verifiedCurrency: 'EGP',
+          },
+          manager,
+        ),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+
+      expect(inserted.some((row) => row.target === PackagePurchase)).toBe(false);
+      expect(inserted.some((row) => row.target === LessonPurchase)).toBe(false);
+    });
   });
 });

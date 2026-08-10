@@ -13,6 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
 
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
+import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
@@ -102,6 +103,8 @@ export class CertificatesService {
     private readonly packagesRepository: Repository<LessonPackage>,
     @InjectRepository(LessonPackageItem)
     private readonly packageItemsRepository: Repository<LessonPackageItem>,
+    @InjectRepository(CourseVersionItem)
+    private readonly courseVersionItemsRepository: Repository<CourseVersionItem>,
     @InjectRepository(LessonProgress)
     private readonly progressRepository: Repository<LessonProgress>,
     @InjectRepository(PackagePurchase)
@@ -114,15 +117,67 @@ export class CertificatesService {
 
   /* ===================== Completion ===================== */
 
-  /** How much of a course (package) a student has completed. */
-  public async getCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
-    const total = await this.packageItemsRepository.count({
-      where: { package_id: packageId },
+  /**
+   * Student-facing wrapper around `getCourseProgress`: only ever returns real
+   * numbers to a student who actually holds an active purchase for the
+   * course, so this can't be used to probe lesson counts on a
+   * draft/unpublished/unowned course. Internal callers that legitimately
+   * need the "no purchase" fallback (e.g. admin force-issuance, DEF-019)
+   * keep calling `getCourseProgress` directly.
+   */
+  public async getMyCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
+    const owned = await this.packagePurchasesRepository.count({
+      where: { student_id: studentId, package_id: packageId, revoked_at: IsNull() },
     });
+    if (owned === 0) {
+      return { total: 0, completed: 0, percentage: 0 };
+    }
+    return this.getCourseProgress(studentId, packageId);
+  }
+
+  /**
+   * How much of a course (package) a student has completed, judged against
+   * the exact curriculum snapshot they purchased — not whatever the course
+   * currently, live, contains (DEF-002: adding/removing lessons after a sale
+   * must never retroactively shift an existing purchaser's percentage).
+   */
+  public async getCourseProgress(studentId: string, packageId: string): Promise<CourseProgress> {
+    const versionId = await this.resolveProgressVersionId(studentId, packageId);
+
+    // `versionId === null` covers a package with no version record at all —
+    // e.g. a `lesson_packages` row inserted outside `PackagesService.create`
+    // (a seed script, a raw-SQL fixture) that predates or bypassed the
+    // DEF-002 migration/bootstrap. Treat it the same as "still an unlocked
+    // draft" below rather than short-circuiting to zero, so course progress
+    // never regresses for a package that simply never got versioned.
+    const lockedTotal = versionId
+      ? await this.courseVersionItemsRepository.count({ where: { version_id: versionId } })
+      : 0;
+
+    // `lockedTotal === 0` means this version has never been purchased by
+    // anyone — it is still an unlocked draft whose content lives in
+    // `LessonPackageItem`, not `CourseVersionItem` yet (see PackagesService /
+    // PaymentFinalizationService). A genuinely empty *locked* version is
+    // impossible: finalization refuses to sell a course with zero lessons.
+    if (lockedTotal > 0) {
+      const completed = await this.progressRepository
+        .createQueryBuilder('lp')
+        .innerJoin('course_version_items', 'cvi', 'cvi.lesson_id = lp.lesson_id')
+        .where('cvi.version_id = :versionId', { versionId })
+        .andWhere('lp.student_id = :studentId', { studentId })
+        .andWhere('lp.completed = true')
+        .getCount();
+      return {
+        total: lockedTotal,
+        completed,
+        percentage: Math.round((completed / lockedTotal) * 100),
+      };
+    }
+
+    const total = await this.packageItemsRepository.count({ where: { package_id: packageId } });
     if (total === 0) {
       return { total: 0, completed: 0, percentage: 0 };
     }
-
     const completed = await this.progressRepository
       .createQueryBuilder('lp')
       .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = lp.lesson_id')
@@ -130,9 +185,34 @@ export class CertificatesService {
       .andWhere('lp.student_id = :studentId', { studentId })
       .andWhere('lp.completed = true')
       .getCount();
+    return { total, completed, percentage: Math.round((completed / total) * 100) };
+  }
 
-    const percentage = Math.round((completed / total) * 100);
-    return { total, completed, percentage };
+  /**
+   * Which curriculum snapshot a student's completion should be judged
+   * against: their own active purchase's version when one exists — even a
+   * legacy row mid-backfill, whose `course_version_id` is momentarily still
+   * null, falls through to the same fallback as "no purchase at all" below.
+   * With no active purchase (e.g. an admin force-issuing without one — a
+   * separate, pre-existing gap tracked as DEF-019), fall back to the
+   * package's current version so that behavior isn't regressed.
+   */
+  private async resolveProgressVersionId(
+    studentId: string,
+    packageId: string,
+  ): Promise<string | null> {
+    const purchase = await this.packagePurchasesRepository.findOne({
+      where: { student_id: studentId, package_id: packageId, revoked_at: IsNull() },
+      order: { purchased_at: 'DESC' },
+    });
+    if (purchase?.course_version_id) {
+      return purchase.course_version_id;
+    }
+    const pkg = await this.packagesRepository.findOne({
+      where: { id: packageId },
+      select: { id: true, current_version_id: true },
+    });
+    return pkg?.current_version_id ?? null;
   }
 
   /* ===================== Issuance ===================== */
@@ -227,9 +307,9 @@ export class CertificatesService {
   public async autoIssueForCompletedLesson(studentId: string, lessonId: string): Promise<void> {
     const rows = await this.packagePurchasesRepository
       .createQueryBuilder('pp')
-      .innerJoin('lesson_package_items', 'lpi', 'lpi.package_id = pp.package_id')
+      .innerJoin('course_version_items', 'cvi', 'cvi.version_id = pp.course_version_id')
       .where('pp.student_id = :studentId', { studentId })
-      .andWhere('lpi.lesson_id = :lessonId', { lessonId })
+      .andWhere('cvi.lesson_id = :lessonId', { lessonId })
       .select('DISTINCT pp.package_id', 'package_id')
       .getRawMany<{ package_id: string }>();
 
@@ -401,21 +481,32 @@ export class CertificatesService {
     }
   }
 
-  /** Purchasers of a course who have completed every lesson in it. */
+  /**
+   * Purchasers of a course who have completed every lesson in their OWN
+   * purchased version. Different purchasers of the same course may now
+   * legitimately have different totals (a V1 buyer's 3 lessons vs. a V2
+   * buyer's 4), so the completion check is evaluated per-row against each
+   * purchase's own `course_version_id`, not one shared package-wide total.
+   */
   private async findCompletedPurchasers(packageId: string): Promise<string[]> {
-    const total = await this.packageItemsRepository.count({ where: { package_id: packageId } });
-    if (total === 0) return [];
     const rows = await this.packagePurchasesRepository
       .createQueryBuilder('pp')
       .select('DISTINCT pp.student_id', 'student_id')
       .where('pp.package_id = :packageId', { packageId })
+      .andWhere('pp.course_version_id IS NOT NULL')
+      .andWhere(
+        `(SELECT COUNT(*) FROM course_version_items cvi
+          WHERE cvi.version_id = pp.course_version_id) > 0`,
+      )
       .andWhere(
         `(SELECT COUNT(*) FROM lesson_progress lp
-          INNER JOIN lesson_package_items lpi ON lpi.lesson_id = lp.lesson_id
-          WHERE lpi.package_id = :packageId
+          INNER JOIN course_version_items cvi ON cvi.lesson_id = lp.lesson_id
+          WHERE cvi.version_id = pp.course_version_id
             AND lp.student_id = pp.student_id
-            AND lp.completed = true) >= :total`,
-        { packageId, total },
+            AND lp.completed = true)
+         >=
+         (SELECT COUNT(*) FROM course_version_items cvi2
+          WHERE cvi2.version_id = pp.course_version_id)`,
       )
       .getRawMany<{ student_id: string }>();
     return rows.map((r) => r.student_id);

@@ -46,6 +46,21 @@ export class StudentCertificatesController {
     );
   }
 
+  @Get('course-progress/:packageId')
+  @ApiOperation({
+    summary: 'My completion progress for a course',
+    description:
+      "Judged against the exact curriculum version I purchased, not whatever the course's " +
+      'live curriculum currently contains — so this always agrees with an issued certificate ' +
+      'for the same course.',
+  })
+  public async courseProgress(
+    @GetUser() user: JwtPayload,
+    @Param('packageId', ParseUUIDPipe) packageId: string,
+  ): Promise<unknown> {
+    return await this.certificatesService.getMyCourseProgress(user.userId, packageId);
+  }
+
   @Patch(':id/visibility')
   @ApiOperation({ summary: 'Publish/unpublish my certificate in the public gallery' })
   public setVisibility(

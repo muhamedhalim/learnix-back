@@ -32,7 +32,7 @@ import {
   SettlementStatus,
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
-import { PaymentFinalizationService } from './payment-finalization.service';
+import { CartCheckoutService } from './cart-checkout.service';
 import { PaymentsService } from './payments.service';
 import { RefundsService } from './refunds.service';
 import { SettlementsService } from './settlements.service';
@@ -55,11 +55,11 @@ export class PaymentOperationsService {
     private readonly settlements: SettlementsService,
     private readonly eventEmitter: EventEmitter2,
     private readonly providers: PaymentProviderRegistry,
-    private readonly finalizer: PaymentFinalizationService,
     private readonly paymentService: PaymentsService,
     private readonly refunds: RefundsService,
     private readonly jobMonitor: ScheduledJobMonitorService,
     private readonly lessonSessions: LessonSessionsService,
+    private readonly cartCheckout: CartCheckoutService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -98,6 +98,9 @@ export class PaymentOperationsService {
       // block earned-fund release or the outbox, and the PostgreSQL session
       // lock prevents another worker from running the same cycle concurrently.
       await this.runMonitoredMaintenanceTask('expire_orders', () => this.expireOrders());
+      await this.runMonitoredMaintenanceTask('expire_cart_checkouts', () =>
+        this.cartCheckout.expireDueCheckouts(),
+      );
       await this.runMonitoredMaintenanceTask('expire_lesson_session_holds', () =>
         this.lessonSessions.expireStaleHolds(),
       );
@@ -242,7 +245,9 @@ export class PaymentOperationsService {
         .where('payment.status IN (:...statuses)', {
           statuses: [PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.EXPIRED],
         })
-        .andWhere('payment.order_id IS NOT NULL')
+        .andWhere(
+          '(payment.order_id IS NOT NULL OR (payment.cart_checkout_id IS NOT NULL AND payment.order_id IS NULL))',
+        )
         .andWhere('payment.provider IS NOT NULL')
         .andWhere('(payment.paymob_order_id IS NOT NULL OR payment.provider_reference IS NOT NULL)')
         .andWhere(
@@ -596,25 +601,12 @@ export class PaymentOperationsService {
         await this.quarantinePayment(payment, details);
         return;
       }
-      const verification = {
-        verifiedAmountMinor: details.amountMinor,
-        verifiedCurrency: details.currency,
-        verifiedOccurredAt: details.occurredAt,
-      };
       if (details.status === 'succeeded') {
-        if (!payment.order_id) {
-          await this.schedulePaymentReconciliationRetry(
-            payment,
-            'Payment is missing an internal order',
-          );
-          return;
-        }
-        await this.finalizer.finalizeSuccessfulPayment({
-          orderId: payment.order_id,
-          paymentId: payment.id,
-          sourceReference: details.transactionId,
-          actorId: null,
-          ...verification,
+        await this.paymentService.processSuccessfulPayment(payment.id, {
+          amountCents: details.amountMinor,
+          currency: details.currency,
+          transactionId: details.transactionId,
+          occurredAt: details.occurredAt,
         });
         await this.finishPaymentReconciliation(payment);
         return;
@@ -626,12 +618,12 @@ export class PaymentOperationsService {
           transactionId: details.transactionId,
           occurredAt: details.occurredAt,
         });
-        await this.refunds.completeProviderNotification(
-          payment.id,
-          details.transactionId,
-          details.amountMinor,
-          details.currency,
-        );
+        await this.paymentService.processRefundedPayment(payment.id, {
+          amountCents: details.amountMinor,
+          currency: details.currency,
+          transactionId: details.transactionId,
+          occurredAt: details.occurredAt,
+        });
         await this.finishPaymentReconciliation(payment);
         return;
       }
@@ -987,6 +979,10 @@ export class PaymentOperationsService {
         .createQueryBuilder('payment')
         .leftJoin(Order, 'order', 'order.id = payment.order_id')
         .where('payment.status = :completed', { completed: PaymentStatus.COMPLETED })
+        // Aggregate cart charges deliberately have no single Order. Their
+        // paid child Orders are checked independently, so they are not an
+        // orphaned-completed-payment reconciliation failure.
+        .andWhere('(payment.cart_checkout_id IS NULL OR payment.order_id IS NOT NULL)')
         .andWhere('(payment.order_id IS NULL OR order.status != :paid)', { paid: OrderStatus.PAID })
         .select(['payment.id', 'payment.order_id'])
         .take(100)

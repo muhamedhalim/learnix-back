@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
@@ -62,8 +63,9 @@ describe('CertificatesService', () => {
   };
   const packages = { findOne: jest.fn() };
   const packageItems = { count: jest.fn() };
+  const courseVersionItems = { count: jest.fn() };
   const progress = { createQueryBuilder: jest.fn() };
-  const purchases = { createQueryBuilder: jest.fn() };
+  const purchases = { createQueryBuilder: jest.fn(), findOne: jest.fn(), count: jest.fn() };
   const users = { findOne: jest.fn() };
   const pdf = { render: jest.fn() };
   const emitter = { emit: jest.fn() };
@@ -71,6 +73,13 @@ describe('CertificatesService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     templates.createQueryBuilder.mockReturnValue(qb(0));
+    // Baseline: no active purchase, no locked-version snapshot yet — tests
+    // opt into the "purchased/locked" path explicitly. `clearAllMocks` only
+    // resets call history, not `mockResolvedValue` results, so without this
+    // a value configured by an earlier test would otherwise leak forward.
+    purchases.findOne.mockResolvedValue(null);
+    purchases.count.mockResolvedValue(0);
+    courseVersionItems.count.mockResolvedValue(0);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CertificatesService,
@@ -80,6 +89,7 @@ describe('CertificatesService', () => {
         { provide: getRepositoryToken(CertificateTemplate), useValue: templates },
         { provide: getRepositoryToken(LessonPackage), useValue: packages },
         { provide: getRepositoryToken(LessonPackageItem), useValue: packageItems },
+        { provide: getRepositoryToken(CourseVersionItem), useValue: courseVersionItems },
         { provide: getRepositoryToken(LessonProgress), useValue: progress },
         { provide: getRepositoryToken(PackagePurchase), useValue: purchases },
         { provide: getRepositoryToken(User), useValue: users },
@@ -91,17 +101,54 @@ describe('CertificatesService', () => {
   });
 
   describe('getCourseProgress', () => {
-    it('returns 0% for a course with no lessons', async () => {
+    it('returns 0% for a course whose current (unlocked) version has no lessons', async () => {
+      packages.findOne.mockResolvedValue({ id: 'P1', current_version_id: 'v1' });
+      courseVersionItems.count.mockResolvedValue(0);
       packageItems.count.mockResolvedValue(0);
       const result = await service.getCourseProgress('S1', 'P1');
       expect(result).toEqual({ total: 0, completed: 0, percentage: 0 });
     });
 
-    it('computes percentage from completed/total', async () => {
+    it('falls back to the live curriculum when no purchase exists (unlocked current version)', async () => {
+      packages.findOne.mockResolvedValue({ id: 'P1', current_version_id: 'v1' });
+      courseVersionItems.count.mockResolvedValue(0);
       packageItems.count.mockResolvedValue(4);
       progress.createQueryBuilder.mockReturnValue(qb(3));
       const result = await service.getCourseProgress('S1', 'P1');
       expect(result).toEqual({ total: 4, completed: 3, percentage: 75 });
+      expect(courseVersionItems.count).toHaveBeenCalledWith({ where: { version_id: 'v1' } });
+    });
+
+    it("judges completion against the purchaser's own locked version, not live curriculum", async () => {
+      purchases.findOne.mockResolvedValue({ id: 'pp1', course_version_id: 'v1' });
+      courseVersionItems.count.mockResolvedValue(3);
+      progress.createQueryBuilder.mockReturnValue(qb(3));
+
+      const result = await service.getCourseProgress('S1', 'P1');
+
+      expect(result).toEqual({ total: 3, completed: 3, percentage: 100 });
+      // A locked version's own snapshot is authoritative — live curriculum
+      // (packageItems) is never consulted once a real purchase is found.
+      expect(packageItems.count).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getMyCourseProgress', () => {
+    it('never reveals real numbers for a course the student has not purchased', async () => {
+      purchases.count.mockResolvedValue(0);
+      const result = await service.getMyCourseProgress('S1', 'P1');
+      expect(result).toEqual({ total: 0, completed: 0, percentage: 0 });
+      expect(packages.findOne).not.toHaveBeenCalled();
+    });
+
+    it('delegates to getCourseProgress for an owning student', async () => {
+      purchases.count.mockResolvedValue(1);
+      const spy = jest
+        .spyOn(service, 'getCourseProgress')
+        .mockResolvedValue({ total: 3, completed: 3, percentage: 100 });
+      const result = await service.getMyCourseProgress('S1', 'P1');
+      expect(spy).toHaveBeenCalledWith('S1', 'P1');
+      expect(result).toEqual({ total: 3, completed: 3, percentage: 100 });
     });
   });
 
@@ -116,6 +163,7 @@ describe('CertificatesService', () => {
 
     it('refuses to issue when the course is incomplete', async () => {
       certificates.findOne.mockResolvedValue(null);
+      packages.findOne.mockResolvedValue({ id: 'P1', current_version_id: 'v1' });
       packageItems.count.mockResolvedValue(4);
       progress.createQueryBuilder.mockReturnValue(qb(2)); // 50%
       await expect(service.issueForCourse('S1', 'P1')).rejects.toBeInstanceOf(BadRequestException);
@@ -134,6 +182,7 @@ describe('CertificatesService', () => {
         teacher_id: 'teacher-1',
         certificate_template_id: 'course-template',
         teacher: { name: 'Prof X' },
+        current_version_id: 'v1',
       });
       templates.findOne.mockResolvedValue({
         id: 't1',
@@ -387,7 +436,12 @@ describe('CertificatesService', () => {
       packageItems.count.mockResolvedValue(1);
       progress.createQueryBuilder.mockReturnValue(qb(1)); // 100%
       users.findOne.mockResolvedValue({ id: 'S1', name: 'Ada' });
-      packages.findOne.mockResolvedValue({ id: 'P1', title: 'Course', teacher: null });
+      packages.findOne.mockResolvedValue({
+        id: 'P1',
+        title: 'Course',
+        teacher: null,
+        current_version_id: 'v1',
+      });
     };
 
     it('refuses to issue from a DRAFT template', async () => {

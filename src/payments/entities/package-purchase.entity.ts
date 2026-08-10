@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
+import type { CourseVersion } from '../../packages/entities/course-version.entity';
 import type { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { User } from '../../users/entities/user.entity';
 import { Payment } from './payment.entity';
@@ -37,6 +38,19 @@ export class PackagePurchase {
   @ManyToOne('LessonPackage', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'package_id' })
   package!: Relation<LessonPackage>;
+
+  /**
+   * The immutable curriculum snapshot this purchase actually bought. Nullable
+   * at the DB level only for legacy rows mid-backfill (see
+   * BackfillPackageCourseVersions migration) — every write path from
+   * `PaymentFinalizationService` onward always populates it.
+   */
+  @Column({ type: 'uuid', name: 'course_version_id', nullable: true })
+  course_version_id!: string | null;
+
+  @ManyToOne('CourseVersion', { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'course_version_id' })
+  course_version!: Relation<CourseVersion> | null;
 
   @Column({ type: 'uuid', name: 'payment_id' })
   payment_id!: string;
