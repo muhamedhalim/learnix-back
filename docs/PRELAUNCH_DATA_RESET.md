@@ -71,6 +71,11 @@ transaction through `AdminInitializationService`, using only
 
    `RESET_PRELAUNCH_SERVICES_STOPPED=true`
 
+   An operator may waive backup evidence only for a single explicitly accepted
+   execution by setting `RESET_PRELAUNCH_BACKUP_WAIVED=true` instead of the two
+   backup variables. This is intentionally not a Railway service variable and
+   the command prints the waiver in its audit output.
+
    For the current un-namespaced production Redis, also set
    `RESET_PRELAUNCH_REDIS_DEDICATED=true` only after verifying the selected Redis
    database is exclusive to Learnix.

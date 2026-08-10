@@ -66,6 +66,25 @@ describe('prelaunch reset safety', () => {
     ).not.toThrow();
   });
 
+  it('requires an explicit waiver when a backup reference is intentionally unavailable', () => {
+    expect(() =>
+      assertExecutionGuards(
+        {
+          APP_ENV: 'production',
+          DATABASE_URL: 'postgres://user:pass@db.internal/railway',
+          REDIS_URL: 'redis://redis.internal:6379',
+          RESET_PRELAUNCH_DATA: 'true',
+          RESET_PRELAUNCH_BACKUP_WAIVED: 'true',
+          RESET_PRELAUNCH_SERVICES_STOPPED: 'true',
+          RESET_PRELAUNCH_TARGET: 'db.internal/railway',
+          RESET_PRELAUNCH_REDIS_DEDICATED: 'true',
+        },
+        identity,
+        { skipExternal: false },
+      ),
+    ).not.toThrow();
+  });
+
   it('scopes BullMQ cleanup to the declared Learnix queues', () => {
     const patterns = redisOwnedPatterns({ APP_ENV: 'production' });
     expect(patterns).toContain('bull:exam-auto-submit:*');

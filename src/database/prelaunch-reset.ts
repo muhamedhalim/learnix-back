@@ -96,6 +96,7 @@ export interface StorageManifest {
 }
 
 export const BUNNY_CLEANUP_STATUS = 'SKIPPED BY USER REQUEST';
+export const BACKUP_WAIVER_STATUS = 'WAIVED BY OPERATOR FOR THIS EXECUTION';
 
 export class UnsafePrelaunchResetError extends Error {
   public constructor(message: string) {
@@ -138,7 +139,6 @@ export function assertExecutionGuards(
 ): void {
   const required: Array<[string, string]> = [
     ['RESET_PRELAUNCH_DATA', 'true'],
-    ['RESET_PRELAUNCH_BACKUP_CONFIRMED', 'true'],
     ['RESET_PRELAUNCH_SERVICES_STOPPED', 'true'],
   ];
   for (const [name, expected] of required) {
@@ -152,7 +152,14 @@ export function assertExecutionGuards(
       `RESET_PRELAUNCH_TARGET must exactly equal the non-secret target identifier "${target}".`,
     );
   }
-  if (!env['RESET_PRELAUNCH_BACKUP_REFERENCE']?.trim()) {
+  const backupConfirmed = env['RESET_PRELAUNCH_BACKUP_CONFIRMED'] === 'true';
+  const backupWaived = env['RESET_PRELAUNCH_BACKUP_WAIVED'] === 'true';
+  if (!backupConfirmed && !backupWaived) {
+    throw new UnsafePrelaunchResetError(
+      'RESET_PRELAUNCH_BACKUP_CONFIRMED=true with RESET_PRELAUNCH_BACKUP_REFERENCE, or RESET_PRELAUNCH_BACKUP_WAIVED=true, is required.',
+    );
+  }
+  if (backupConfirmed && !env['RESET_PRELAUNCH_BACKUP_REFERENCE']?.trim()) {
     throw new UnsafePrelaunchResetError(
       'RESET_PRELAUNCH_BACKUP_REFERENCE must identify the verified recoverable backup.',
     );
@@ -562,6 +569,14 @@ export async function runPrelaunchReset(options: {
 }): Promise<void> {
   const identity = databaseIdentity(process.env);
   printSection('Target', identity);
+  printSection(
+    'Backup safety',
+    process.env['RESET_PRELAUNCH_BACKUP_WAIVED'] === 'true'
+      ? BACKUP_WAIVER_STATUS
+      : process.env['RESET_PRELAUNCH_BACKUP_CONFIRMED'] === 'true'
+        ? 'CONFIRMED WITH REFERENCE'
+        : 'NOT ARMED',
+  );
   const config = new ConfigService(process.env);
   const dataSource = createDataSource(process.env['DATABASE_URL'] ?? '');
   await dataSource.initialize();
