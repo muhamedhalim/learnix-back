@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -20,6 +21,7 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateCallCenterUserDto } from './dto/create-call-center-user.dto';
 import { AssignCallCenterRoleDto } from './dto/assign-call-center-role.dto';
+import { CallCenterEmployeeFilterDto } from './dto/call-center-employee-filter.dto';
 import { User } from './entities/user.entity';
 import { UserRole } from './entities/user-role.enum';
 import { UserStatus } from './entities/user-status.enum';
@@ -49,6 +51,30 @@ export class UsersService {
     this.logger.debug(`Invalidated cache for user ${userId}`);
   }
 
+  /**
+   * The platform's Call Center access model is role-based. There is no
+   * per-employee permission assignment for this role; finance permissions are
+   * a separate Admin-only capability and must never be copied to staff.
+   */
+  private toCallCenterEmployeeSummary(user: User): Record<string, unknown> {
+    return {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      is_active: user.is_active,
+      status: user.status,
+      role: user.role,
+      created_at: user.created_at,
+      access: {
+        model: 'role',
+        role: UserRole.CALL_CENTER,
+        individual_permissions: [],
+      },
+    };
+  }
+
   public async findAll(page = 1, limit = 10): Promise<unknown> {
     const [users, total] = await this.userRepository.findAndCount({
       select: [
@@ -57,6 +83,7 @@ export class UsersService {
         'email',
         'phone',
         'is_active',
+        'status',
         'role',
         'finance_permissions',
         'created_at',
@@ -74,6 +101,7 @@ export class UsersService {
         email: user.email,
         phone: user.phone,
         is_active: user.is_active,
+        status: user.status,
         role: user.role,
         created_at: user.created_at,
       })),
@@ -82,6 +110,48 @@ export class UsersService {
         limit,
         total,
         pageCount: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /** Admin-only Call Center workforce projection; never returns credentials or tokens. */
+  public async findCallCenterEmployees(filter: CallCenterEmployeeFilterDto): Promise<unknown> {
+    const search = filter.search?.trim();
+    const query = this.userRepository
+      .createQueryBuilder('user')
+      .select([
+        'user.id',
+        'user.username',
+        'user.name',
+        'user.email',
+        'user.phone',
+        'user.is_active',
+        'user.status',
+        'user.role',
+        'user.created_at',
+      ])
+      .where('user.role = :role', { role: UserRole.CALL_CENTER });
+
+    if (search !== undefined && search !== '') {
+      query.andWhere(
+        `(user.name ILIKE :search OR user.username ILIKE :search OR user.email ILIKE :search OR user.phone ILIKE :search)`,
+        { search: `%${search}%` },
+      );
+    }
+
+    const [users, total] = await query
+      .orderBy('user.created_at', 'DESC')
+      .skip((filter.page - 1) * filter.limit)
+      .take(filter.limit)
+      .getManyAndCount();
+
+    return {
+      data: users.map((user) => this.toCallCenterEmployeeSummary(user)),
+      meta: {
+        page: filter.page,
+        limit: filter.limit,
+        total,
+        pageCount: Math.ceil(total / filter.limit),
       },
     };
   }
@@ -187,13 +257,10 @@ export class UsersService {
       );
     }
 
-    if (
-      updateUserDto.email !== undefined &&
-      updateUserDto.email !== '' &&
-      updateUserDto.email !== user.email
-    ) {
+    const email = updateUserDto.email?.trim().toLowerCase();
+    if (email !== undefined && email !== '' && email !== user.email) {
       const emailExists = await this.userRepository.findOne({
-        where: { email: updateUserDto.email },
+        where: { email },
       });
       if (emailExists) {
         throw new ConflictException(
@@ -220,6 +287,9 @@ export class UsersService {
     // Use explicit field assignment to prevent mass assignment vulnerability
     if (updateUserDto.name !== undefined) {
       user.name = updateUserDto.name;
+    }
+    if (email !== undefined && email !== '') {
+      user.email = email;
     }
     if (updateUserDto.phone !== undefined) {
       user.phone = updateUserDto.phone;
@@ -489,13 +559,7 @@ export class UsersService {
 
     return {
       message: 'Call Center employee created successfully',
-      user: {
-        id: created.id,
-        username: created.username,
-        name: created.name,
-        email: created.email,
-        role: created.role,
-      },
+      user: this.toCallCenterEmployeeSummary(created),
     };
   }
 
@@ -521,24 +585,24 @@ export class UsersService {
       );
     }
 
-    // Prevent removing the last admin by converting it to Call Center.
-    if (user.role === UserRole.ADMIN) {
-      const adminCount = await this.userRepository.count({
-        where: { role: UserRole.ADMIN, is_active: true },
-      });
-
-      if (adminCount <= 1) {
-        throw new ForbiddenException(
-          biBody(
-            'Cannot remove admin role from the last admin account.',
-            'لا يمكن إزالة صلاحية المسؤول من حساب المسؤول الأخير.',
-          ),
-        );
-      }
+    if (user.role !== UserRole.STUDENT && user.role !== UserRole.TEACHER) {
+      throw new BadRequestException(
+        biBody(
+          'Only student or teacher accounts can be assigned the Call Center role',
+          'يمكن تعيين دور مركز الاتصال لحسابات الطلاب أو المعلمين فقط',
+        ),
+      );
     }
 
     const previousRole = user.role;
+    const previousStatus = user.status;
+    const wasActive = user.is_active;
     user.role = UserRole.CALL_CENTER;
+    // A role assignment is a provisioning action. The authentication guard
+    // requires both values, so leaving the former student/teacher lifecycle
+    // status intact would create a staff account that cannot sign in.
+    user.status = UserStatus.APPROVED;
+    user.is_active = true;
     await this.userRepository.save(user);
 
     // Invalidate user profile cache
@@ -552,6 +616,8 @@ export class UsersService {
         {
           userName: user.name,
           previousRole,
+          previousStatus,
+          wasActive,
           ...(reason !== undefined && reason !== '' ? { reason } : {}),
         },
         ipAddress ?? undefined,
@@ -562,11 +628,7 @@ export class UsersService {
 
     return {
       message: 'User role updated successfully',
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
+      user: this.toCallCenterEmployeeSummary(user),
     };
   }
 }

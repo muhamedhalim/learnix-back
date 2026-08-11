@@ -32,6 +32,7 @@ import { biBody } from '../i18n/error-translator.util';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignCallCenterRoleDto } from './dto/assign-call-center-role.dto';
 import { CreateCallCenterUserDto } from './dto/create-call-center-user.dto';
+import { CallCenterEmployeeFilterDto } from './dto/call-center-employee-filter.dto';
 import type { DeleteSessionResponseDto, UserSessionListResponseDto } from './dto/user-session.dto';
 import { SessionsService } from './sessions.service';
 import { UsersService } from './users.service';
@@ -62,6 +63,16 @@ export class UsersController {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
     return await this.usersService.findOne(userId);
+  }
+
+  @Get('call-center')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'List Call Center employees (admin only)' })
+  public async findCallCenterEmployees(
+    @Query() filter: CallCenterEmployeeFilterDto,
+  ): Promise<unknown> {
+    return await this.usersService.findCallCenterEmployees(filter);
   }
 
   @Get(':id')

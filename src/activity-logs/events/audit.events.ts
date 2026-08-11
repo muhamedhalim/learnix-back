@@ -31,15 +31,7 @@ export class UserApprovedEvent extends AuditEvent {
     },
     ipAddress?: string,
   ) {
-    super(
-      adminId,
-      'user_approved',
-      'user',
-      userId,
-      details.userName,
-      details,
-      ipAddress ?? null,
-    );
+    super(adminId, 'user_approved', 'user', userId, details.userName, details, ipAddress ?? null);
   }
 }
 
@@ -55,15 +47,7 @@ export class UserRejectedEvent extends AuditEvent {
     },
     ipAddress?: string,
   ) {
-    super(
-      adminId,
-      'user_rejected',
-      'user',
-      userId,
-      details.userName,
-      details,
-      ipAddress ?? null,
-    );
+    super(adminId, 'user_rejected', 'user', userId, details.userName, details, ipAddress ?? null);
   }
 }
 
@@ -74,15 +58,7 @@ export class UserSuspendedEvent extends AuditEvent {
     details: { userName: string; userEmail: string; reason?: string },
     ipAddress?: string,
   ) {
-    super(
-      adminId,
-      'user_suspended',
-      'user',
-      userId,
-      details.userName,
-      details,
-      ipAddress ?? null,
-    );
+    super(adminId, 'user_suspended', 'user', userId, details.userName, details, ipAddress ?? null);
   }
 }
 
@@ -93,15 +69,7 @@ export class UserActivatedEvent extends AuditEvent {
     details: { userName: string; userEmail: string },
     ipAddress?: string,
   ) {
-    super(
-      adminId,
-      'user_activated',
-      'user',
-      userId,
-      details.userName,
-      details,
-      ipAddress ?? null,
-    );
+    super(adminId, 'user_activated', 'user', userId, details.userName, details, ipAddress ?? null);
   }
 }
 
@@ -130,7 +98,13 @@ export class CallCenterRoleAssignedEvent extends AuditEvent {
   constructor(
     adminId: string,
     userId: string,
-    details: { userName: string; previousRole: string; reason?: string },
+    details: {
+      userName: string;
+      previousRole: string;
+      previousStatus?: string;
+      wasActive?: boolean;
+      reason?: string;
+    },
     ipAddress?: string,
   ) {
     super(
@@ -142,7 +116,11 @@ export class CallCenterRoleAssignedEvent extends AuditEvent {
       {
         previousRole: details.previousRole,
         newRole: 'call_center',
-        ...(details.reason !== undefined && details.reason !== '' ? { reason: details.reason } : {}),
+        ...(details.previousStatus !== undefined ? { previousStatus: details.previousStatus } : {}),
+        ...(details.wasActive !== undefined ? { wasActive: details.wasActive } : {}),
+        ...(details.reason !== undefined && details.reason !== ''
+          ? { reason: details.reason }
+          : {}),
       },
       ipAddress ?? null,
     );
@@ -400,15 +378,7 @@ export class ExamGradedEvent extends AuditEvent {
     },
     ipAddress?: string,
   ) {
-    super(
-      adminId,
-      'exam_graded',
-      'exam',
-      examId,
-      details.examTitle,
-      details,
-      ipAddress ?? null,
-    );
+    super(adminId, 'exam_graded', 'exam', examId, details.examTitle, details, ipAddress ?? null);
   }
 }
 
