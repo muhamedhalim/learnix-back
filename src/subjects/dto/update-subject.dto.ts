@@ -1,57 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
+/** Subject management intentionally accepts one locale-neutral display name. */
 export class UpdateSubjectDto {
   @ApiProperty({
-    description: 'Subject name',
-    example: 'الفيزياء المتقدمة',
+    description: 'Subject name in the creator’s preferred language',
+    example: 'Mathematics',
     required: false,
     maxLength: 255,
   })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsOptional()
-  @MinLength(2)
+  @IsNotEmpty()
   @MaxLength(255)
   public name?: string;
-
-  @ApiProperty({
-    description: 'Subject name (Arabic)',
-    required: false,
-    maxLength: 255,
-  })
-  @IsString()
-  @IsOptional()
-  @MaxLength(255)
-  public name_ar?: string;
-
-  @ApiProperty({
-    description: 'Subject description',
-    required: false,
-    maxLength: 2000,
-  })
-  @IsString()
-  @IsOptional()
-  @MaxLength(2000)
-  public description?: string;
-
-  @ApiProperty({
-    description: 'Subject description (Arabic)',
-    required: false,
-    maxLength: 2000,
-  })
-  @IsString()
-  @IsOptional()
-  @MaxLength(2000)
-  public description_ar?: string;
-
-  @ApiProperty({
-    description: 'Thumbnail image URL',
-    required: false,
-    maxLength: 500,
-  })
-  @IsString()
-  @IsOptional()
-  @MaxLength(500)
-  public thumbnail?: string;
 }

@@ -10,15 +10,10 @@ import {
   Post,
   Put,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -26,11 +21,9 @@ import {
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { FILE_LIMITS } from '../../common/constants';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { UploadService } from '../../uploads/upload.service';
 import {
   CreateSubjectDto,
   SubjectFilterDto,
@@ -45,10 +38,7 @@ import { SubjectsService } from '../subjects.service';
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherSubjectsController {
-  constructor(
-    private readonly subjectsService: SubjectsService,
-    private readonly uploadService: UploadService,
-  ) {}
+  constructor(private readonly subjectsService: SubjectsService) {}
 
   /**
    * List the authenticated teacher's own subjects, in any status.
@@ -99,30 +89,12 @@ export class TeacherSubjectsController {
    * Submit a new subject for review.
    */
   @Post()
-  @UseInterceptors(
-    FileInterceptor('thumbnail', {
-      limits: { fileSize: FILE_LIMITS.THUMBNAIL_MAX_SIZE, files: 1 },
-    }),
-  )
-  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Create a subject',
     description:
       'Creates a subject owned by the authenticated teacher. It starts as ' +
       'pending approval: usable in this teacher\'s own content immediately, ' +
       'visible to everyone else once an administrator approves it.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', example: 'الفيزياء' },
-        name_ar: { type: 'string', example: 'الفيزياء' },
-        description: { type: 'string' },
-        thumbnail: { type: 'string', format: 'binary' },
-      },
-      required: ['name'],
-    },
   })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -140,17 +112,8 @@ export class TeacherSubjectsController {
     @Body() createSubjectDto: CreateSubjectDto,
     @GetUser() user: JwtPayload,
     @Ip() ip: string,
-    @UploadedFile() file?: Express.Multer.File,
   ): Promise<unknown> {
-    const dtoToUse = new CreateSubjectDto();
-    Object.assign(dtoToUse, createSubjectDto);
-
-    if (file) {
-      const uploadResult = await this.uploadService.uploadFile(file, 'thumbnails');
-      dtoToUse.thumbnail = uploadResult.url;
-    }
-
-    const subject = await this.subjectsService.createByTeacher(user.userId, dtoToUse, ip);
+    const subject = await this.subjectsService.createByTeacher(user.userId, createSubjectDto, ip);
     return {
       message: 'Subject submitted for approval',
       subject,

@@ -20,7 +20,6 @@ describe('public teacher serialization', () => {
     const subject = Object.assign(new Subject(), {
       id: 'subject-id',
       name: 'Math',
-      name_ar: null,
       deleted_at: new Date(),
     });
     const profile = Object.assign(new TeacherProfile(), {

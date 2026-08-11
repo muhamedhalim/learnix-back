@@ -26,10 +26,15 @@ import { DistributedSingleFlightService } from './distributed-single-flight.serv
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { QuizAnalyticsController } from './quiz-analytics.controller';
 import { QuizAnalyticsService } from './quiz-analytics.service';
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { AdminDashboardService } from './admin-dashboard.service';
 
 @Global()
 @Module({
   imports: [
+    ActivityLogsModule,
+    PaymentsModule,
     TypeOrmModule.forFeature([
       User,
       Lesson,
@@ -58,7 +63,13 @@ import { QuizAnalyticsService } from './quiz-analytics.service';
     DistributedSingleFlightService,
     ApplicationCacheService,
     QuizAnalyticsService,
+    AdminDashboardService,
   ],
-  exports: [AnalyticsService, DistributedSingleFlightService, ApplicationCacheService, QuizAnalyticsService],
+  exports: [
+    AnalyticsService,
+    DistributedSingleFlightService,
+    ApplicationCacheService,
+    QuizAnalyticsService,
+  ],
 })
 export class AnalyticsModule {}

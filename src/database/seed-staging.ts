@@ -422,7 +422,6 @@ async function seedCatalog(
       await subjectRepo.save(
         subjectRepo.create({
           name: `${names[index] ?? `Subject ${pad(index + 1)}`} (staging)`,
-          name_ar: `مادة اصطناعية ${pad(index + 1)}`,
           description: 'Synthetic subject for staging.',
         }),
       ),

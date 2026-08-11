@@ -1,4 +1,9 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 
 import type { DataSource, Repository } from 'typeorm';
 
@@ -16,10 +21,8 @@ function buildSubject(overrides: Partial<Subject> = {}): Subject {
   return {
     id: 'subject-1',
     name: 'Physics',
-    name_ar: null,
     description: null,
     description_ar: null,
-    thumbnail: null,
     status: SubjectStatus.APPROVED,
     created_by_teacher_id: null,
     rejection_reason: null,
@@ -139,6 +142,18 @@ describe('SubjectsService — creation', () => {
 
     expect(subject.name).toBe('Physics');
   });
+
+  it.each(['الرياضيات', 'Mathematics'])('accepts a single %s subject name', async (name) => {
+    const { service } = buildService();
+
+    await expect(service.create({ name })).resolves.toMatchObject({ name });
+  });
+
+  it.each(['', '   '])('rejects a blank subject name', async (name) => {
+    const { service } = buildService();
+
+    await expect(service.create({ name })).rejects.toBeInstanceOf(BadRequestException);
+  });
 });
 
 describe('SubjectsService — duplicate names', () => {
@@ -254,6 +269,24 @@ describe('SubjectsService — ownership', () => {
 });
 
 describe('SubjectsService — teacher edits', () => {
+  it.each(['الفيزياء', 'Physics'])('lets an administrator save the single %s name', async (name) => {
+    const { service, findOne } = buildService();
+    findOne.mockResolvedValue(buildSubject());
+
+    await expect(service.update('subject-1', { name })).resolves.toMatchObject({ name });
+  });
+
+  it.each(['الفيزياء', 'Physics'])('lets the owning teacher save the single %s name', async (name) => {
+    const { service, findOne } = buildService();
+    findOne.mockResolvedValue(
+      buildSubject({ status: SubjectStatus.PENDING_APPROVAL, created_by_teacher_id: TEACHER_A }),
+    );
+
+    await expect(service.updateByTeacher('subject-1', TEACHER_A, { name })).resolves.toMatchObject({
+      name,
+    });
+  });
+
   it('refuses to let a teacher edit their own approved subject', async () => {
     const { service, findOne } = buildService();
     findOne.mockResolvedValue(

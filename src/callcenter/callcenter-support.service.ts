@@ -146,7 +146,6 @@ export class CallCenterSupportService {
               subjects: teacher.subjects.map((subject) => ({
                 id: subject.id,
                 name: subject.name,
-                name_ar: subject.name_ar,
               })),
             }
           : null,

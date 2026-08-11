@@ -17,7 +17,7 @@ describe('QuestionBankService public question listing', () => {
       answer_key: { optionId: 'correct-option' },
       default_marks: 1,
       tags: ['addition'],
-      subject: { id: 'subject-1', name: 'Mathematics', name_ar: 'الرياضيات' },
+      subject: { id: 'subject-1', name: 'Mathematics' },
       created_at: new Date('2026-07-17T00:00:00.000Z'),
     } as Question;
   }

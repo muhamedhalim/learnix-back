@@ -25,7 +25,7 @@ import { biBody } from '../i18n/error-translator.util';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
-  AdminDashboardDto,
+  LegacyAdminDashboardDto,
   ExamAnalyticsDto,
   LessonAnalyticsDto,
   QuestionAnalysisDto,
@@ -134,7 +134,7 @@ export class AnalyticsService {
   /**
    * Get admin dashboard statistics with caching (5-min TTL)
    */
-  public async getAdminDashboard(tenant?: string): Promise<AdminDashboardDto> {
+  public async getAdminDashboard(tenant?: string): Promise<LegacyAdminDashboardDto> {
     return await this.applicationCache.getOrCompute(
       {
         family: 'admin_dashboard',
@@ -372,8 +372,10 @@ export class AnalyticsService {
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const paidRevenueThisMonthQuery = this.canonicalPaidOrderQuery(teacherId)
-          .andWhere('order.paid_at >= :start', { start: startOfMonth });
+        const paidRevenueThisMonthQuery = this.canonicalPaidOrderQuery(teacherId).andWhere(
+          'order.paid_at >= :start',
+          { start: startOfMonth },
+        );
         if (from) paidRevenueThisMonthQuery.andWhere('order.paid_at >= :from', { from });
         if (to) paidRevenueThisMonthQuery.andWhere('order.paid_at <= :to', { to });
         const paidRevenueThisMonth = await paidRevenueThisMonthQuery
@@ -393,17 +395,22 @@ export class AnalyticsService {
           .select('AVG(lr.rating)', 'average')
           .addSelect('COUNT(*)', 'count')
           .getRawOne<{ average: string | null; count: string }>();
-        const averageRating = ratings?.average == null
-          ? null
-          : Math.round(Number.parseFloat(ratings.average) * 100) / 100;
+        const averageRating =
+          ratings?.average == null
+            ? null
+            : Math.round(Number.parseFloat(ratings.average) * 100) / 100;
         const totalReviews = Number.parseInt(ratings?.count ?? '0', 10);
 
         const engagementQuery = this.lessonSessionsRepository
           .createQueryBuilder('session')
           .innerJoin('session.lesson', 'engagementLesson')
           .where('engagementLesson.teacher_id = :teacherId', { teacherId });
-        if (from) engagementQuery.andWhere('session.entered_at >= :engagementFrom', { engagementFrom: from });
-        if (to) engagementQuery.andWhere('session.entered_at <= :engagementTo', { engagementTo: to });
+        if (from)
+          engagementQuery.andWhere('session.entered_at >= :engagementFrom', {
+            engagementFrom: from,
+          });
+        if (to)
+          engagementQuery.andWhere('session.entered_at <= :engagementTo', { engagementTo: to });
         const engagementViews = await engagementQuery.getCount();
 
         const stats: TeacherDashboardDto = {

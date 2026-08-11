@@ -408,7 +408,7 @@ export class SearchService {
     const base = (): SelectQueryBuilder<Subject> =>
       this.subjectsRepository
         .createQueryBuilder('s')
-        .where('(s.name ILIKE :like OR s.name_ar ILIKE :like)', { like });
+        .where('s.name ILIKE :like', { like });
 
     const total = await base().getCount();
     const rows = await this.safeGetMany((useSimilarity) => {

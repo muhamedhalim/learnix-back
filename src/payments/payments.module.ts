@@ -156,6 +156,7 @@ import { SettlementsService } from './services/settlements.service';
     OrdersService,
     EntitlementsService,
     PaymentFinalizationService,
+    PaymentOperationsService,
     LessonSessionsService,
   ],
 })

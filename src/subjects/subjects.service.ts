@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -59,10 +60,8 @@ interface SubjectCountsRow {
 const PUBLIC_SELECT = [
   'subject.id',
   'subject.name',
-  'subject.name_ar',
   'subject.description',
   'subject.description_ar',
-  'subject.thumbnail',
   'subject.created_at',
   'subject.updated_at',
 ] as const;
@@ -550,14 +549,13 @@ export class SubjectsService {
     ownership: { status: SubjectStatus; ownerId: string | null },
   ): Promise<Subject> {
     const name = dto.name.trim();
+    if (name === '') {
+      throw new BadRequestException(biBody('Subject name is required', 'اسم المادة مطلوب'));
+    }
     await this.assertNameAvailable(name);
 
     const subject = this.subjectsRepository.create({
       name,
-      name_ar: dto.name_ar?.trim() ?? null,
-      description: dto.description ?? null,
-      description_ar: dto.description_ar ?? null,
-      thumbnail: dto.thumbnail ?? null,
       status: ownership.status,
       created_by_teacher_id: ownership.ownerId,
       rejection_reason: null,
@@ -572,31 +570,17 @@ export class SubjectsService {
   private async applyUpdate(subject: Subject, dto: UpdateSubjectDto): Promise<string[]> {
     const changedFields: string[] = [];
 
-    if (dto.name !== undefined && dto.name !== '') {
+    if (dto.name !== undefined) {
       const name = dto.name.trim();
+      if (name === '') {
+        throw new BadRequestException(biBody('Subject name is required', 'اسم المادة مطلوب'));
+      }
       if (name !== subject.name) {
         await this.assertNameAvailable(name, subject.id);
         subject.name = name;
         changedFields.push('name');
       }
     }
-    if (dto.name_ar !== undefined) {
-      subject.name_ar = dto.name_ar.trim();
-      changedFields.push('name_ar');
-    }
-    if (dto.description !== undefined) {
-      subject.description = dto.description;
-      changedFields.push('description');
-    }
-    if (dto.description_ar !== undefined) {
-      subject.description_ar = dto.description_ar;
-      changedFields.push('description_ar');
-    }
-    if (dto.thumbnail !== undefined) {
-      subject.thumbnail = dto.thumbnail;
-      changedFields.push('thumbnail');
-    }
-
     return changedFields;
   }
 

@@ -75,6 +75,21 @@ export class HealthController {
     return await this.orchestrator.dashboard(false);
   }
 
+  @Get('summary')
+  @UseGuards(HybridAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Compact cached system health summary (Admin only)' })
+  public async dashboardSummary(): Promise<unknown> {
+    const dashboard = await this.orchestrator.dashboard(false);
+    return {
+      status: dashboard.summary.status,
+      score: dashboard.summary.score,
+      counts: dashboard.summary.counts,
+      generatedAt: dashboard.generatedAt,
+    };
+  }
+
   @Get('metrics')
   @UseGuards(HybridAuthGuard, RolesGuard)
   @Roles('admin')

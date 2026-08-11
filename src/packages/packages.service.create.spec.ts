@@ -27,7 +27,6 @@ const TEACHER: User = {
 const SUBJECT: Subject = {
   id: 'subject-1',
   name: 'Algebra',
-  name_ar: 'الجبر',
 } as unknown as Subject;
 
 function makePackage(overrides: Partial<LessonPackage> = {}): LessonPackage {
@@ -172,7 +171,6 @@ describe('PackagesService.create — subject_id', () => {
     expect(result.subject).toEqual({
       id: 'subject-1',
       name: 'Algebra',
-      name_ar: 'الجبر',
     });
   });
 

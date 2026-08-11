@@ -11,10 +11,138 @@ export class RevenueBySourceDto {
   public books!: number;
 }
 
+export type AdminDashboardFinanceStatus = 'available' | 'forbidden' | 'failed';
+
+export interface AdminDashboardPeriodDto {
+  days: 7 | 30;
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+}
+
+export interface AdminDashboardMoneyMetricDto {
+  currency: string;
+  amountMinor: string;
+}
+
+export interface AdminDashboardOrderMetricDto {
+  currency: string;
+  count: number;
+}
+
+export interface AdminDashboardFinanceSummaryDto {
+  currency: string;
+  orderCount: number;
+  grossSalesMinor: string;
+  platformRevenueMinor: string;
+  teacherEarningsMinor: string;
+  refundsMinor: string;
+  netPlatformRevenueMinor: string;
+  averageOrderValueMinor: string;
+  outstandingTeacherPayablesMinor: string | null;
+  revenueChangeMinor: string;
+  revenueGrowthBps: string | null;
+}
+
+export interface AdminDashboardFinanceTrendDto {
+  date: string;
+  currency: string;
+  orderCount: number;
+  grossSalesMinor: string;
+  platformRevenueMinor: string;
+  teacherEarningsMinor: string;
+}
+
+export interface AdminDashboardAuditEntryDto {
+  id: string;
+  actor: { id: string; name: string; email: string };
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  targetName: string | null;
+  createdAt: string;
+}
+
+export interface LegacyAdminDashboardDto {
+  totalStudents: number;
+  pendingStudents: number;
+  approvedStudents: number;
+  totalTeachers: number;
+  pendingTeachers: number;
+  approvedTeachers: number;
+  totalLessons: number;
+  totalBooks: number;
+  totalExams: number;
+  totalRevenue: number;
+  revenueThisMonth: number;
+  revenueLastMonth: number;
+  revenueToday: number;
+  revenueThisQuarter: number;
+  revenueBySource: RevenueBySourceDto;
+}
+
 /**
  * Response DTO for admin dashboard statistics
  */
 export class AdminDashboardDto {
+  @ApiProperty({ format: 'date-time' })
+  public generatedAt!: string;
+
+  @ApiProperty({ type: Object })
+  public period!: AdminDashboardPeriodDto;
+
+  @ApiProperty({ type: Object })
+  public kpis!: {
+    activeLearners: number;
+    newAccounts: number;
+    grossSales: AdminDashboardMoneyMetricDto[];
+    paidOrders: AdminDashboardOrderMetricDto[];
+  };
+
+  @ApiProperty({ type: Object })
+  public inventory!: {
+    studentAccounts: number;
+    teacherAccounts: number;
+    lessons: number;
+    packages: number;
+    exams: number;
+    books: number;
+  };
+
+  @ApiProperty({ type: Object })
+  public activity!: {
+    lessonViews: number;
+    examAttempts: number;
+    averageSessionDurationSeconds: number;
+    lessonCompletionRate: number;
+  };
+
+  @ApiProperty({ type: Object })
+  public attention!: {
+    pendingStudents: number;
+    pendingTeachers: number;
+    pendingSubjects: number;
+    overdueSupportTickets: number;
+    unassignedOpenSupportTickets: number;
+    manualPaymentsAwaitingReview: number | null;
+    draftSettlementsAwaitingApproval: number | null;
+    approvedSettlementsAwaitingPayment: number | null;
+  };
+
+  @ApiProperty({ type: Object })
+  public finance!: {
+    status: AdminDashboardFinanceStatus;
+    summaries: AdminDashboardFinanceSummaryDto[];
+    trends: AdminDashboardFinanceTrendDto[];
+  };
+
+  @ApiProperty({ type: Object, isArray: true })
+  public recentAdminActivity!: AdminDashboardAuditEntryDto[];
+
+  @ApiProperty({ type: String, isArray: true })
+  public sectionErrors!: string[];
+
   @ApiProperty({
     description: 'Total number of approved students',
     example: 150,

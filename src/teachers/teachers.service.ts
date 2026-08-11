@@ -470,7 +470,6 @@ export class TeachersService {
         'user.profile_picture_url',
         'subjects.id',
         'subjects.name',
-        'subjects.name_ar',
       ])
       .where('teacher.deleted_at IS NULL')
       .andWhere('user.deleted_at IS NULL')

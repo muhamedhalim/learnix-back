@@ -37,6 +37,30 @@ import { PaymentsService } from './payments.service';
 import { RefundsService } from './refunds.service';
 import { SettlementsService } from './settlements.service';
 
+export interface DashboardFinancialSnapshot {
+  summaries: Array<{
+    currency: string;
+    orderCount: number;
+    grossSalesMinor: string;
+    platformRevenueMinor: string;
+    teacherEarningsMinor: string;
+    refundsMinor: string;
+    netPlatformRevenueMinor: string;
+    averageOrderValueMinor: string;
+    outstandingTeacherPayablesMinor: string | null;
+    revenueChangeMinor: string;
+    revenueGrowthBps: string | null;
+  }>;
+  trends: Array<{
+    date: string;
+    currency: string;
+    orderCount: number;
+    grossSalesMinor: string;
+    platformRevenueMinor: string;
+    teacherEarningsMinor: string;
+  }>;
+}
+
 @Injectable()
 export class PaymentOperationsService {
   private readonly logger = new Logger(PaymentOperationsService.name);
@@ -86,12 +110,13 @@ export class PaymentOperationsService {
     const guard = this.dataSource.createQueryRunner();
     await guard.connect();
     try {
-      const result = (await guard.query(
-        `SELECT pg_try_advisory_lock(hashtext($1)) AS acquired`,
-        ['finance-maintenance-v1'],
-      )) as Array<{ acquired: boolean }>;
+      const result = (await guard.query(`SELECT pg_try_advisory_lock(hashtext($1)) AS acquired`, [
+        'finance-maintenance-v1',
+      ])) as Array<{ acquired: boolean }>;
       if (!result[0]?.acquired) {
-        this.logger.log(JSON.stringify({ finance_maintenance: 'skipped', reason: 'worker_lock_held' }));
+        this.logger.log(
+          JSON.stringify({ finance_maintenance: 'skipped', reason: 'worker_lock_held' }),
+        );
         return;
       }
       // Each task is deliberately isolated. A failed order expiry must not
@@ -124,18 +149,20 @@ export class PaymentOperationsService {
     const startedAt = new Date();
     let run: FinancialMaintenanceRun | null = null;
     try {
-      run = await this.maintenanceRuns.save(this.maintenanceRuns.create({
-        task_name: taskName,
-        worker_id: `finance:${process.pid}`,
-        status: 'running',
-        started_at: startedAt,
-        finished_at: null,
-        duration_ms: 0,
-        processed_count: 0,
-        released_count: 0,
-        error_count: 0,
-        error_message: null,
-      }));
+      run = await this.maintenanceRuns.save(
+        this.maintenanceRuns.create({
+          task_name: taskName,
+          worker_id: `finance:${process.pid}`,
+          status: 'running',
+          started_at: startedAt,
+          finished_at: null,
+          duration_ms: 0,
+          processed_count: 0,
+          released_count: 0,
+          error_count: 0,
+          error_message: null,
+        }),
+      );
     } catch (error) {
       this.logger.error(`Unable to start finance maintenance monitor for ${taskName}`, error);
     }
@@ -150,7 +177,10 @@ export class PaymentOperationsService {
         try {
           await this.maintenanceRuns.save(run);
         } catch (monitorError) {
-          this.logger.error(`Unable to complete finance maintenance monitor for ${taskName}`, monitorError);
+          this.logger.error(
+            `Unable to complete finance maintenance monitor for ${taskName}`,
+            monitorError,
+          );
         }
       }
       this.logger.log(
@@ -174,7 +204,10 @@ export class PaymentOperationsService {
         try {
           await this.maintenanceRuns.save(run);
         } catch (monitorError) {
-          this.logger.error(`Unable to fail finance maintenance monitor for ${taskName}`, monitorError);
+          this.logger.error(
+            `Unable to fail finance maintenance monitor for ${taskName}`,
+            monitorError,
+          );
         }
       }
       this.logger.error(
@@ -196,7 +229,10 @@ export class PaymentOperationsService {
     }
   }
 
-  private async emitRepeatedMaintenanceFailureAlert(taskName: string, error: string): Promise<void> {
+  private async emitRepeatedMaintenanceFailureAlert(
+    taskName: string,
+    error: string,
+  ): Promise<void> {
     const recent = await this.maintenanceRuns
       .createQueryBuilder('run')
       .where('run.task_name = :taskName', { taskName })
@@ -1298,13 +1334,132 @@ export class PaymentOperationsService {
    * limited to paid orders with completed payments and orders.paid_at.
    * Amounts remain PostgreSQL minor-unit numerics serialized as strings.
    */
+  public async dashboardFinancialSnapshot(
+    bounds: { start: Date; end: Date; previousStart: Date; previousEnd: Date },
+    includeTeacherPayables: boolean,
+  ): Promise<DashboardFinancialSnapshot> {
+    const filter: FinancialReportFilterDto = { page: 1, limit: 20 };
+    const [summaryRows, trendRows, payableRows] = (await Promise.all([
+      this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) =>
+        this.dataSource.query(
+          `
+          WITH ${current}, ${previous},
+          sales AS (
+            SELECT currency, COUNT(*)::text AS order_count,
+              COALESCE(SUM(final_amount_minor), 0)::text AS gross_sales_minor,
+              COALESCE(SUM(platform_commission_minor), 0)::text AS platform_revenue_minor,
+              COALESCE(SUM(teacher_earning_minor), 0)::text AS teacher_earnings_minor,
+              COALESCE(ROUND(AVG(final_amount_minor)), 0)::text AS average_order_value_minor
+            FROM current_orders GROUP BY currency
+          ), prior AS (
+            SELECT currency, COALESCE(SUM(final_amount_minor), 0)::text AS gross_sales_minor
+            FROM previous_orders GROUP BY currency
+          ), returns AS (
+            SELECT currency,
+              COALESCE(SUM(refunded_amount_minor), 0)::text AS refunds_minor,
+              COALESCE(SUM(ROUND(platform_commission_minor::numeric * refunded_amount_minor / NULLIF(final_amount_minor, 0))), 0)::text AS platform_refunds_minor
+            FROM current_orders WHERE refunded_amount_minor > 0 GROUP BY currency
+          ), currencies AS (
+            SELECT currency FROM sales UNION SELECT currency FROM prior
+          )
+          SELECT currencies.currency,
+            COALESCE(sales.order_count, '0') AS order_count,
+            COALESCE(sales.gross_sales_minor, '0') AS gross_sales_minor,
+            COALESCE(sales.platform_revenue_minor, '0') AS platform_revenue_minor,
+            COALESCE(sales.teacher_earnings_minor, '0') AS teacher_earnings_minor,
+            COALESCE(returns.refunds_minor, '0') AS refunds_minor,
+            (COALESCE(sales.platform_revenue_minor::bigint, 0) - COALESCE(returns.platform_refunds_minor::bigint, 0))::text AS net_platform_revenue_minor,
+            COALESCE(sales.average_order_value_minor, '0') AS average_order_value_minor,
+            (COALESCE(sales.gross_sales_minor::bigint, 0) - COALESCE(prior.gross_sales_minor::bigint, 0))::text AS revenue_change_minor,
+            CASE WHEN COALESCE(prior.gross_sales_minor::bigint, 0) = 0 THEN NULL
+              ELSE ROUND((COALESCE(sales.gross_sales_minor::numeric, 0) - prior.gross_sales_minor::numeric) * 10000 / prior.gross_sales_minor::numeric)::text END AS revenue_growth_bps
+          FROM currencies LEFT JOIN sales USING (currency) LEFT JOIN prior USING (currency) LEFT JOIN returns USING (currency)
+          ORDER BY currencies.currency ASC
+        `,
+          params,
+        ),
+      ),
+      this.runCurrentFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+        this.dataSource.query(
+          `
+          WITH ${current}
+          SELECT date_trunc('day', paid_at)::date::text AS date, currency,
+            COUNT(*)::text AS order_count,
+            COALESCE(SUM(final_amount_minor), 0)::text AS gross_sales_minor,
+            COALESCE(SUM(platform_commission_minor), 0)::text AS platform_revenue_minor,
+            COALESCE(SUM(teacher_earning_minor), 0)::text AS teacher_earnings_minor
+          FROM current_orders
+          GROUP BY date_trunc('day', paid_at), currency
+          ORDER BY date_trunc('day', paid_at) ASC, currency ASC
+        `,
+          params,
+        ),
+      ),
+      includeTeacherPayables
+        ? this.dataSource.query(`
+            WITH ledger AS (
+              SELECT currency,
+                COALESCE(SUM(CASE WHEN account = 'teacher_payable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::bigint AS pending_minor,
+                COALESCE(SUM(CASE WHEN account = 'teacher_payable_available' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::bigint AS available_minor
+              FROM financial_ledger_entries WHERE teacher_id IS NOT NULL GROUP BY currency
+            ), reserved AS (
+              SELECT settlement.currency, COALESCE(SUM(entry.amount_minor), 0)::bigint AS reserved_minor
+              FROM teacher_settlements settlement
+              INNER JOIN teacher_settlement_entries entry ON entry.settlement_id = settlement.id
+              WHERE settlement.status IN ('draft', 'approved') GROUP BY settlement.currency
+            ), currencies AS (
+              SELECT currency FROM ledger UNION SELECT currency FROM reserved
+            )
+            SELECT currencies.currency,
+              GREATEST(COALESCE(ledger.pending_minor, 0) + COALESCE(ledger.available_minor, 0) - COALESCE(reserved.reserved_minor, 0), 0)::text AS outstanding_minor
+            FROM currencies LEFT JOIN ledger USING (currency) LEFT JOIN reserved USING (currency)
+          `)
+        : Promise.resolve([]),
+    ])) as [
+      Array<Record<string, unknown>>,
+      Array<Record<string, unknown>>,
+      Array<Record<string, unknown>>,
+    ];
+
+    const outstandingByCurrency = new Map(
+      payableRows.map((row) => [String(row['currency']), String(row['outstanding_minor'] ?? '0')]),
+    );
+    return {
+      summaries: summaryRows.map((row) => ({
+        currency: String(row['currency']),
+        orderCount: Number(row['order_count'] ?? 0),
+        grossSalesMinor: String(row['gross_sales_minor'] ?? '0'),
+        platformRevenueMinor: String(row['platform_revenue_minor'] ?? '0'),
+        teacherEarningsMinor: String(row['teacher_earnings_minor'] ?? '0'),
+        refundsMinor: String(row['refunds_minor'] ?? '0'),
+        netPlatformRevenueMinor: String(row['net_platform_revenue_minor'] ?? '0'),
+        averageOrderValueMinor: String(row['average_order_value_minor'] ?? '0'),
+        outstandingTeacherPayablesMinor: includeTeacherPayables
+          ? (outstandingByCurrency.get(String(row['currency'])) ?? '0')
+          : null,
+        revenueChangeMinor: String(row['revenue_change_minor'] ?? '0'),
+        revenueGrowthBps:
+          row['revenue_growth_bps'] == null ? null : String(row['revenue_growth_bps']),
+      })),
+      trends: trendRows.map((row) => ({
+        date: String(row['date']),
+        currency: String(row['currency']),
+        orderCount: Number(row['order_count'] ?? 0),
+        grossSalesMinor: String(row['gross_sales_minor'] ?? '0'),
+        platformRevenueMinor: String(row['platform_revenue_minor'] ?? '0'),
+        teacherEarningsMinor: String(row['teacher_earnings_minor'] ?? '0'),
+      })),
+    };
+  }
+
   public async financialReport(filter: FinancialReportFilterDto): Promise<Record<string, unknown>> {
     const bounds = this.financialReportBounds(filter);
     const results = await Promise.allSettled([
       this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
         const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-        return this.dataSource.query(`
+        return this.dataSource.query(
+          `
           WITH ${current}, ${previous},
           sales AS (
             SELECT currency, COUNT(*)::text AS order_count,
@@ -1370,14 +1525,19 @@ export class PaymentOperationsService {
           LEFT JOIN sales USING (currency) LEFT JOIN prior_sales USING (currency) LEFT JOIN returns USING (currency)
           LEFT JOIN ledger USING (currency) LEFT JOIN reserved USING (currency) LEFT JOIN paid USING (currency)
           ORDER BY currency ASC
-        `, params);
+        `,
+          params,
+        );
       }),
       this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
         const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
         const limitIndex = params.push(Math.min(filter.limit ?? 20, 100));
-        const offsetIndex = params.push(((filter.page ?? 1) - 1) * Math.min(filter.limit ?? 20, 100));
-        return this.dataSource.query(`
+        const offsetIndex = params.push(
+          ((filter.page ?? 1) - 1) * Math.min(filter.limit ?? 20, 100),
+        );
+        return this.dataSource.query(
+          `
           WITH ${current}, ${previous},
           sales AS (
             SELECT teacher_id, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
@@ -1429,20 +1589,27 @@ export class PaymentOperationsService {
           LEFT JOIN ledger USING (teacher_id,currency) LEFT JOIN reserved USING (teacher_id,currency) LEFT JOIN paid USING (teacher_id,currency) LEFT JOIN active USING (teacher_id,currency)
           ORDER BY COALESCE(sales.gross_sales_minor::bigint,0) DESC, teacher.name ASC
           LIMIT $${limitIndex} OFFSET $${offsetIndex}
-        `, params);
+        `,
+          params,
+        );
       }),
       this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
         const bucket = filter.group_by ?? 'day';
-        return this.dataSource.query(`
+        return this.dataSource.query(
+          `
           WITH ${current}
           SELECT date_trunc('${bucket}', paid_at) AS period, currency, COUNT(*)::text AS order_count,
             COALESCE(SUM(final_amount_minor),0)::text AS gross_revenue_minor,
             COALESCE(SUM(platform_commission_minor),0)::text AS platform_revenue_minor,
             COALESCE(SUM(teacher_earning_minor),0)::text AS teacher_earnings_minor
           FROM current_orders GROUP BY date_trunc('${bucket}', paid_at), currency ORDER BY period ASC, currency ASC
-        `, params);
+        `,
+          params,
+        );
       }),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => this.dataSource.query(`
+      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+        this.dataSource.query(
+          `
         WITH ${current}
         SELECT item_type, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
           COALESCE(SUM(platform_commission_minor),0)::text AS platform_revenue_minor,
@@ -1450,46 +1617,63 @@ export class PaymentOperationsService {
           COALESCE(SUM(refunded_amount_minor),0)::text AS refunds_minor,
           (COALESCE(SUM(final_amount_minor),0)-COALESCE(SUM(refunded_amount_minor),0))::text AS net_revenue_minor
         FROM current_orders GROUP BY item_type,currency ORDER BY SUM(final_amount_minor) DESC
-      `, params)),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => this.dataSource.query(`
+      `,
+          params,
+        ),
+      ),
+      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+        this.dataSource.query(
+          `
         WITH ${current}
         SELECT item_type, item_id, product_title_snapshot, currency, COUNT(*)::text AS order_count,
           COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor
         FROM current_orders GROUP BY item_type, item_id, product_title_snapshot, currency
         ORDER BY SUM(final_amount_minor) DESC LIMIT 50
-      `, params)),
+      `,
+          params,
+        ),
+      ),
       this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-        return this.dataSource.query(`
+        return this.dataSource.query(
+          `
           SELECT settlement.currency, settlement.status, COUNT(*)::text AS settlement_count,
             COALESCE(SUM(settlement.payout_amount_minor),0)::text AS payout_minor,
             COALESCE(ROUND(AVG(settlement.payout_amount_minor)),0)::text AS average_payout_minor,
             COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (settlement.paid_at-settlement.created_at)))),0)::text AS average_payment_seconds
           FROM teacher_settlements settlement WHERE ${settlementWhere}
           GROUP BY settlement.currency, settlement.status ORDER BY settlement.currency, settlement.status
-        `, params);
+        `,
+          params,
+        );
       }),
       filter.teacher_id
         ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
-          const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
-          return this.dataSource.query(`
+            const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+            return this.dataSource.query(
+              `
             SELECT entry.id, entry.currency, entry.account, entry.direction, entry.amount_minor::text AS amount_minor,
               entry.entry_type, entry.reference, entry.created_at
             FROM financial_ledger_entries entry WHERE ${ledgerWhere}
             ORDER BY entry.created_at DESC, entry.id DESC LIMIT 50
-          `, params);
-        })
+          `,
+              params,
+            );
+          })
         : Promise.resolve([]),
       filter.teacher_id
         ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
-          const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-          return this.dataSource.query(`
+            const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+            return this.dataSource.query(
+              `
             SELECT settlement.id, settlement.settlement_number, settlement.currency, settlement.status,
               settlement.payout_amount_minor::text AS payout_amount_minor, settlement.paid_at, settlement.created_at
             FROM teacher_settlements settlement WHERE ${settlementWhere}
             ORDER BY settlement.created_at DESC, settlement.id DESC LIMIT 50
-          `, params);
-        })
+          `,
+              params,
+            );
+          })
         : Promise.resolve([]),
     ]);
     const value = <T>(index: number, fallback: T): T => {
@@ -1497,9 +1681,24 @@ export class PaymentOperationsService {
       if (!result || result.status !== 'fulfilled') return fallback;
       return result.value as T;
     };
-    const widgetErrors = results.flatMap((result, index) => result.status === 'rejected'
-      ? [{ widget: ['summary', 'teacher_receivables', 'revenue_trends', 'product_breakdown', 'top_products', 'settlement_analytics', 'ledger_movements', 'settlement_history'][index] }]
-      : []);
+    const widgetErrors = results.flatMap((result, index) =>
+      result.status === 'rejected'
+        ? [
+            {
+              widget: [
+                'summary',
+                'teacher_receivables',
+                'revenue_trends',
+                'product_breakdown',
+                'top_products',
+                'settlement_analytics',
+                'ledger_movements',
+                'settlement_history',
+              ][index],
+            },
+          ]
+        : [],
+    );
     const summary = value<Array<Record<string, unknown>>>(0, []);
     const teacherRows = value<Array<Record<string, unknown>>>(1, []);
     const trends = value<Array<Record<string, unknown>>>(2, []);
@@ -1510,13 +1709,32 @@ export class PaymentOperationsService {
     const settlementHistory = value<Array<Record<string, unknown>>>(7, []);
     const page = filter.page ?? 1;
     const limit = Math.min(filter.limit ?? 20, 100);
-    const total = Number.parseInt(String((teacherRows as Array<Record<string, unknown>>)[0]?.['total_count'] ?? '0'), 10);
+    const total = Number.parseInt(
+      String((teacherRows as Array<Record<string, unknown>>)[0]?.['total_count'] ?? '0'),
+      10,
+    );
     return {
       generated_at: new Date().toISOString(),
-      period: { from: bounds.start.toISOString(), to: bounds.end.toISOString(), previous_from: bounds.previousStart.toISOString(), previous_to: bounds.previousEnd.toISOString(), group_by: filter.group_by ?? 'day' },
+      period: {
+        from: bounds.start.toISOString(),
+        to: bounds.end.toISOString(),
+        previous_from: bounds.previousStart.toISOString(),
+        previous_to: bounds.previousEnd.toISOString(),
+        group_by: filter.group_by ?? 'day',
+      },
       filters: filter,
       summary,
-      teachers: { data: teacherRows, meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPrevPage: page > 1 } },
+      teachers: {
+        data: teacherRows,
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          hasNextPage: page * limit < total,
+          hasPrevPage: page > 1,
+        },
+      },
       trends,
       product_breakdown: products,
       top_products: topProducts,
@@ -1534,69 +1752,202 @@ export class PaymentOperationsService {
     const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     const lines = [
       ['Generated at', report['generated_at']],
-      ['Period', (report['period'] as Record<string, unknown>)['from'], (report['period'] as Record<string, unknown>)['to']],
+      [
+        'Period',
+        (report['period'] as Record<string, unknown>)['from'],
+        (report['period'] as Record<string, unknown>)['to'],
+      ],
       [],
-      ['Currency', 'Gross revenue minor', 'Platform revenue minor', 'Teacher earnings minor', 'Refunds minor', 'Available payout minor', 'Reserved minor', 'Paid to teachers minor', 'Outstanding minor', 'Net revenue minor'],
-      ...summary.map((row) => [row['currency'], row['gross_revenue_minor'], row['platform_revenue_minor'], row['teacher_earnings_minor'], row['refunds_minor'], row['available_for_payout_minor'], row['reserved_in_settlements_minor'], row['paid_to_teachers_minor'], row['outstanding_teacher_payables_minor'], row['net_revenue_minor']]),
+      [
+        'Currency',
+        'Gross revenue minor',
+        'Platform revenue minor',
+        'Teacher earnings minor',
+        'Refunds minor',
+        'Available payout minor',
+        'Reserved minor',
+        'Paid to teachers minor',
+        'Outstanding minor',
+        'Net revenue minor',
+      ],
+      ...summary.map((row) => [
+        row['currency'],
+        row['gross_revenue_minor'],
+        row['platform_revenue_minor'],
+        row['teacher_earnings_minor'],
+        row['refunds_minor'],
+        row['available_for_payout_minor'],
+        row['reserved_in_settlements_minor'],
+        row['paid_to_teachers_minor'],
+        row['outstanding_teacher_payables_minor'],
+        row['net_revenue_minor'],
+      ]),
       [],
-      ['Teacher', 'Currency', 'Gross sales minor', 'Orders', 'Platform commission minor', 'Teacher entitlement minor', 'Refunds minor', 'Pending minor', 'Available minor', 'Reserved minor', 'Paid minor', 'Remaining payable minor'],
-      ...teachers.map((row) => [row['teacher_name'], row['currency'], row['gross_sales_minor'], row['order_count'], row['platform_commission_minor'], row['teacher_entitlement_minor'], row['refunds_minor'], row['pending_minor'], row['available_minor'], row['reserved_minor'], row['paid_minor'], row['remaining_payable_minor']]),
+      [
+        'Teacher',
+        'Currency',
+        'Gross sales minor',
+        'Orders',
+        'Platform commission minor',
+        'Teacher entitlement minor',
+        'Refunds minor',
+        'Pending minor',
+        'Available minor',
+        'Reserved minor',
+        'Paid minor',
+        'Remaining payable minor',
+      ],
+      ...teachers.map((row) => [
+        row['teacher_name'],
+        row['currency'],
+        row['gross_sales_minor'],
+        row['order_count'],
+        row['platform_commission_minor'],
+        row['teacher_entitlement_minor'],
+        row['refunds_minor'],
+        row['pending_minor'],
+        row['available_minor'],
+        row['reserved_minor'],
+        row['paid_minor'],
+        row['remaining_payable_minor'],
+      ]),
     ];
     return lines.map((line) => line.map(escape).join(',')).join('\n');
   }
 
-  private financialReportBounds(filter: FinancialReportFilterDto): { start: Date; end: Date; previousStart: Date; previousEnd: Date } {
-    const start = filter.from ? new Date(`${filter.from}T00:00:00.000Z`) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  private financialReportBounds(filter: FinancialReportFilterDto): {
+    start: Date;
+    end: Date;
+    previousStart: Date;
+    previousEnd: Date;
+  } {
+    const start = filter.from
+      ? new Date(`${filter.from}T00:00:00.000Z`)
+      : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = filter.to ? new Date(`${filter.to}T00:00:00.000Z`) : new Date();
     if (filter.to) end.setUTCDate(end.getUTCDate() + 1);
     const duration = end.getTime() - start.getTime();
-    return { start, end, previousStart: new Date(start.getTime() - duration), previousEnd: new Date(start) };
+    return {
+      start,
+      end,
+      previousStart: new Date(start.getTime() - duration),
+      previousEnd: new Date(start),
+    };
   }
 
-  private paidOrdersCte(filter: FinancialReportFilterDto, start: Date, end: Date, params: unknown[], name: string): string {
-    const push = (value: unknown) => { params.push(value); return `$${params.length}`; };
-    const conditions = ["o.status = 'paid'", "payment.status = 'completed'", 'o.paid_at IS NOT NULL', `o.paid_at >= ${push(start)}`, `o.paid_at < ${push(end)}`];
+  private paidOrdersCte(
+    filter: FinancialReportFilterDto,
+    start: Date,
+    end: Date,
+    params: unknown[],
+    name: string,
+  ): string {
+    const push = (value: unknown) => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+    const conditions = [
+      "o.status = 'paid'",
+      "payment.status = 'completed'",
+      'o.paid_at IS NOT NULL',
+      `o.paid_at >= ${push(start)}`,
+      `o.paid_at < ${push(end)}`,
+    ];
     if (filter.currency) conditions.push(`o.currency = ${push(filter.currency.toUpperCase())}`);
     if (filter.teacher_id) conditions.push(`o.teacher_id = ${push(filter.teacher_id)}`);
     if (filter.item_type) conditions.push(`o.item_type = ${push(filter.item_type)}`);
     if (filter.payment_method) conditions.push(`o.payment_method = ${push(filter.payment_method)}`);
     if (filter.search?.trim()) {
       const search = push(`%${filter.search.trim()}%`);
-      conditions.push(`(o.product_title_snapshot ILIKE ${search} OR EXISTS (SELECT 1 FROM users search_teacher WHERE search_teacher.id=o.teacher_id AND (search_teacher.name ILIKE ${search} OR search_teacher.email ILIKE ${search})))`);
+      conditions.push(
+        `(o.product_title_snapshot ILIKE ${search} OR EXISTS (SELECT 1 FROM users search_teacher WHERE search_teacher.id=o.teacher_id AND (search_teacher.name ILIKE ${search} OR search_teacher.email ILIKE ${search})))`,
+      );
     }
     return `${name} AS (SELECT o.id,o.teacher_id,o.currency,o.item_type,o.item_id,o.final_amount_minor,o.refunded_amount_minor,o.platform_commission_minor,o.teacher_earning_minor,o.paid_at,o.product_title_snapshot FROM orders o INNER JOIN payments payment ON payment.id=o.payment_id WHERE ${conditions.join(' AND ')})`;
   }
 
-  private async runFinancialReportQuery<T>(filter: FinancialReportFilterDto, bounds: { start: Date; end: Date; previousStart: Date; previousEnd: Date }, run: (input: { current: string; previous: string; params: unknown[] }) => Promise<T>): Promise<T> {
+  private async runFinancialReportQuery<T>(
+    filter: FinancialReportFilterDto,
+    bounds: { start: Date; end: Date; previousStart: Date; previousEnd: Date },
+    run: (input: { current: string; previous: string; params: unknown[] }) => Promise<T>,
+  ): Promise<T> {
     const params: unknown[] = [];
     const current = this.paidOrdersCte(filter, bounds.start, bounds.end, params, 'current_orders');
-    const previous = this.paidOrdersCte(filter, bounds.previousStart, bounds.previousEnd, params, 'previous_orders');
+    const previous = this.paidOrdersCte(
+      filter,
+      bounds.previousStart,
+      bounds.previousEnd,
+      params,
+      'previous_orders',
+    );
     return run({ current, previous, params });
   }
 
-  private reportLedgerWhere(filter: FinancialReportFilterDto, params: unknown[], alias: string): string {
+  private async runCurrentFinancialReportQuery<T>(
+    filter: FinancialReportFilterDto,
+    bounds: { start: Date; end: Date },
+    run: (input: { current: string; params: unknown[] }) => Promise<T>,
+  ): Promise<T> {
+    const params: unknown[] = [];
+    const current = this.paidOrdersCte(filter, bounds.start, bounds.end, params, 'current_orders');
+    return run({ current, params });
+  }
+
+  private reportLedgerWhere(
+    filter: FinancialReportFilterDto,
+    params: unknown[],
+    alias: string,
+  ): string {
     const clauses = [`${alias}.teacher_id IS NOT NULL`];
-    if (filter.currency) { params.push(filter.currency.toUpperCase()); clauses.push(`${alias}.currency = $${params.length}`); }
-    if (filter.teacher_id) { params.push(filter.teacher_id); clauses.push(`${alias}.teacher_id = $${params.length}`); }
+    if (filter.currency) {
+      params.push(filter.currency.toUpperCase());
+      clauses.push(`${alias}.currency = $${params.length}`);
+    }
+    if (filter.teacher_id) {
+      params.push(filter.teacher_id);
+      clauses.push(`${alias}.teacher_id = $${params.length}`);
+    }
     return clauses.join(' AND ');
   }
 
-  private reportSettlementWhere(filter: FinancialReportFilterDto, params: unknown[], alias: string): string {
+  private reportSettlementWhere(
+    filter: FinancialReportFilterDto,
+    params: unknown[],
+    alias: string,
+  ): string {
     const clauses = ['1 = 1'];
-    if (filter.currency) { params.push(filter.currency.toUpperCase()); clauses.push(`${alias}.currency = $${params.length}`); }
-    if (filter.teacher_id) { params.push(filter.teacher_id); clauses.push(`${alias}.teacher_id = $${params.length}`); }
-    if (filter.settlement_status) { params.push(filter.settlement_status); clauses.push(`${alias}.status = $${params.length}`); }
+    if (filter.currency) {
+      params.push(filter.currency.toUpperCase());
+      clauses.push(`${alias}.currency = $${params.length}`);
+    }
+    if (filter.teacher_id) {
+      params.push(filter.teacher_id);
+      clauses.push(`${alias}.teacher_id = $${params.length}`);
+    }
+    if (filter.settlement_status) {
+      params.push(filter.settlement_status);
+      clauses.push(`${alias}.status = $${params.length}`);
+    }
     return clauses.join(' AND ');
   }
 
   public async reportReconciliationWarnings(): Promise<Array<Record<string, unknown>>> {
     const report = await this.reconciliationReport();
     const severityByKey: Record<string, 'critical' | 'warning'> = {
-      negative_teacher_available_balances: 'critical', over_allocated_settlement_entries: 'critical', settlement_ledger_posting_mismatches: 'critical', payout_clearing_journal_completeness_issues: 'critical',
+      negative_teacher_available_balances: 'critical',
+      over_allocated_settlement_entries: 'critical',
+      settlement_ledger_posting_mismatches: 'critical',
+      payout_clearing_journal_completeness_issues: 'critical',
     };
     return Object.entries(report)
       .filter(([, value]) => Array.isArray(value) && value.length > 0)
-      .map(([type, value]) => ({ type, severity: severityByKey[type] ?? 'warning', detected_at: new Date().toISOString(), affected_count: (value as unknown[]).length, samples: (value as unknown[]).slice(0, 5) }));
+      .map(([type, value]) => ({
+        type,
+        severity: severityByKey[type] ?? 'warning',
+        detected_at: new Date().toISOString(),
+        affected_count: (value as unknown[]).length,
+        samples: (value as unknown[]).slice(0, 5),
+      }));
   }
 
   public async legacyFinancialReport(filter: OrderFilterDto): Promise<Record<string, unknown>> {

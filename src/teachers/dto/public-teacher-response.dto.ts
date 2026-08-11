@@ -13,9 +13,6 @@ export class PublicTeacherSubjectDto {
   @ApiProperty()
   public name!: string;
 
-  @ApiProperty({ nullable: true })
-  public name_ar!: string | null;
-
 }
 
 /**
@@ -114,7 +111,6 @@ export function toPublicTeacherResponse(
     subjects: profile.subjects.map((subject) => ({
       id: subject.id,
       name: subject.name,
-      name_ar: subject.name_ar,
     })),
     created_at: profile.created_at,
   };

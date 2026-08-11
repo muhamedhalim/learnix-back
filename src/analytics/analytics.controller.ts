@@ -7,13 +7,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -22,8 +16,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import { DateRangeQueryDto } from '../reports/dto/date-range-query.dto';
 import { AnalyticsService } from './analytics.service';
+import { AdminDashboardService } from './admin-dashboard.service';
 import {
   AdminDashboardDto,
+  AdminDashboardQueryDto,
   ExamAnalyticsDto,
   LessonAnalyticsDto,
   StudentDashboardDto,
@@ -35,7 +31,10 @@ import {
 @UseGuards(HybridAuthGuard, RolesGuard)
 @ApiBearerAuth('JWT-auth')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AnalyticsService,
+    private readonly adminDashboardService: AdminDashboardService,
+  ) {}
 
   /**
    * Admin Dashboard - Platform-wide statistics
@@ -44,8 +43,7 @@ export class AnalyticsController {
   @Roles('admin')
   @ApiOperation({
     summary: 'Get admin dashboard statistics',
-    description:
-      'Returns platform-wide statistics for the admin dashboard. Admin only.',
+    description: 'Returns platform-wide statistics for the admin dashboard. Admin only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -56,8 +54,11 @@ export class AnalyticsController {
     status: HttpStatus.FORBIDDEN,
     description: 'Forbidden - Admin role required',
   })
-  public async getAdminDashboard(@GetUser() user: JwtPayload): Promise<{ data: AdminDashboardDto }> {
-    const stats = await this.analyticsService.getAdminDashboard(user.tenantId);
+  public async getAdminDashboard(
+    @GetUser() user: JwtPayload,
+    @Query() query: AdminDashboardQueryDto,
+  ): Promise<{ data: AdminDashboardDto }> {
+    const stats = await this.adminDashboardService.getDashboard(user, query.days);
     return { data: stats };
   }
 
@@ -68,8 +69,7 @@ export class AnalyticsController {
   @Roles('teacher')
   @ApiOperation({
     summary: 'Get teacher dashboard statistics',
-    description:
-      'Returns statistics for the authenticated teacher dashboard. Teacher only.',
+    description: 'Returns statistics for the authenticated teacher dashboard. Teacher only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -100,8 +100,7 @@ export class AnalyticsController {
   @Roles('student')
   @ApiOperation({
     summary: 'Get student dashboard statistics',
-    description:
-      'Returns statistics for the authenticated student dashboard. Student only.',
+    description: 'Returns statistics for the authenticated student dashboard. Student only.',
   })
   @ApiResponse({
     status: HttpStatus.OK,

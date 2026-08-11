@@ -40,7 +40,7 @@ export interface PublicQuestionListItem {
   content: Question['content'];
   default_marks: number;
   tags: string[];
-  subject: { id: string; name: string; name_ar: string | null } | null;
+  subject: { id: string; name: string } | null;
   created_at: Date;
 }
 
@@ -367,7 +367,6 @@ export class QuestionBankService {
         ? {
             id: question.subject.id,
             name: question.subject.name,
-            name_ar: question.subject.name_ar,
           }
         : null,
       created_at: question.created_at,

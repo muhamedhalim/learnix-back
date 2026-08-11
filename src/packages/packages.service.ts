@@ -56,7 +56,7 @@ export interface PackageWithDetails {
     name: string;
     profile_picture_url: string | null;
   } | null;
-  subject: { id: string; name: string; name_ar: string | null } | null;
+  subject: { id: string; name: string } | null;
   price: number;
   original_price: number | null;
   savings: number | null;
@@ -872,7 +872,6 @@ export class PackagesService {
         ? {
             id: pkg.subject.id,
             name: pkg.subject.name,
-            name_ar: pkg.subject.name_ar,
           }
         : null,
       price,

@@ -50,7 +50,6 @@ const STORAGE_COLUMNS: ReadonlyArray<{
 }> = [
   { table: 'users', column: 'profile_picture_url' },
   { table: 'users', column: 'profile_picture_thumbnail_url' },
-  { table: 'subjects', column: 'thumbnail' },
   { table: 'lessons', column: 'thumbnail' },
   { table: 'lesson_packages', column: 'thumbnail' },
   { table: 'books', column: 'cover_image' },

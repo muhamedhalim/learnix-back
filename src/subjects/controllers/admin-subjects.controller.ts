@@ -11,15 +11,10 @@ import {
   Post,
   Put,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -27,11 +22,9 @@ import {
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { FILE_LIMITS } from '../../common/constants';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { UploadService } from '../../uploads/upload.service';
 import {
   AdminSubjectFilterDto,
   ApproveSubjectDto,
@@ -49,39 +42,16 @@ import { SubjectsService } from '../subjects.service';
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminSubjectsController {
-  constructor(
-    private readonly subjectsService: SubjectsService,
-    private readonly uploadService: UploadService,
-  ) {}
+  constructor(private readonly subjectsService: SubjectsService) {}
 
   /**
-   * Create a new subject with thumbnail upload
+   * Create a new subject.
    * Admin only
    */
   @Post()
-  @UseInterceptors(
-    FileInterceptor('thumbnail', {
-      limits: { fileSize: FILE_LIMITS.THUMBNAIL_MAX_SIZE, files: 1 },
-    }),
-  )
-  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Create a new subject',
-    description: 'Creates a new subject with optional thumbnail. Admin only.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', example: 'الفيزياء' },
-        description: {
-          type: 'string',
-          example: 'مادة الفيزياء للصف الثالث الثانوي',
-        },
-        thumbnail: { type: 'string', format: 'binary' },
-      },
-      required: ['name'],
-    },
+    description: 'Creates a subject with one display name. Admin only.',
   })
   @ApiResponse({
     status: HttpStatus.CREATED,
@@ -103,21 +73,8 @@ export class AdminSubjectsController {
     @Body() createSubjectDto: CreateSubjectDto,
     @GetUser() user: JwtPayload,
     @Ip() ip: string,
-    @UploadedFile() file?: Express.Multer.File,
   ): Promise<unknown> {
-    const dtoToUse = new CreateSubjectDto();
-    Object.assign(dtoToUse, createSubjectDto);
-
-    // Upload thumbnail if provided
-    if (file) {
-      const uploadResult = await this.uploadService.uploadFile(
-        file,
-        'thumbnails',
-      );
-      dtoToUse.thumbnail = uploadResult.url;
-    }
-
-    const subject = await this.subjectsService.create(dtoToUse, {
+    const subject = await this.subjectsService.create(createSubjectDto, {
       actorId: user.userId,
       ipAddress: ip,
     });
