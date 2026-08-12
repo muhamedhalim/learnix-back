@@ -26,7 +26,10 @@ import { NotificationsService } from '../services/notifications.service';
 @ApiBearerAuth('JWT-auth')
 @Controller('notifications')
 @UseGuards(HybridAuthGuard, RolesGuard)
-@Roles('student')
+// Every platform user can own notification rows. All service methods below are
+// scoped to the authenticated user id, so widening the role gate does not grant
+// access to another user's inbox.
+@Roles('student', 'teacher', 'admin', 'call_center')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 

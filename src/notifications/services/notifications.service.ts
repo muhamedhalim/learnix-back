@@ -18,16 +18,20 @@ import {
 import {
   Notification,
   NotificationChannel,
+  NotificationDelivery,
+  NotificationDeliveryStatus,
+  NotificationOrigin,
   NotificationSettings,
   NotificationStatus,
   NotificationType,
 } from '../entities';
 import { NotificationChannelPolicyService } from './notification-channel-policy.service';
+import { NotificationDeliveryService } from './notification-delivery.service';
 import { PushNotificationJobsService } from './push-notification-jobs.service';
 import { SmsSenderService } from './sms-sender.service';
 
-export interface PaginatedNotifications {
-  data: Notification[];
+export interface PaginatedNotifications<T = Notification> {
+  data: T[];
   meta: {
     page: number;
     limit: number;
@@ -54,6 +58,10 @@ export type SupportTicketNotificationEvent =
 
 interface NotificationCreateOptions {
   dedupeKey?: string;
+  origin?: NotificationOrigin;
+  sourceEvent?: string;
+  createdByUserId?: string;
+  campaignId?: string;
   /**
    * Fan the persisted notification out to the recipient's registered push
    * devices. Default `true`: an in-app notification is *the* notification, and
@@ -63,6 +71,53 @@ interface NotificationCreateOptions {
    * Set `false` only for records that are not user-facing announcements.
    */
   push?: boolean;
+}
+
+export interface AdminNotificationView {
+  id: string;
+  campaign_id: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data: Record<string, unknown> | null;
+  legacy_status: NotificationStatus;
+  in_app_state: 'published';
+  read_state: 'read' | 'unread';
+  is_read: boolean;
+  origin: NotificationOrigin;
+  source_event: string | null;
+  sent_at: Date;
+  read_at: Date | null;
+  created_at: Date;
+  recipient: { id: string; name: string; email: string; role: string };
+  created_by: { id: string; name: string; email: string } | null;
+  deliveries: AdminNotificationDeliveryView[];
+}
+
+export interface AdminNotificationDeliveryView {
+  id: string;
+  channel: NotificationChannel;
+  status: NotificationDeliveryStatus;
+  provider: string | null;
+  provider_message_id: string | null;
+  attempts: number;
+  error_message: string | null;
+  sent_at: Date | null;
+  created_at: Date;
+}
+
+function toAdminDeliveryView(delivery: NotificationDelivery): AdminNotificationDeliveryView {
+  return {
+    id: delivery.id,
+    channel: delivery.channel,
+    status: delivery.status,
+    provider: delivery.provider,
+    provider_message_id: delivery.provider_message_id,
+    attempts: delivery.attempts,
+    error_message: delivery.error_message,
+    sent_at: delivery.sent_at,
+    created_at: delivery.created_at,
+  };
 }
 
 const SUPPORT_TICKET_COPY: Readonly<
@@ -181,6 +236,7 @@ export class NotificationsService {
     private readonly smsSenderService: SmsSenderService,
     private readonly channelPolicy: NotificationChannelPolicyService,
     private readonly pushJobs: PushNotificationJobsService,
+    private readonly notificationDeliveries: NotificationDeliveryService,
   ) {}
 
   /**
@@ -220,6 +276,10 @@ export class NotificationsService {
     // Create notification record
     const notification = this.notificationsRepository.create({
       dedupe_key: options.dedupeKey ?? null,
+      campaign_id: options.campaignId ?? null,
+      created_by_user_id: options.createdByUserId ?? null,
+      origin: options.origin ?? NotificationOrigin.SYSTEM,
+      source_event: options.sourceEvent ?? null,
       user_id: dto.user_id,
       type: dto.type,
       title: dto.title,
@@ -229,7 +289,10 @@ export class NotificationsService {
       sent_at: now,
       sms_sent: false,
       sms_to: null,
-      status: NotificationStatus.PENDING,
+      // The parent row represents an in-app record, not provider delivery.
+      // Once saved it is locally published; channel outcomes live in
+      // notification_deliveries.
+      status: NotificationStatus.SENT,
       attempts: 0,
       error_message: null,
       delivered_at: null,
@@ -311,11 +374,6 @@ export class NotificationsService {
     );
     // Support events are in-app-only. Mark their local dispatch state as sent
     // without invoking any provider or exposing a retry/transport operation.
-    if (notification.status === NotificationStatus.PENDING) {
-      notification.status = NotificationStatus.SENT;
-      notification.attempts = Math.max(1, notification.attempts);
-      return await this.notificationsRepository.save(notification);
-    }
     return notification;
   }
 
@@ -350,6 +408,7 @@ export class NotificationsService {
     message: string;
     data: Record<string, unknown> | null;
     status: NotificationStatus;
+    legacy_status: NotificationStatus;
     attempts: number;
     error_message: string | null;
     sms_sent: boolean;
@@ -357,13 +416,37 @@ export class NotificationsService {
     sent_at: Date;
     delivered_at: Date | null;
     read_at: Date | null;
+    is_read: boolean;
+    created_at: Date;
+    in_app_state: 'published';
+    read_state: 'read' | 'unread';
+    origin: NotificationOrigin;
+    source_event: string | null;
+    campaign_id: string | null;
+    created_by: { id: string; name: string; email: string } | null;
+    deliveries: AdminNotificationDeliveryView[];
     user: {
       id: string;
       name: string;
       email: string;
     };
+    recipient: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+    };
   }> {
-    const notification = await this.findOne(notificationId);
+    const notification = await this.notificationsRepository.findOne({
+      where: { id: notificationId },
+      relations: { user: true, created_by: true },
+    });
+    if (!notification) {
+      throw new NotFoundException(
+        biBody('Notification not found', 'Notification not found'),
+      );
+    }
+    const deliveries = await this.notificationDeliveries.findForNotification(notificationId);
 
     return {
       id: notification.id,
@@ -372,6 +455,7 @@ export class NotificationsService {
       message: notification.message,
       data: notification.data,
       status: notification.status,
+      legacy_status: notification.status,
       attempts: notification.attempts,
       error_message: notification.error_message,
       sms_sent: notification.sms_sent,
@@ -379,10 +463,31 @@ export class NotificationsService {
       sent_at: notification.sent_at,
       delivered_at: notification.delivered_at,
       read_at: notification.read_at,
+      is_read: notification.is_read,
+      created_at: notification.created_at,
+      in_app_state: 'published',
+      read_state: notification.is_read ? 'read' : 'unread',
+      origin: notification.origin,
+      source_event: notification.source_event,
+      campaign_id: notification.campaign_id,
+      created_by: notification.created_by
+        ? {
+            id: notification.created_by.id,
+            name: notification.created_by.name,
+            email: notification.created_by.email,
+          }
+        : null,
+      deliveries: deliveries.map(toAdminDeliveryView),
       user: {
         id: notification.user.id,
         name: notification.user.name,
         email: notification.user.email,
+      },
+      recipient: {
+        id: notification.user.id,
+        name: notification.user.name,
+        email: notification.user.email,
+        role: notification.user.role,
       },
     };
   }
@@ -602,14 +707,30 @@ export class NotificationsService {
    * who each notification went to (password-bearing columns are `select: false`
    * on the entity and are never loaded).
    */
-  public async findAllAdmin(filter: AdminNotificationFilterDto): Promise<PaginatedNotifications> {
+  public async findAllAdmin(
+    filter: AdminNotificationFilterDto,
+  ): Promise<PaginatedNotifications<AdminNotificationView>> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
     const skip = (page - 1) * limit;
 
     const queryBuilder = this.notificationsRepository
       .createQueryBuilder('notification')
-      .leftJoinAndSelect('notification.user', 'user');
+      .leftJoin('notification.user', 'user')
+      .addSelect(['user.id', 'user.name', 'user.email', 'user.role'])
+      .leftJoin('notification.created_by', 'creator')
+      .addSelect(['creator.id', 'creator.name', 'creator.email'])
+      .leftJoinAndSelect('notification.deliveries', 'delivery')
+      .distinct(true);
+
+    if (filter.needs_attention === true) {
+      queryBuilder.andWhere('delivery.status IN (:...attentionStatuses)', {
+        attentionStatuses: [
+          NotificationDeliveryStatus.FAILED,
+          NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
+        ],
+      });
+    }
 
     if (filter.user_id !== undefined) {
       queryBuilder.andWhere('notification.user_id = :userId', { userId: filter.user_id });
@@ -649,7 +770,38 @@ export class NotificationsService {
 
     queryBuilder.orderBy('notification.sent_at', 'DESC');
 
-    const [data, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
+    const [entities, total] = await queryBuilder.skip(skip).take(limit).getManyAndCount();
+    const data: AdminNotificationView[] = entities.map((notification) => ({
+      id: notification.id,
+      campaign_id: notification.campaign_id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      data: notification.data,
+      legacy_status: notification.status,
+      in_app_state: 'published',
+      read_state: notification.is_read ? 'read' : 'unread',
+      is_read: notification.is_read,
+      origin: notification.origin,
+      source_event: notification.source_event,
+      sent_at: notification.sent_at,
+      read_at: notification.read_at,
+      created_at: notification.created_at,
+      recipient: {
+        id: notification.user.id,
+        name: notification.user.name,
+        email: notification.user.email,
+        role: notification.user.role,
+      },
+      created_by: notification.created_by
+        ? {
+            id: notification.created_by.id,
+            name: notification.created_by.name,
+            email: notification.created_by.email,
+          }
+        : null,
+      deliveries: (notification.deliveries ?? []).map(toAdminDeliveryView),
+    }));
     const totalPages = Math.ceil(total / limit);
 
     return {

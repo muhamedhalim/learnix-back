@@ -83,6 +83,10 @@ export class NotificationDelivery {
   @Column({ type: 'text', nullable: true, name: 'error_message' })
   error_message!: string | null;
 
+  /** Internal replay payload. Never serialize this field through admin APIs. */
+  @Column({ type: 'jsonb', nullable: true, name: 'request_payload' })
+  request_payload!: Record<string, unknown> | null;
+
   /** When the provider accepted it. Never set on a skip or a failure. */
   @Column({ type: 'timestamptz', nullable: true, name: 'sent_at' })
   sent_at!: Date | null;

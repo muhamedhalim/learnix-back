@@ -19,7 +19,7 @@ describe('MailService', () => {
     service: MailService;
     queue: { add: jest.Mock };
   } {
-    const queue = { add: jest.fn().mockResolvedValue(undefined) };
+    const queue = { add: jest.fn().mockResolvedValue({ id: 'mail-job-1' }) };
     const config = {
       get: jest.fn((key: string) => values[key]),
     };
@@ -57,6 +57,15 @@ describe('MailService', () => {
       }),
     );
     expect(queue.add.mock.calls[0]?.[1]).not.toHaveProperty('html');
+  });
+
+  it('does not report acceptance when the queue creates no durable job', async () => {
+    const { service, queue } = createService();
+    queue.add.mockResolvedValue(null);
+
+    await expect(
+      service.send({ to: 'student@example.test', subject: 'Update', text: 'Body' }),
+    ).resolves.toBe(false);
   });
 
   it('builds MailerSend template requests with sender, reply-to, and personalization', async () => {

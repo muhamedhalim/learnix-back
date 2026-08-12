@@ -1,5 +1,6 @@
 export * from './notification-channel-policy.service';
 export * from './notification-delivery.service';
+export * from './notification-dispatch-recovery.service';
 export * from './notification-email.service';
 export * from './notification-triggers.service';
 export * from './notifications.service';

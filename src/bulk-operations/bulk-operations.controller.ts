@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Headers,
   HttpCode,
   HttpStatus,
   Post,
@@ -187,12 +188,12 @@ export class BulkOperationsController {
    */
   @Post('notifications/bulk-send')
   @Roles('admin')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
-    summary: 'Send bulk notifications',
+    summary: 'Queue a bulk in-app notification campaign',
     description:
-      'Send SMS notifications to parents of filtered students. ' +
-      'Students without parent phone numbers are skipped.',
+      'Creates a durable, idempotent campaign for active students. Push is attempted only ' +
+      'when each recipient has enabled it and has a registered device.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -202,8 +203,22 @@ export class BulkOperationsController {
   public async sendBulkNotifications(
     @GetUser() user: JwtPayload,
     @Body() dto: BulkNotificationDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<{ data: BulkNotificationResultDto }> {
-    const result = await this.bulkOperationsService.sendBulkNotifications(dto, user.userId);
+    const key = idempotencyKey?.trim();
+    if (!key || key.length > 180) {
+      throw new BadRequestException(
+        biBody(
+          'A valid Idempotency-Key header is required',
+          'A valid Idempotency-Key header is required',
+        ),
+      );
+    }
+    const result = await this.bulkOperationsService.sendBulkNotifications(
+      dto,
+      user.userId,
+      key,
+    );
 
     return { data: result };
   }

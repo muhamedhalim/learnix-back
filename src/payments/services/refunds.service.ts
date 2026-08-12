@@ -20,6 +20,7 @@ import { biBody } from '../../i18n/error-translator.util';
 import { Lesson } from '../../lessons/entities/lesson.entity';
 import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
 import { CompleteRefundDto, CreateRefundDto, RefundFilterDto } from '../dto';
@@ -968,6 +969,8 @@ export class RefundsService {
       .into(Notification)
       .values({
         dedupe_key: `refund:${refund.id}:student`,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'refund_completed',
         user_id: order.student_id,
         type: NotificationType.PURCHASE,
         title: 'Refund completed',
@@ -992,6 +995,8 @@ export class RefundsService {
         .into(Notification)
         .values({
           dedupe_key: `refund:${refund.id}:teacher`,
+          origin: NotificationOrigin.SYSTEM,
+          source_event: 'refund_completed',
           user_id: order.teacher_id,
           type: NotificationType.PURCHASE,
           title: 'Sale refunded',

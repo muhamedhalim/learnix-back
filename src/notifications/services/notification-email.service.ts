@@ -17,7 +17,7 @@ export interface NotificationEmailInput extends MailMessage {
 }
 
 export type NotificationEmailOutcome =
-  | 'sent'
+  | 'queued'
   | 'skipped_preference'
   | 'provider_unavailable'
   | 'failed';
@@ -74,20 +74,47 @@ export class NotificationEmailService {
     }
 
     if (!this.mail.isConfigured()) {
-      await this.record(notificationId, NotificationDeliveryStatus.PROVIDER_UNAVAILABLE);
+      await this.record(
+        notificationId,
+        NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
+        undefined,
+        { ...message },
+      );
       return 'provider_unavailable';
     }
 
     try {
-      const queued = await this.mail.send(message);
-      await this.record(
+      if (notificationId === undefined) {
+        const queued = await this.mail.send(message);
+        return queued ? 'queued' : 'provider_unavailable';
+      }
+      const claim = await this.deliveries.claim({
         notificationId,
-        queued ? NotificationDeliveryStatus.SENT : NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
-      );
-      return queued ? 'sent' : 'provider_unavailable';
+        channel: NotificationChannel.EMAIL,
+        provider: 'mailersend',
+        requestPayload: { ...message },
+      });
+      if (!claim.claimed) {
+        return claim.delivery.status === NotificationDeliveryStatus.SENT
+          ? 'queued'
+          : 'failed';
+      }
+      const queued = await this.mail.send({
+        ...message,
+        notificationDeliveryId: claim.delivery.id,
+      });
+      if (!queued) {
+        await this.deliveries.record(
+          claim.delivery.id,
+          NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
+          { provider: 'mailersend' },
+        );
+        return 'provider_unavailable';
+      }
+      return 'queued';
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Email dispatch failed';
-      await this.record(notificationId, NotificationDeliveryStatus.FAILED, reason);
+      await this.record(notificationId, NotificationDeliveryStatus.FAILED, reason, { ...message });
       this.logger.warn(`Notification email failed for user ${userId}: ${reason}`);
       return 'failed';
     }
@@ -97,12 +124,14 @@ export class NotificationEmailService {
     notificationId: string | undefined,
     status: NotificationDeliveryStatus,
     error?: string,
+    requestPayload?: Record<string, unknown>,
   ): Promise<void> {
     if (notificationId === undefined) return;
     const claim = await this.deliveries.claim({
       notificationId,
       channel: NotificationChannel.EMAIL,
       provider: 'mailersend',
+      requestPayload: requestPayload ?? null,
     });
     if (!claim.claimed) return;
     await this.deliveries.record(claim.delivery.id, status, {

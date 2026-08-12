@@ -18,6 +18,7 @@ import { biBody } from '../../i18n/error-translator.util';
 import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
 import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
 import { StorageService } from '../../storage/storage.service';
@@ -899,6 +900,8 @@ export class ManualPaymentsService {
       .into(Notification)
       .values({
         dedupe_key: dedupeKey,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'manual_payment_notification',
         user_id: userId,
         type: NotificationType.PURCHASE,
         title,

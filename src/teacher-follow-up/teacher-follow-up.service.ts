@@ -11,7 +11,7 @@ import { LessonHomework } from '../lessons/entities/lesson-homework.entity';
 import { AttemptState } from '../exams/entities/attempt-state.enum';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { GuardianVerificationStatus, StudentGuardian } from '../guardians/entities';
-import { ParentMessage } from '../notifications/entities';
+import { NotificationOrigin, ParentMessage } from '../notifications/entities';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { ParentMessageAdminService } from '../notifications/services/parent-message-admin.service';
@@ -171,6 +171,11 @@ export class TeacherFollowUpService {
         send_sms: false,
       },
       false,
+      {
+        origin: NotificationOrigin.TEACHER_MANUAL,
+        sourceEvent: 'teacher_student_message',
+        createdByUserId: teacherId,
+      },
     );
   }
 

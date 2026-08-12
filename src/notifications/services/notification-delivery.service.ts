@@ -17,6 +17,7 @@ export interface DeliveryClaimInput {
   /** Push only — one leg per device. */
   pushDeviceId?: string | null;
   provider?: string | null;
+  requestPayload?: Record<string, unknown> | null;
 }
 
 export interface DeliveryClaimResult {
@@ -72,6 +73,7 @@ export class NotificationDeliveryService {
       status: NotificationDeliveryStatus.QUEUED,
       provider: input.provider ?? null,
       push_device_id: input.pushDeviceId ?? null,
+      request_payload: input.requestPayload ?? null,
     };
 
     const insert = await this.deliveries
@@ -145,5 +147,9 @@ export class NotificationDeliveryService {
       where: { notification_id: notificationId },
       order: { created_at: 'ASC' },
     });
+  }
+
+  public async findOne(deliveryId: string): Promise<NotificationDelivery | null> {
+    return await this.deliveries.findOne({ where: { id: deliveryId } });
   }
 }

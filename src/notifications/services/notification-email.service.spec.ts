@@ -48,18 +48,22 @@ describe('NotificationEmailService (DEF-005 email channel enforcement)', () => {
   };
 
   it('email_enabled = true runs the eligible email sender', async () => {
-    await expect(service.send(input)).resolves.toBe('sent');
+    await expect(service.send(input)).resolves.toBe('queued');
 
     expect(mail.send).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'student@example.com', subject: 'Appointment confirmed' }),
+      expect.objectContaining({
+        to: 'student@example.com',
+        subject: 'Appointment confirmed',
+        notificationDeliveryId: 'del-1',
+      }),
     );
     // The recipient's own identity is never leaked into the mail payload.
     expect(mail.send.mock.calls[0]?.[0]).not.toHaveProperty('userId');
     expect(mail.send.mock.calls[0]?.[0]).not.toHaveProperty('notificationId');
-    expect(deliveries.record).toHaveBeenCalledWith(
+    expect(deliveries.record).not.toHaveBeenCalledWith(
       'del-1',
       NotificationDeliveryStatus.SENT,
-      expect.objectContaining({ provider: 'mailersend' }),
+      expect.anything(),
     );
   });
 

@@ -1,7 +1,7 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 
-import { Job, UnrecoverableError } from 'bullmq';
+import { DelayedError, Job, UnrecoverableError } from 'bullmq';
 
 import {
   ParentEventType,
@@ -69,12 +69,12 @@ export class ParentNotificationProcessor extends WorkerHost {
     // unless ENABLE_NOTIFICATIONS is exactly "false", so production — which
     // sets nothing — is unchanged.
     //
-    // Returning (rather than throwing) marks the job completed: a deployment
-    // that has deliberately switched delivery off should not accumulate a
-    // backlog of failed jobs and DLQ entries for the duration.
+    // Move the same job back to delayed without consuming a retry. Completing
+    // it here would silently lose the message and leave nothing to replay.
     if (!isFeatureEnabled(FEATURE_FLAGS.NOTIFICATIONS)) {
-      this.logger.log(`Guardian notification ${job.name} skipped: ENABLE_NOTIFICATIONS=false.`);
-      return;
+      await job.moveToDelayed(Date.now() + 5 * 60_000, job.token);
+      this.logger.log(`Guardian notification ${job.name} parked: ENABLE_NOTIFICATIONS=false.`);
+      throw new DelayedError();
     }
 
     if (job.name === JOB_TYPES.PARENT.DELIVER) {

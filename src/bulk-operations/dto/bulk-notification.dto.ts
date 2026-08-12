@@ -1,13 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
 import {
+  ArrayUnique,
   IsArray,
   IsNotEmpty,
+  IsDefined,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
   ArrayMaxSize,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
 
 /**
@@ -15,29 +20,13 @@ import {
  */
 export class NotificationFilterDto {
   @ApiPropertyOptional({
-    description: 'Filter by subject ID',
-    example: 'uuid-here',
-  })
-  @IsOptional()
-  @IsUUID()
-  public subject_id?: string;
-
-  @ApiPropertyOptional({
-    description: 'Filter by student status',
-    enum: ['active', 'suspended', 'all'],
-    example: 'active',
-  })
-  @IsOptional()
-  @IsString()
-  public status?: 'active' | 'suspended' | 'all';
-
-  @ApiPropertyOptional({
     description: 'Filter by specific student IDs',
     type: [String],
   })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(1000)
+  @ArrayUnique()
   @IsUUID('4', { each: true })
   public student_ids?: string[];
 }
@@ -66,10 +55,27 @@ export class BulkNotificationDto {
   @MaxLength(100)
   public title?: string;
 
+  @ApiPropertyOptional({ description: 'Arabic notification message', maxLength: 500 })
+  @ValidateIf((dto: BulkNotificationDto) => dto.title_ar !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  public message_ar?: string;
+
+  @ApiPropertyOptional({ description: 'Arabic notification title', maxLength: 100 })
+  @ValidateIf((dto: BulkNotificationDto) => dto.message_ar !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  public title_ar?: string;
+
   @ApiProperty({
     description: 'Filter criteria for selecting recipients',
     type: NotificationFilterDto,
   })
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => NotificationFilterDto)
   public filter!: NotificationFilterDto;
 }
 
@@ -77,16 +83,18 @@ export class BulkNotificationDto {
  * Response DTO for bulk notification operation
  */
 export class BulkNotificationResultDto {
+  @ApiProperty({ description: 'Durable notification campaign ID' })
+  public campaign_id!: string;
   @ApiProperty({ description: 'Total notifications queued' })
   public total_queued!: number;
 
-  @ApiProperty({ description: 'Successfully sent count' })
+  @ApiProperty({ description: 'In-app rows created so far' })
   public sent_count!: number;
 
   @ApiProperty({ description: 'Failed count' })
   public failed_count!: number;
 
-  @ApiProperty({ description: 'Skipped (no parent phone) count' })
+  @ApiProperty({ description: 'Skipped recipient count' })
   public skipped_count!: number;
 
   @ApiProperty({
@@ -96,9 +104,9 @@ export class BulkNotificationResultDto {
 
   @ApiProperty({
     description: 'Processing status',
-    enum: ['processing', 'completed'],
+    enum: ['queued', 'processing', 'completed', 'partially_failed', 'failed'],
   })
-  public status!: 'processing' | 'completed';
+  public status!: 'queued' | 'processing' | 'completed' | 'partially_failed' | 'failed';
 
   @ApiProperty({
     description: 'Started at timestamp',

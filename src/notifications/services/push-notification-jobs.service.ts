@@ -5,10 +5,13 @@ import { Queue } from 'bullmq';
 
 import { areQueuesEnabled, JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
 import { PushDispatchService } from './push-dispatch.service';
+import { NotificationDeliveryService } from './notification-delivery.service';
+import { NotificationDeliveryStatus } from '../entities';
 
 /** Payload of a `deliver-push-notification` job. Crosses Redis — keep it JSON. */
 export interface PushDeliveryJob {
   notificationId: string;
+  retryDeliveryId?: string;
 }
 
 /**
@@ -33,13 +36,31 @@ export class PushNotificationJobsService {
   constructor(
     @InjectQueue(QUEUE_NAMES.PUSH_NOTIFICATIONS) private readonly queue: Queue,
     private readonly dispatcher: PushDispatchService,
+    private readonly deliveries: NotificationDeliveryService,
   ) {}
 
-  public async enqueueDelivery(notificationId: string): Promise<void> {
+  public async enqueueDelivery(
+    notificationId: string,
+    options: { forceNewJob?: boolean; retryDeliveryId?: string } = {},
+  ): Promise<void> {
     if (!areQueuesEnabled()) {
       try {
-        await this.dispatcher.dispatch(notificationId);
+        const outcome = await this.dispatcher.dispatch(notificationId);
+        if (options.retryDeliveryId) {
+          await this.deliveries.record(
+            options.retryDeliveryId,
+            this.statusForOutcome(outcome.status),
+            { provider: 'fcm' },
+          );
+        }
       } catch (error) {
+        if (options.retryDeliveryId) {
+          await this.deliveries.record(
+            options.retryDeliveryId,
+            NotificationDeliveryStatus.FAILED,
+            { provider: 'fcm', error: error instanceof Error ? error.message : String(error) },
+          );
+        }
         this.logger.warn(
           `Inline push dispatch failed for notification ${notificationId}: ` +
             (error instanceof Error ? error.message : String(error)),
@@ -51,9 +72,31 @@ export class PushNotificationJobsService {
     // Deterministic job id: a domain service that emits the same notification
     // twice enqueues once. Belt-and-braces on top of the per-device
     // `notification_deliveries` claim, which is the real guarantee.
-    await this.queue.add(JOB_TYPES.PUSH.DELIVER, { notificationId } satisfies PushDeliveryJob, {
-      jobId: `push:${notificationId}`,
+    const jobId = options.forceNewJob
+      ? `push:${notificationId}:retry:${Date.now().toString(36)}`
+      : `push:${notificationId}`;
+    await this.queue.add(JOB_TYPES.PUSH.DELIVER, {
+      notificationId,
+      ...(options.retryDeliveryId ? { retryDeliveryId: options.retryDeliveryId } : {}),
+    } satisfies PushDeliveryJob, {
+      jobId,
     });
     this.logger.debug(`Enqueued push for notification ${notificationId}`);
+  }
+
+  private statusForOutcome(status: Awaited<ReturnType<PushDispatchService['dispatch']>>['status']) {
+    switch (status) {
+      case 'sent':
+      case 'partial':
+        return NotificationDeliveryStatus.SENT;
+      case 'skipped_preference':
+        return NotificationDeliveryStatus.SKIPPED_PREFERENCE;
+      case 'no_registered_device':
+        return NotificationDeliveryStatus.NO_REGISTERED_DEVICE;
+      case 'provider_unavailable':
+        return NotificationDeliveryStatus.PROVIDER_UNAVAILABLE;
+      default:
+        return NotificationDeliveryStatus.FAILED;
+    }
   }
 }

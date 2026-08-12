@@ -17,6 +17,7 @@ import {
 } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
 import {
@@ -1196,6 +1197,8 @@ export class SettlementsService {
       .into(Notification)
       .values({
         dedupe_key: dedupeKey,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'settlement_notification',
         user_id: userId,
         type: NotificationType.PURCHASE,
         title,

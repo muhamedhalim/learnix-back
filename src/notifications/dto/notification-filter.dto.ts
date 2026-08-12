@@ -88,6 +88,14 @@ export class NotificationFilterDto {
  */
 export class AdminNotificationFilterDto extends NotificationFilterDto {
   @ApiPropertyOptional({
+    description: 'Only return notifications with failed or unavailable delivery legs',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  public needs_attention?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Free-text search across title, message, and recipient name/email',
   })
   @IsOptional()

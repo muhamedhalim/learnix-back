@@ -1,11 +1,13 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 
-import { Job } from 'bullmq';
+import { DelayedError, Job } from 'bullmq';
 
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
 import { PushDispatchService } from '../services/push-dispatch.service';
+import { NotificationDeliveryService } from '../services/notification-delivery.service';
+import { NotificationDeliveryStatus } from '../entities';
 import type { PushDeliveryJob } from '../services/push-notification-jobs.service';
 
 /**
@@ -25,7 +27,10 @@ import type { PushDeliveryJob } from '../services/push-notification-jobs.service
 export class PushNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(PushNotificationProcessor.name);
 
-  constructor(private readonly dispatcher: PushDispatchService) {
+  constructor(
+    private readonly dispatcher: PushDispatchService,
+    private readonly deliveries: NotificationDeliveryService,
+  ) {
     super();
   }
 
@@ -34,8 +39,9 @@ export class PushNotificationProcessor extends WorkerHost {
     // reason: an environment that has switched delivery off must park work
     // rather than send it, and must not accumulate failed jobs while doing so.
     if (!isFeatureEnabled(FEATURE_FLAGS.NOTIFICATIONS)) {
-      this.logger.log(`Push ${job.name} skipped: ENABLE_NOTIFICATIONS=false.`);
-      return;
+      await job.moveToDelayed(Date.now() + 5 * 60_000, job.token);
+      this.logger.log(`Push ${job.name} parked: ENABLE_NOTIFICATIONS=false.`);
+      throw new DelayedError();
     }
 
     if (job.name !== JOB_TYPES.PUSH.DELIVER) {
@@ -43,6 +49,40 @@ export class PushNotificationProcessor extends WorkerHost {
       return;
     }
 
-    await this.dispatcher.dispatch(job.data.notificationId, job.attemptsMade + 1);
+    try {
+      const outcome = await this.dispatcher.dispatch(
+        job.data.notificationId,
+        job.attemptsMade + 1,
+      );
+      if (job.data.retryDeliveryId) {
+        const status =
+          outcome.status === 'sent' || outcome.status === 'partial'
+            ? NotificationDeliveryStatus.SENT
+            : outcome.status === 'skipped_preference'
+              ? NotificationDeliveryStatus.SKIPPED_PREFERENCE
+              : outcome.status === 'no_registered_device'
+                ? NotificationDeliveryStatus.NO_REGISTERED_DEVICE
+                : outcome.status === 'provider_unavailable'
+                  ? NotificationDeliveryStatus.PROVIDER_UNAVAILABLE
+                  : NotificationDeliveryStatus.FAILED;
+        await this.deliveries.record(job.data.retryDeliveryId, status, {
+          provider: 'fcm',
+          attempt: job.attemptsMade + 1,
+        });
+      }
+    } catch (error) {
+      if (job.data.retryDeliveryId) {
+        await this.deliveries.record(
+          job.data.retryDeliveryId,
+          NotificationDeliveryStatus.FAILED,
+          {
+            provider: 'fcm',
+            attempt: job.attemptsMade + 1,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+      throw error;
+    }
   }
 }

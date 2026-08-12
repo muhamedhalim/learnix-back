@@ -8,6 +8,7 @@ import { processEnvReader } from '../common/utils/redis-connection.util';
 import { resolveAppEnvLabel } from '../config/app-env';
 import { MailService } from '../mail/mail.service';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
+import { NotificationOrigin } from '../notifications/entities/notification-origin.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { resolveRelease } from '../observability/release';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -218,6 +219,10 @@ export class OperationalAlertService {
                 data: { alertKey: alert.key, severity: alert.severity, ...(alert.context ?? {}) },
               },
               false,
+              {
+                origin: NotificationOrigin.OPERATIONAL,
+                sourceEvent: alert.key.slice(0, 120),
+              },
             ),
         ),
       );

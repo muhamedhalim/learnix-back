@@ -77,6 +77,10 @@ export class PushDispatchService {
     private readonly deliveries: NotificationDeliveryService,
   ) {}
 
+  public readiness(): { provider: string; configured: boolean } {
+    return { provider: this.provider.name, configured: this.provider.isConfigured() };
+  }
+
   /**
    * Push one already-persisted notification.
    *
@@ -84,7 +88,10 @@ export class PushDispatchService {
    * @throws when at least one leg failed transiently, so the queue retries.
    */
   public async dispatch(notificationId: string, attempt = 1): Promise<PushDispatchOutcome> {
-    const notification = await this.notifications.findOne({ where: { id: notificationId } });
+    const notification = await this.notifications.findOne({
+      where: { id: notificationId },
+      relations: { user: true },
+    });
     if (!notification) {
       this.logger.warn(`Push dispatch skipped: notification ${notificationId} no longer exists`);
       return { notificationId, accepted: 0, invalidated: 0, retryable: 0, status: 'failed' };
@@ -280,10 +287,17 @@ export class PushDispatchService {
       notification_type: notification.type,
       // Deep link into the in-app notification list; the client resolves the
       // specific target after authenticating.
-      link: '/student/notifications',
+      link:
+        notification.user?.role === 'admin'
+          ? '/admin/notifications'
+          : notification.user?.role === 'call_center'
+            ? '/call-center/notifications'
+            : notification.user?.role === 'teacher'
+              ? '/teacher/dashboard'
+              : '/student/notifications',
     };
 
-    const linkFromData = notification.data?.['link'];
+    const linkFromData = notification.data?.['link'] ?? notification.data?.['href'];
     if (typeof linkFromData === 'string' && linkFromData.startsWith('/')) {
       data['link'] = linkFromData;
     }

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { GuardiansModule } from '../guardians/guardians.module';
+import { BulkOperationsModule } from '../bulk-operations/bulk-operations.module';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
 import { User } from '../users/entities/user.entity';
@@ -20,6 +21,7 @@ import { AdminParentMessagesController } from './controllers/admin-parent-messag
 import { WhatsAppWebhookController } from './controllers/whatsapp-webhook.controller';
 import {
   Notification,
+  NotificationCampaign,
   NotificationDelivery,
   NotificationSettings,
   ParentMessage,
@@ -35,6 +37,7 @@ import { PUSH_PROVIDER } from './push/push-provider.interface';
 import {
   NotificationChannelPolicyService,
   NotificationDeliveryService,
+  NotificationDispatchRecoveryService,
   NotificationEmailService,
   NotificationsService,
   NotificationTriggersService,
@@ -74,6 +77,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
 @Module({
   imports: [
     ConfigModule,
+    BulkOperationsModule,
     GuardiansModule,
     // The Meta Cloud API adapter is the only HTTP consumer here.
     HttpModule,
@@ -95,6 +99,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     ),
     TypeOrmModule.forFeature([
       Notification,
+      NotificationCampaign,
       NotificationDelivery,
       NotificationSettings,
       ParentMessage,
@@ -138,6 +143,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     PushDeviceService,
     PushDispatchService,
     PushNotificationJobsService,
+    NotificationDispatchRecoveryService,
 
     // The workers need a real queue connection to pull jobs from; skip them
     // entirely when queues are disabled rather than let them attempt one.

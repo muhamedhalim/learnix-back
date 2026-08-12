@@ -15,6 +15,25 @@ export abstract class AuditEvent {
   ) {}
 }
 
+export class NotificationCampaignQueuedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    campaignId: string,
+    details: { audienceKind: string; intendedCount: number; requestedChannels: string[] },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'notification_campaign_queued',
+      'notification_campaign',
+      campaignId,
+      null,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
 /**
  * User approval events
  */

@@ -1,21 +1,56 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import {
+  ArrayMaxSize,
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
-  IsBoolean,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
+  IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
+export enum ManualNotificationAudience {
+  ALL_ACTIVE_STUDENTS = 'all_active_students',
+  USER_IDS = 'user_ids',
+}
+
 export class ManualNotificationDto {
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(200)
   public title!: string;
 
+  @IsString()
   @IsNotEmpty()
+  @MaxLength(500)
   public message!: string;
+
+  @ApiPropertyOptional({ description: 'Arabic title; must be supplied with message_ar' })
+  @ValidateIf((dto: ManualNotificationDto) => dto.message_ar !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  public title_ar?: string;
+
+  @ApiPropertyOptional({ description: 'Arabic body; must be supplied with title_ar' })
+  @ValidateIf((dto: ManualNotificationDto) => dto.title_ar !== undefined)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  public message_ar?: string;
+
+  @ApiPropertyOptional({
+    enum: ManualNotificationAudience,
+    default: ManualNotificationAudience.ALL_ACTIVE_STUDENTS,
+  })
+  @IsOptional()
+  @IsEnum(ManualNotificationAudience)
+  public audience?: ManualNotificationAudience;
 
   @ApiPropertyOptional({
     description:
@@ -26,33 +61,18 @@ export class ManualNotificationDto {
   @IsArray()
   @IsUUID('4', { each: true })
   @ArrayMinSize(1)
+  @ArrayMaxSize(1000)
+  @ArrayUnique()
   public user_ids?: string[];
-
-  @ApiPropertyOptional({
-    description: 'Send SMS along with in-app notification',
-    default: false,
-  })
-  @IsOptional()
-  @IsBoolean()
-  public send_sms?: boolean;
 }
 
 export class ManualNotificationResponseDto {
-  @ApiProperty({
-    description: 'Number of notifications sent',
-    example: 50,
-  })
-  public sent_count!: number;
+  @ApiProperty({ description: 'Durable campaign identifier' })
+  public campaign_id!: string;
 
-  @ApiProperty({
-    description: 'Number of SMS messages sent',
-    example: 45,
-  })
-  public sms_sent_count!: number;
+  @ApiProperty({ description: 'Number of intended recipients' })
+  public intended_count!: number;
 
-  @ApiProperty({
-    description: 'Number of SMS failures (no phone number or disabled)',
-    example: 5,
-  })
-  public sms_failed_count!: number;
+  @ApiProperty({ enum: ['queued', 'processing', 'completed', 'partially_failed', 'failed'] })
+  public status!: string;
 }

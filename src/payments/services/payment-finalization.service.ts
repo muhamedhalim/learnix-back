@@ -25,6 +25,7 @@ import { Lesson } from '../../lessons/entities/lesson.entity';
 import { ScheduledLessonSession } from '../../lessons/entities/scheduled-lesson-session.entity';
 import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
 import { Notification } from '../../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
 import { CourseVersion } from '../../packages/entities/course-version.entity';
@@ -704,6 +705,8 @@ export class PaymentFinalizationService {
     const notifications: Array<Partial<Notification>> = [
       {
         dedupe_key: `order:${order.id}:student-paid`,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'payment_approved',
         user_id: order.student_id,
         type: NotificationType.PURCHASE,
         title: 'Payment approved',
@@ -723,6 +726,8 @@ export class PaymentFinalizationService {
     if (order.teacher_id) {
       notifications.push({
         dedupe_key: `order:${order.id}:teacher-sale`,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'product_sale',
         user_id: order.teacher_id,
         type: NotificationType.PURCHASE,
         title: 'New product sale',

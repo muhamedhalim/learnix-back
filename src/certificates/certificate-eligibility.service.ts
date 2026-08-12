@@ -5,6 +5,7 @@ import { EntityManager, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
 import { Notification } from '../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../notifications/entities/notification-status.enum';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -243,6 +244,8 @@ export class CertificateEligibilityService {
       .into(Notification)
       .values({
         dedupe_key: `certificate:${certificate.id}:revoked`,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: 'certificate_revoked',
         user_id: certificate.student_id,
         type: NotificationType.CUSTOM,
         title: 'Certificate revoked',

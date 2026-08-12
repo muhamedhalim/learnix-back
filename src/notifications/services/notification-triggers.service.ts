@@ -33,21 +33,17 @@ export class NotificationTriggersService {
     title: string,
     message: string,
   ): Promise<void> {
-    try {
-      await this.notificationsService.create(
-        {
-          user_id: userId,
-          type: NotificationType.CUSTOM,
-          title,
-          message,
-          send_sms: false,
-        },
-        false,
-      );
+    await this.notificationsService.create(
+      {
+        user_id: userId,
+        type: NotificationType.CUSTOM,
+        title,
+        message,
+        send_sms: false,
+      },
+      false,
+    );
 
-      this.logger.log(`Custom notification sent to user ${userId}`);
-    } catch (error) {
-      this.logger.error(`Failed to send custom notification to user ${userId}:`, error);
-    }
+    this.logger.log(`Custom in-app notification created for user ${userId}`);
   }
 }

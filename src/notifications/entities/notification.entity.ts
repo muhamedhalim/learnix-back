@@ -5,10 +5,14 @@ import {
   Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { NotificationCampaign } from './notification-campaign.entity';
+import { NotificationDelivery } from './notification-delivery.entity';
+import { NotificationOrigin } from './notification-origin.enum';
 import { NotificationStatus } from './notification-status.enum';
 import { NotificationType } from './notification-type.enum';
 
@@ -18,6 +22,11 @@ import { NotificationType } from './notification-type.enum';
 @Index('IDX_notifications_type', ['type'])
 @Index('IDX_notifications_sent_at', ['sent_at'])
 @Index('IDX_notifications_user_read', ['user_id', 'is_read'])
+@Index('IDX_notifications_campaign_user', ['campaign_id', 'user_id'], {
+  unique: true,
+  where: '"campaign_id" IS NOT NULL',
+})
+@Index('IDX_notifications_origin_sent', ['origin', 'sent_at'])
 @Index('UQ_notifications_dedupe_key', ['dedupe_key'], {
   unique: true,
   where: '"dedupe_key" IS NOT NULL',
@@ -31,6 +40,29 @@ export class Notification {
 
   @Column({ type: 'uuid', name: 'user_id' })
   user_id!: string;
+
+  @Column({ type: 'uuid', nullable: true, name: 'campaign_id' })
+  campaign_id!: string | null;
+
+  @ManyToOne(() => NotificationCampaign, (campaign) => campaign.notifications, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'campaign_id' })
+  campaign!: NotificationCampaign | null;
+
+  @Column({ type: 'uuid', nullable: true, name: 'created_by_user_id' })
+  created_by_user_id!: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'created_by_user_id' })
+  created_by!: User | null;
+
+  @Column({ type: 'varchar', length: 32, default: NotificationOrigin.LEGACY_UNKNOWN })
+  origin!: NotificationOrigin;
+
+  @Column({ type: 'varchar', length: 120, nullable: true, name: 'source_event' })
+  source_event!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
@@ -82,4 +114,7 @@ export class Notification {
 
   @CreateDateColumn({ name: 'created_at' })
   created_at!: Date;
+
+  @OneToMany(() => NotificationDelivery, (delivery) => delivery.notification)
+  deliveries!: NotificationDelivery[];
 }

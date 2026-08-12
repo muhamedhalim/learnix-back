@@ -33,7 +33,16 @@ export interface MailMessage {
 }
 
 /** JSON-only payload that crosses the BullMQ boundary. */
-export type MailJob = MailMessage;
+export interface MailJob extends MailMessage {
+  /** Optional notification delivery leg updated by MailProcessor. */
+  notificationDeliveryId?: string;
+}
+
+export interface MailDeliveryResult {
+  accepted: boolean;
+  providerMessageId?: string;
+  reason?: string;
+}
 
 export interface TemplateEmailInput {
   to: string;
@@ -144,7 +153,7 @@ export class MailService {
    * The public transport boundary. Domain services only enqueue work here;
    * MailerSend is called exclusively by MailProcessor.
    */
-  public async send(message: MailMessage): Promise<boolean> {
+  public async send(message: MailJob): Promise<boolean> {
     if (!this.isConfigured()) {
       this.logger.warn(
         this.logDetails('skipped', message, { reason: 'MailerSend is not configured' }),
@@ -154,7 +163,15 @@ export class MailService {
 
     try {
       this.providerObservation.lastAttemptAt = new Date().toISOString();
-      await this.emailQueue.add(JOB_TYPES.EMAIL.DELIVER, message);
+      const job = await this.emailQueue.add(JOB_TYPES.EMAIL.DELIVER, message);
+      if (!job?.id) {
+        this.logger.warn(
+          this.logDetails('queue_unavailable', message, {
+            reason: 'No durable email job was created',
+          }),
+        );
+        return false;
+      }
       this.logger.log(this.logDetails('enqueued', message));
       return true;
     } catch (error) {
@@ -165,7 +182,7 @@ export class MailService {
   }
 
   /** Called only by the BullMQ worker. Never call this from a controller or domain service. */
-  public async deliver(message: MailJob): Promise<void> {
+  public async deliver(message: MailJob): Promise<MailDeliveryResult> {
     if (this.client === null || this.from === null) {
       throw new MailDeliveryException('MailerSend delivery worker is not configured.');
     }
@@ -182,7 +199,12 @@ export class MailService {
       this.logger.warn(
         this.logDetails('blocked_staging_allowlist', message, { reason: recipientDecision.reason }),
       );
-      return;
+      return {
+        accepted: false,
+        ...(recipientDecision.reason === undefined
+          ? {}
+          : { reason: recipientDecision.reason }),
+      };
     }
 
     const attemptedAt = new Date().toISOString();
@@ -215,6 +237,7 @@ export class MailService {
       }
 
       const response = await this.client.email.send(email);
+      const providerMessageId = this.requestId(response.headers);
       this.providerObservation = {
         state: 'configured',
         lastAttemptAt: attemptedAt,
@@ -224,10 +247,14 @@ export class MailService {
       this.logger.log(
         this.logDetails('sent', message, {
           responseStatus: response.statusCode,
-          requestId: this.requestId(response.headers),
+          requestId: providerMessageId,
           response: response.body,
         }),
       );
+      return {
+        accepted: true,
+        ...(providerMessageId === null ? {} : { providerMessageId }),
+      };
     } catch (error) {
       this.providerObservation = {
         state: classifyMailerSendError(error),

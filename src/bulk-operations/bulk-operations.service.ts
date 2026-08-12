@@ -1,5 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Queue } from 'bullmq';
@@ -7,12 +14,19 @@ import * as Papa from 'papaparse';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { AttendanceCodesService } from '../attendance-codes/attendance-codes.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { NotificationCampaignQueuedEvent } from '../activity-logs/events/audit.events';
 import { AttendanceCodeType } from '../attendance-codes/entities';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { toE164 } from '../common/utils/phone.util';
 import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
-import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
+import { areQueuesEnabled, JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
+import {
+  NotificationCampaign,
+  NotificationCampaignStatus,
+  NotificationOrigin,
+} from '../notifications/entities';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
@@ -49,9 +63,12 @@ export class BulkOperationsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Lesson)
     private readonly lessonsRepository: Repository<Lesson>,
+    @InjectRepository(NotificationCampaign)
+    private readonly notificationCampaigns: Repository<NotificationCampaign>,
     private readonly dataSource: DataSource,
     private readonly attendanceCodesService: AttendanceCodesService,
     private readonly guardiansService: GuardiansService,
+    private readonly activityLogs: ActivityLogsService,
     @InjectQueue(QUEUE_NAMES.BULK_NOTIFICATIONS)
     private readonly bulkNotificationsQueue: Queue,
   ) {}
@@ -402,27 +419,191 @@ export class BulkOperationsService {
   public async sendBulkNotifications(
     dto: BulkNotificationDto,
     adminId: string,
+    idempotencyKey: string,
   ): Promise<BulkNotificationResultDto> {
+    const scopedIdempotencyKey = createHash('sha256')
+      .update(`${adminId}:${idempotencyKey}`)
+      .digest('hex');
+    const existing = await this.notificationCampaigns.findOne({
+      where: { idempotency_key: scopedIdempotencyKey },
+    });
+    if (existing) return this.toBulkNotificationResult(existing);
+
     const startedAt = new Date();
     const totalQueued = await this.buildBulkNotificationRecipientQuery(dto).getCount();
-    const job = await this.bulkNotificationsQueue.add(JOB_TYPES.NOTIFICATION.DELIVER_BULK, {
-      dto,
-      adminId,
-    });
+    if (
+      Array.isArray(dto.filter.student_ids) &&
+      dto.filter.student_ids.length > 0 &&
+      totalQueued !== dto.filter.student_ids.length
+    ) {
+      throw new BadRequestException(
+        biBody(
+          'Every selected recipient must be an active approved student',
+          'Every selected recipient must be an active approved student',
+        ),
+      );
+    }
+    let campaign: NotificationCampaign;
+    try {
+      campaign = await this.notificationCampaigns.save(
+        this.notificationCampaigns.create({
+        idempotency_key: scopedIdempotencyKey,
+        created_by_user_id: adminId,
+        origin: NotificationOrigin.ADMIN_MANUAL,
+        status:
+          totalQueued === 0
+            ? NotificationCampaignStatus.COMPLETED
+            : NotificationCampaignStatus.QUEUED,
+        title_en: dto.title?.trim() || 'Notification',
+        message_en: dto.message.trim(),
+        title_ar: dto.title_ar?.trim() || null,
+        message_ar: dto.message_ar?.trim() || null,
+        audience:
+          dto.filter.student_ids && dto.filter.student_ids.length > 0
+            ? { kind: 'user_ids', user_ids: dto.filter.student_ids }
+            : { kind: 'all_active_students' },
+        requested_channels: ['in_app', 'push'],
+        intended_count: totalQueued,
+        created_count: 0,
+        failed_count: 0,
+        error_message: null,
+        queued_at: totalQueued === 0 ? null : startedAt,
+        started_at: totalQueued === 0 ? startedAt : null,
+        completed_at: totalQueued === 0 ? startedAt : null,
+        }),
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') throw error;
+      const concurrent = await this.notificationCampaigns.findOne({
+        where: { idempotency_key: scopedIdempotencyKey },
+      });
+      if (!concurrent) throw error;
+      return this.toBulkNotificationResult(concurrent);
+    }
 
-    const results: BulkNotificationResultDto = {
-      total_queued: totalQueued,
-      sent_count: 0,
-      failed_count: 0,
-      skipped_count: 0,
-      status: 'processing',
-      started_at: startedAt,
-      ...(job?.id === undefined ? {} : { job_id: String(job.id) }),
+    if (totalQueued === 0) return this.toBulkNotificationResult(campaign);
+
+    if (!areQueuesEnabled()) {
+      await this.notificationCampaigns.update(campaign.id, {
+        status: NotificationCampaignStatus.FAILED,
+        error_message: 'Background queue is unavailable',
+        failed_count: totalQueued,
+        completed_at: new Date(),
+      });
+      throw new ServiceUnavailableException(
+        biBody(
+          'Notification queue is unavailable; the campaign was not accepted',
+          'Notification queue is unavailable; the campaign was not accepted',
+        ),
+      );
+    }
+
+    try {
+      const job = await this.bulkNotificationsQueue.add(
+        JOB_TYPES.NOTIFICATION.DELIVER_BULK,
+        { dto, adminId, campaignId: campaign.id },
+        { jobId: `notification-campaign-${campaign.id}` },
+      );
+
+      if (!job?.id) {
+        throw new Error('Queue did not return a durable job identifier');
+      }
+
+      this.logger.log(
+        `Notification campaign ${campaign.id} queued by admin ${adminId}: ${totalQueued} recipients`,
+      );
+      try {
+        await this.activityLogs.recordAuditEvent(
+          new NotificationCampaignQueuedEvent(adminId, campaign.id, {
+            audienceKind: campaign.audience.kind,
+            intendedCount: totalQueued,
+            requestedChannels: campaign.requested_channels,
+          }),
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Campaign ${campaign.id} queued but audit logging failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      return {
+        ...this.toBulkNotificationResult(campaign),
+        job_id: String(job.id),
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Notification queue unavailable';
+      await this.notificationCampaigns.update(campaign.id, {
+        status: NotificationCampaignStatus.FAILED,
+        error_message: reason.slice(0, 1000),
+        failed_count: totalQueued,
+        completed_at: new Date(),
+      });
+      throw new ServiceUnavailableException(
+        biBody(
+          'Notification campaign could not be queued',
+          'Notification campaign could not be queued',
+        ),
+      );
+    }
+  }
+
+  public async listNotificationCampaigns(page = 1, limit = 20) {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(page, 1);
+    const [data, total] = await this.notificationCampaigns
+      .createQueryBuilder('campaign')
+      .leftJoin('campaign.created_by', 'creator')
+      .addSelect(['creator.id', 'creator.name', 'creator.email'])
+      .orderBy('campaign.created_at', 'DESC')
+      .addOrderBy('campaign.id', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+    const totalPages = Math.ceil(total / safeLimit);
+    return {
+      data: data.map((campaign) => this.toAdminCampaignResponse(campaign)),
+      meta: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages,
+        hasNextPage: safePage < totalPages,
+        hasPrevPage: safePage > 1,
+      },
     };
+  }
 
-    this.logger.log(`Bulk notification queued by admin ${adminId}: ${totalQueued} recipients`);
+  public async getNotificationCampaign(campaignId: string) {
+    const campaign = await this.notificationCampaigns.findOne({
+      where: { id: campaignId },
+      relations: { created_by: true },
+    });
+    if (!campaign) {
+      throw new NotFoundException(
+        biBody('Notification campaign not found', 'Notification campaign not found'),
+      );
+    }
+    return this.toAdminCampaignResponse(campaign);
+  }
 
-    return results;
+  private toAdminCampaignResponse(campaign: NotificationCampaign) {
+    const { idempotency_key: _idempotencyKey, notifications: _notifications, ...safeCampaign } =
+      campaign;
+    return safeCampaign;
+  }
+
+  private toBulkNotificationResult(campaign: NotificationCampaign): BulkNotificationResultDto {
+    return {
+      campaign_id: campaign.id,
+      total_queued: campaign.intended_count,
+      sent_count: campaign.created_count,
+      failed_count: campaign.failed_count,
+      skipped_count: 0,
+      status: campaign.status,
+      started_at: campaign.started_at ?? campaign.queued_at ?? campaign.created_at,
+      ...(campaign.completed_at === null ? {} : { completed_at: campaign.completed_at }),
+    };
   }
 
   private async findExistingEmails(rows: ParsedStudentRow[]): Promise<Set<string>> {
@@ -456,13 +637,8 @@ export class BulkOperationsService {
       .leftJoin('student_profiles', 'profile', 'profile.user_id = user.id')
       .where('user.role = :role', { role: UserRole.STUDENT })
       .andWhere('user.is_active = true')
+      .andWhere('user.status = :status', { status: UserStatus.APPROVED })
       .andWhere('user.deleted_at IS NULL');
-
-    if (typeof dto.filter.status === 'string' && dto.filter.status !== 'all') {
-      queryBuilder.andWhere('user.is_active = :isActive', {
-        isActive: dto.filter.status === 'active',
-      });
-    }
     if (Array.isArray(dto.filter.student_ids) && dto.filter.student_ids.length > 0) {
       queryBuilder.andWhere('user.id IN (:...studentIds)', {
         studentIds: dto.filter.student_ids,

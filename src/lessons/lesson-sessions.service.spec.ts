@@ -147,4 +147,46 @@ describe('LessonSessionsService booking lifecycle', () => {
       'https://meet.example.test/one-to-one',
     );
   });
+
+  it('catches up reminder windows after scheduler downtime without double-sending both reminders', async () => {
+    const oneHourBooking = booking({
+      status: LessonSessionBookingStatus.CONFIRMED,
+      session: {
+        ...futureSession(),
+        start_at: new Date(Date.now() + 30 * 60_000),
+      } as ScheduledLessonSession,
+    });
+    const query = {
+      innerJoinAndSelect: jest.fn(),
+      where: jest.fn(),
+      andWhere: jest.fn(),
+      getMany: jest.fn().mockResolvedValueOnce([oneHourBooking]).mockResolvedValueOnce([]),
+    };
+    for (const method of ['innerJoinAndSelect', 'where', 'andWhere'] as const) {
+      query[method].mockReturnValue(query);
+    }
+    const recoveryService = new LessonSessionsService(
+      {
+        getRepository: jest.fn().mockReturnValue({
+          createQueryBuilder: jest.fn().mockReturnValue(query),
+        }),
+      } as unknown as DataSource,
+      { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
+      { send: jest.fn() } as unknown as MailService,
+    );
+    const notify = jest
+      .spyOn(
+        recoveryService as unknown as {
+          notifyBookingEvent: (id: string, event: string, value: LessonSessionBooking) => Promise<void>;
+        },
+        'notifyBookingEvent',
+      )
+      .mockResolvedValue(undefined);
+
+    await recoveryService.dispatchScheduledSessionNotifications();
+
+    expect(notify).toHaveBeenCalledWith(oneHourBooking.id, 'confirmed', oneHourBooking);
+    expect(notify).toHaveBeenCalledWith(oneHourBooking.id, 'reminder_1h', oneHourBooking);
+    expect(notify).not.toHaveBeenCalledWith(oneHourBooking.id, 'reminder_24h', oneHourBooking);
+  });
 });

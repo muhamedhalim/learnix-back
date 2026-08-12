@@ -13,6 +13,7 @@ import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationEmailService } from '../notifications/services/notification-email.service';
 import { Notification } from '../notifications/entities/notification.entity';
+import { NotificationOrigin } from '../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../notifications/entities/notification-status.enum';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { ItemType, Order, Payment } from '../payments/entities';
@@ -551,10 +552,13 @@ export class LessonSessionsService {
     for (const booking of bookings) {
       await this.notifyBookingEvent(booking.id, 'confirmed', booking);
       const untilStart = booking.session.start_at.getTime() - now.getTime();
-      if (untilStart > 0 && untilStart <= 24 * 60 * 60_000 && untilStart > 23 * 60 * 60_000) {
+      // Dedupe keys make these catch-up windows safe after process downtime.
+      // The 24h reminder remains useful until the 1h reminder becomes due;
+      // the 1h reminder remains useful until the session starts.
+      if (untilStart > 60 * 60_000 && untilStart <= 24 * 60 * 60_000) {
         await this.notifyBookingEvent(booking.id, 'reminder_24h', booking);
       }
-      if (untilStart > 0 && untilStart <= 60 * 60_000 && untilStart > 50 * 60_000) {
+      if (untilStart > 0 && untilStart <= 60 * 60_000) {
         await this.notifyBookingEvent(booking.id, 'reminder_1h', booking);
       }
     }
@@ -636,6 +640,8 @@ export class LessonSessionsService {
         .into(Notification)
         .values({
           dedupe_key: dedupeKey,
+          origin: NotificationOrigin.SYSTEM,
+          source_event: `lesson_session_${event}`.slice(0, 120),
           user_id: recipient.id,
           type: NotificationType.CUSTOM,
           title: copy.title,
