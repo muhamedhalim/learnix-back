@@ -75,9 +75,9 @@ import { SettlementsService } from './services/settlements.service';
     ObservabilityModule,
     // Supplies NotificationEmailService to LessonSessionsService (provided
     // here), so session lifecycle mail passes the `email_enabled` channel
-    // policy instead of calling MailService directly. NotificationsModule does
-    // not import PaymentsModule, so this arrow does not close a cycle.
-    NotificationsModule,
+    // policy instead of calling MailService directly. The existing indirect
+    // module cycle is resolved without changing that provider dependency.
+    forwardRef(() => NotificationsModule),
     // Supplies CertificateEligibilityService so a completed FULL refund can
     // revoke the course certificate inside the refund transaction (DEF-019).
     // CertificatesModule imports only NotificationsModule + TypeORM features,

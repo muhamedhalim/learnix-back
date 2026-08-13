@@ -176,7 +176,7 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     }),
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: process.env['NODE_ENV'] === 'development' ? '.env.development.local' : '.env',
       validate,
     }),
     EventEmitterModule.forRoot(),

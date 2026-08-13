@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${LEARNIX_DEV_POSTGRES_DB:?Set LEARNIX_DEV_POSTGRES_DB in .env.development.local}
+      POSTGRES_USER: ${LEARNIX_DEV_POSTGRES_USER:?Set LEARNIX_DEV_POSTGRES_USER in .env.development.local}
+      POSTGRES_PASSWORD: ${LEARNIX_DEV_POSTGRES_PASSWORD:?Set LEARNIX_DEV_POSTGRES_PASSWORD in .env.development.local}
+    ports:
+      - '54330:5432'
+    volumes:
+      - learnix_dev_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - learnix_dev_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+volumes:
+  learnix_dev_postgres_data:
+  learnix_dev_redis_data:

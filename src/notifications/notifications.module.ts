@@ -1,5 +1,5 @@
 import { HttpModule } from '@nestjs/axios';
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -77,7 +77,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
 @Module({
   imports: [
     ConfigModule,
-    BulkOperationsModule,
+    forwardRef(() => BulkOperationsModule),
     GuardiansModule,
     // The Meta Cloud API adapter is the only HTTP consumer here.
     HttpModule,

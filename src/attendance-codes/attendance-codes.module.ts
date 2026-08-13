@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Book } from '../books/entities/book.entity';
@@ -24,7 +24,7 @@ import { CodeGenerationProcessor } from './processors/code-generation.processor'
 
 @Module({
   imports: [
-    PaymentsModule,
+    forwardRef(() => PaymentsModule),
     TypeOrmModule.forFeature([
       AttendanceCode,
       CodeBatch,
