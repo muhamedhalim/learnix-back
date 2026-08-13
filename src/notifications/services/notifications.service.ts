@@ -9,6 +9,7 @@ import { GuardiansService } from '../../guardians/guardians.service';
 import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { User } from '../../users/entities/user.entity';
+import { UserRole } from '../../users/entities/user-role.enum';
 import {
   AdminNotificationFilterDto,
   NotificationFilterDto,
@@ -44,6 +45,8 @@ export interface PaginatedNotifications<T = Notification> {
 
 export type SupportTicketNotificationEvent =
   | 'created'
+  | 'new_ticket'
+  | 'user_reply'
   | 'assigned'
   | 'agent_reply'
   | 'waiting_for_user'
@@ -130,6 +133,14 @@ const SUPPORT_TICKET_COPY: Readonly<
     title: 'Support request received',
     message: (number) => `Your support request ${number} has been received.`,
   },
+  new_ticket: {
+    title: 'New support ticket',
+    message: (number) => `A new support ticket ${number} is waiting in the queue.`,
+  },
+  user_reply: {
+    title: 'Customer replied',
+    message: (number) => `The customer replied on support ticket ${number}.`,
+  },
   assigned: {
     title: 'Ticket assigned',
     message: (number) => `You have been assigned support ticket ${number}.`,
@@ -183,6 +194,14 @@ const SUPPORT_TICKET_COPY_AR: Readonly<
   >
 > = {
   created: { title: 'تم استلام طلب الدعم', message: (number) => `تم استلام طلب الدعم ${number}.` },
+  new_ticket: {
+    title: 'تذكرة دعم جديدة',
+    message: (number) => `توجد تذكرة دعم جديدة ${number} في قائمة الانتظار.`,
+  },
+  user_reply: {
+    title: 'رد صاحب التذكرة',
+    message: (number) => `رد صاحب التذكرة على طلب الدعم ${number}.`,
+  },
   assigned: {
     title: 'تم تعيين التذكرة',
     message: (number) => `تم تعيين تذكرة الدعم ${number} إليك.`,
@@ -348,12 +367,19 @@ export class NotificationsService {
   ): Promise<Notification> {
     const recipient = await this.usersRepository.findOne({
       where: { id: recipientUserId },
-      select: ['id', 'preferred_language'],
+      select: ['id', 'preferred_language', 'role'],
     });
     const copy =
       recipient?.preferred_language === PreferredLanguage.AR
         ? SUPPORT_TICKET_COPY_AR[event]
         : SUPPORT_TICKET_COPY[event];
+    const href = recipient?.role === UserRole.CALL_CENTER
+      ? `/call-center/tickets/${ticket.id}`
+      : recipient?.role === UserRole.ADMIN
+        ? `/admin/complaints?ticket=${ticket.id}`
+        : recipient?.role === UserRole.TEACHER
+          ? `/teacher/complaints?ticket=${ticket.id}`
+          : `/student/complaints?ticket=${ticket.id}`;
     const notification = await this.create(
       {
         user_id: recipientUserId,
@@ -361,6 +387,7 @@ export class NotificationsService {
         title: copy.title,
         message: copy.message(ticket.ticket_number),
         data: {
+          href,
           support_ticket: {
             id: ticket.id,
             number: ticket.ticket_number,

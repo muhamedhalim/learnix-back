@@ -59,17 +59,28 @@ describe('Call Center Phase 7 notifications and SLA (e2e)', () => {
       .patch(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/status`)
       .send({ status: 'waiting_for_user', version: 4 })
       .expect(200);
+    await student.agent
+      .post(`${API_PREFIX}/student/complaints/${ticket.body.id}/messages`)
+      .send({ body: 'The issue is still happening after retrying.' })
+      .expect(201);
 
     const rows = await ctx.dataSource.getRepository(Notification).find({
       where: {},
       order: { sent_at: 'ASC' },
     });
     expect(rows.map((row) => row.data?.support_ticket?.event)).toEqual(
-      expect.arrayContaining(['created', 'assigned', 'agent_reply', 'waiting_for_user']),
+      expect.arrayContaining([
+        'created',
+        'new_ticket',
+        'assigned',
+        'agent_reply',
+        'waiting_for_user',
+        'user_reply',
+      ]),
     );
     expect(rows.every((row) => row.sms_sent === false)).toBe(true);
     expect(rows.every((row) => row.status === 'sent')).toBe(true);
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(6);
   });
 
   it('evaluates SLA alerts once, exposes only dispatch status, and denies other roles', async () => {

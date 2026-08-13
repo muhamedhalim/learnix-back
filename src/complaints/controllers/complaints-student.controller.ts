@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -59,14 +60,14 @@ export class ComplaintsStudentController {
 
   @Get(':id')
   @ApiOperation({ summary: 'View one own complaint (student)' })
-  public async getOwnComplaint(@Param('id') id: string, @GetUser() user: JwtPayload): Promise<unknown> {
+  public async getOwnComplaint(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload): Promise<unknown> {
     return await this.complaintsService.getOwnTicket(id, user.userId);
   }
 
   @Post(':id/messages')
   @ApiOperation({ summary: 'Reply to one own complaint (student)' })
   public async addMessage(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateComplaintMessageDto,
     @GetUser() user: JwtPayload,
   ): Promise<unknown> {

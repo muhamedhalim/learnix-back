@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -15,6 +17,7 @@ import { SanitizationService } from '../common/sanitization/sanitization.service
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationsService } from '../notifications/services/notifications.service';
 import { StudentProfile } from '../students/entities/student-profile.entity';
+import { Lesson } from '../lessons/entities/lesson.entity';
 import { StorageService } from '../storage/storage.service';
 import type { StoredObject } from '../storage/storage.interface';
 import { UploadService } from '../uploads/upload.service';
@@ -38,9 +41,10 @@ import { ComplaintStatus } from './enums/complaint-status.enum';
 import { SupportSlaService } from './support-sla.service';
 
 type ComplainantRole = Extract<UserRole, UserRole.STUDENT | UserRole.TEACHER>;
+type SupportActorRole = 'admin' | 'call_center';
 
 interface TicketDetail {
-  ticket: Complaint;
+  ticket: Complaint | Record<string, unknown>;
   attachments?: ComplaintAttachment[];
   messages: ComplaintMessage[];
   statusPeriods: ComplaintStatusPeriod[];
@@ -108,6 +112,8 @@ const SUPPORT_TRANSITIONS: Readonly<Record<ComplaintStatus, readonly ComplaintSt
 
 @Injectable()
 export class ComplaintsService {
+  private readonly logger = new Logger(ComplaintsService.name);
+
   constructor(
     @InjectRepository(Complaint)
     private readonly complaintsRepository: Repository<Complaint>,
@@ -121,6 +127,8 @@ export class ComplaintsService {
     private readonly studentProfilesRepository: Repository<StudentProfile>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(Lesson)
+    private readonly lessonsRepository: Repository<Lesson>,
     private readonly notificationsService: NotificationsService,
     private readonly activityLogsService: ActivityLogsService,
     private readonly sanitizationService: SanitizationService,
@@ -183,7 +191,9 @@ export class ComplaintsService {
     return { ticket, messages, statusPeriods };
   }
 
-  public async getAllComplaints(filter: ComplaintFilterDto): Promise<PaginatedResponse<Complaint>> {
+  public async getAllComplaints(
+    filter: ComplaintFilterDto,
+  ): Promise<PaginatedResponse<Record<string, unknown>>> {
     const queryBuilder = this.buildTicketQuery(filter)
       .leftJoinAndSelect('complaint.student', 'student')
       .leftJoinAndSelect('complaint.admin', 'admin')
@@ -197,7 +207,12 @@ export class ComplaintsService {
       .take(filter.limit)
       .getManyAndCount();
 
-    return this.toPaginatedResponse(complaints, total, filter.page, filter.limit);
+    return this.toPaginatedResponse(
+      complaints.map((complaint) => this.toSafeSupportTicket(complaint)),
+      total,
+      filter.page,
+      filter.limit,
+    );
   }
 
   /**
@@ -207,8 +222,17 @@ export class ComplaintsService {
    */
   public async getSupportTickets(
     filter: ComplaintFilterDto,
+    actorId?: string,
+    actorRole?: SupportActorRole,
   ): Promise<PaginatedResponse<Complaint>> {
-    const [complaints, total] = await this.buildTicketQuery(filter)
+    const query = this.buildTicketQuery(filter);
+    if (actorRole === UserRole.CALL_CENTER && actorId !== undefined) {
+      query.andWhere(
+        '(complaint.assigned_agent_id IS NULL OR complaint.assigned_agent_id = :supportActorId)',
+        { supportActorId: actorId },
+      );
+    }
+    const [complaints, total] = await query
       .orderBy('complaint.created_at', 'DESC')
       .addOrderBy('complaint.id', 'DESC')
       .skip((filter.page - 1) * filter.limit)
@@ -217,13 +241,19 @@ export class ComplaintsService {
     return this.toPaginatedResponse(complaints, total, filter.page, filter.limit);
   }
 
-  public async getSupportTicket(complaintId: string): Promise<TicketDetail> {
+  public async getSupportTicket(
+    complaintId: string,
+    actorId?: string,
+    actorRole?: SupportActorRole,
+  ): Promise<TicketDetail> {
     const ticket = await this.complaintsRepository.findOne({
       where: { id: complaintId },
+      relations: { complainant: true, assigned_agent: true },
     });
     if (!ticket) {
       throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
     }
+    this.requireSupportAccess(ticket, actorId, actorRole, true);
     const [attachments, messages, statusPeriods] = await Promise.all([
       this.complaintAttachmentsRepository.find({
         where: { complaint_id: ticket.id },
@@ -238,18 +268,25 @@ export class ComplaintsService {
         order: { started_at: 'ASC', id: 'ASC' },
       }),
     ]);
-    return { ticket, attachments, messages, statusPeriods };
+    return {
+      ticket: this.toSafeSupportTicket(ticket),
+      attachments,
+      messages,
+      statusPeriods,
+    };
   }
 
   public async addSupportAttachment(
     complaintId: string,
     agentId: string,
+    actorRole: SupportActorRole,
     file: Express.Multer.File,
   ): Promise<SupportAttachmentResponse> {
     const ticket = await this.complaintsRepository.findOneBy({ id: complaintId });
     if (!ticket) {
       throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
     }
+    this.requireSupportAccess(ticket, agentId, actorRole, false);
 
     const uploaded = await this.uploads.uploadPrivateSupportAttachment(file, ticket.id);
     try {
@@ -279,7 +316,14 @@ export class ComplaintsService {
   public async getSupportAttachment(
     complaintId: string,
     attachmentId: string,
+    actorId?: string,
+    actorRole?: SupportActorRole,
   ): Promise<SupportAttachmentDownload> {
+    const ticket = await this.complaintsRepository.findOneBy({ id: complaintId });
+    if (!ticket) {
+      throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
+    }
+    this.requireSupportAccess(ticket, actorId, actorRole, false);
     // Keep the ticket id inside the predicate so a modified attachment id
     // cannot retrieve evidence belonging to a different ticket.
     const attachment = await this.complaintAttachmentsRepository
@@ -302,6 +346,10 @@ export class ComplaintsService {
     dto: CreateComplaintMessageDto,
   ): Promise<ComplaintMessage> {
     await this.getOwnTicket(complaintId, complainantId);
+    const currentTicket = await this.complaintsRepository.findOneByOrFail({ id: complaintId });
+    if ([ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED].includes(currentTicket.status)) {
+      throw new BadRequestException('Closed or resolved tickets cannot receive new replies.');
+    }
     const message = await this.saveMessage(
       complaintId,
       complainantId,
@@ -319,18 +367,21 @@ export class ComplaintsService {
     await this.audit(complainantId, 'support_ticket_message_added', ticket, {
       kind: ComplaintMessageKind.COMPLAINANT_MESSAGE,
     });
+    await this.notifySupportUsers(ticket, 'user_reply');
     return message;
   }
 
   public async addSupportMessage(
     complaintId: string,
     agentId: string,
+    actorRole: SupportActorRole,
     dto: CreateSupportMessageDto,
   ): Promise<ComplaintMessage> {
     const ticket = await this.complaintsRepository.findOneBy({ id: complaintId });
     if (!ticket) {
       throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
     }
+    this.requireSupportAccess(ticket, agentId, actorRole, false);
     const kind = dto.internal
       ? ComplaintMessageKind.INTERNAL_NOTE
       : ComplaintMessageKind.AGENT_REPLY;
@@ -352,6 +403,7 @@ export class ComplaintsService {
   public async assignTicket(
     complaintId: string,
     actorId: string,
+    actorRole: SupportActorRole,
     dto: AssignComplaintDto,
   ): Promise<Complaint> {
     const agent = await this.usersRepository.findOneBy({ id: dto.agent_id });
@@ -359,6 +411,14 @@ export class ComplaintsService {
       throw new BadRequestException('The assigned user must be an active Call Center employee.');
     }
     const ticket = await this.requireExpectedVersion(complaintId, dto.version);
+    if (actorRole === UserRole.CALL_CENTER) {
+      if (agent.id !== actorId) {
+        throw new ForbiddenException('Call Center employees may only claim tickets for themselves.');
+      }
+      if (ticket.assigned_agent_id !== null && ticket.assigned_agent_id !== actorId) {
+        throw new ForbiddenException('This ticket is assigned to another employee.');
+      }
+    }
     const result = await this.complaintsRepository
       .createQueryBuilder()
       .update(Complaint)
@@ -380,9 +440,11 @@ export class ComplaintsService {
   public async transitionTicket(
     complaintId: string,
     actorId: string,
+    actorRole: SupportActorRole,
     dto: TransitionComplaintDto,
   ): Promise<Complaint> {
     const ticket = await this.requireExpectedVersion(complaintId, dto.version);
+    this.requireSupportAccess(ticket, actorId, actorRole, false);
     if (!SUPPORT_TRANSITIONS[ticket.status].includes(dto.status)) {
       throw new BadRequestException(
         `Ticket status ${ticket.status} cannot transition to ${dto.status}.`,
@@ -401,34 +463,42 @@ export class ComplaintsService {
     if (!ticket) {
       throw new NotFoundException(biBody('Complaint not found', 'الشكوى غير موجودة'));
     }
+    if (!SUPPORT_TRANSITIONS[ticket.status].includes(ComplaintStatus.RESOLVED)) {
+      throw new BadRequestException(`Ticket status ${ticket.status} cannot transition to resolved.`);
+    }
+    if (ticket.version !== dto.version) {
+      throw new ConflictException(
+        'This ticket was updated by another employee. Refresh and try again.',
+      );
+    }
+    const sanitizedResponse = this.sanitizationService.sanitizeStrict(dto.admin_response);
+    const respondedAt = new Date();
+    const updated = await this.transitionWithExpectedVersion(
+      ticket,
+      adminId,
+      {
+        status: ComplaintStatus.RESOLVED,
+        version: dto.version,
+        reason: 'Admin response',
+        resolution: sanitizedResponse,
+      },
+      {
+        admin_response: sanitizedResponse,
+        admin_id: adminId,
+        responded_at: respondedAt,
+        first_response_at: ticket.first_response_at ?? respondedAt,
+      },
+    );
     await this.saveMessage(
       complaintId,
       adminId,
       ComplaintMessageKind.AGENT_REPLY,
-      dto.admin_response,
-    );
-    ticket.admin_response = this.sanitizationService.sanitizeStrict(dto.admin_response);
-    ticket.admin_id = adminId;
-    ticket.responded_at = new Date();
-    if (ticket.first_response_at === null) {
-      ticket.first_response_at = ticket.responded_at;
-    }
-    const responded = await this.complaintsRepository.save(ticket);
-    const current = await this.complaintsRepository.findOneByOrFail({ id: complaintId });
-    const updated = await this.transitionWithoutExpectedVersion(
-      current,
-      ComplaintStatus.RESOLVED,
-      'Admin response',
-    );
-    await this.notificationsService.createSupportTicketNotification(
-      ticket.complainant_id,
-      updated,
-      'resolved',
+      sanitizedResponse,
     );
     await this.audit(adminId, 'support_ticket_admin_response', updated, {
       legacyAdminResponse: true,
     });
-    return responded.status === ComplaintStatus.RESOLVED ? responded : updated;
+    return updated;
   }
 
   private async createTicket(
@@ -437,12 +507,21 @@ export class ComplaintsService {
     dto: CreateComplaintDto,
     legacyStudentId: string | null,
   ): Promise<Complaint> {
+    if (dto.request_id !== undefined) {
+      const existing = await this.complaintsRepository.findOneBy({
+        complainant_id: complainantId,
+        request_id: dto.request_id,
+      });
+      if (existing) return existing;
+    }
+    await this.validateComplaintTarget(dto);
     const ticketNumber = await this.nextTicketNumber();
     const createdAt = new Date();
     const complaint = this.complaintsRepository.create({
       student_id: legacyStudentId,
       complainant_id: complainantId,
       complainant_role: complainantRole,
+      request_id: dto.request_id ?? null,
       ticket_number: ticketNumber,
       type: dto.type,
       target_id: dto.target_id ?? null,
@@ -451,7 +530,20 @@ export class ComplaintsService {
       status: ComplaintStatus.NEW,
       ...(await this.supportSla.dueDates(createdAt)),
     });
-    const saved = await this.complaintsRepository.save(complaint);
+    let saved: Complaint;
+    try {
+      saved = await this.complaintsRepository.save(complaint);
+    } catch (error: unknown) {
+      if ((error as { code?: string }).code !== '23505' || dto.request_id === undefined) {
+        throw error;
+      }
+      const existing = await this.complaintsRepository.findOneBy({
+        complainant_id: complainantId,
+        request_id: dto.request_id,
+      });
+      if (!existing) throw error;
+      return existing;
+    }
     await this.complaintStatusPeriodsRepository.save(
       this.complaintStatusPeriodsRepository.create({
         complaint_id: saved.id,
@@ -466,6 +558,7 @@ export class ComplaintsService {
       saved,
       'created',
     );
+    await this.notifySupportUsers(saved, 'new_ticket');
     return saved;
   }
 
@@ -484,7 +577,9 @@ export class ComplaintsService {
   }
 
   private buildTicketQuery(filter: ComplaintFilterDto) {
-    const queryBuilder = this.complaintsRepository.createQueryBuilder('complaint');
+    const queryBuilder = this.complaintsRepository
+      .createQueryBuilder('complaint')
+      .leftJoin('complaint.complainant', 'search_complainant');
     if (filter.status !== undefined) {
       queryBuilder.andWhere('complaint.status = :status', { status: filter.status });
     }
@@ -512,7 +607,14 @@ export class ComplaintsService {
     }
     if (filter.search !== undefined && filter.search.trim() !== '') {
       queryBuilder.andWhere(
-        '(complaint.ticket_number ILIKE :search OR complaint.subject ILIKE :search)',
+        `(
+          complaint.ticket_number ILIKE :search OR
+          complaint.subject ILIKE :search OR
+          complaint.description ILIKE :search OR
+          search_complainant.name ILIKE :search OR
+          search_complainant.email ILIKE :search OR
+          search_complainant.phone ILIKE :search
+        )`,
         {
           search: `%${filter.search.trim()}%`,
         },
@@ -537,6 +639,79 @@ export class ComplaintsService {
       hasPrevPage: page > 1,
     };
     return { data, meta };
+  }
+
+  private toSafeSupportTicket(ticket: Complaint): Record<string, unknown> {
+    const safeUser = (user: User | null | undefined) =>
+      user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            is_active: user.is_active,
+          }
+        : null;
+    return {
+      ...ticket,
+      student: safeUser(ticket.student),
+      complainant: safeUser(ticket.complainant),
+      admin: safeUser(ticket.admin),
+      assigned_agent: safeUser(ticket.assigned_agent),
+    };
+  }
+
+  private requireSupportAccess(
+    ticket: Complaint,
+    actorId?: string,
+    actorRole?: SupportActorRole,
+    allowUnassigned = false,
+  ): void {
+    if (actorRole === undefined || actorId === undefined || actorRole === UserRole.ADMIN) return;
+    if (ticket.assigned_agent_id === actorId) return;
+    if (allowUnassigned && ticket.assigned_agent_id === null) return;
+    throw new ForbiddenException('This ticket is assigned to another employee.');
+  }
+
+  private async validateComplaintTarget(dto: CreateComplaintDto): Promise<void> {
+    if (dto.target_id === undefined) return;
+    if (dto.type === 'technical') {
+      throw new BadRequestException('Technical complaints cannot target a teacher or lesson.');
+    }
+    if (dto.type === 'teacher') {
+      const teacher = await this.usersRepository.findOneBy({
+        id: dto.target_id,
+        role: UserRole.TEACHER,
+        is_active: true,
+      });
+      if (!teacher) throw new BadRequestException('The selected teacher does not exist.');
+      return;
+    }
+    const lesson = await this.lessonsRepository.findOneBy({ id: dto.target_id });
+    if (!lesson) throw new BadRequestException('The selected lesson does not exist.');
+  }
+
+  private async notifySupportUsers(
+    ticket: Complaint,
+    event: 'new_ticket' | 'user_reply',
+  ): Promise<void> {
+    const recipients = ticket.assigned_agent_id
+      ? [{ id: ticket.assigned_agent_id }]
+      : await this.usersRepository.find({
+          where: { role: UserRole.CALL_CENTER, is_active: true },
+          select: ['id'],
+        });
+    const settled = await Promise.allSettled(
+      recipients.map((recipient) =>
+        this.notificationsService.createSupportTicketNotification(recipient.id, ticket, event),
+      ),
+    );
+    for (const result of settled) {
+      if (result.status === 'rejected') {
+        this.logger.warn(`Support notification failed: ${String(result.reason)}`);
+      }
+    }
   }
 
   private async saveMessage(
@@ -575,6 +750,7 @@ export class ComplaintsService {
     ticket: Complaint,
     actorId: string,
     dto: TransitionComplaintDto,
+    extraValues: Omit<Partial<Complaint>, 'version' | 'status'> = {},
   ): Promise<Complaint> {
     const now = new Date();
     const transitionValues: Omit<Partial<Complaint>, 'version'> = {
@@ -597,7 +773,7 @@ export class ComplaintsService {
     const result = await this.complaintsRepository
       .createQueryBuilder()
       .update(Complaint)
-      .set({ ...transitionValues, version: () => '"version" + 1' })
+      .set({ ...transitionValues, ...extraValues, version: () => '"version" + 1' })
       .where('id = :id AND version = :version', { id: ticket.id, version: ticket.version })
       .returning('*')
       .execute();

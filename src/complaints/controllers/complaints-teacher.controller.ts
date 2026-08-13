@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -31,14 +31,14 @@ export class ComplaintsTeacherController {
 
   @Get(':id')
   @ApiOperation({ summary: 'View one own complaint (teacher)' })
-  public async getOwnComplaint(@Param('id') id: string, @GetUser() user: JwtPayload): Promise<unknown> {
+  public async getOwnComplaint(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload): Promise<unknown> {
     return await this.complaintsService.getOwnTicket(id, user.userId);
   }
 
   @Post(':id/messages')
   @ApiOperation({ summary: 'Reply to one own complaint (teacher)' })
   public async addMessage(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateComplaintMessageDto,
     @GetUser() user: JwtPayload,
   ): Promise<unknown> {

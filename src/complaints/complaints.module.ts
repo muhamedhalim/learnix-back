@@ -5,6 +5,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { User } from '../users/entities/user.entity';
+import { Lesson } from '../lessons/entities/lesson.entity';
 import { UploadModule } from '../uploads/upload.module';
 import { ComplaintsService } from './complaints.service';
 import { ComplaintsAdminController } from './controllers/complaints-admin.controller';
@@ -34,6 +35,7 @@ import { SupportSlaPolicy } from './entities/support-sla-policy.entity';
       ComplaintStatusPeriod,
       StudentProfile,
       User,
+      Lesson,
       SupportCannedResponse,
       SupportKnowledgeArticle,
       SupportSlaPolicy,

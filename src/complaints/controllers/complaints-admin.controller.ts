@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -46,7 +47,7 @@ export class ComplaintsAdminController {
   @ApiOperation({ summary: 'Respond to a complaint (admin)' })
   @ApiResponse({ status: 404, description: 'Complaint not found' })
   public async respondToComplaint(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RespondComplaintDto,
     @GetUser() user: JwtPayload,
   ): Promise<unknown> {

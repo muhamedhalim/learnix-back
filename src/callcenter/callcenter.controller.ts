@@ -114,7 +114,7 @@ export class CallCenterController {
   }
 
   @Get('agents')
-  @Roles('call_center')
+  @Roles('call_center', 'admin')
   @ApiOperation({ summary: 'List active Call Center agents for ticket assignment' })
   public async getActiveAgents(): Promise<unknown> {
     return await this.supportService.activeAgents();

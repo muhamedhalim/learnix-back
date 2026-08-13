@@ -30,12 +30,14 @@ describe('ComplaintsService.createComplaint', () => {
     };
     const activityLogsService = { recordAuditEvent: jest.fn() };
     const sanitizationService = { sanitizeStrict: jest.fn((value: string) => value) };
+    const usersRepository = { find: jest.fn().mockResolvedValue([]) };
     const service = new ComplaintsService(
       complaintsRepository as never,
       {} as never,
       {} as never,
       complaintStatusPeriodsRepository as never,
       studentProfilesRepository as never,
+      usersRepository as never,
       {} as never,
       { createSupportTicketNotification: jest.fn() } as never,
       activityLogsService as never,

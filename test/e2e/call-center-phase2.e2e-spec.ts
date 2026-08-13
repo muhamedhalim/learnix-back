@@ -11,6 +11,7 @@ import {
   type E2EContext,
 } from './fixtures';
 import { StorageService } from '../../src/storage/storage.service';
+import { Complaint } from '../../src/complaints/entities/complaint.entity';
 
 const ticketPayload = {
   type: 'technical',
@@ -69,6 +70,10 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
     await otherStudent.agent.get(`${API_PREFIX}/student/complaints/${created.body.id}`).expect(404);
     await student.agent.get(`${API_PREFIX}/callcenter/tickets`).expect(403);
     await support.agent.get(`${API_PREFIX}/callcenter/tickets/${created.body.id}`).expect(200);
+    await support.agent
+      .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/assignment`)
+      .send({ agent_id: support.userId, version: created.body.version })
+      .expect(200);
 
     await support.agent
       .post(`${API_PREFIX}/callcenter/tickets/${created.body.id}/messages`)
@@ -87,9 +92,36 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
     expect(detail.body.messages[0].body).not.toContain('<script>');
   });
 
+  it('deduplicates retried complaint creation and validates complaint targets', async () => {
+    const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const requestId = '3c5bb8e0-8a3e-4a4d-97ab-84482590b824';
+    const payload = { ...ticketPayload, request_id: requestId };
+
+    const first = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(payload)
+      .expect(201);
+    const retry = await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send(payload)
+      .expect(201);
+
+    expect(retry.body.id).toBe(first.body.id);
+    expect(await ctx.dataSource.getRepository(Complaint).count()).toBe(1);
+    await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send({ ...ticketPayload, target_id: student.userId })
+      .expect(400);
+    await student.agent
+      .post(`${API_PREFIX}/student/complaints`)
+      .send({ ...ticketPayload, subject: '   ' })
+      .expect(400);
+  });
+
   it('enforces optimistic lifecycle transitions, valid support assignment, and audit history', async () => {
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const support = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
+    const otherSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
     const nonSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const created = await student.agent
       .post(`${API_PREFIX}/student/complaints`)
@@ -100,11 +132,18 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/assignment`)
       .send({ agent_id: nonSupport.userId, version: 1 })
       .expect(400);
+    await support.agent
+      .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/assignment`)
+      .send({ agent_id: otherSupport.userId, version: 1 })
+      .expect(403);
     const assigned = await support.agent
       .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/assignment`)
       .send({ agent_id: support.userId, version: 1 })
       .expect(200);
     expect(assigned.body).toMatchObject({ assigned_agent_id: support.userId, version: 2 });
+    await otherSupport.agent
+      .get(`${API_PREFIX}/callcenter/tickets/${created.body.id}`)
+      .expect(403);
 
     const transitioned = await support.agent
       .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/status`)
@@ -137,6 +176,7 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'teacher' });
     const admin = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'admin' });
+    await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
     const studentTicket = await student.agent
       .post(`${API_PREFIX}/student/complaints`)
       .send(ticketPayload)
@@ -146,6 +186,12 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .send(ticketPayload)
       .expect(201);
 
+    const agents = await admin.agent.get(`${API_PREFIX}/callcenter/agents`).expect(200);
+    expect(agents.body).toHaveLength(1);
+    await admin.agent
+      .get(`${API_PREFIX}/callcenter/tickets/${teacherTicket.body.id}`)
+      .expect(200);
+
     await student.agent
       .get(`${API_PREFIX}/teacher/complaints/${teacherTicket.body.id}`)
       .expect(403);
@@ -154,9 +200,11 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .expect(404);
     const responded = await admin.agent
       .post(`${API_PREFIX}/admin/complaints/${studentTicket.body.id}/respond`)
-      .send({ admin_response: 'This has been fixed.' })
+      .send({ admin_response: 'This has been fixed.', version: studentTicket.body.version })
       .expect(201);
     expect(responded.body.status).toBe('resolved');
+    expect(responded.body.resolution).toBe('This has been fixed.');
+    expect(responded.body.version).toBe(studentTicket.body.version + 1);
   });
 
   it('keeps Call Center ticket attachments private, ticket-scoped, and auditable', async () => {
@@ -176,6 +224,11 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .post(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments`)
       .attach('file', Buffer.from('%PDF-1.4\nprivate support evidence\n'), 'evidence.pdf')
       .expect(403);
+
+    await support.agent
+      .patch(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/assignment`)
+      .send({ agent_id: support.userId, version: ticket.body.version })
+      .expect(200);
 
     const uploaded = await support.agent
       .post(`${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments`)
@@ -201,7 +254,7 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .get(
         `${API_PREFIX}/callcenter/tickets/${otherTicket.body.id}/attachments/${uploaded.body.id}/download`,
       )
-      .expect(404);
+      .expect(403);
     await support.agent
       .get(
         `${API_PREFIX}/callcenter/tickets/${ticket.body.id}/attachments/${uploaded.body.id}/download`,

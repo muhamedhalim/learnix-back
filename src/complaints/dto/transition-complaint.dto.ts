@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min, ValidateIf } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsString, MaxLength, Min, ValidateIf } from 'class-validator';
 
 import { ComplaintStatus } from '../enums/complaint-status.enum';
 
@@ -20,9 +20,10 @@ export class TransitionComplaintDto {
   @MaxLength(1000)
   public reason?: string;
 
-  @IsOptional()
+  @ValidateIf((dto: TransitionComplaintDto) => dto.status === ComplaintStatus.RESOLVED || dto.resolution !== undefined)
   @Transform(({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value)
   @IsString()
+  @IsNotEmpty()
   @MaxLength(5000)
   public resolution?: string;
 }

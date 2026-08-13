@@ -6,6 +6,7 @@ import { ComplaintsService } from './complaints.service';
 describe('ComplaintsService.getSupportTickets — unassigned filter (DEF-012)', () => {
   function buildService() {
     const query = {
+      leftJoin: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       addOrderBy: jest.fn().mockReturnThis(),
@@ -16,6 +17,7 @@ describe('ComplaintsService.getSupportTickets — unassigned filter (DEF-012)', 
     const complaintsRepository = { createQueryBuilder: jest.fn().mockReturnValue(query) };
     const service = new ComplaintsService(
       complaintsRepository as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

@@ -23,6 +23,10 @@ import { ComplaintType } from '../enums/complaint-type.enum';
 @Index('IDX_complaints_ticket_number', ['ticket_number'], { unique: true })
 @Index('IDX_complaints_complainant_id', ['complainant_id'])
 @Index('IDX_complaints_assigned_agent_id', ['assigned_agent_id'])
+@Index('UQ_complaints_complainant_request_id', ['complainant_id', 'request_id'], {
+  unique: true,
+  where: '"request_id" IS NOT NULL',
+})
 export class Complaint {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -44,6 +48,9 @@ export class Complaint {
 
   @Column({ type: 'varchar', length: 20, name: 'complainant_role' })
   complainant_role!: 'student' | 'teacher';
+
+  @Column({ type: 'uuid', nullable: true, name: 'request_id' })
+  request_id!: string | null;
 
   @Column({ type: 'varchar', length: 32, name: 'ticket_number' })
   ticket_number!: string;
