@@ -1,3 +1,4 @@
+import type { Relation } from 'typeorm';
 import {
   Column,
   CreateDateColumn,
@@ -46,7 +47,7 @@ export class NotificationDelivery {
 
   @ManyToOne(() => Notification, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'notification_id' })
-  notification!: Notification;
+  notification!: Relation<Notification>;
 
   @Column({ type: 'enum', enum: NotificationChannel })
   channel!: NotificationChannel;

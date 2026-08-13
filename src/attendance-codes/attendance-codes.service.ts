@@ -382,6 +382,11 @@ export class AttendanceCodesService {
       .leftJoinAndSelect('code.user', 'user')
       .leftJoinAndSelect('code.creator', 'creator');
 
+    const search = filter.search?.trim();
+    if (search) {
+      queryBuilder.andWhere('code.code ILIKE :search', { search: `%${search}%` });
+    }
+
     if (filter.is_used !== undefined) {
       queryBuilder.andWhere('code.is_used = :isUsed', {
         isUsed: filter.is_used,

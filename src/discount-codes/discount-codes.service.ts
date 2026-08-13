@@ -216,6 +216,11 @@ export class DiscountCodesService {
       .createQueryBuilder('code')
       .where('code.deleted_at IS NULL');
 
+    const search = filter.search?.trim();
+    if (search) {
+      queryBuilder.andWhere('code.code ILIKE :search', { search: `%${search}%` });
+    }
+
     if (filter.is_active !== undefined) {
       queryBuilder.andWhere('code.is_active = :isActive', {
         isActive: filter.is_active,

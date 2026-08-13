@@ -26,6 +26,7 @@ function qb(count: number, many: unknown[]) {
     'limit',
     'select',
     'addSelect',
+    'addOrderBy',
     'groupBy',
   ]) {
     b[m] = jest.fn(() => b);
@@ -33,6 +34,7 @@ function qb(count: number, many: unknown[]) {
   b.clone = jest.fn(() => b);
   b.getCount = jest.fn().mockResolvedValue(count);
   b.getMany = jest.fn().mockResolvedValue(many);
+  b.getRawMany = jest.fn().mockResolvedValue(many);
   return b;
 }
 
@@ -67,8 +69,55 @@ describe('SearchService', () => {
 
   it('returns empty groups for a query shorter than 2 chars (no DB hit)', async () => {
     const result = await service.searchAll('a');
-    expect(result).toEqual({ courses: [], lessons: [], books: [], teachers: [], subjects: [] });
+    expect(result).toEqual({
+      courses: [],
+      lessons: [],
+      books: [],
+      teachers: [],
+      subjects: [],
+      supportUsers: [],
+    });
     expect(packages.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('returns no support-user results to unauthenticated and non-Call-Center searches', async () => {
+    const result = await service.searchByType('ahmed', SearchType.SUPPORT_USERS, 1, 20, {
+      userId: 'student-1',
+      email: 'student@example.test',
+      name: 'Student',
+      role: 'student',
+    });
+
+    expect(result.data).toEqual([]);
+    expect(users.createQueryBuilder).not.toHaveBeenCalled();
+  });
+
+  it('limits support-user global search to Call Center agents and does not expose contact fields', async () => {
+    const row = qb(1, [{ id: 'user-1', name: 'Ahmed Ali', role: 'student' }]);
+    users.createQueryBuilder.mockReturnValue(row);
+
+    const result = await service.searchByType('ahmed', SearchType.SUPPORT_USERS, 1, 20, {
+      userId: 'agent-1',
+      email: 'agent@example.test',
+      name: 'Agent',
+      role: 'call_center',
+    });
+
+    expect(result.data).toEqual([
+      {
+        type: 'support_user',
+        id: 'user-1',
+        title: 'Ahmed Ali',
+        subtitle: 'Student',
+        thumbnail: null,
+        url: '/call-center/users/user-1',
+      },
+    ]);
+    expect(row.andWhere).toHaveBeenCalledWith('u.role IN (:...roles)', {
+      roles: ['student', 'teacher'],
+    });
+    expect(JSON.stringify(result.data)).not.toContain('email');
+    expect(JSON.stringify(result.data)).not.toContain('phone');
   });
 
   it('returns books in the public catalog search results', async () => {
@@ -103,14 +152,17 @@ describe('SearchService', () => {
     });
   });
 
-  it('searches lesson titles without querying the nonexistent lessons.title_ar column', async () => {
+  it('searches lesson titles through the normalized column without querying the nonexistent title_ar', async () => {
     const row = qb(1, [{ id: 'L1', title: 'Algebra lesson', thumbnail: null }]);
     lessons.createQueryBuilder.mockReturnValue(row);
 
     const result = await service.searchByType('alg', SearchType.LESSONS, 1, 20);
 
     expect(result.data[0]?.id).toBe('L1');
-    expect(row.andWhere).toHaveBeenCalledWith('l.title ILIKE :like', { like: '%alg%' });
+    expect(row.andWhere).toHaveBeenCalledWith(expect.stringContaining('l.search_text % :q'), {
+      like: '%alg%',
+      q: 'alg',
+    });
     expect(row.andWhere).not.toHaveBeenCalledWith(
       expect.stringContaining('l.title_ar'),
       expect.anything(),
@@ -122,11 +174,16 @@ describe('SearchService', () => {
     await expect(service.logQuery('algebra', 'u1')).resolves.toBeUndefined();
   });
 
-  it('orders by similarity() when pg_trgm is installed', async () => {
+  it('retrieves typo-tolerant candidates and orders them by normalized similarity when pg_trgm is installed', async () => {
     const row = qb(1, [{ id: 'P1', title: 'Algebra', category: 'Math', thumbnail: null }]);
     packages.createQueryBuilder.mockReturnValue(row);
     await service.searchByType('alg', SearchType.COURSES, 1, 20);
-    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.title, :q)', 'DESC');
+    expect(row.andWhere).toHaveBeenCalledWith(expect.stringContaining('pkg.search_text % :q'), {
+      like: '%alg%',
+      q: 'alg',
+    });
+    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.search_text, :q)', 'DESC');
+    expect(row.addOrderBy).toHaveBeenCalledWith('pkg.title', 'ASC');
   });
 
   it('falls back to plain ordering (no 500) when pg_trgm is not installed', async () => {
@@ -161,7 +218,7 @@ describe('SearchService', () => {
 
     expect(result.data[0]?.id).toBe('P1');
     // First attempt used similarity, retry used the plain fallback.
-    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.title, :q)', 'DESC');
+    expect(row.orderBy).toHaveBeenCalledWith('similarity(pkg.search_text, :q)', 'DESC');
     expect(row.orderBy).toHaveBeenCalledWith('pkg.title', 'ASC');
   });
 
@@ -184,9 +241,80 @@ describe('SearchService', () => {
     const result = await service.searchInCourse('pkg-1', 'algebra');
 
     expect(result).toEqual({ lessons: [], chapters: [] });
-    expect(row.andWhere).toHaveBeenCalledWith('l.title ILIKE :like', {
+    expect(row.andWhere).toHaveBeenCalledWith("l.search_text LIKE :like ESCAPE '\\'", {
       like: '%algebra%',
     });
     expect(row.orderBy).toHaveBeenCalledWith('l.title', 'ASC');
+  });
+
+  it('only searches published active course curriculum', async () => {
+    const lessonRows = qb(0, []);
+    const chapterRows = qb(0, []);
+    lessons.createQueryBuilder.mockReturnValue(lessonRows);
+    chapters.createQueryBuilder.mockReturnValue(chapterRows);
+
+    await service.searchInCourse('pkg-1', 'algebra');
+
+    expect(lessonRows.andWhere).toHaveBeenCalledWith('pkg.deleted_at IS NULL');
+    expect(lessonRows.andWhere).toHaveBeenCalledWith('pkg.is_active = true');
+    expect(lessonRows.andWhere).toHaveBeenCalledWith('pkg.status = :packageStatus', {
+      packageStatus: 'published',
+    });
+    expect(lessonRows.andWhere).toHaveBeenCalledWith('l.status = :lessonStatus', {
+      lessonStatus: 'published',
+    });
+    expect(chapterRows.andWhere).toHaveBeenCalledWith('c.deleted_at IS NULL');
+    expect(chapterRows.andWhere).toHaveBeenCalledWith('pkg.status = :packageStatus', {
+      packageStatus: 'published',
+    });
+  });
+
+  it('limits global subject results to approved, non-deleted subjects', async () => {
+    const row = qb(0, []);
+    subjects.createQueryBuilder.mockReturnValue(row);
+
+    await service.searchByType('math', SearchType.SUBJECTS, 1, 20);
+
+    expect(row.where).toHaveBeenCalledWith('s.deleted_at IS NULL');
+    expect(row.andWhere).toHaveBeenCalledWith('s.status = :status', { status: 'approved' });
+    expect(row.andWhere).toHaveBeenCalledWith(expect.stringContaining('s.search_text % :q'), {
+      like: '%math%',
+      q: 'math',
+    });
+  });
+
+  it('keeps two-character queries on literal substring search to avoid noisy trigram matches', async () => {
+    const row = qb(0, []);
+    packages.createQueryBuilder.mockReturnValue(row);
+
+    await service.searchByType('al', SearchType.COURSES, 1, 20);
+
+    expect(row.andWhere).toHaveBeenCalledWith("pkg.search_text LIKE :like ESCAPE '\\'", {
+      like: '%al%',
+    });
+    expect(row.orderBy).toHaveBeenCalledWith('pkg.title', 'ASC');
+  });
+
+  it('treats LIKE metacharacters in a user query as literal characters', async () => {
+    const row = qb(0, []);
+    packages.createQueryBuilder.mockReturnValue(row);
+
+    await service.searchByType('100%', SearchType.COURSES, 1, 20);
+
+    expect(row.andWhere).toHaveBeenCalledWith(expect.stringContaining('pkg.search_text % :q'), {
+      like: '%100\\%%',
+      q: '100%',
+    });
+  });
+
+  it('returns the most recently searched distinct queries first', async () => {
+    const row = qb(0, [{ query: 'algebra' }]);
+    searchLog.createQueryBuilder.mockReturnValue(row);
+
+    await expect(service.getRecent('user-1')).resolves.toEqual(['algebra']);
+
+    expect(row.addSelect).toHaveBeenCalledWith('MAX(s.created_at)', 'last_searched_at');
+    expect(row.groupBy).toHaveBeenCalledWith('s.query');
+    expect(row.orderBy).toHaveBeenCalledWith('MAX(s.created_at)', 'DESC');
   });
 });

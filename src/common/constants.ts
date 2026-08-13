@@ -62,6 +62,10 @@ export const THROTTLE = {
   // automated-QA use case keeps a supported home on staging.
   PAYMENTS: { ttl: 60_000, limit: 3 }, // 3 payment initializations per minute
   FILE_UPLOAD: { ttl: 60_000, limit: 3 }, // 3 uploads per minute
+  // Search is intentionally higher than sensitive write tiers because the
+  // navbar autocomplete is debounced, but lower than the global flood
+  // backstop to bound enumeration and request bursts per client IP.
+  SEARCH: { ttl: 60_000, limit: 120 },
 } as const;
 
 export const UPLOAD_FOLDERS = ['thumbnails', 'profiles', 'resources'] as const;

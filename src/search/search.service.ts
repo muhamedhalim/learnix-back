@@ -12,14 +12,16 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonStatus } from '../lessons/entities/lesson-status.enum';
 import { Subject } from '../subjects/entities/subject.entity';
+import { SubjectStatus } from '../subjects/entities/subject-status.enum';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
+import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import { SearchQueryLog } from './entities/search-query.entity';
 import { SearchType } from './dto/search.dto';
 
 export interface SearchResultItem {
-  type: 'course' | 'lesson' | 'book' | 'teacher' | 'subject';
+  type: 'course' | 'lesson' | 'book' | 'teacher' | 'subject' | 'support_user';
   id: string;
   title: string;
   subtitle: string | null;
@@ -36,6 +38,8 @@ const UNDEFINED_FUNCTION = '42883';
 /** Re-probe pg_trgm periodically so the fallback self-heals once a pending
  *  migration finally runs, without requiring an app restart. */
 const TRGM_RECHECK_MS = 5 * 60 * 1000;
+/** Trigram similarity is too broad for one- and two-character queries. */
+const MIN_FUZZY_QUERY_LENGTH = 3;
 
 @Injectable()
 export class SearchService {
@@ -67,23 +71,30 @@ export class SearchService {
   }
 
   /** Grouped overview across all surfaces (limited per group) — for the dropdown. */
-  public async searchAll(rawQuery: string): Promise<{
+  public async searchAll(
+    rawQuery: string,
+    actor?: JwtPayload,
+  ): Promise<{
     courses: SearchResultItem[];
     lessons: SearchResultItem[];
     books: SearchResultItem[];
     teachers: SearchResultItem[];
     subjects: SearchResultItem[];
+    supportUsers: SearchResultItem[];
   }> {
     const q = this.normalize(rawQuery);
     if (q.length < 2) {
-      return { courses: [], lessons: [], books: [], teachers: [], subjects: [] };
+      return { courses: [], lessons: [], books: [], teachers: [], subjects: [], supportUsers: [] };
     }
-    const [courses, lessons, books, teachers, subjects] = await Promise.all([
+    const [courses, lessons, books, teachers, subjects, supportUsers] = await Promise.all([
       this.searchCourses(q, 1, 5),
       this.searchLessons(q, 1, 5),
       this.searchBooks(q, 1, 5),
       this.searchTeachers(q, 1, 5),
       this.searchSubjects(q, 1, 5),
+      this.canSearchSupportUsers(actor)
+        ? this.searchSupportUsers(q, 1, 5)
+        : Promise.resolve({ data: [] as SearchResultItem[], meta: this.emptyMeta(1, 5) }),
     ]);
     return {
       courses: courses.data,
@@ -91,6 +102,7 @@ export class SearchService {
       books: books.data,
       teachers: teachers.data,
       subjects: subjects.data,
+      supportUsers: supportUsers.data,
     };
   }
 
@@ -100,6 +112,7 @@ export class SearchService {
     type: SearchType,
     page: number,
     limit: number,
+    actor?: JwtPayload,
   ): Promise<PaginatedResults> {
     const q = this.normalize(rawQuery);
     if (q.length < 2) {
@@ -116,12 +129,19 @@ export class SearchService {
         return this.searchTeachers(q, page, limit);
       case SearchType.SUBJECTS:
         return this.searchSubjects(q, page, limit);
+      case SearchType.SUPPORT_USERS:
+        return this.canSearchSupportUsers(actor)
+          ? this.searchSupportUsers(q, page, limit)
+          : { data: [], meta: this.emptyMeta(page, limit) };
       default:
         return this.searchCourses(q, page, limit);
     }
   }
 
-  /** Lessons + chapters within a single published course. */
+  /**
+   * Public curriculum search. A package must be published and active, and a
+   * lesson/chapter must be public itself before any metadata can be returned.
+   */
   public async searchInCourse(
     packageId: string,
     rawQuery: string,
@@ -133,32 +153,52 @@ export class SearchService {
     if (q.length < 2) {
       return { lessons: [], chapters: [] };
     }
-    const like = `%${q}%`;
-
-    const baseLessons = (): SelectQueryBuilder<Lesson> =>
-      this.lessonsRepository
+    const baseLessons = (includeFuzzy: boolean): SelectQueryBuilder<Lesson> => {
+      const query = this.lessonsRepository
         .createQueryBuilder('l')
         .innerJoin('lesson_package_items', 'lpi', 'lpi.lesson_id = l.id')
+        .innerJoin(LessonPackage, 'pkg', 'pkg.id = lpi.package_id')
         .where('lpi.package_id = :packageId', { packageId })
+        .andWhere('pkg.deleted_at IS NULL')
+        .andWhere('pkg.is_active = true')
+        .andWhere('pkg.status = :packageStatus', { packageStatus: CourseStatus.PUBLISHED })
         .andWhere('l.deleted_at IS NULL')
-        // `lessons` has a single `title` column. Unlike packages and chapters,
-        // it has never had a `title_ar` column, so querying it makes catalogue
-        // search fail against the production schema.
-        .andWhere('l.title ILIKE :like', { like });
+        .andWhere('l.status = :lessonStatus', { lessonStatus: LessonStatus.PUBLISHED });
+      // `lessons` has a single `title` column. Unlike packages and chapters,
+      // it has never had a `title_ar` column, so querying it makes catalogue
+      // search fail against the production schema.
+      return this.applySearchFilter(query, 'l.search_text', q, includeFuzzy);
+    };
 
     const lessons = await this.safeGetMany((useSimilarity) => {
-      const qb = baseLessons().limit(20);
-      return useSimilarity
-        ? qb.orderBy('similarity(l.title, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('l.title', 'ASC');
+      const includeFuzzy = this.shouldUseFuzzy(q, useSimilarity);
+      return this.applySearchOrder(
+        baseLessons(includeFuzzy).limit(20),
+        'l.search_text',
+        'l.title',
+        q,
+        includeFuzzy,
+      );
     });
 
-    const chapters = await this.chaptersRepository
-      .createQueryBuilder('c')
-      .where('c.package_id = :packageId', { packageId })
-      .andWhere('(c.title ILIKE :like OR c.title_ar ILIKE :like)', { like })
-      .limit(20)
-      .getMany();
+    const chapters = await this.safeGetMany((useSimilarity) => {
+      const includeFuzzy = this.shouldUseFuzzy(q, useSimilarity);
+      const query = this.chaptersRepository
+        .createQueryBuilder('c')
+        .innerJoin('c.package', 'pkg')
+        .where('c.package_id = :packageId', { packageId })
+        .andWhere('c.deleted_at IS NULL')
+        .andWhere('pkg.deleted_at IS NULL')
+        .andWhere('pkg.is_active = true')
+        .andWhere('pkg.status = :packageStatus', { packageStatus: CourseStatus.PUBLISHED });
+      return this.applySearchOrder(
+        this.applySearchFilter(query, 'c.search_text', q, includeFuzzy).limit(20),
+        'c.search_text',
+        'c.title',
+        q,
+        includeFuzzy,
+      );
+    });
 
     return {
       lessons: lessons.map((l) => this.lessonItem(l)),
@@ -184,27 +224,14 @@ export class SearchService {
     }
   }
 
-  public async getPopular(limit = 8): Promise<{ query: string; count: number }[]> {
-    const rows = await this.searchLogRepository
-      .createQueryBuilder('s')
-      .select('s.query', 'query')
-      .addSelect('COUNT(*)', 'count')
-      .where("s.created_at >= NOW() - INTERVAL '30 days'")
-      .groupBy('s.query')
-      .orderBy('count', 'DESC')
-      .limit(limit)
-      .getRawMany<{ query: string; count: string }>();
-    return rows.map((r) => ({ query: r.query, count: Number.parseInt(r.count, 10) }));
-  }
-
   public async getRecent(userId: string, limit = 8): Promise<string[]> {
     const rows = await this.searchLogRepository
       .createQueryBuilder('s')
-      .select('DISTINCT ON (s.query) s.query', 'query')
-      .addSelect('s.created_at', 'created_at')
+      .select('s.query', 'query')
+      .addSelect('MAX(s.created_at)', 'last_searched_at')
       .where('s.user_id = :userId', { userId })
-      .orderBy('s.query')
-      .addOrderBy('s.created_at', 'DESC')
+      .groupBy('s.query')
+      .orderBy('MAX(s.created_at)', 'DESC')
       .limit(limit)
       .getRawMany<{ query: string }>();
     return rows.map((r) => r.query);
@@ -247,8 +274,8 @@ export class SearchService {
   }
 
   /**
-   * Runs a query built with (or without) `similarity()` relevance ordering.
-   * Falls back to a plain, already-ILIKE-filtered ordering — instead of a 500
+   * Runs a query built with (or without) trigram retrieval and relevance
+   * ordering. Falls back to a plain, already-LIKE-filtered ordering — instead of a 500
    * — when pg_trgm isn't installed, and self-heals the cached flag if the
    * function turns out to be missing only at query time (e.g. a migration
    * that hasn't finished applying yet).
@@ -272,29 +299,120 @@ export class SearchService {
     }
   }
 
+  /** Escapes SQL LIKE metacharacters so a literal user query stays literal. */
+  private likePattern(q: string, prefix = false): string {
+    const escaped = q.replace(/[\\%_]/g, '\\$&');
+    return prefix ? `${escaped}%` : `%${escaped}%`;
+  }
+
+  private shouldUseFuzzy(q: string, trgmAvailable: boolean): boolean {
+    return trgmAvailable && q.length >= MIN_FUZZY_QUERY_LENGTH;
+  }
+
+  /** Call Center results use the same student/teacher-only scope as `/callcenter/users`. */
+  private canSearchSupportUsers(actor?: JwtPayload): boolean {
+    return actor?.role === UserRole.CALL_CENTER;
+  }
+
+  private emptyMeta(page: number, limit: number): PaginatedResults['meta'] {
+    return { page, limit, total: 0, totalPages: 0 };
+  }
+
+  /**
+   * Keeps substring search available for all supported database states, then
+   * adds pg_trgm's `%` operator when it is both installed and useful. `%`
+   * performs candidate retrieval (not merely ranking) and can use the Phase 2
+   * GIN trigram indexes.
+   */
+  private applySearchFilter<T extends ObjectLiteral>(
+    query: SelectQueryBuilder<T>,
+    column: string,
+    q: string,
+    includeFuzzy: boolean,
+  ): SelectQueryBuilder<T> {
+    const like = this.likePattern(q);
+    if (includeFuzzy) {
+      return query.andWhere(`(${column} LIKE :like ESCAPE '\\' OR ${column} % :q)`, {
+        like,
+        q,
+      });
+    }
+    return query.andWhere(`${column} LIKE :like ESCAPE '\\'`, { like });
+  }
+
+  /** Prioritizes the normalized match score before using the display title as a stable tie-breaker. */
+  private applySearchOrder<T extends ObjectLiteral>(
+    query: SelectQueryBuilder<T>,
+    searchColumn: string,
+    displayColumn: string,
+    q: string,
+    includeFuzzy: boolean,
+  ): SelectQueryBuilder<T> {
+    if (includeFuzzy) {
+      return query
+        .orderBy(`similarity(${searchColumn}, :q)`, 'DESC')
+        .addOrderBy(displayColumn, 'ASC')
+        .setParameter('q', q);
+    }
+    return query.orderBy(displayColumn, 'ASC');
+  }
+
+  private async getSearchPage<T extends ObjectLiteral>(
+    q: string,
+    page: number,
+    limit: number,
+    buildBase: (includeFuzzy: boolean) => SelectQueryBuilder<T>,
+    searchColumn: string,
+    displayColumn: string,
+  ): Promise<{ rows: T[]; total: number }> {
+    const trgmAvailable = await this.isTrgmAvailable();
+    const execute = async (includeFuzzy: boolean): Promise<{ rows: T[]; total: number }> => {
+      const total = await buildBase(includeFuzzy).getCount();
+      const rows = await this.applySearchOrder(
+        buildBase(includeFuzzy)
+          .skip((page - 1) * limit)
+          .take(limit),
+        searchColumn,
+        displayColumn,
+        q,
+        includeFuzzy,
+      ).getMany();
+      return { rows, total };
+    };
+
+    const includeFuzzy = this.shouldUseFuzzy(q, trgmAvailable);
+    try {
+      return await execute(includeFuzzy);
+    } catch (error) {
+      if (includeFuzzy && this.isUndefinedFunctionError(error)) {
+        this.trgmAvailable = false;
+        this.trgmCheckedAt = Date.now();
+        this.logger.warn(
+          'pg_trgm operators are unavailable — falling back to literal substring search. Run pending migrations to restore typo-tolerant search.',
+        );
+        return execute(false);
+      }
+      throw error;
+    }
+  }
+
   /* ===================== Per-surface queries ===================== */
 
   private async searchCourses(q: string, page: number, limit: number): Promise<PaginatedResults> {
-    const like = `%${q}%`;
-    const base = (): SelectQueryBuilder<LessonPackage> =>
-      this.packagesRepository
-        .createQueryBuilder('pkg')
-        .where('pkg.deleted_at IS NULL')
-        .andWhere('pkg.status = :status', { status: CourseStatus.PUBLISHED })
-        .andWhere(
-          '(pkg.title ILIKE :like OR pkg.title_ar ILIKE :like OR pkg.description ILIKE :like)',
-          { like },
-        );
-
-    const total = await base().getCount();
-    const rows = await this.safeGetMany((useSimilarity) => {
-      const qb = base()
-        .skip((page - 1) * limit)
-        .take(limit);
-      return useSimilarity
-        ? qb.orderBy('similarity(pkg.title, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('pkg.title', 'ASC');
-    });
+    const { rows, total } = await this.getSearchPage<LessonPackage>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.packagesRepository
+          .createQueryBuilder('pkg')
+          .where('pkg.deleted_at IS NULL')
+          .andWhere('pkg.status = :status', { status: CourseStatus.PUBLISHED });
+        return this.applySearchFilter(query, 'pkg.search_text', q, includeFuzzy);
+      },
+      'pkg.search_text',
+      'pkg.title',
+    );
 
     return this.paginate(
       rows.map((p) => ({
@@ -312,23 +430,20 @@ export class SearchService {
   }
 
   private async searchLessons(q: string, page: number, limit: number): Promise<PaginatedResults> {
-    const like = `%${q}%`;
-    const base = (): SelectQueryBuilder<Lesson> =>
-      this.lessonsRepository
-        .createQueryBuilder('l')
-        .where('l.deleted_at IS NULL')
-        .andWhere('l.status = :status', { status: LessonStatus.PUBLISHED })
-        .andWhere('l.title ILIKE :like', { like });
-
-    const total = await base().getCount();
-    const rows = await this.safeGetMany((useSimilarity) => {
-      const qb = base()
-        .skip((page - 1) * limit)
-        .take(limit);
-      return useSimilarity
-        ? qb.orderBy('similarity(l.title, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('l.title', 'ASC');
-    });
+    const { rows, total } = await this.getSearchPage<Lesson>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.lessonsRepository
+          .createQueryBuilder('l')
+          .where('l.deleted_at IS NULL')
+          .andWhere('l.status = :status', { status: LessonStatus.PUBLISHED });
+        return this.applySearchFilter(query, 'l.search_text', q, includeFuzzy);
+      },
+      'l.search_text',
+      'l.title',
+    );
 
     return this.paginate(
       rows.map((l) => this.lessonItem(l)),
@@ -339,20 +454,19 @@ export class SearchService {
   }
 
   private async searchBooks(q: string, page: number, limit: number): Promise<PaginatedResults> {
-    const like = `%${q}%`;
-    const base = (): SelectQueryBuilder<Book> =>
-      this.booksRepository
-        .createQueryBuilder('book')
-        .where('book.deleted_at IS NULL')
-        .andWhere('(book.title ILIKE :like OR book.title_ar ILIKE :like)', { like });
-
-    const total = await base().getCount();
-    const rows = await this.safeGetMany((useSimilarity) => {
-      const qb = base().skip((page - 1) * limit).take(limit);
-      return useSimilarity
-        ? qb.orderBy('similarity(book.title, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('book.title', 'ASC');
-    });
+    const { rows, total } = await this.getSearchPage<Book>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.booksRepository
+          .createQueryBuilder('book')
+          .where('book.deleted_at IS NULL');
+        return this.applySearchFilter(query, 'book.search_text', q, includeFuzzy);
+      },
+      'book.search_text',
+      'book.title',
+    );
     return this.paginate(
       rows.map((book) => ({
         type: 'book' as const,
@@ -369,24 +483,22 @@ export class SearchService {
   }
 
   private async searchTeachers(q: string, page: number, limit: number): Promise<PaginatedResults> {
-    const like = `%${q}%`;
-    const base = (): SelectQueryBuilder<User> =>
-      this.usersRepository
-        .createQueryBuilder('u')
-        .where('u.role = :role', { role: UserRole.TEACHER })
-        .andWhere('u.is_active = true')
-        .andWhere('u.status = :status', { status: UserStatus.APPROVED })
-        .andWhere('u.name ILIKE :like', { like });
-
-    const total = await base().getCount();
-    const rows = await this.safeGetMany((useSimilarity) => {
-      const qb = base()
-        .skip((page - 1) * limit)
-        .take(limit);
-      return useSimilarity
-        ? qb.orderBy('similarity(u.name, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('u.name', 'ASC');
-    });
+    const { rows, total } = await this.getSearchPage<User>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.usersRepository
+          .createQueryBuilder('u')
+          .where('u.role = :role', { role: UserRole.TEACHER })
+          .andWhere('u.deleted_at IS NULL')
+          .andWhere('u.is_active = true')
+          .andWhere('u.status = :status', { status: UserStatus.APPROVED });
+        return this.applySearchFilter(query, 'u.search_text', q, includeFuzzy);
+      },
+      'u.search_text',
+      'u.name',
+    );
 
     return this.paginate(
       rows.map((u) => ({
@@ -404,21 +516,20 @@ export class SearchService {
   }
 
   private async searchSubjects(q: string, page: number, limit: number): Promise<PaginatedResults> {
-    const like = `%${q}%`;
-    const base = (): SelectQueryBuilder<Subject> =>
-      this.subjectsRepository
-        .createQueryBuilder('s')
-        .where('s.name ILIKE :like', { like });
-
-    const total = await base().getCount();
-    const rows = await this.safeGetMany((useSimilarity) => {
-      const qb = base()
-        .skip((page - 1) * limit)
-        .take(limit);
-      return useSimilarity
-        ? qb.orderBy('similarity(s.name, :q)', 'DESC').setParameter('q', q)
-        : qb.orderBy('s.name', 'ASC');
-    });
+    const { rows, total } = await this.getSearchPage<Subject>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.subjectsRepository
+          .createQueryBuilder('s')
+          .where('s.deleted_at IS NULL')
+          .andWhere('s.status = :status', { status: SubjectStatus.APPROVED });
+        return this.applySearchFilter(query, 's.search_text', q, includeFuzzy);
+      },
+      's.search_text',
+      's.name',
+    );
 
     return this.paginate(
       rows.map((s) => ({
@@ -428,6 +539,55 @@ export class SearchService {
         subtitle: null,
         thumbnail: null,
         url: `/shop?subject=${String(s.id)}`,
+      })),
+      page,
+      limit,
+      total,
+    );
+  }
+
+  /**
+   * A deliberately narrow internal group. It never returns contact fields and
+   * is only reachable by Call Center users, whose domain endpoint already
+   * exposes the same student/teacher support population.
+   */
+  private async searchSupportUsers(
+    q: string,
+    page: number,
+    limit: number,
+  ): Promise<PaginatedResults> {
+    const { rows, total } = await this.getSearchPage<User>(
+      q,
+      page,
+      limit,
+      (includeFuzzy) => {
+        const query = this.usersRepository
+          .createQueryBuilder('u')
+          .where('u.deleted_at IS NULL')
+          .andWhere('u.role IN (:...roles)', {
+            roles: [UserRole.STUDENT, UserRole.TEACHER],
+          });
+        const like = this.likePattern(q);
+        const nameMatch = includeFuzzy
+          ? `(u.search_text LIKE :like ESCAPE '\\' OR u.search_text % :q)`
+          : `u.search_text LIKE :like ESCAPE '\\'`;
+        return query.andWhere(
+          `(${nameMatch} OR u.email ILIKE :like ESCAPE '\\' OR u.phone ILIKE :like ESCAPE '\\' OR u.username ILIKE :like ESCAPE '\\')`,
+          includeFuzzy ? { like, q } : { like },
+        );
+      },
+      'u.search_text',
+      'u.name',
+    );
+
+    return this.paginate(
+      rows.map((u) => ({
+        type: 'support_user' as const,
+        id: u.id,
+        title: u.name,
+        subtitle: u.role === UserRole.STUDENT ? 'Student' : 'Teacher',
+        thumbnail: null,
+        url: `/call-center/users/${u.id}`,
       })),
       page,
       limit,

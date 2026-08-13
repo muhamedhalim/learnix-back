@@ -9,7 +9,12 @@ import { ApplicableItem } from './entities/applicable-item.enum';
 
 describe('DiscountCodesService', () => {
   let service: DiscountCodesService;
-  let codesRepo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+  let codesRepo: {
+    findOne: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
   let usageRepo: { count: jest.Mock };
 
   const buildCode = (over: Partial<DiscountCode> = {}): DiscountCode =>
@@ -40,10 +45,19 @@ describe('DiscountCodesService', () => {
   };
 
   beforeEach(async () => {
+    const queryBuilder = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
     codesRepo = {
       findOne: jest.fn(),
       create: jest.fn((value) => value),
       save: jest.fn(async (value) => value),
+      createQueryBuilder: jest.fn(() => queryBuilder),
     };
     usageRepo = { count: jest.fn().mockResolvedValue(0) };
 
@@ -315,9 +329,24 @@ describe('DiscountCodesService', () => {
 
       const quote = await service.quoteCartDiscount(
         [
-          { key: 'lesson-line', item_type: ApplicableItem.LESSON, item_id: 'lesson-1', amount_minor: 101 },
-          { key: 'package-line', item_type: ApplicableItem.PACKAGE, item_id: 'package-1', amount_minor: 199 },
-          { key: 'book-line', item_type: ApplicableItem.BOOK, item_id: 'book-1', amount_minor: 1_000 },
+          {
+            key: 'lesson-line',
+            item_type: ApplicableItem.LESSON,
+            item_id: 'lesson-1',
+            amount_minor: 101,
+          },
+          {
+            key: 'package-line',
+            item_type: ApplicableItem.PACKAGE,
+            item_id: 'package-1',
+            amount_minor: 199,
+          },
+          {
+            key: 'book-line',
+            item_type: ApplicableItem.BOOK,
+            item_id: 'book-1',
+            amount_minor: 1_000,
+          },
         ],
         'save20',
         'user-1',
@@ -333,6 +362,21 @@ describe('DiscountCodesService', () => {
         'book-line': 0,
       });
       expect(quote.snapshot).toMatchObject({ code: 'SAVE20', discount_amount_minor: 30 });
+    });
+  });
+
+  describe('findAll', () => {
+    it('searches discount-code values when the admin supplies a search term', async () => {
+      await service.findAll({ page: 1, limit: 20, search: ' SAVE ' } as never);
+
+      const lastQuery = codesRepo.createQueryBuilder.mock.results.length - 1;
+      const queryBuilder = codesRepo.createQueryBuilder.mock.results[lastQuery]?.value as {
+        andWhere: jest.Mock;
+      };
+
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith('code.code ILIKE :search', {
+        search: '%SAVE%',
+      });
     });
   });
 });

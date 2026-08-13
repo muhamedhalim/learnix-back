@@ -94,3 +94,20 @@ describe('build info exposition (release correlation)', () => {
     }
   });
 });
+
+describe('search metrics', () => {
+  it('records only finite aggregate labels, never the search text', () => {
+    performanceMetrics.recordSearch({
+      surface: 'suggestions',
+      type: 'all',
+      actor: 'anonymous',
+      outcome: 'empty',
+      durationMs: 12,
+      resultCount: 0,
+    });
+
+    const output = performanceMetrics.renderPrometheus();
+    expect(output).toContain('backend_search_requests_total');
+    expect(output).toContain('surface="suggestions",type="all",actor="anonymous",outcome="empty"');
+  });
+});

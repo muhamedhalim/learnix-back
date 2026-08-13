@@ -66,8 +66,14 @@ describe('AttendanceCodesService — redemption correctness', () => {
     const queryBuilder = {
       setLock: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
       orWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
       getOne: jest.fn(() => Promise.resolve(lookupCode)),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
     };
     manager = {
       findOne: jest.fn((entity: unknown) =>
@@ -209,9 +215,9 @@ describe('AttendanceCodesService — redemption correctness', () => {
       lookupCode = buildCode();
       managerFindOneByEntity.set(Lesson, { id: 'lesson-1', is_group: false });
 
-      await expect(service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1')).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.verifyAndRedeem({ code: 'abcd1234' }, 'student-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(orders.createActivationCodeOrder).not.toHaveBeenCalled();
       expect(finalizer.finalizeSuccessfulPayment).not.toHaveBeenCalled();
@@ -294,17 +300,38 @@ describe('AttendanceCodesService — redemption correctness', () => {
       lookupCode = buildCode();
       lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1', is_group: false });
 
-      await expect(service.verifyCodePublic('abcd1234')).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.verifyCodePublic('abcd1234')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('keeps a redeemed legacy Individual code readable without changing it', async () => {
       lookupCode = buildCode({ is_used: true, status: AttendanceCodeStatus.REDEEMED });
-      lessonsRepo.findOne.mockResolvedValue({ id: 'lesson-1', is_group: false, title: 'Legacy lesson' });
+      lessonsRepo.findOne.mockResolvedValue({
+        id: 'lesson-1',
+        is_group: false,
+        title: 'Legacy lesson',
+      });
 
       await expect(service.verifyCodePublic('abcd1234')).resolves.toMatchObject({
         valid: false,
         itemTitle: 'Legacy lesson',
         isUsed: true,
+      });
+    });
+  });
+
+  describe('findAll', () => {
+    it('searches attendance-code values when the admin supplies a search term', async () => {
+      await service.findAll({ page: 1, limit: 20, search: ' ABC ' } as never);
+
+      const lastQuery = codesRepo.createQueryBuilder.mock.results.length - 1;
+      const queryBuilder = codesRepo.createQueryBuilder.mock.results[lastQuery]?.value as {
+        andWhere: jest.Mock;
+      };
+
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith('code.code ILIKE :search', {
+        search: '%ABC%',
       });
     });
   });

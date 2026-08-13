@@ -1,12 +1,21 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsDateString, IsEnum, IsOptional } from 'class-validator';
+import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DiscountType } from '../entities/discount-type.enum';
 
 export class DiscountFilterDto extends PaginationDto {
+  @ApiProperty({
+    description: 'Search by discount code value',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  public search?: string;
+
   @ApiProperty({
     description: 'Filter by active status',
     required: false,

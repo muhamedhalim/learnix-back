@@ -9,6 +9,7 @@ export enum SearchType {
   BOOKS = 'books',
   TEACHERS = 'teachers',
   SUBJECTS = 'subjects',
+  SUPPORT_USERS = 'support_users',
 }
 
 export class SearchQueryDto {
@@ -38,12 +39,6 @@ export class SuggestQueryDto {
   @IsString()
   @MaxLength(200)
   public q!: string;
-}
-
-export class PopularSearchQueryDto {
-  @IsOptional()
-  @StrictIntegerQuery({ max: 50 })
-  public limit = 8;
 }
 
 export class InCourseSearchDto {

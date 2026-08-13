@@ -125,6 +125,20 @@ export interface CacheMetricSample {
   loadTimeMs?: number;
 }
 
+/** Static, low-cardinality labels for the search observability surface. */
+export type SearchMetricSurface = 'query' | 'suggestions' | 'in_course';
+export type SearchMetricOutcome = 'success' | 'empty' | 'error' | 'too_short';
+export type SearchMetricActor = 'anonymous' | 'student' | 'teacher' | 'admin' | 'call_center';
+
+export interface SearchMetricSample {
+  surface: SearchMetricSurface;
+  type: string;
+  actor: SearchMetricActor;
+  outcome: SearchMetricOutcome;
+  durationMs: number;
+  resultCount: number;
+}
+
 /**
  * Rolling-window view over the last `WINDOW_MINUTES`. This is what alert rules
  * and the health dashboard's "current state" read; the lifetime totals in the
@@ -210,6 +224,10 @@ class PerformanceMetricsRegistry {
   private queryDurationMsSum = 0;
   private readonly failureCounts = new Map<FailureDomain, number>();
   private readonly cacheMetrics = new Map<string, { count: number; loadTimeMsSum: number }>();
+  private readonly searchMetrics = new Map<
+    string,
+    { count: number; durationMsSum: number; resultCount: number }
+  >();
   private readonly httpExceptions = new Map<string, number>();
   /** Fixed-size ring: one slot per minute of the rolling window. */
   private readonly window: MinuteBucket[] = Array.from({ length: WINDOW_MINUTES }, () =>
@@ -360,6 +378,21 @@ class PerformanceMetricsRegistry {
     current.count++;
     current.loadTimeMsSum += sample.loadTimeMs ?? 0;
     this.cacheMetrics.set(key, current);
+  }
+
+  /**
+   * Records aggregate search behaviour without recording the query text,
+   * result identifiers, IP address, or any user-provided value. The finite
+   * labels keep Prometheus cardinality bounded while making search latency,
+   * empty-result rate, errors, and result volume observable by surface.
+   */
+  public recordSearch(sample: SearchMetricSample): void {
+    const key = [sample.surface, sample.type, sample.actor, sample.outcome].join('\u0000');
+    const current = this.searchMetrics.get(key) ?? { count: 0, durationMsSum: 0, resultCount: 0 };
+    current.count++;
+    current.durationMsSum += Math.max(sample.durationMs, 0);
+    current.resultCount += Math.max(sample.resultCount, 0);
+    this.searchMetrics.set(key, current);
   }
 
   /**
@@ -542,6 +575,7 @@ class PerformanceMetricsRegistry {
     this.renderHttpStatusCounters(lines);
     this.renderFailureCounters(lines);
     this.renderApplicationCacheMetrics(lines);
+    this.renderSearchMetrics(lines);
     this.renderRuntimeMetrics(lines);
     this.renderBuildInfo(lines);
 
@@ -581,6 +615,26 @@ class PerformanceMetricsRegistry {
       const ratio = denominator === 0 ? 0 : value.hits / denominator;
       lines.push(
         `backend_app_cache_hit_ratio{family="${escapeLabel(family)}",endpoint="${escapeLabel(endpoint)}"} ${ratio.toString()}`,
+      );
+    }
+  }
+
+  private renderSearchMetrics(lines: string[]): void {
+    lines.push(
+      '# HELP backend_search_requests_total Search requests by static surface, type, actor role, and outcome.',
+      '# TYPE backend_search_requests_total counter',
+      '# HELP backend_search_duration_seconds_total Total search execution time by static labels.',
+      '# TYPE backend_search_duration_seconds_total counter',
+      '# HELP backend_search_results_total Total results returned by search requests.',
+      '# TYPE backend_search_results_total counter',
+    );
+    for (const [key, value] of this.searchMetrics) {
+      const [surface = '', type = '', actor = '', outcome = ''] = key.split('\u0000');
+      const labels = `surface="${escapeLabel(surface)}",type="${escapeLabel(type)}",actor="${escapeLabel(actor)}",outcome="${escapeLabel(outcome)}"`;
+      lines.push(
+        `backend_search_requests_total{${labels}} ${value.count.toString()}`,
+        `backend_search_duration_seconds_total{${labels}} ${seconds(value.durationMsSum)}`,
+        `backend_search_results_total{${labels}} ${value.resultCount.toString()}`,
       );
     }
   }

@@ -5,6 +5,10 @@ describe('normalizeArabicQuery', () => {
     expect(normalizeArabicQuery('مُحَمَّد')).toBe('محمد');
   });
 
+  it('strips the extended Arabic combining marks covered by the database function', () => {
+    expect(normalizeArabicQuery('م\u0655حمد')).toBe('محمد');
+  });
+
   it('folds hamza-bearing alef forms so both spellings match', () => {
     expect(normalizeArabicQuery('أحمد')).toBe(normalizeArabicQuery('احمد'));
     expect(normalizeArabicQuery('إسلام')).toBe(normalizeArabicQuery('اسلام'));
@@ -27,7 +31,7 @@ describe('normalizeArabicQuery', () => {
     expect(normalizeArabicQuery('  محمد   احمد  ')).toBe('محمد احمد');
   });
 
-  it('leaves non-Arabic text unchanged', () => {
-    expect(normalizeArabicQuery('Algorithms 101')).toBe('Algorithms 101');
+  it('normalizes English case too, matching the database generated column', () => {
+    expect(normalizeArabicQuery('Algorithms 101')).toBe('algorithms 101');
   });
 });

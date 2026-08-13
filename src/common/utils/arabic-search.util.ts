@@ -12,20 +12,20 @@
  * - Folds alef maksura to yeh and teh marbuta to heh, the two other
  *   spelling pairs Arabic speakers routinely conflate.
  *
- * NOTE: this only normalizes the *query* side. `ILIKE` comparisons against
- * stored titles/names are not normalized, so a query still won't match
- * stored content that itself uses a different hamza/teh-marbuta spelling
- * than what's on record — closing that gap fully would need the same
- * folding applied to the compared column (e.g. via a generated column or
- * `unaccent`-style Postgres function), which is a larger follow-up.
+ * This deliberately mirrors the PostgreSQL
+ * `learnix_normalize_search_text(text)` function introduced by the search
+ * foundation migration. Keep the two implementations semantically aligned:
+ * public search compares this normalized query with an indexed, normalized
+ * generated column rather than applying a function to a table column at query
+ * time.
  */
 export function normalizeArabicQuery(text: string): string {
   return text
-    .normalize('NFKC')
-    .replace(/[ً-ْٰـ]/g, '') // diacritics (ً-ْ) + superscript alef (ٰ) + tatweel (ـ)
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '') // diacritics + superscript alef + tatweel
     .replace(/[آأإٱ]/g, 'ا') // آ أ إ ٱ -> ا
     .replace(/ى/g, 'ي') // ى -> ي
     .replace(/ة/g, 'ه') // ة -> ه
+    .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
 }
