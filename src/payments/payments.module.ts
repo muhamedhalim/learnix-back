@@ -14,9 +14,13 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { ScheduledLessonSession } from '../lessons/entities/scheduled-lesson-session.entity';
 import { LessonSessionBooking } from '../lessons/entities/lesson-session-booking.entity';
 import { LessonSessionsService } from '../lessons/lesson-sessions.service';
+import { MeetingsModule } from '../lessons/meetings/meetings.module';
+import { MeetingProvisioningProcessor } from '../lessons/processors/meeting-provisioning.processor';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ObservabilityModule } from '../observability/observability.module';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
+import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
+import { registerQueues } from '../queues/register-queues.util';
 import { AdminPaymentsController } from './controllers/admin-payments.controller';
 import { AdminFinanceController } from './controllers/admin-finance.controller';
 import { ManualPaymentsController } from './controllers/manual-payments.controller';
@@ -83,6 +87,18 @@ import { SettlementsService } from './services/settlements.service';
     // CertificatesModule imports only NotificationsModule + TypeORM features,
     // so this arrow does not close a cycle.
     CertificatesModule,
+    // Supplies MeetingProviderRegistry + MeetingAccountsService to
+    // LessonSessionsService (provided here) for the explicit per-appointment
+    // Generate action (Phase 5, R-4). One-directional: MeetingsModule has no
+    // dependency on PaymentsModule or LessonsModule, so this closes no cycle.
+    MeetingsModule,
+    // Registers the meeting-provisioning queue alongside the service and
+    // worker that own it — the same domain-local pattern AttendanceCodesModule
+    // uses for its own queues.
+    registerQueues({
+      name: QUEUE_NAMES.MEETING_PROVISIONING,
+      config: QUEUE_CONFIGS[QUEUE_NAMES.MEETING_PROVISIONING],
+    }),
     TypeOrmModule.forFeature([
       Payment,
       CartCheckout,
@@ -147,6 +163,9 @@ import { SettlementsService } from './services/settlements.service';
     GatewayFinancialStateMachineService,
     LessonSessionsService,
     FinancePermissionsGuard,
+    // Worker needs a real queue connection to pull jobs from; skip it
+    // entirely when queues are disabled rather than let it attempt one.
+    ...(areQueuesEnabled() ? [MeetingProvisioningProcessor] : []),
   ],
   exports: [
     PaymentsService,

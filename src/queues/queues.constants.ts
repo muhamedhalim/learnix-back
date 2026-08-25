@@ -72,6 +72,12 @@ export const QUEUE_NAMES = {
    * visible in Bull Board and can be replayed by an admin rather than vanishing.
    */
   PARENT_NOTIFICATIONS_DLQ: 'parent-notifications-dlq',
+
+  /**
+   * One job per explicit "Generate Meeting Link" teacher action (Phase 5 —
+   * AD-7). Never enqueued by lesson/appointment creation itself.
+   */
+  MEETING_PROVISIONING: 'meeting-provisioning',
 } as const;
 
 /**
@@ -144,6 +150,10 @@ export const JOB_TYPES = {
   PUSH: {
     /** Fan one in-app notification out to every active device of its recipient. */
     DELIVER: 'deliver-push-notification',
+  },
+  MEETING: {
+    /** Create the meeting at the provider for one appointment (Phase 5). */
+    PROVISION: 'provision-meeting',
   },
 } as const;
 
@@ -411,6 +421,20 @@ export const QUEUE_CONFIGS = {
       ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
       priority: 4,
       attempts: 3,
+    },
+  },
+
+  [QUEUE_NAMES.MEETING_PROVISIONING]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // A teacher is waiting on this to turn into a link.
+      priority: 3,
+      attempts: 3,
+      backoff: { type: 'exponential' as const, delay: 15_000 },
+      // A failed meeting is an operational concern, matching the
+      // parent-notifications rationale — keep the failure trail.
+      removeOnFail: { age: 30 * 24 * 3600 },
     },
   },
 };

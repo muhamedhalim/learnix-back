@@ -6,6 +6,7 @@ export type PublicOriginVariable =
   | 'PUBLIC_MEDIA_BASE_URL'
   | 'R2_PUBLIC_BASE_URL'
   | 'BUNNY_CDN_URL'
+  | 'MEETING_OAUTH_REDIRECT_BASE_URL'
   | 'CORS_ORIGINS';
 
 function normalizedHostname(url: URL): string {
@@ -119,6 +120,7 @@ export function validateProductionPublicOrigins(config: Record<string, unknown>)
     'PUBLIC_MEDIA_BASE_URL',
     'R2_PUBLIC_BASE_URL',
     'BUNNY_CDN_URL',
+    'MEETING_OAUTH_REDIRECT_BASE_URL',
   ] as const) {
     const value = config[variableName];
     if (typeof value === 'string' && value.trim() !== '') {

@@ -1,3 +1,4 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
@@ -7,8 +8,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+
+import { Queue } from 'bullmq';
 import { DataSource, EntityManager, LessThanOrEqual } from 'typeorm';
 
+import { resolveAppTimeZone } from '../common/utils/app-timezone.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationEmailService } from '../notifications/services/notification-email.service';
@@ -17,6 +21,7 @@ import { NotificationOrigin } from '../notifications/entities/notification-origi
 import { NotificationStatus } from '../notifications/entities/notification-status.enum';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { ItemType, Order, Payment } from '../payments/entities';
+import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { User } from '../users/entities/user.entity';
 import { EGP_CURRENCY, toMinorUnits } from '../payments/money.util';
 import {
@@ -30,17 +35,28 @@ import {
   LessonSessionBookingStatus,
 } from './entities/lesson-session-booking-status.enum';
 import { LessonSessionBooking } from './entities/lesson-session-booking.entity';
+import { MeetingCreationStatus } from './entities/meeting-creation-status.enum';
+import { MeetingProvider } from './entities/meeting-provider.enum';
 import { ScheduledLessonSessionStatus } from './entities/scheduled-lesson-session-status.enum';
 import { ScheduledLessonSession } from './entities/scheduled-lesson-session.entity';
+import { TeacherMeetingAccount } from './entities/teacher-meeting-account.entity';
+import { TeacherMeetingAccountStatus } from './entities/teacher-meeting-account-status.enum';
+import { MeetingAccountsService } from './meetings/meeting-accounts.service';
+import { MeetingProviderRegistry } from './meetings/meeting-provider-registry.service';
 
 interface DatabaseError {
   code?: string;
+}
+
+interface MeetingProvisionJobData {
+  sessionId: string;
 }
 
 @Injectable()
 export class LessonSessionsService {
   private readonly holdMinutes: number;
   private readonly cutoffMinutes: number;
+  private readonly meetingProvisioningStuckMinutes: number;
 
   public constructor(
     private readonly dataSource: DataSource,
@@ -54,6 +70,10 @@ export class LessonSessionsService {
      * for the enumerated boundary).
      */
     private readonly notificationEmail: NotificationEmailService,
+    private readonly meetingProviders: MeetingProviderRegistry,
+    private readonly meetingAccounts: MeetingAccountsService,
+    @InjectQueue(QUEUE_NAMES.MEETING_PROVISIONING)
+    private readonly meetingQueue: Queue<MeetingProvisionJobData>,
   ) {
     this.holdMinutes = Math.max(
       1,
@@ -63,6 +83,19 @@ export class LessonSessionsService {
       0,
       Number.parseInt(config.get<string>('LESSON_SESSION_BOOKING_CUTOFF_MINUTES') ?? '60', 10),
     );
+    this.meetingProvisioningStuckMinutes = Math.max(
+      1,
+      Number.parseInt(config.get<string>('MEETING_PROVISIONING_STUCK_MINUTES') ?? '15', 10),
+    );
+  }
+
+  /**
+   * Booking cutoff horizon, in minutes, shared with `LessonsService` so the
+   * public lesson list's "available appointments" projection uses the exact
+   * same bookability horizon as `listPublic` below.
+   */
+  public getBookingCutoffMinutes(): number {
+    return this.cutoffMinutes;
   }
 
   public async createMany(
@@ -94,6 +127,11 @@ export class LessonSessionsService {
     for (const slot of slots) {
       const times = this.parseTimes(slot, lesson.duration);
       await this.assertNoTeacherOverlap(manager, teacherId, times.startAt, times.endAt);
+      // AD-7: creating a slot never creates a meeting. A manual URL (AD-10)
+      // is immediately `ready`; a selected provider merely records intent —
+      // it stays `not_requested` until the teacher explicitly Generates.
+      const meetingUrl = slot.meeting_url?.trim() || null;
+      const meetingProvider = meetingUrl ? MeetingProvider.MANUAL : (slot.meeting_provider ?? null);
       sessions.push(
         await manager.save(
           ScheduledLessonSession,
@@ -103,7 +141,10 @@ export class LessonSessionsService {
             start_at: times.startAt,
             end_at: times.endAt,
             status: ScheduledLessonSessionStatus.SCHEDULED,
-            meeting_url: slot.meeting_url?.trim() || null,
+            meeting_url: meetingUrl,
+            meeting_provider: meetingProvider,
+            meeting_status: meetingUrl ? MeetingCreationStatus.READY : MeetingCreationStatus.NOT_REQUESTED,
+            meeting_ready_at: meetingUrl ? new Date() : null,
             cancellation_reason: null,
             cancellation_requested_at: null,
             cancelled_at: null,
@@ -250,6 +291,33 @@ export class LessonSessionsService {
     return result.affected ?? 0;
   }
 
+  /**
+   * Phase 8 stuck-`creating` sweep. A worker that crashes between claiming a
+   * row (`pending` -> `creating`) and persisting the result leaves it wedged
+   * forever — this returns it to `failed` after `meetingProvisioningStuckMinutes`
+   * so the teacher can Retry through the ordinary Phase 5 endpoint. The
+   * `(meeting_provider, external_meeting_id)` unique index still absorbs any
+   * meeting that actually landed at the provider before the crash (R-15).
+   * Invoked from `PaymentOperationsService`'s advisory-locked maintenance
+   * cycle, the same registration used for `expireStaleHolds`.
+   */
+  public async sweepStuckMeetingProvisioning(): Promise<number> {
+    const cutoff = new Date(Date.now() - this.meetingProvisioningStuckMinutes * 60_000);
+    const repository = this.dataSource.getRepository(ScheduledLessonSession);
+    const stuck = await repository.find({
+      where: { meeting_status: MeetingCreationStatus.CREATING, meeting_requested_at: LessThanOrEqual(cutoff) },
+      relations: ['lesson'],
+    });
+    for (const session of stuck) {
+      session.meeting_status = MeetingCreationStatus.FAILED;
+      session.meeting_error = 'Meeting creation timed out';
+      session.meeting_attempts += 1;
+      await repository.save(session).catch(() => undefined);
+      await this.notifyMeetingCreationFailed(session).catch(() => undefined);
+    }
+    return stuck.length;
+  }
+
   public async listForStudent(studentId: string): Promise<Array<Record<string, unknown>>> {
     const bookings = await this.dataSource.getRepository(LessonSessionBooking).find({
       where: { student_id: studentId },
@@ -311,12 +379,40 @@ export class LessonSessionsService {
       }
       session.start_at = startAt;
       session.end_at = endAt;
+      if (dto.meeting_provider !== undefined) {
+        // R-17: switching provider while a meeting exists (or is in flight)
+        // would orphan it at the old provider — DELETE .../meeting first.
+        if (this.hasActiveOrReadyMeeting(session)) {
+          throw new ConflictException(
+            biBody(
+              'Remove the existing meeting before changing the provider',
+              'أزل الاجتماع الحالي قبل تغيير المزود',
+            ),
+          );
+        }
+        session.meeting_provider = dto.meeting_provider;
+      }
       if (dto.meeting_url !== undefined) {
+        // The pre-existing manual-URL path (AD-10). Setting it directly is
+        // rejected while a real provider-generated meeting is live, for the
+        // same reason as above.
+        if (this.hasActiveOrReadyMeeting(session)) {
+          throw new ConflictException(
+            biBody(
+              'Remove the existing meeting before setting a manual link',
+              'أزل الاجتماع الحالي قبل تعيين رابط يدوي',
+            ),
+          );
+        }
         const nextUrl = dto.meeting_url.trim();
         if (active?.status === LessonSessionBookingStatus.CONFIRMED && nextUrl !== session.meeting_url) {
           meetingLinkChangedForBooking = active.id;
         }
         session.meeting_url = nextUrl;
+        session.meeting_provider = MeetingProvider.MANUAL;
+        session.meeting_status = MeetingCreationStatus.READY;
+        session.meeting_ready_at = new Date();
+        session.meeting_error = null;
       }
       await manager.save(session);
       return this.toPrivilegedSession(session);
@@ -356,6 +452,242 @@ export class LessonSessionsService {
     });
     if (confirmedBookingId) await this.notifyBookingEvent(confirmedBookingId, 'cancellation_pending');
     return result;
+  }
+
+  /**
+   * `POST /teacher/lessons/:lessonId/sessions/:sessionId/meeting` — the
+   * explicit Generate action (AD-7). Enforces the 7 preconditions in order,
+   * then commits `pending` before enqueuing exactly one job (AD-9): the row
+   * always exists before the provider is ever called.
+   */
+  public async requestMeetingGeneration(
+    lessonId: string,
+    sessionId: string,
+    teacherId: string,
+    provider: MeetingProvider | undefined,
+  ): Promise<Record<string, unknown>> {
+    const session = await retryTransaction(this.dataSource, async (manager) => {
+      // 1. Ownership.
+      const locked = await this.lockOwnedSession(manager, lessonId, sessionId, teacherId);
+      const lesson = await manager.findOne(Lesson, { where: { id: lessonId } });
+      if (!lesson) throw new ForbiddenException();
+      // 2. Individual lesson only.
+      if (lesson.is_group) {
+        throw new BadRequestException(
+          biBody('Group lessons cannot have meetings', 'لا يمكن أن تحتوي الدروس الجماعية على اجتماعات'),
+        );
+      }
+      // 3. Valid future scheduled session.
+      if (locked.status !== ScheduledLessonSessionStatus.SCHEDULED || locked.start_at <= new Date()) {
+        throw this.unavailable();
+      }
+      // 4. Provider selected and configured.
+      const resolvedProvider = provider ?? locked.meeting_provider;
+      if (!resolvedProvider || resolvedProvider === MeetingProvider.MANUAL) {
+        throw new BadRequestException(
+          biBody('Select a meeting provider first', 'اختر مزود اجتماعات أولاً'),
+        );
+      }
+      const client = this.meetingProviders.find(resolvedProvider);
+      if (!client || !client.isConfigured()) {
+        throw new BadRequestException(
+          biBody('This meeting provider is not available', 'مزود الاجتماعات هذا غير متاح'),
+        );
+      }
+      // 5. Connected account for that provider.
+      const account = await this.meetingAccounts.findConnectedAccount(teacherId, resolvedProvider);
+      if (!account) {
+        throw new ConflictException({
+          ...biBody('Connect this meeting provider first', 'اربط مزود الاجتماعات هذا أولاً'),
+          code: 'MEETING_ACCOUNT_NOT_CONNECTED',
+          provider: resolvedProvider,
+        });
+      }
+      // 6. Not already ready.
+      if (locked.meeting_status === MeetingCreationStatus.READY) {
+        throw new ConflictException(
+          biBody('This appointment already has a meeting', 'هذا الموعد لديه اجتماع بالفعل'),
+        );
+      }
+      // 7. Not already in progress — this also collapses a double-click:
+      // the second concurrent request finds `pending` and is rejected here.
+      if (
+        locked.meeting_status === MeetingCreationStatus.PENDING ||
+        locked.meeting_status === MeetingCreationStatus.CREATING
+      ) {
+        throw new ConflictException(
+          biBody('Meeting creation is already in progress', 'إنشاء الاجتماع جارٍ بالفعل'),
+        );
+      }
+      locked.meeting_provider = resolvedProvider;
+      locked.meeting_account_id = account.id;
+      locked.meeting_status = MeetingCreationStatus.PENDING;
+      locked.meeting_requested_at = new Date();
+      locked.meeting_error = null;
+      await manager.save(locked);
+      return this.toPrivilegedSession(locked);
+    });
+    // Enqueued only after commit (AD-9). `jobId` deduplicates a retried
+    // enqueue; the worker's conditional claim is the second independent stop.
+    await this.meetingQueue.add(
+      JOB_TYPES.MEETING.PROVISION,
+      { sessionId },
+      { jobId: `meeting:provision:${sessionId}` },
+    );
+    return session;
+  }
+
+  /**
+   * `DELETE .../meeting` — clears a `ready` or `failed` meeting so the
+   * teacher can switch provider (R-17) or retry cleanly. Refused outright
+   * once a booking is confirmed (the student already holds that link); the
+   * teacher must cancel the slot through the existing refund path instead.
+   */
+  public async clearMeetingGeneration(
+    lessonId: string,
+    sessionId: string,
+    teacherId: string,
+  ): Promise<Record<string, unknown>> {
+    const { session, providerToDelete, externalId } = await retryTransaction(
+      this.dataSource,
+      async (manager) => {
+        const locked = await this.lockOwnedSession(manager, lessonId, sessionId, teacherId);
+        if (
+          locked.meeting_status !== MeetingCreationStatus.READY &&
+          locked.meeting_status !== MeetingCreationStatus.FAILED
+        ) {
+          throw new ConflictException(biBody('There is no meeting to remove', 'لا يوجد اجتماع لإزالته'));
+        }
+        const active = await this.findActiveBooking(manager, locked.id);
+        if (active?.status === LessonSessionBookingStatus.CONFIRMED) {
+          throw new ConflictException(
+            biBody(
+              'Cancel the appointment to change its meeting once it is booked',
+              'ألغِ الموعد لتغيير اجتماعه بعد حجزه',
+            ),
+          );
+        }
+        const providerToDelete = locked.meeting_provider;
+        const externalId = locked.external_meeting_id;
+        locked.meeting_provider = null;
+        locked.meeting_account_id = null;
+        locked.meeting_status = MeetingCreationStatus.NOT_REQUESTED;
+        locked.external_meeting_id = null;
+        locked.meeting_url = null;
+        locked.meeting_host_url = null;
+        locked.meeting_passcode = null;
+        locked.meeting_error = null;
+        locked.meeting_ready_at = null;
+        await manager.save(locked);
+        return { session: this.toPrivilegedSession(locked), providerToDelete, externalId };
+      },
+    );
+    if (providerToDelete && providerToDelete !== MeetingProvider.MANUAL && externalId) {
+      // Best-effort: the local clear must succeed regardless of whether the
+      // provider-side delete does (R-18's same reasoning as account disconnect).
+      const account = await this.meetingAccounts.getUsableAccount(teacherId, providerToDelete);
+      const client = this.meetingProviders.find(providerToDelete);
+      if (client && account?.access_token_encrypted) {
+        await client.deleteMeeting(account.access_token_encrypted, externalId).catch(() => undefined);
+      }
+    }
+    return session;
+  }
+
+  /**
+   * Worker entry point (`MeetingProvisioningProcessor`). Conditionally claims
+   * the row (`pending` -> `creating`) so a duplicate job is a no-op (AD-8
+   * layer 2), calls the provider, and persists the result. Never throws — a
+   * failure is recorded on the row (`failed` + `meeting_error`) rather than
+   * surfaced to BullMQ's retry, since a bad provider/account state will not
+   * resolve itself by retrying automatically; the teacher retries explicitly.
+   */
+  public async provisionMeeting(sessionId: string): Promise<void> {
+    const repository = this.dataSource.getRepository(ScheduledLessonSession);
+    const claim = await repository.update(
+      { id: sessionId, meeting_status: MeetingCreationStatus.PENDING },
+      { meeting_status: MeetingCreationStatus.CREATING },
+    );
+    if (!claim.affected) return;
+
+    const session = await repository.findOne({ where: { id: sessionId }, relations: ['lesson'] });
+    if (!session || !session.meeting_provider) return;
+
+    const client = this.meetingProviders.find(session.meeting_provider);
+    const account = client
+      ? await this.meetingAccounts.getUsableAccount(session.teacher_id, session.meeting_provider)
+      : null;
+    if (!client || !account || !account.access_token_encrypted) {
+      session.meeting_status = MeetingCreationStatus.FAILED;
+      session.meeting_error = !client ? 'Meeting provider is not available' : 'Meeting account is not connected';
+      session.meeting_attempts += 1;
+      await repository.save(session).catch(() => undefined);
+      // `getUsableAccount` above may have just flipped a CONNECTED account to
+      // EXPIRED/REVOKED (a proactive-refresh or invalid_grant failure) —
+      // that specific transition is what earns the separate
+      // `meeting_account_expired` notification (Phase 8), distinct from the
+      // per-attempt `meeting_creation_failed` below which always fires.
+      if (client) {
+        const accountRow = await this.dataSource
+          .getRepository(TeacherMeetingAccount)
+          .findOne({ where: { teacher_id: session.teacher_id, provider: session.meeting_provider } });
+        if (
+          accountRow &&
+          (accountRow.status === TeacherMeetingAccountStatus.EXPIRED ||
+            accountRow.status === TeacherMeetingAccountStatus.REVOKED)
+        ) {
+          await this.notifyMeetingAccountExpired(accountRow).catch(() => undefined);
+        }
+      }
+      await this.notifyMeetingCreationFailed(session).catch(() => undefined);
+      return;
+    }
+
+    try {
+      const result = await client.createMeeting({
+        accessToken: account.access_token_encrypted,
+        topic: session.lesson.title,
+        startAt: session.start_at,
+        endAt: session.end_at,
+        timezone: resolveAppTimeZone(),
+        // Deterministic per-session key (AD-8 layer 3 / R-13): a well-behaved
+        // provider returns the SAME meeting on a retried call.
+        idempotencyKey: session.id,
+      });
+      session.external_meeting_id = result.externalId;
+      session.meeting_url = result.joinUrl;
+      session.meeting_host_url = result.hostUrl ?? null;
+      session.meeting_passcode = result.passcode ?? null;
+      session.meeting_account_id = account.id;
+      session.meeting_status = MeetingCreationStatus.READY;
+      session.meeting_ready_at = new Date();
+      session.meeting_error = null;
+      session.meeting_attempts += 1;
+      try {
+        await repository.save(session);
+      } catch (saveError) {
+        if (!this.isUniqueViolation(saveError)) throw saveError;
+        // R-13: the DB-level idempotency guarantee caught a genuine duplicate
+        // (two calls landed two different external ids). This call is the
+        // loser — clean up the meeting it just created rather than leave it
+        // orphaned on the teacher's account.
+        await client.deleteMeeting(account.access_token_encrypted, result.externalId).catch(() => undefined);
+        session.meeting_status = MeetingCreationStatus.FAILED;
+        session.meeting_error = 'This meeting already exists';
+        session.external_meeting_id = null;
+        session.meeting_url = null;
+        session.meeting_host_url = null;
+        session.meeting_passcode = null;
+        await repository.save(session).catch(() => undefined);
+        await this.notifyMeetingCreationFailed(session).catch(() => undefined);
+      }
+    } catch (error) {
+      session.meeting_status = MeetingCreationStatus.FAILED;
+      session.meeting_error = error instanceof Error ? error.message : 'Meeting creation failed';
+      session.meeting_attempts += 1;
+      await repository.save(session).catch(() => undefined);
+      await this.notifyMeetingCreationFailed(session).catch(() => undefined);
+    }
   }
 
   public async getCheckoutProduct(sessionId: string, manager?: EntityManager): Promise<{
@@ -633,59 +965,158 @@ export class LessonSessionsService {
       if (!recipient) continue;
       const arabic = recipient.preferred_language === 'ar';
       const copy = this.notificationCopy(event, session.lesson.title, start, arabic);
-      const dedupeKey = `lesson-session:${session.id}:booking:${booking.id}:${event}:${recipient.id}`;
-      const insert = await this.dataSource
-        .createQueryBuilder()
-        .insert()
-        .into(Notification)
-        .values({
-          dedupe_key: dedupeKey,
-          origin: NotificationOrigin.SYSTEM,
-          source_event: `lesson_session_${event}`.slice(0, 120),
-          user_id: recipient.id,
-          type: NotificationType.CUSTOM,
-          title: copy.title,
-          message: copy.message,
-          data: {
-            scheduled_lesson_session_id: session.id,
-            lesson_id: session.lesson_id,
-            booking_id: booking.id,
-            event,
-            start_at: start,
-          },
-          is_read: false,
-          sent_at: new Date(),
-          read_at: null,
-          sms_sent: false,
-          sms_to: null,
-          status: NotificationStatus.SENT,
-          attempts: 0,
-          error_message: null,
-          delivered_at: null,
-        })
-        .orIgnore()
-        .returning('id')
-        .execute();
-      if (insert.identifiers.length === 0 || !recipient.email) continue;
-      const notificationId = insert.identifiers[0]?.['id'] as string | undefined;
       const meetingLine =
         recipient.id === teacher.id || booking.status === LessonSessionBookingStatus.CONFIRMED
           ? `\n${arabic ? 'رابط الاجتماع' : 'Meeting'}: ${session.meeting_url ?? (arabic ? 'غير محدد' : 'Not set')}`
           : '';
-      // Enforces `email_enabled` before MailerSend is touched, and records the
-      // outcome (sent / skipped_preference / failed) against the notification
-      // row inserted just above. Never throws — the persisted in-app
-      // notification remains the durable delivery record, and mail must not
-      // roll back a booking action.
-      await this.notificationEmail.send({
-        userId: recipient.id,
-        ...(notificationId === undefined ? {} : { notificationId }),
-        to: recipient.email,
-        recipientName: recipient.name,
-        subject: copy.title,
-        text: `${copy.message}\nTime: ${start}${meetingLine}`,
+      await this.insertAndEmailNotification({
+        dedupeKey: `lesson-session:${session.id}:booking:${booking.id}:${event}:${recipient.id}`,
+        recipient,
+        sourceEvent: `lesson_session_${event}`,
+        title: copy.title,
+        message: copy.message,
+        data: {
+          scheduled_lesson_session_id: session.id,
+          lesson_id: session.lesson_id,
+          booking_id: booking.id,
+          event,
+          start_at: start,
+        },
+        emailText: `${copy.message}\nTime: ${start}${meetingLine}`,
       });
     }
+  }
+
+  /**
+   * Shared insert-then-email primitive behind all three Phase 8 meeting
+   * notifications plus the pre-existing booking-lifecycle ones: `orIgnore` on
+   * the dedupe key makes the in-app row the durable exactly-once gate, and
+   * email is best-effort on top of it (never rolls back the caller).
+   */
+  private async insertAndEmailNotification(params: {
+    dedupeKey: string;
+    recipient: Pick<User, 'id' | 'email' | 'name'>;
+    sourceEvent: string;
+    title: string;
+    message: string;
+    data: Record<string, unknown>;
+    emailText?: string;
+  }): Promise<void> {
+    const insert = await this.dataSource
+      .createQueryBuilder()
+      .insert()
+      .into(Notification)
+      .values({
+        dedupe_key: params.dedupeKey,
+        origin: NotificationOrigin.SYSTEM,
+        source_event: params.sourceEvent.slice(0, 120),
+        user_id: params.recipient.id,
+        type: NotificationType.CUSTOM,
+        title: params.title,
+        message: params.message,
+        // TypeORM's `QueryDeepPartialEntity` mapped type can't express an
+        // index-signature JSON column through a shared helper's parameter
+        // type (only inline object literals infer cleanly) — same cast
+        // precedent as `seed-staging.ts`'s TypeORM assignment workarounds.
+        data: params.data as never,
+        is_read: false,
+        sent_at: new Date(),
+        read_at: null,
+        sms_sent: false,
+        sms_to: null,
+        status: NotificationStatus.SENT,
+        attempts: 0,
+        error_message: null,
+        delivered_at: null,
+      })
+      .orIgnore()
+      .returning('id')
+      .execute();
+    if (insert.identifiers.length === 0 || !params.recipient.email) return;
+    const notificationId = insert.identifiers[0]?.['id'] as string | undefined;
+    // Enforces `email_enabled` before MailerSend is touched, and records the
+    // outcome (sent / skipped_preference / failed) against the notification
+    // row inserted just above. Never throws — the persisted in-app
+    // notification remains the durable delivery record.
+    await this.notificationEmail.send({
+      userId: params.recipient.id,
+      ...(notificationId === undefined ? {} : { notificationId }),
+      to: params.recipient.email,
+      recipientName: params.recipient.name,
+      subject: params.title,
+      text: params.emailText ?? params.message,
+    });
+  }
+
+  /**
+   * Phase 8, notification 1 of 2 new ones (the third, `meeting_link_updated`,
+   * already existed). Fires on every failed provisioning attempt — the
+   * dedupe key is scoped by `meeting_attempts` so a retried Generate that
+   * also fails notifies again, while a hypothetical double-execution of the
+   * *same* attempt is collapsed by `orIgnore`.
+   */
+  private async notifyMeetingCreationFailed(session: ScheduledLessonSession): Promise<void> {
+    const teacher = await this.dataSource.getRepository(User).findOne({ where: { id: session.teacher_id } });
+    if (!teacher) return;
+    const arabic = teacher.preferred_language === 'ar';
+    const start = session.start_at.toISOString();
+    const lessonTitle = session.lesson?.title ?? '';
+    const reason = session.meeting_error ? `: ${session.meeting_error}` : '';
+    const copy = arabic
+      ? {
+          title: 'فشل إنشاء رابط الاجتماع',
+          message: `فشل إنشاء اجتماع ${lessonTitle} في ${start}${reason}. يمكنك إعادة المحاولة.`,
+        }
+      : {
+          title: 'Meeting link creation failed',
+          message: `Creating the meeting for ${lessonTitle} at ${start} failed${reason}. You can retry.`,
+        };
+    await this.insertAndEmailNotification({
+      dedupeKey: `lesson-session:${session.id}:meeting_failed:${session.meeting_attempts}`,
+      recipient: teacher,
+      sourceEvent: 'lesson_session_meeting_creation_failed',
+      title: copy.title,
+      message: copy.message,
+      data: {
+        scheduled_lesson_session_id: session.id,
+        lesson_id: session.lesson_id,
+        event: 'meeting_creation_failed',
+        attempt: session.meeting_attempts,
+      },
+    });
+  }
+
+  /**
+   * Phase 8, notification 2 of 2 new ones. Fires when `getUsableAccount`
+   * transitions a connected account to EXPIRED/REVOKED while servicing a
+   * provisioning attempt. Bucketed by day rather than by attempt — a broken
+   * account can be hit by several provisioning attempts in a short window,
+   * and this should notify once, then again only if the problem is still
+   * unresolved a day later, not once per attempt (contrast
+   * `notifyMeetingCreationFailed` above, which is intentionally per-attempt).
+   */
+  private async notifyMeetingAccountExpired(account: TeacherMeetingAccount): Promise<void> {
+    const teacher = await this.dataSource.getRepository(User).findOne({ where: { id: account.teacher_id } });
+    if (!teacher) return;
+    const arabic = teacher.preferred_language === 'ar';
+    const copy = arabic
+      ? {
+          title: 'يجب إعادة ربط حساب الاجتماعات',
+          message: `توقف اتصال حساب ${account.provider} الخاص بك. أعد الربط من صفحة التكاملات لمتابعة إنشاء الاجتماعات.`,
+        }
+      : {
+          title: 'Reconnect your meeting account',
+          message: `Your ${account.provider} connection stopped working. Reconnect it from the integrations page to keep generating meetings.`,
+        };
+    const dayBucket = new Date().toISOString().slice(0, 10);
+    await this.insertAndEmailNotification({
+      dedupeKey: `meeting-account:${account.id}:expired:${dayBucket}`,
+      recipient: teacher,
+      sourceEvent: 'meeting_account_expired',
+      title: copy.title,
+      message: copy.message,
+      data: { meeting_account_id: account.id, provider: account.provider, event: 'meeting_account_expired' },
+    });
   }
 
   private notificationCopy(
@@ -861,6 +1292,19 @@ export class LessonSessionsService {
     );
   }
 
+  /** True while a meeting is live or being created — the R-17 guard shared by provider- and manual-URL edits. */
+  private hasActiveOrReadyMeeting(session: ScheduledLessonSession): boolean {
+    return (
+      session.meeting_status === MeetingCreationStatus.READY ||
+      session.meeting_status === MeetingCreationStatus.PENDING ||
+      session.meeting_status === MeetingCreationStatus.CREATING
+    );
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (error as DatabaseError).code === '23505';
+  }
+
   private toSafeSession(session: ScheduledLessonSession): Record<string, unknown> {
     return {
       id: session.id,
@@ -921,6 +1365,13 @@ export class LessonSessionsService {
           : 'unavailable',
       status: session.status,
       meeting_url: session.meeting_url,
+      // Teacher-only fields (never present on toSafeSession/toStudentBooking).
+      meeting_provider: session.meeting_provider,
+      meeting_status: session.meeting_status,
+      meeting_host_url: session.meeting_host_url,
+      meeting_passcode: session.meeting_passcode,
+      meeting_error: session.meeting_error,
+      meeting_attempts: session.meeting_attempts,
       cancellation_reason: session.cancellation_reason,
       booking: booking ? this.toPrivilegedBooking(booking) : null,
       booking_history: bookingHistory,

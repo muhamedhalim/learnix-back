@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 
 import { MediaService } from '../media/media.service';
@@ -30,6 +30,7 @@ describe('LessonsService.findAll', () => {
     'addSelect',
     'where',
     'setParameters',
+    'setParameter',
     'orderBy',
     'addOrderBy',
     'skip',
@@ -64,7 +65,7 @@ describe('LessonsService.findAll', () => {
       {} as BunnyStreamService,
       {} as PaymentsService,
       media as unknown as MediaService,
-      {} as never,
+      { getBookingCutoffMinutes: jest.fn().mockReturnValue(60) } as never,
       {} as never,
       {} as never,
       { getLessonStudentCounts: jest.fn().mockResolvedValue(new Map()) } as never,
@@ -100,6 +101,8 @@ describe('LessonsService.findAll', () => {
         is_group: false,
         available_for_days: 7,
         students_count: 20,
+        available_sessions_count: '3',
+        next_session_at: '2026-07-15T09:00:00.000Z',
         status: LessonStatus.PUBLISHED,
         created_at: '2026-07-14T12:00:00.000Z',
         updated_at: '2026-07-14T12:00:00.000Z',
@@ -210,10 +213,15 @@ describe('LessonsService lesson duration persistence', () => {
     updated_at: new Date('2026-01-01T00:00:00.000Z'),
   } as Lesson;
 
+  const availableSessionsQuery = chainBuilder(['select', 'addSelect', 'where', 'setParameter']);
   const lessonRepository = {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
+    // Chainable builder consumed by `getAvailableSessionsSummary` (called on
+    // every `mapToLessonWithDetails`); defaults to "no bookable appointments"
+    // so tests unrelated to Individual Lesson scheduling don't need to care.
+    createQueryBuilder: jest.fn(() => availableSessionsQuery),
   };
   const usersRepository = { findOne: jest.fn() };
   const subjectsRepository = { findOne: jest.fn() };
@@ -227,7 +235,10 @@ describe('LessonsService lesson duration persistence', () => {
     normalizeStoredPublicReference: jest.fn((value: string) => value),
     resolveThumbnailUrl: jest.fn().mockReturnValue(null),
   };
-  const lessonSessions = { createManyWithManager: jest.fn() };
+  const lessonSessions = {
+    createManyWithManager: jest.fn(),
+    getBookingCutoffMinutes: jest.fn().mockReturnValue(60),
+  };
   const dataSource = {
     transaction: jest.fn(async (callback: (manager: { save: jest.Mock }) => Promise<Lesson>) =>
       callback({ save: jest.fn(async (_entity: unknown, value: Lesson) => lessonRepository.save(value)) }),
@@ -243,6 +254,9 @@ describe('LessonsService lesson duration persistence', () => {
     lesson.bunny_video_status = null;
     lesson.video_thumbnail = null;
     lesson.is_free_preview = false;
+    // Default: no bookable appointments. Individual-lesson-scheduling specs
+    // override this per test.
+    availableSessionsQuery.getRawOne = jest.fn().mockResolvedValue({ count: '0', next_at: null });
     lessonRepository.create.mockImplementation((value: Partial<Lesson>) => ({
       ...lesson,
       ...value,
@@ -359,5 +373,42 @@ describe('LessonsService lesson duration persistence', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(bunny.generateSignedEmbedUrl).not.toHaveBeenCalled();
+  });
+
+  it('refuses to publish an Individual Lesson with no future ready appointment (Phase 5.3)', async () => {
+    lesson.is_group = false;
+    availableSessionsQuery.getRawOne = jest.fn().mockResolvedValue({ count: '0', next_at: null });
+
+    await expect(service.publishLesson(lesson.id, teacher.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(lessonRepository.save).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: LessonStatus.PUBLISHED }),
+    );
+  });
+
+  it('publishes an Individual Lesson once it has a bookable appointment', async () => {
+    lesson.is_group = false;
+    lesson.status = LessonStatus.DRAFT;
+    availableSessionsQuery.getRawOne = jest
+      .fn()
+      .mockResolvedValue({ count: '1', next_at: '2026-02-01T10:00:00.000Z' });
+
+    const result = await service.publishLesson(lesson.id, teacher.id);
+
+    expect(result.status).toBe(LessonStatus.PUBLISHED);
+    expect(lessonRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({ status: LessonStatus.PUBLISHED }),
+    );
+  });
+
+  it('publishes a Group lesson without requiring any bookable appointment', async () => {
+    lesson.is_group = true;
+    lesson.status = LessonStatus.DRAFT;
+    availableSessionsQuery.getRawOne = jest.fn().mockResolvedValue({ count: '0', next_at: null });
+
+    const result = await service.publishLesson(lesson.id, teacher.id);
+
+    expect(result.status).toBe(LessonStatus.PUBLISHED);
   });
 });

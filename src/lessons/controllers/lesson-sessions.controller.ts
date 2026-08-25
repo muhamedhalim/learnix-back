@@ -21,6 +21,7 @@ import type { JwtPayload } from '../../common/interfaces/user-request.interface'
 import {
   CancelLessonSessionDto,
   CreateLessonSessionsDto,
+  GenerateSessionMeetingDto,
   ReserveLessonSessionDto,
   UpdateLessonSessionDto,
 } from '../dto';
@@ -112,6 +113,31 @@ export class TeacherLessonSessionsController {
     @Body() dto: CancelLessonSessionDto,
   ): Promise<unknown> {
     return await this.sessions.cancel(lessonId, sessionId, user.userId, dto);
+  }
+
+  /** Explicit Generate action (AD-7) — never triggered by create/update above. */
+  @Post(':sessionId/meeting')
+  public async generateMeeting(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Body() dto: GenerateSessionMeetingDto,
+  ): Promise<unknown> {
+    return await this.sessions.requestMeetingGeneration(
+      lessonId,
+      sessionId,
+      user.userId,
+      dto.meeting_provider,
+    );
+  }
+
+  @Delete(':sessionId/meeting')
+  public async clearMeeting(
+    @GetUser() user: JwtPayload,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+  ): Promise<unknown> {
+    return await this.sessions.clearMeetingGeneration(lessonId, sessionId, user.userId);
   }
 }
 

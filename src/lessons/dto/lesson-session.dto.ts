@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsDateString,
+  IsEnum,
   IsOptional,
   IsString,
   IsUrl,
@@ -10,6 +11,8 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+
+import { MeetingProvider } from '../entities/meeting-provider.enum';
 
 export class CreateLessonSessionSlotDto {
   @IsDateString()
@@ -23,6 +26,15 @@ export class CreateLessonSessionSlotDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(2000)
   public meeting_url?: string;
+
+  /**
+   * Stored on the slot for the teacher to Generate later (Phase 5, AD-7) —
+   * never acted on at create time. Ignored when `meeting_url` is also set,
+   * since a manual link makes the slot `ready` immediately.
+   */
+  @IsOptional()
+  @IsEnum(MeetingProvider)
+  public meeting_provider?: MeetingProvider;
 }
 
 export class CreateLessonSessionsDto {
@@ -46,6 +58,11 @@ export class UpdateLessonSessionDto {
   @IsUrl({ protocols: ['https'], require_protocol: true })
   @MaxLength(2000)
   public meeting_url?: string;
+
+  /** Rejected while a meeting exists or is being created (R-17) — clear it first via DELETE .../meeting. */
+  @IsOptional()
+  @IsEnum(MeetingProvider)
+  public meeting_provider?: MeetingProvider;
 }
 
 export class CancelLessonSessionDto {
@@ -57,4 +74,11 @@ export class CancelLessonSessionDto {
 export class ReserveLessonSessionDto {
   @IsUUID('4')
   public session_id!: string;
+}
+
+/** Optional body for `POST .../sessions/:sessionId/meeting` — overrides the slot's stored provider for this call. */
+export class GenerateSessionMeetingDto {
+  @IsOptional()
+  @IsEnum(MeetingProvider)
+  public meeting_provider?: MeetingProvider;
 }

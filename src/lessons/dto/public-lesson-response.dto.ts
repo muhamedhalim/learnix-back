@@ -50,6 +50,16 @@ export class PublicLessonResponseDto {
   public available_for_days!: number;
   @ApiProperty()
   public students_count!: number;
+  @ApiProperty({
+    description:
+      'Count of this Individual Lesson\'s appointment slots a public buyer could book right now. Always 0 for group lessons.',
+  })
+  public available_sessions_count!: number;
+  @ApiProperty({
+    nullable: true,
+    description: 'Earliest currently-bookable appointment start time, or null if none.',
+  })
+  public next_session_at!: Date | null;
   @ApiProperty()
   public created_at!: Date;
   @ApiProperty()
@@ -78,6 +88,8 @@ export function toPublicLessonResponse(
     is_group: lesson.is_group,
     available_for_days: lesson.available_for_days,
     students_count: lesson.students_count,
+    available_sessions_count: lesson.available_sessions_count,
+    next_session_at: lesson.next_session_at,
     created_at: lesson.created_at,
     updated_at: lesson.updated_at,
   };

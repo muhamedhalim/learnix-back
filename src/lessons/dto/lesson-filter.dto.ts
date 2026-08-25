@@ -52,6 +52,17 @@ export class LessonFilterDto {
   public is_group?: boolean;
 
   @ApiProperty({
+    description:
+      'Filter to lessons with at least one (or, when false, exactly zero) currently-bookable appointment slot. Meaningless for group lessons, which never have appointment slots.',
+    required: false,
+    example: true,
+  })
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  public has_available_sessions?: boolean;
+
+  @ApiProperty({
     description: 'Minimum price filter',
     required: false,
     example: 0,

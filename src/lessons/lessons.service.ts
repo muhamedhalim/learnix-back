@@ -70,6 +70,14 @@ export interface LessonWithDetails {
   is_free_preview?: boolean;
   available_for_days: number;
   students_count: number;
+  /**
+   * Count of this Individual Lesson's appointment slots a public buyer could
+   * book right now (see `AVAILABLE_SESSION_PREDICATE_SQL`). Always `0` for
+   * group lessons, which have no appointment slots.
+   */
+  available_sessions_count: number;
+  /** Earliest such slot's start time, or `null` if none is currently bookable. */
+  next_session_at: Date | null;
   status: LessonStatus;
   created_at: Date;
   updated_at: Date;
@@ -148,6 +156,9 @@ interface LessonListRawRow {
   available_for_days: number;
   /** `COUNT()` from the live subquery — pg returns bigint aggregates as strings. */
   students_count: string | number;
+  /** `COUNT()` from `AVAILABLE_SESSIONS_COUNT_SQL` — pg returns bigint aggregates as strings. */
+  available_sessions_count: string | number;
+  next_session_at: Date | string | null;
   status: LessonStatus;
   created_at: Date | string;
   updated_at: Date | string;
@@ -179,6 +190,44 @@ const LESSON_STUDENT_COUNT_SQL = `(
   SELECT COUNT(DISTINCT lp.student_id)
     FROM lesson_purchases lp
    WHERE lp.lesson_id = lesson.id AND lp.revoked_at IS NULL
+)`;
+
+/**
+ * WHERE-clause fragment identifying an appointment slot for an Individual
+ * Lesson that a public buyer could book right now. Mirrors, field for field,
+ * the bookability predicate in `LessonSessionsService.listPublic`: scheduled,
+ * starting after the shared booking cutoff, carrying a meeting link, and with
+ * no active (held/payment_review/confirmed) booking. Correlated on
+ * `session.lesson_id = lesson.id`; requires `:availableSessionsCutoff` to be
+ * bound on any query builder that references it. Group lessons have no
+ * session rows, so every query built from this fragment is naturally
+ * zero/false for them — no `is_group` check is needed here.
+ */
+const AVAILABLE_SESSION_PREDICATE_SQL = `
+  session.lesson_id = lesson.id
+  AND session.status = 'scheduled'
+  AND session.start_at > :availableSessionsCutoff
+  AND session.meeting_url IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM lesson_session_bookings booking
+     WHERE booking.scheduled_session_id = session.id
+       AND (
+         booking.status IN ('payment_review', 'confirmed')
+         OR (booking.status = 'held' AND booking.hold_expires_at > NOW())
+       )
+  )
+`;
+
+const AVAILABLE_SESSIONS_COUNT_SQL = `(
+  SELECT COUNT(*) FROM scheduled_lesson_sessions session WHERE ${AVAILABLE_SESSION_PREDICATE_SQL}
+)`;
+
+const NEXT_SESSION_AT_SQL = `(
+  SELECT MIN(session.start_at) FROM scheduled_lesson_sessions session WHERE ${AVAILABLE_SESSION_PREDICATE_SQL}
+)`;
+
+const HAS_AVAILABLE_SESSIONS_EXISTS_SQL = `EXISTS (
+  SELECT 1 FROM scheduled_lesson_sessions session WHERE ${AVAILABLE_SESSION_PREDICATE_SQL}
 )`;
 
 @Injectable()
@@ -316,6 +365,12 @@ export class LessonsService {
     publishedOnly: boolean,
   ): Promise<PaginatedResponse<LessonWithDetails>> {
     const { page = 1, limit = 20 } = filter;
+    // Same booking-cutoff horizon `LessonSessionsService.listPublic` uses, so
+    // "available" means identically the same thing here as it does on the
+    // lesson's own appointment list.
+    const availableSessionsCutoff = new Date(
+      Date.now() + this.lessonSessions.getBookingCutoffMinutes() * 60_000,
+    );
 
     const baseQuery = this.lessonsRepository
       .createQueryBuilder('lesson')
@@ -327,7 +382,7 @@ export class LessonsService {
       });
     }
 
-    this.applyAllFilters(baseQuery, filter);
+    this.applyAllFilters(baseQuery, filter, availableSessionsCutoff);
 
     const skip = (page - 1) * limit;
     const countQuery = baseQuery.clone();
@@ -360,11 +415,14 @@ export class LessonsService {
       .addSelect('lesson.is_group', 'is_group')
       .addSelect('lesson.available_for_days', 'available_for_days')
       .addSelect(LESSON_STUDENT_COUNT_SQL, 'students_count')
+      .addSelect(AVAILABLE_SESSIONS_COUNT_SQL, 'available_sessions_count')
+      .addSelect(NEXT_SESSION_AT_SQL, 'next_session_at')
       .addSelect('lesson.status', 'status')
       .addSelect('lesson.created_at', 'created_at')
       .addSelect('lesson.updated_at', 'updated_at')
       .where(`lesson.id IN (${pageIdsQuery.getQuery()})`)
-      .setParameters(pageIdsQuery.getParameters());
+      .setParameters(pageIdsQuery.getParameters())
+      .setParameter('availableSessionsCutoff', availableSessionsCutoff);
     this.applySorting(listQuery, filter.sortBy, filter.order);
 
     const [total, rows] = await Promise.all([
@@ -393,12 +451,17 @@ export class LessonsService {
   /**
    * Applies all filters to the lesson query builder
    */
-  private applyAllFilters(queryBuilder: SelectQueryBuilder<Lesson>, filter: LessonFilterDto): void {
+  private applyAllFilters(
+    queryBuilder: SelectQueryBuilder<Lesson>,
+    filter: LessonFilterDto,
+    availableSessionsCutoff: Date,
+  ): void {
     const {
       search,
       teacher_id: teacherId,
       subject_id: subjectId,
       is_group: isGroup,
+      has_available_sessions: hasAvailableSessions,
       minPrice,
       maxPrice,
     } = filter;
@@ -413,6 +476,12 @@ export class LessonsService {
 
     if (isGroup !== undefined) {
       queryBuilder.andWhere('lesson.is_group = :isGroup', { isGroup });
+    }
+
+    if (hasAvailableSessions === true) {
+      queryBuilder.andWhere(HAS_AVAILABLE_SESSIONS_EXISTS_SQL, { availableSessionsCutoff });
+    } else if (hasAvailableSessions === false) {
+      queryBuilder.andWhere(`NOT ${HAS_AVAILABLE_SESSIONS_EXISTS_SQL}`, { availableSessionsCutoff });
     }
 
     if (minPrice !== undefined) {
@@ -482,6 +551,13 @@ export class LessonsService {
       available_for_days: row.available_for_days,
       // COUNT() arrives as a string on the raw-row path.
       students_count: Number(row.students_count),
+      available_sessions_count: Number(row.available_sessions_count),
+      next_session_at:
+        row.next_session_at === null
+          ? null
+          : row.next_session_at instanceof Date
+            ? row.next_session_at
+            : new Date(row.next_session_at),
       status: row.status,
       created_at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
       updated_at: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
@@ -698,7 +774,7 @@ export class LessonsService {
   /** Publishing is deliberately separate from metadata editing. */
   public async publishLesson(lessonId: string, teacherId: string): Promise<LessonWithDetails> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId, ['teacher', 'subject']);
-    this.assertPublishable(lesson);
+    await this.assertPublishable(lesson);
     if (lesson.status !== LessonStatus.PUBLISHED) {
       lesson.status = LessonStatus.PUBLISHED;
       await this.lessonsRepository.save(lesson);
@@ -1218,9 +1294,13 @@ export class LessonsService {
 
   /**
    * Guard: a lesson may only be published once its Bunny video has finished
-   * encoding. Lessons with no Bunny video are unaffected.
+   * encoding (lessons with no Bunny video are unaffected), and — for an
+   * Individual Lesson — once it has at least one future appointment with a
+   * ready meeting (Phase 5.3). Placed here rather than at session-creation
+   * time so a teacher can create appointments, connect a provider and
+   * Generate at their own pace before publishing.
    */
-  public assertPublishable(lesson: Lesson): void {
+  public async assertPublishable(lesson: Lesson): Promise<void> {
     if (lesson.title.trim().length === 0) {
       throw new BadRequestException(
         biBody('A lesson title is required before publishing.', 'يلزم عنوان للدرس قبل النشر.'),
@@ -1234,16 +1314,60 @@ export class LessonsService {
         ),
       );
     }
+    if (!lesson.is_group) {
+      const { count } = await this.getAvailableSessionsSummary(lesson.id);
+      if (count === 0) {
+        throw new BadRequestException(
+          biBody(
+            'Add an appointment with a ready meeting before publishing',
+            'أضف موعدًا باجتماع جاهز قبل النشر',
+          ),
+        );
+      }
+    }
   }
 
   /**
    * Helper method to map Lesson entity to response type
    */
+  /**
+   * Single-lesson counterpart to `AVAILABLE_SESSIONS_COUNT_SQL` /
+   * `NEXT_SESSION_AT_SQL` — reuses the identical correlated subqueries,
+   * scoped to one lesson via `WHERE lesson.id = :lessonId`, so `findOne`,
+   * `findOnePublic` and every mutation that reloads a lesson stay in lockstep
+   * with the list endpoint's "available appointments" figure.
+   */
+  private async getAvailableSessionsSummary(
+    lessonId: string,
+  ): Promise<{ count: number; nextAt: Date | null }> {
+    const availableSessionsCutoff = new Date(
+      Date.now() + this.lessonSessions.getBookingCutoffMinutes() * 60_000,
+    );
+    const row = await this.lessonsRepository
+      .createQueryBuilder('lesson')
+      .select(AVAILABLE_SESSIONS_COUNT_SQL, 'count')
+      .addSelect(NEXT_SESSION_AT_SQL, 'next_at')
+      .where('lesson.id = :lessonId', { lessonId })
+      .setParameter('availableSessionsCutoff', availableSessionsCutoff)
+      .getRawOne<{ count: string; next_at: Date | string | null }>();
+    return {
+      count: Number(row?.count ?? 0),
+      nextAt: row?.next_at
+        ? row.next_at instanceof Date
+          ? row.next_at
+          : new Date(row.next_at)
+        : null,
+    };
+  }
+
   private async mapToLessonWithDetails(lesson: Lesson): Promise<LessonWithDetails> {
     const thumbnail = this.media.canonicalPublicReference(lesson.thumbnail);
     // Live count from lesson_purchases; the denormalised `lesson.students_count`
     // counts orders and can drift (see LESSON_STUDENT_COUNT_SQL) and is not read.
-    const studentCounts = await this.learningMetrics.getLessonStudentCounts([lesson.id]);
+    const [studentCounts, availableSessions] = await Promise.all([
+      this.learningMetrics.getLessonStudentCounts([lesson.id]),
+      this.getAvailableSessionsSummary(lesson.id),
+    ]);
     return {
       id: lesson.id,
       title: lesson.title,
@@ -1271,6 +1395,8 @@ export class LessonsService {
       is_free_preview: lesson.is_free_preview,
       available_for_days: lesson.available_for_days,
       students_count: studentCounts.get(lesson.id) ?? 0,
+      available_sessions_count: availableSessions.count,
+      next_session_at: availableSessions.nextAt,
       status: lesson.status,
       created_at: lesson.created_at,
       updated_at: lesson.updated_at,

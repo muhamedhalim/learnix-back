@@ -5,6 +5,8 @@ import type { DataSource } from 'typeorm';
 import { Lesson } from '../../src/lessons/entities/lesson.entity';
 import { LessonSessionBookingStatus } from '../../src/lessons/entities/lesson-session-booking-status.enum';
 import { LessonSessionBooking } from '../../src/lessons/entities/lesson-session-booking.entity';
+import { MeetingCreationStatus } from '../../src/lessons/entities/meeting-creation-status.enum';
+import { MeetingProvider } from '../../src/lessons/entities/meeting-provider.enum';
 import { ScheduledLessonSessionStatus } from '../../src/lessons/entities/scheduled-lesson-session-status.enum';
 import { ScheduledLessonSession } from '../../src/lessons/entities/scheduled-lesson-session.entity';
 import { LessonSessionsService } from '../../src/lessons/lesson-sessions.service';
@@ -379,5 +381,101 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
       payment_id: purchaseB.payment.id,
     });
     expect(survivingPurchase.revoked_at).toBeNull();
+  });
+
+  /**
+   * Phase 9 regression: the Phase 5 meeting columns (`meeting_provider`,
+   * `meeting_status`, etc.) are additive — a slot whose meeting was
+   * explicitly generated (rather than hand-typed, as every other test in
+   * this file uses) must still be protected by the exact same double-booking
+   * guarantees (partial unique index + advisory lock + row lock).
+   */
+  it('still allows exactly one active booking for a slot whose meeting was generated via a provider', async () => {
+    const users = dataSource.getRepository(User);
+    const makeUser = async (suffix: string, role: UserRole) =>
+      users.save(
+        users.create({
+          username: `generated-session-${suffix}`,
+          name: `Generated Session ${suffix}`,
+          first_name: null,
+          last_name: null,
+          email: `generated-session-${suffix}@example.test`,
+          phone: `01099${suffix.padStart(6, '0')}`,
+          role,
+          status: UserStatus.APPROVED,
+          is_active: true,
+          password_hash: null,
+        }),
+      );
+    const teacher = await makeUser('1', UserRole.TEACHER);
+    const studentA = await makeUser('2', UserRole.STUDENT);
+    const studentB = await makeUser('3', UserRole.STUDENT);
+    const subjectRepository = dataSource.getRepository(Subject);
+    const subject = await subjectRepository.save(
+      subjectRepository.create({
+        name: 'Generated meeting concurrency subject',
+        name_ar: null,
+        description: null,
+        description_ar: null,
+        thumbnail: null,
+        status: SubjectStatus.APPROVED,
+        created_by_teacher_id: null,
+        rejection_reason: null,
+        reviewed_by_admin_id: null,
+        reviewed_at: null,
+      }),
+    );
+    const lessonRepository = dataSource.getRepository(Lesson);
+    const lesson = await lessonRepository.save(
+      lessonRepository.create({
+        title: 'Generated-meeting concurrency lesson',
+        description: null,
+        teacher_id: teacher.id,
+        subject_id: subject.id,
+        thumbnail: null,
+        price: 500,
+        duration: 3_600,
+        is_group: false,
+        available_for_days: 7,
+        students_count: 0,
+        is_free_preview: false,
+      }),
+    );
+    const sessionRepository = dataSource.getRepository(ScheduledLessonSession);
+    const startAt = new Date(Date.now() + 48 * 60 * 60_000);
+    const slot = await sessionRepository.save(
+      sessionRepository.create({
+        lesson_id: lesson.id,
+        teacher_id: teacher.id,
+        start_at: startAt,
+        end_at: new Date(startAt.getTime() + 3_600_000),
+        status: ScheduledLessonSessionStatus.SCHEDULED,
+        // As `provisionMeeting` would leave it after a successful Generate —
+        // exercised end-to-end in meeting-generation.postgres.e2e-spec.ts;
+        // this test's only concern is that concurrency guarantees don't care.
+        meeting_provider: MeetingProvider.GOOGLE_MEET,
+        meeting_status: MeetingCreationStatus.READY,
+        meeting_url: 'https://meet.google.com/generated-concurrency',
+        external_meeting_id: 'ext-concurrency-1',
+        cancellation_reason: null,
+        cancellation_requested_at: null,
+        cancelled_at: null,
+      }),
+    );
+
+    const attempts = await Promise.allSettled([
+      service.reserve(slot.id, studentA.id),
+      service.reserve(slot.id, studentB.id),
+    ]);
+    expect(attempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(attempts.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: expect.any(ConflictException),
+    });
+    expect(
+      await dataSource.getRepository(LessonSessionBooking).countBy({
+        scheduled_session_id: slot.id,
+        status: LessonSessionBookingStatus.HELD,
+      }),
+    ).toBe(1);
   });
 });

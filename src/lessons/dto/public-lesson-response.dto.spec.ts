@@ -31,6 +31,8 @@ describe('toPublicLessonResponse', () => {
       is_free_preview: false,
       available_for_days: 30,
       students_count: 5,
+      available_sessions_count: 2,
+      next_session_at: new Date('2026-01-03T10:00:00.000Z'),
       status: LessonStatus.PUBLISHED,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-02T00:00:00.000Z'),

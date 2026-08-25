@@ -11,6 +11,8 @@ import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
 import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
+import { GoogleMeetProvider } from '../../../src/lessons/meetings/providers/google-meet/google-meet.provider';
+import type { MeetingProviderClient } from '../../../src/lessons/meetings/providers/meeting-provider.interface';
 import {
   PUSH_PROVIDER,
   type PushProvider,
@@ -32,6 +34,17 @@ export interface E2EOverrides {
    * selection, delivery records, invalid-token handling — remains the real code.
    */
   pushProvider?: Partial<PushProvider>;
+  /**
+   * Substitute Google Meet, the first concrete `MeetingProviderClient`
+   * (Phase 4). No real OAuth app / Calendar API call can happen in CI, so
+   * specs exercising meeting generation swap in a recording double here —
+   * mirroring `pushProvider` above. Everything above the provider —
+   * preconditions, the queue, the worker's claim/persist logic, exposure
+   * shaping — remains the real code. Overrides `GoogleMeetProvider`
+   * directly (not the `MEETING_PROVIDERS` factory token) so the same
+   * instance reaches `MeetingProviderRegistry` via its `inject` array.
+   */
+  meetingProvider?: Partial<MeetingProviderClient>;
 }
 
 /** Shared bootstrap; `withCsrfGuard` controls whether CsrfGuard is installed. */
@@ -47,6 +60,9 @@ async function bootstrapE2EApp(
   }
   if (overrides?.pushProvider !== undefined) {
     builder = builder.overrideProvider(PUSH_PROVIDER).useValue(overrides.pushProvider);
+  }
+  if (overrides?.meetingProvider !== undefined) {
+    builder = builder.overrideProvider(GoogleMeetProvider).useValue(overrides.meetingProvider);
   }
   const moduleFixture: TestingModule = await builder.compile();
 

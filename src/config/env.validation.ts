@@ -11,6 +11,7 @@ import {
   validateSync,
 } from 'class-validator';
 
+import { decodeSecretBoxKey, SecretBoxKeyError } from '../common/utils/secret-box.util';
 import { AppEnvironment, recordReader, resolveAppEnv } from './app-env';
 import { assertEnvironmentIsolation } from './environment-isolation.guard';
 import { validateProductionPublicOrigins } from './public-url.util';
@@ -593,6 +594,59 @@ export class EnvironmentVariables {
   @IsOptional()
   @Type(() => Number)
   public LESSON_EXTENSION_DAYS?: number;
+
+  // Meeting provider integration (Google Meet / Zoom / Microsoft Teams).
+  // Optional: with no key configured, connecting a meeting account reports
+  // itself unavailable — the same graceful-degradation shape as MailService
+  // and StorageService — rather than the app failing to boot.
+  /** Base64-encoded 32-byte AES-256-GCM key encrypting OAuth tokens at rest. */
+  @IsString()
+  @IsOptional()
+  public MEETING_TOKEN_ENCRYPTION_KEY?: string;
+
+  /** Base URL the OAuth callback is registered under at each provider. Falls back to BACKEND_URL. */
+  @IsString()
+  @IsOptional()
+  public MEETING_OAUTH_REDIRECT_BASE_URL?: string;
+
+  // Google Meet (Phase 4 — first concrete meeting provider). Optional: with
+  // either unset, GoogleMeetProvider.isConfigured() reports false and the
+  // teacher integrations UI shows Google Meet as "Not available yet".
+  @IsString()
+  @IsOptional()
+  public GOOGLE_MEET_CLIENT_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  public GOOGLE_MEET_CLIENT_SECRET?: string;
+
+  // Zoom (Phase 6 — second concrete meeting provider). A Zoom Marketplace
+  // "General (OAuth)" app; optional, same graceful-degradation shape as
+  // Google Meet above.
+  @IsString()
+  @IsOptional()
+  public ZOOM_CLIENT_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  public ZOOM_CLIENT_SECRET?: string;
+
+  // Microsoft Teams (Phase 7 — third and final concrete meeting provider).
+  // An Entra ID (Azure AD) app registration; work/school accounts only
+  // (R-2). Optional: with any unset, MicrosoftTeamsProvider.isConfigured()
+  // reports false and the teacher integrations UI shows Teams as "Not
+  // available yet".
+  @IsString()
+  @IsOptional()
+  public MS_TEAMS_CLIENT_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  public MS_TEAMS_CLIENT_SECRET?: string;
+
+  @IsString()
+  @IsOptional()
+  public MS_TEAMS_TENANT?: string;
 }
 
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
@@ -627,6 +681,15 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
 
   validateProductionPublicOrigins(config);
   validatePaymobBaseUrl(validatedConfig.PAYMOB_BASE_URL);
+  if (validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY) {
+    try {
+      decodeSecretBoxKey(validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY);
+    } catch (error) {
+      throw new Error(
+        `Environment validation failed: ${error instanceof SecretBoxKeyError ? error.message : 'MEETING_TOKEN_ENCRYPTION_KEY is invalid.'}`,
+      );
+    }
+  }
 
   if (validatedConfig.NODE_ENV === Environment.Production) {
     for (const key of ['PAYMENT_CAPTURE_GRACE_SECONDS', 'PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS']) {

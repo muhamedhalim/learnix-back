@@ -3,11 +3,13 @@
 exports[`toPublicLessonResponse uses an allowlist that cannot expose paid video or storage fields 1`] = `
 {
   "available_for_days": 30,
+  "available_sessions_count": 2,
   "created_at": 2026-01-01T00:00:00.000Z,
   "description": "Description",
   "duration": 60,
   "id": "lesson-1",
   "is_group": false,
+  "next_session_at": 2026-01-03T10:00:00.000Z,
   "price": 100,
   "students_count": 5,
   "subject": {
