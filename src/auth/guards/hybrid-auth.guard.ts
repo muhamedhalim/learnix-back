@@ -12,6 +12,7 @@ import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
 
 import { FirebaseService } from '../../firebase/firebase.service';
+import type { JwtPayload as AppJwtPayload } from '../../common/interfaces/user-request.interface';
 import { UserStatus } from '../../users/entities/user-status.enum';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
@@ -171,7 +172,24 @@ export class HybridAuthGuard implements CanActivate {
       if (!user.is_active || user.status !== UserStatus.APPROVED) {
         throw new UnauthorizedException('User account is not approved or active');
       }
-      Object.assign(request, { user });
+      // Publish the SAME principal shape the cookie/JWT branch publishes
+      // (`JwtPayload`), not the raw `User` entity. Controllers read
+      // `user.userId` in ~338 places via `@GetUser()`; an entity exposes `id`
+      // and no `userId`, so a Firebase-authenticated request used to reach
+      // handlers with `userId === undefined` — `GET /users/me` answered 403 and
+      // ownership-scoped queries were handed an undefined subject. The identity
+      // checks above are unchanged; only the shape handed downstream is fixed.
+      // `sessionId` is deliberately absent: a Firebase bearer client holds no
+      // Learnix session row, and `JwtPayload.sessionId` is optional for exactly
+      // this case (its two readers already default it to `null`).
+      Object.assign(request, {
+        user: {
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        } satisfies AppJwtPayload,
+      });
       return true;
     } catch (error) {
       this.logger.warn(

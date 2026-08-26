@@ -1,9 +1,9 @@
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ComplaintStatus } from '../enums/complaint-status.enum';
 import { ComplaintType } from '../enums/complaint-type.enum';
+import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
 
 export class ComplaintFilterDto {
   @IsOptional()
@@ -32,9 +32,7 @@ export class ComplaintFilterDto {
   public assigned_agent_id?: string;
 
   /** DEF-012: filters to tickets with no assigned agent (dashboard deep-link). */
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public unassigned?: boolean;
 
   /**
@@ -42,9 +40,7 @@ export class ComplaintFilterDto {
    * Overdue card counts (mirrors `supportReport().delayed`), so the number
    * on the card and the size of the list it links to always agree.
    */
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public overdue?: boolean;
 
   @IsOptional()

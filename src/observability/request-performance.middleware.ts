@@ -2,6 +2,7 @@ import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 
 import type { NextFunction, Request, Response } from 'express';
 
+import { getClientIp as resolveClientIp } from '../common/utils/client-ip.util';
 import { processEnvReader } from '../common/utils/redis-connection.util';
 import { resolveAppEnvLabel } from '../config/app-env';
 import {
@@ -103,11 +104,7 @@ export class RequestPerformanceMiddleware implements NestMiddleware {
 
   /** First hop from X-Forwarded-For (behind the trusted proxy) or socket IP. */
   private getClientIp(request: Request): string | null {
-    const forwarded = request.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded !== '') {
-      return forwarded.split(',')[0]?.trim() ?? null;
-    }
-    return request.ip ?? null;
+    return resolveClientIp(request);
   }
 
   private getRoute(request: Request): string {

@@ -59,9 +59,16 @@ describe('Subject ownership and approval (e2e)', () => {
     teacher: AuthenticatedUser,
     name: string,
   ): Promise<{ id: string; status: string }> {
+    // JSON, not multipart. `POST /teacher/subjects` takes `CreateSubjectDto`
+    // through `@Body()` and has no file interceptor — subjects lost their
+    // thumbnail in migration 2074 (UnifySubjectNameAndRemoveThumbnail), which
+    // is when this endpoint stopped accepting a form upload. A `.field()` call
+    // sends multipart, leaving `name` unparsed, so ValidationPipe answered 400.
+    // The rest of this spec was already migrated to `.send()`; these two call
+    // sites were missed.
     const res = await teacher.agent
       .post(`${API_PREFIX}/teacher/subjects`)
-      .field('name', name)
+      .send({ name })
       .expect(201);
     const body = res.body as { subject: { id: string; status: string } };
     return body.subject;
@@ -126,7 +133,7 @@ describe('Subject ownership and approval (e2e)', () => {
 
       await teacherB.agent
         .post(`${API_PREFIX}/teacher/subjects`)
-        .field('name', '  PHYSICS a ')
+        .send({ name: '  PHYSICS a ' })
         .expect(409);
     });
   });
@@ -157,12 +164,12 @@ describe('Subject ownership and approval (e2e)', () => {
 
       await teacherB.agent
         .post(`${API_PREFIX}/teacher/lessons`)
-        .send({ title: 'Borrowed lesson', subject_id: subject.id, price: 0 })
+        .send({ title: 'Borrowed lesson', subject_id: subject.id, price: 0, is_group: true })
         .expect(404);
 
       await teacherA.agent
         .post(`${API_PREFIX}/teacher/lessons`)
-        .send({ title: 'My own lesson', subject_id: subject.id, price: 0 })
+        .send({ title: 'My own lesson', subject_id: subject.id, price: 0, is_group: true })
         .expect(201);
     });
   });
@@ -242,9 +249,15 @@ describe('Subject ownership and approval (e2e)', () => {
 
       const lesson = await teacherA.agent
         .post(`${API_PREFIX}/teacher/lessons`)
-        .send({ title: 'Kinematics intro', subject_id: subject.id, price: 0 })
+        .send({ title: 'Kinematics intro', subject_id: subject.id, price: 0, is_group: true })
         .expect(201);
-      const lessonId = (lesson.body as { id: string }).id;
+      // `POST /teacher/lessons` answers `{ message, lesson }`, so the id lives
+      // at `body.lesson.id`. Reading `body.id` yielded undefined, the next
+      // request became `GET /teacher/lessons/undefined`, and ParseUUIDPipe
+      // answered 400 — which is what this suite's long-standing "expected 200,
+      // got 400" failure actually was. The suspension behaviour it guards was
+      // never broken.
+      const lessonId = (lesson.body as { lesson: { id: string } }).lesson.id;
 
       await admin.agent
         .post(`${API_PREFIX}/admin/subjects/${subject.id}/suspend`)
@@ -293,7 +306,7 @@ describe('Subject ownership and approval (e2e)', () => {
       const subject = await createTeacherSubject(teacherA, 'Physics A');
       await teacherA.agent
         .post(`${API_PREFIX}/teacher/lessons`)
-        .send({ title: 'Kinematics intro', subject_id: subject.id, price: 0 })
+        .send({ title: 'Kinematics intro', subject_id: subject.id, price: 0, is_group: true })
         .expect(201);
 
       await admin.agent.delete(`${API_PREFIX}/admin/subjects/${subject.id}`).expect(409);

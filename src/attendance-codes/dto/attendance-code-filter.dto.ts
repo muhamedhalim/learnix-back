@@ -1,10 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { AttendanceCodeType } from '../entities/attendance-code-type.enum';
+import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
 
 export class AttendanceCodeFilterDto extends PaginationDto {
   @ApiProperty({
@@ -20,9 +21,7 @@ export class AttendanceCodeFilterDto extends PaginationDto {
     description: 'Filter by used status',
     required: false,
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public is_used?: boolean;
 
   @ApiProperty({
@@ -48,8 +47,6 @@ export class AttendanceCodeFilterDto extends PaginationDto {
     required: false,
     default: false,
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public include_expired?: boolean;
 }

@@ -48,10 +48,18 @@ import type { Response } from 'express';
  * Every route here exposes or moves money, so each declares a finance
  * capability on top of the admin role.
  *
- * Manual-payment routes reuse the existing permissions rather than introducing
- * new ones: reads take `reports.view`, and the review actions take
- * `refunds.complete` because approving a manual payment finalises a sale and
- * grants access — the same class of authority as completing a refund.
+ * Manual-payment routes have their own capabilities (AUD-032). They previously
+ * borrowed `refunds.complete` on the reasoning that approving a manual payment
+ * grants access and is therefore "the same class of authority" as completing a
+ * refund. Same *class* is not the same *capability*, and sharing one flag broke
+ * least privilege in both directions: staff hired to vet bank transfers had to
+ * be granted refund finalisation, and anyone who could finalise refunds could
+ * approve payments — granting paid access — without that ever being delegated.
+ *
+ * Reads still take `reports.view`. Writes now split three ways:
+ * `manual_payments.review` (queue work that moves no money),
+ * `manual_payments.approve` (finalises the sale and grants entitlement) and
+ * `manual_payments.manage_methods` (channel configuration).
  */
 @ApiTags('Admin - Unified Finance')
 @Controller('admin/finance')
@@ -75,7 +83,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-methods')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.manage_methods')
   public async createMethod(
     @Body() dto: CreateManualPaymentMethodDto,
     @GetUser() user: JwtPayload,
@@ -90,7 +98,7 @@ export class AdminFinanceController {
   }
 
   @Patch('manual-methods/:id')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.manage_methods')
   public async updateMethod(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateManualPaymentMethodDto,
@@ -106,13 +114,13 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/review')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.review')
   public async startReview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload) {
     return { data: await this.manualPayments.startReview(id, user.userId) };
   }
 
   @Post('manual-submissions/:id/approve')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.approve')
   public async approveSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewManualPaymentDto,
@@ -122,7 +130,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/reject')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.review')
   public async rejectSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,
@@ -132,7 +140,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/cancel')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.review')
   public async cancelSubmission(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,
@@ -142,7 +150,7 @@ export class AdminFinanceController {
   }
 
   @Post('manual-submissions/:id/request-information')
-  @FinancePermissions('refunds.complete')
+  @FinancePermissions('manual_payments.review')
   public async requestInformation(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectManualPaymentDto,

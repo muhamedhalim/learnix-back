@@ -5,6 +5,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 
+import {
+  ENTITLED_ORDER_STATUSES,
+  FINALISED_PAYMENT_STATUS_SQL,
+  SETTLED_ORDER_STATUS_SQL,
+  SETTLED_ORDER_STATUSES,
+} from '../../common/metrics/settled-order.sql';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
@@ -1007,9 +1013,19 @@ export class PaymentOperationsService {
       negativeAvailableBalances,
       financialOrphans,
     ] = await Promise.all([
+      // AUD-030 (reconciliation false positives): a PARTIAL refund leaves the
+      // order `partially_refunded` while the payment stays `completed` and the
+      // entitlement is deliberately retained
+      // (`entitlement_policy: retained_on_partial_refund`). Comparing against
+      // `'paid'` alone therefore reported three healthy states as integrity
+      // failures on every partial refund. `ENTITLED_ORDER_STATUSES` is the set
+      // that must still hold access; `refunded` is excluded because a full
+      // refund correctly revokes it.
       this.orders
         .createQueryBuilder('order')
-        .where('order.status = :paid', { paid: OrderStatus.PAID })
+        .where('order.status IN (:...entitledOrderStatuses)', {
+          entitledOrderStatuses: [...ENTITLED_ORDER_STATUSES],
+        })
         .andWhere('NOT EXISTS (SELECT 1 FROM entitlements e WHERE e.order_id = order.id)')
         .select(['order.id', 'order.order_number'])
         .take(100)
@@ -1022,7 +1038,9 @@ export class PaymentOperationsService {
         // paid child Orders are checked independently, so they are not an
         // orphaned-completed-payment reconciliation failure.
         .andWhere('(payment.cart_checkout_id IS NULL OR payment.order_id IS NOT NULL)')
-        .andWhere('(payment.order_id IS NULL OR order.status != :paid)', { paid: OrderStatus.PAID })
+        .andWhere('(payment.order_id IS NULL OR order.status NOT IN (:...settledOrderStatuses))', {
+          settledOrderStatuses: [...SETTLED_ORDER_STATUSES],
+        })
         .select(['payment.id', 'payment.order_id'])
         .take(100)
         .getMany(),
@@ -1031,7 +1049,9 @@ export class PaymentOperationsService {
         .createQueryBuilder('entitlement')
         .leftJoin(Order, 'order', 'order.id = entitlement.order_id')
         .where("entitlement.status = 'active'")
-        .andWhere("(order.id IS NULL OR order.status != 'paid')")
+        .andWhere('(order.id IS NULL OR order.status NOT IN (:...entitledOrderStatuses))', {
+          entitledOrderStatuses: [...ENTITLED_ORDER_STATUSES],
+        })
         .select(['entitlement.id', 'entitlement.order_id'])
         .take(100)
         .getMany(),
@@ -1076,7 +1096,11 @@ export class PaymentOperationsService {
         .where('submission.status = :approved', {
           approved: ManualPaymentSubmissionStatus.APPROVED,
         })
-        .andWhere("(order.id IS NULL OR order.status != 'paid')")
+        // Same partial-refund false positive as above: an approved manual
+        // payment whose order was later partially refunded did settle.
+        .andWhere('(order.id IS NULL OR order.status NOT IN (:...settledOrderStatusesManual))', {
+          settledOrderStatusesManual: [...SETTLED_ORDER_STATUSES],
+        })
         .select(['submission.id', 'submission.order_id'])
         .take(100)
         .getMany(),
@@ -1849,9 +1873,14 @@ export class PaymentOperationsService {
       params.push(value);
       return `$${params.length}`;
     };
+    // AUD-030: the settled population, not `status = 'paid'` alone. The report
+    // body below already nets refunds correctly (`net_revenue_minor`, the
+    // per-currency and per-teacher refund allocations); the bug was upstream of
+    // that arithmetic — a partially- or fully-refunded order never entered the
+    // CTE, so its retained revenue AND its refund both silently disappeared.
     const conditions = [
-      "o.status = 'paid'",
-      "payment.status = 'completed'",
+      `o.status IN (${SETTLED_ORDER_STATUS_SQL})`,
+      `payment.status IN (${FINALISED_PAYMENT_STATUS_SQL})`,
       'o.paid_at IS NOT NULL',
       `o.paid_at >= ${push(start)}`,
       `o.paid_at < ${push(end)}`,

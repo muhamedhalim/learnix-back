@@ -42,6 +42,12 @@ describe('meeting generation (PostgreSQL)', () => {
     createMeeting = jest.fn();
     ({ app, dataSource } = await createE2EApp({
       meetingProvider: {
+        // `MeetingProviderRegistry` keys its map by `provider.name`
+        // (`new Map(providers.map((p) => [p.name, p]))`). Without it the double
+        // registers under `undefined`, `find(GOOGLE_MEET)` returns null, and
+        // every Generate request fails the "provider not available" guard with
+        // 400 before reaching the connected-account check this suite asserts.
+        name: MeetingProvider.GOOGLE_MEET,
         isConfigured: () => true,
         getConfigurationStatus: () => ({ enabled: true, configured: true }),
         buildAuthorizeUrl: (state: string) => `https://accounts.google.com/o?state=${state}`,
@@ -155,7 +161,13 @@ describe('meeting generation (PostgreSQL)', () => {
       .send({})
       .expect(409);
 
-    expect(response.body).toMatchObject({ code: 'MEETING_ACCOUNT_NOT_CONNECTED', provider: MeetingProvider.GOOGLE_MEET });
+    // `code` is the platform's error-contract extension point. The service also
+    // attaches `provider` to the thrown body, but `HttpExceptionFilter` emits a
+    // closed RFC 7807 shape (type/title/status/detail/instance/timestamp/
+    // requestId/path/method/code/errors) and drops every other field by design,
+    // so `provider` never reaches a client — no caller reads it either. The
+    // assertion that carries meaning is the status plus the stable code.
+    expect(response.body).toMatchObject({ code: 'MEETING_ACCOUNT_NOT_CONNECTED' });
     expect(createMeeting).not.toHaveBeenCalled();
     await expect(
       dataSource.getRepository(ScheduledLessonSession).findOneByOrFail({ id: created.id }),

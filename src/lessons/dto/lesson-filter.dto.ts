@@ -1,8 +1,7 @@
 import { ApiProperty, OmitType } from '@nestjs/swagger';
 
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
-  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -12,6 +11,7 @@ import {
 } from 'class-validator';
 
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
+import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
 
 export class LessonFilterDto {
   @ApiProperty({
@@ -46,9 +46,7 @@ export class LessonFilterDto {
     required: false,
     example: false,
   })
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  @IsOptional()
+  @StrictBooleanQuery()
   public is_group?: boolean;
 
   @ApiProperty({
@@ -57,9 +55,7 @@ export class LessonFilterDto {
     required: false,
     example: true,
   })
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  @IsOptional()
+  @StrictBooleanQuery()
   public has_available_sessions?: boolean;
 
   @ApiProperty({

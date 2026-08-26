@@ -11,7 +11,6 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { capAccessTokenTtl } from './auth-token.config';
-import { FirebaseAuthController } from './firebase-auth.controller';
 import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 import { HybridAuthGuard } from './guards/hybrid-auth.guard';
 import { OptionalHybridAuthGuard } from './guards/optional-hybrid-auth.guard';
@@ -36,7 +35,7 @@ import { JwtStrategy } from './jwt.strategy';
     UsersModule,
     GuardiansModule,
   ],
-  controllers: [AuthController, FirebaseAuthController],
+  controllers: [AuthController],
   providers: [
     AuthService,
     FirebaseAuthGuard,

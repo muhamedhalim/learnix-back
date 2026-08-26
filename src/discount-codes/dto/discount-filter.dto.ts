@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsDateString, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { DiscountType } from '../entities/discount-type.enum';
+import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
 
 export class DiscountFilterDto extends PaginationDto {
   @ApiProperty({
@@ -20,9 +20,7 @@ export class DiscountFilterDto extends PaginationDto {
     description: 'Filter by active status',
     required: false,
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public is_active?: boolean;
 
   @ApiProperty({
@@ -55,8 +53,6 @@ export class DiscountFilterDto extends PaginationDto {
     required: false,
     default: false,
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public include_expired?: boolean;
 }

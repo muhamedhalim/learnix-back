@@ -1,8 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -15,6 +13,7 @@ import {
 
 import { NotificationType } from '../entities/notification-type.enum';
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
+import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
 
 export class NotificationFilterDto {
   @ApiPropertyOptional({
@@ -51,17 +50,13 @@ export class NotificationFilterDto {
   @ApiPropertyOptional({
     description: 'Filter by read status',
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public is_read?: boolean;
 
   @ApiPropertyOptional({
     description: 'Filter by SMS sent status',
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public sms_sent?: boolean;
 
   @ApiPropertyOptional({
@@ -90,9 +85,7 @@ export class AdminNotificationFilterDto extends NotificationFilterDto {
   @ApiPropertyOptional({
     description: 'Only return notifications with failed or unavailable delivery legs',
   })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
+  @StrictBooleanQuery()
   public needs_attention?: boolean;
 
   @ApiPropertyOptional({

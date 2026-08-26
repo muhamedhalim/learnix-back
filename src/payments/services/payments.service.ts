@@ -25,6 +25,10 @@ import {
   PaymentChannel,
   PaymentStatus,
 } from '../entities';
+import {
+  FINALISED_PAYMENT_STATUSES,
+  SETTLED_ORDER_STATUSES,
+} from '../../common/metrics/settled-order.sql';
 import { EntitlementsService } from './entitlements.service';
 import { CartCheckoutService } from './cart-checkout.service';
 import { OrdersService } from './orders.service';
@@ -783,7 +787,7 @@ export class PaymentsService {
    */
   public async getRevenueStatistics(fromDate?: Date, toDate?: Date): Promise<RevenueStatistics> {
     const queryBuilder = this.canonicalPaidOrderRevenueQuery(fromDate, toDate)
-      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total_revenue')
+      .select('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'total_revenue')
       .addSelect('COUNT(order.id)', 'total_payments')
       .addSelect('COALESCE(SUM(order.discount_amount_minor), 0) / 100.0', 'total_discounts');
 
@@ -874,7 +878,7 @@ export class PaymentsService {
 
     const totalResult = (await totalQuery
 
-      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
+      .select('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'total')
 
       .getRawOne<TeacherRevenueTotalRaw>()) ?? { total: null };
 
@@ -902,7 +906,7 @@ export class PaymentsService {
 
       .select(`TO_CHAR(order.paid_at, '${dateFormat}')`, 'period')
 
-      .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'revenue')
+      .addSelect('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'revenue')
 
       .addSelect('COUNT(order.id)', 'sales')
 
@@ -930,7 +934,7 @@ export class PaymentsService {
 
       .addSelect('MAX(order.product_title_snapshot)', 'lesson_title')
 
-      .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'revenue')
+      .addSelect('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'revenue')
 
       .addSelect('COUNT(order.id)', 'sales')
 
@@ -991,7 +995,7 @@ export class PaymentsService {
         'MAX(order.product_title_snapshot) AS lesson_title',
         'order.currency AS currency',
         'COUNT(order.id) AS purchase_count',
-        'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0 AS total_revenue',
         'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
       .groupBy('order.item_id')
@@ -1035,7 +1039,7 @@ export class PaymentsService {
         'MAX(order.product_title_snapshot) AS package_title',
         'order.currency AS currency',
         'COUNT(order.id) AS purchase_count',
-        'COALESCE(SUM(order.final_amount_minor), 0) / 100.0 AS total_revenue',
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0 AS total_revenue',
         'COALESCE(AVG(order.final_amount_minor), 0) / 100.0 AS avg_price',
       ])
       .groupBy('order.item_id')
@@ -1057,7 +1061,12 @@ export class PaymentsService {
 
   /**
    * The canonical revenue source for every financial statistic in this service:
-   * a confirmed paid order, its completed payment, and order.paid_at.
+   * a settled order, its finalised payment, and order.paid_at.
+   *
+   * "Settled" deliberately includes refunded and partially-refunded orders —
+   * see `settled-order.sql`. Callers sum {@link netRevenueMinorSql} so a refund
+   * is subtracted from revenue rather than deleting the sale from history
+   * (AUD-030).
    */
   private canonicalPaidOrderRevenueQuery(fromDate?: Date | string, toDate?: Date | string) {
     const query = this.dataSource
@@ -1066,10 +1075,12 @@ export class PaymentsService {
       .innerJoin(
         Payment,
         'payment',
-        'payment.id = order.payment_id AND payment.status = :completedPaymentStatus',
-        { completedPaymentStatus: PaymentStatus.COMPLETED },
+        `payment.id = order.payment_id AND payment.status IN (:...finalisedPaymentStatuses)`,
+        { finalisedPaymentStatuses: [...FINALISED_PAYMENT_STATUSES] },
       )
-      .where('order.status = :paidOrderStatus', { paidOrderStatus: OrderStatus.PAID })
+      .where('order.status IN (:...settledOrderStatuses)', {
+        settledOrderStatuses: [...SETTLED_ORDER_STATUSES],
+      })
       .andWhere('order.paid_at IS NOT NULL');
     if (fromDate !== undefined) query.andWhere('order.paid_at >= :fromDate', { fromDate });
     if (toDate !== undefined) query.andWhere('order.paid_at <= :toDate', { toDate });

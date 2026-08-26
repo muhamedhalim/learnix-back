@@ -56,19 +56,36 @@ describe('admin finance route permissions', () => {
       expect(permissionsFor(AdminFinanceController, method)).toContain(permission);
     });
 
+    // AUD-032: these routes used to borrow `refunds.complete`. They now carry
+    // their own capabilities so vetting a bank transfer and finalising a refund
+    // can be delegated to different people.
     it.each([
       ['listMethods', 'reports.view'],
       ['listSubmissions', 'reports.view'],
       ['proof', 'reports.view'],
-      ['createMethod', 'refunds.complete'],
-      ['updateMethod', 'refunds.complete'],
-      ['startReview', 'refunds.complete'],
-      ['approveSubmission', 'refunds.complete'],
-      ['rejectSubmission', 'refunds.complete'],
-      ['cancelSubmission', 'refunds.complete'],
-      ['requestInformation', 'refunds.complete'],
+      ['createMethod', 'manual_payments.manage_methods'],
+      ['updateMethod', 'manual_payments.manage_methods'],
+      ['startReview', 'manual_payments.review'],
+      ['approveSubmission', 'manual_payments.approve'],
+      ['rejectSubmission', 'manual_payments.review'],
+      ['cancelSubmission', 'manual_payments.review'],
+      ['requestInformation', 'manual_payments.review'],
     ])('manual payment route %s requires %s', (method, permission) => {
       expect(permissionsFor(AdminFinanceController, method)).toContain(permission);
+    });
+
+    it('no manual-payment write route grants refund authority as a side effect', () => {
+      for (const method of [
+        'createMethod',
+        'updateMethod',
+        'startReview',
+        'approveSubmission',
+        'rejectSubmission',
+        'cancelSubmission',
+        'requestInformation',
+      ]) {
+        expect(permissionsFor(AdminFinanceController, method)).not.toContain('refunds.complete');
+      }
     });
 
     it('leaves no route relying on the admin role alone', () => {

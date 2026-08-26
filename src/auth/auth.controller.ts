@@ -17,6 +17,7 @@ import type { Request, Response } from 'express';
 
 import { THROTTLE } from '../common/constants';
 import { LOGIN_THROTTLE } from '../common/throttle/login-throttle';
+import { getClientIp } from '../common/utils/client-ip.util';
 import { getCrossSiteCookieOptions } from '../common/utils/cookie-security.util';
 import { biBody, resolveRequestLocale } from '../i18n/error-translator.util';
 import {
@@ -161,10 +162,7 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<unknown> {
     const deviceInfo = request.headers['user-agent'] ?? null;
-    const ipAddress =
-      (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0] ??
-      request.ip ??
-      null;
+    const ipAddress = getClientIp(request);
 
     const result = await this.authService.login(loginDto, deviceInfo, ipAddress);
     return this.issueSessionCookies(result, request, response);

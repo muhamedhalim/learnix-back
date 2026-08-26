@@ -23,17 +23,37 @@ describe('PaymentOperationsService financial reporting', () => {
     dataSource.query.mockResolvedValue([]);
   });
 
-  it('recognizes revenue only from paid orders with completed payments at paid_at', async () => {
+  /**
+   * AUD-030: this used to assert `o.status = 'paid'` verbatim, which pinned the
+   * defect in place — a refunded sale was excluded from the report entirely
+   * instead of being netted, so its gross and its refund both disappeared and
+   * the report "balanced" by losing both halves. The recognition guarantees
+   * that were always correct (paid_at, finalised payment) are kept; the
+   * population is now the canonical settled set.
+   */
+  it('recognizes revenue from settled orders with finalised payments at paid_at', async () => {
     await service.financialReport({
       from: '2026-01-01', to: '2026-01-31', currency: 'EGP', page: 1, limit: 20,
     });
 
     const queryText = dataSource.query.mock.calls.map(([sql]) => String(sql)).join('\n');
-    expect(queryText).toContain("o.status = 'paid'");
-    expect(queryText).toContain("payment.status = 'completed'");
+    expect(queryText).toContain("o.status IN ('paid','partially_refunded','refunded')");
+    expect(queryText).toContain("payment.status IN ('completed','refunded')");
     expect(queryText).toContain('o.paid_at IS NOT NULL');
     expect(queryText).toContain('o.paid_at >= $1');
     expect(queryText).not.toContain('o.created_at >=');
+  });
+
+  it('nets refunds out of revenue rather than dropping refunded sales', async () => {
+    await service.financialReport({ page: 1, limit: 20 });
+
+    const queryText = dataSource.query.mock.calls.map(([sql]) => String(sql)).join('\n');
+    // The report must subtract refunds explicitly...
+    expect(queryText).toContain(
+      '(COALESCE(SUM(final_amount_minor),0)-COALESCE(SUM(refunded_amount_minor),0))',
+    );
+    // ...and must never again narrow the population to plain 'paid'.
+    expect(queryText).not.toContain("o.status = 'paid'");
   });
 
   it('keeps all summaries and ledger balances currency-scoped', async () => {

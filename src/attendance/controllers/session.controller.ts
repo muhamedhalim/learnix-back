@@ -9,12 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import type { Request } from 'express';
 
@@ -23,6 +18,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
+import { getClientIp } from '../../common/utils/client-ip.util';
 import { AttendanceService } from '../attendance.service';
 import { UpdateSessionDto } from '../dto';
 
@@ -48,10 +44,7 @@ export class SessionController {
     @Param('id', ParseUUIDPipe) lessonId: string,
     @Req() request: Request,
   ): Promise<{ message: string; data: unknown }> {
-    const ipAddress =
-      (request.headers['x-forwarded-for'] as string).split(',')[0] ??
-      request.ip ??
-      null;
+    const ipAddress = getClientIp(request);
     const deviceInfo = request.headers['user-agent'] ?? null;
 
     const session = await this.attendanceService.enterLesson(
@@ -88,10 +81,7 @@ export class SessionController {
     auto_attendance?: boolean;
   }> {
     // Find active session
-    const activeSession = await this.attendanceService.findActiveSession(
-      user.userId,
-      lessonId,
-    );
+    const activeSession = await this.attendanceService.findActiveSession(user.userId, lessonId);
 
     if (!activeSession) {
       return {

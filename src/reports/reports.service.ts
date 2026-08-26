@@ -12,13 +12,17 @@ import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
-import { ItemType, Order, OrderStatus, PaymentStatus } from '../payments/entities';
+import { ItemType, Order } from '../payments/entities';
 import { LessonReview } from '../reviews/entities/lesson-review.entity';
 import { Subject } from '../subjects/entities/subject.entity';
 import { TeacherFollowUpService } from '../teacher-follow-up/teacher-follow-up.service';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import {
+  netRevenueMinorSql,
+  settledOrderPredicateSql,
+} from '../common/metrics/settled-order.sql';
 import type {
   PlatformReportDto,
   RevenueBreakdownDto,
@@ -534,37 +538,37 @@ export class ReportsService {
     };
   }
 
-  /** Canonical financial revenue: finalized paid orders, minor units, paid_at. */
+  /**
+   * Canonical **net** revenue per item type: settled orders, minus refunds.
+   *
+   * Both the platform report (CAP-183) and the teacher report (CAP-184) read
+   * through here, so the settled-order population and the refund netting are
+   * defined once. Previously this filtered `status = 'paid'` only, which
+   * dropped partially- and fully-refunded sales out of the report altogether
+   * rather than subtracting what was given back (AUD-030).
+   */
   private paidOrderRevenueQuery() {
+    const net = netRevenueMinorSql('order');
     return this.ordersRepository
       .createQueryBuilder('order')
       .select(
-        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0)`,
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0)`,
         'lessons_minor',
       )
       .addSelect(
-        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :packageType), 0)`,
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type = :packageType), 0)`,
         'packages_minor',
       )
       .addSelect(
-        `COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :bookType), 0)`,
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type = :bookType), 0)`,
         'books_minor',
       )
-      .where('order.status = :paidStatus', { paidStatus: OrderStatus.PAID })
-      .andWhere('order.paid_at IS NOT NULL')
-      .andWhere(
-        `EXISTS (
-          SELECT 1 FROM payments finalized_payment
-          WHERE finalized_payment.id = order.payment_id
-            AND finalized_payment.status = :completedPaymentStatus
-        )`,
-      )
+      .where(`(${settledOrderPredicateSql('order')})`)
       .setParameters({
         lessonType: ItemType.LESSON,
         lessonSessionType: ItemType.LESSON_SESSION,
         packageType: ItemType.PACKAGE,
         bookType: ItemType.BOOK,
-        completedPaymentStatus: PaymentStatus.COMPLETED,
       });
   }
 
