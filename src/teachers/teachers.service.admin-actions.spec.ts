@@ -36,28 +36,50 @@ describe('TeachersService administrative actions', () => {
     mixed_currency: false,
   });
 
-  const build = (overrides: {
-    found?: unknown;
-    query?: jest.Mock;
-    teacherEarningsMinor?: number;
-    uniqueStudents?: number;
-    rating?: { average_rating: number; total_reviews: number };
-  } = {}) => {
+  const build = (
+    overrides: {
+      found?: unknown;
+      query?: jest.Mock;
+      teacherEarningsMinor?: number;
+      uniqueStudents?: number;
+      rating?: { average_rating: number; total_reviews: number };
+    } = {},
+  ) => {
     const recordAuditEvent = jest.fn().mockResolvedValue(undefined);
     const save = jest.fn().mockResolvedValue(undefined);
     // `?? profile()` would swallow an explicit `found: null`, so branch on the
     // key's presence instead.
-    const findOne = jest
-      .fn()
-      .mockResolvedValue('found' in overrides ? overrides.found : profile());
+    const foundProfile = 'found' in overrides ? overrides.found : profile();
+    const findOne = jest.fn().mockResolvedValue(foundProfile);
     const query = overrides.query ?? jest.fn().mockResolvedValue([]);
+
+    // approveTeacher/rejectTeacher run inside `dataSource.transaction` (a
+    // pessimistic lock on the user row closes a double-click/concurrent-call
+    // race — see teachers.service.ts). The transactional `manager` is a
+    // separate object from the repositories above, so it needs its own
+    // `findOne`/`save` doubles that dispatch by entity class the same way the
+    // real EntityManager would.
+    const transactionManager = {
+      findOne: jest.fn(async (entity: unknown, options: unknown) => {
+        if (entity === User) {
+          return (foundProfile as { user?: unknown } | null)?.user ?? null;
+        }
+        return findOne(options);
+      }),
+      save: jest.fn(async (_entity: unknown, value: unknown) => {
+        await save(value);
+        return value;
+      }),
+    };
+    const transaction = jest.fn(
+      async (callback: (manager: typeof transactionManager) => Promise<unknown>) =>
+        callback(transactionManager),
+    );
 
     const getTeacherFinancialMetrics = jest
       .fn()
       .mockResolvedValue(financialMetrics(overrides.teacherEarningsMinor ?? 0));
-    const getTeacherUniqueStudentCount = jest
-      .fn()
-      .mockResolvedValue(overrides.uniqueStudents ?? 0);
+    const getTeacherUniqueStudentCount = jest.fn().mockResolvedValue(overrides.uniqueStudents ?? 0);
     const getTeacherAggregates = jest
       .fn()
       .mockResolvedValue(
@@ -68,7 +90,7 @@ describe('TeachersService administrative actions', () => {
       { findOne } as unknown as Repository<TeacherProfile>,
       { save } as unknown as Repository<User>,
       {} as unknown as Repository<Subject>,
-      { query } as unknown as DataSource,
+      { query, transaction } as unknown as DataSource,
       { invalidate: jest.fn().mockResolvedValue(undefined) } as unknown as ApplicationCacheService,
       {} as unknown as MediaService,
       { recordAuditEvent } as unknown as ActivityLogsService,
@@ -78,7 +100,10 @@ describe('TeachersService administrative actions', () => {
 
     // `mapToProfileWithDetails` is not under test here.
     jest
-      .spyOn(service as unknown as { mapToProfileWithDetails: () => unknown }, 'mapToProfileWithDetails')
+      .spyOn(
+        service as unknown as { mapToProfileWithDetails: () => unknown },
+        'mapToProfileWithDetails',
+      )
       .mockResolvedValue({});
 
     return {
@@ -203,9 +228,9 @@ describe('TeachersService administrative actions', () => {
       already.user.status = UserStatus.APPROVED;
       const { service, recordAuditEvent } = build({ found: already });
 
-      await expect(service.approveTeacher('profile-1', undefined, 'admin-9')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
+      await expect(
+        service.approveTeacher('profile-1', undefined, 'admin-9'),
+      ).rejects.toBeInstanceOf(ConflictException);
       expect(recordAuditEvent).not.toHaveBeenCalled();
     });
   });
@@ -214,7 +239,12 @@ describe('TeachersService administrative actions', () => {
     it('records the rejection reason in the audit trail', async () => {
       const { service, recordAuditEvent } = build();
 
-      await service.rejectTeacher('profile-1', { reason: 'Invalid credentials' }, 'admin-9', '10.0.0.2');
+      await service.rejectTeacher(
+        'profile-1',
+        { reason: 'Invalid credentials' },
+        'admin-9',
+        '10.0.0.2',
+      );
 
       expect(recordAuditEvent).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
@@ -33,7 +32,11 @@ import {
   UpdateTeacherProfileDto,
   toPublicTeacherResponse,
 } from './dto';
-import { CertificateEntry, EducationEntry, TeacherProfile } from './entities/teacher-profile.entity';
+import {
+  CertificateEntry,
+  EducationEntry,
+  TeacherProfile,
+} from './entities/teacher-profile.entity';
 
 /**
  * Response type for teacher profile with user info and subjects
@@ -143,7 +146,11 @@ export class TeachersService {
    * changes immediately (the analytics service caches it for 5 minutes).
    */
   private async invalidateAdminDashboard(): Promise<void> {
-    await this.applicationCache.invalidate(['admin_dashboard', 'teacher_dashboard', 'teacher_report']);
+    await this.applicationCache.invalidate([
+      'admin_dashboard',
+      'teacher_dashboard',
+      'teacher_report',
+    ]);
   }
 
   /**
@@ -274,11 +281,17 @@ export class TeachersService {
       queryBuilder.andWhere('user.status = :status', { status });
     }
 
-    // Search by name or email
+    // Search by name or email. `first_name`/`last_name` are only populated
+    // for admin-created accounts — every self-registered teacher (the normal
+    // /auth/register path) only ever has `user.name` set, so a search on
+    // first/last name alone silently excludes every pending self-registered
+    // teacher even though the row exists and is visible in the unfiltered
+    // list. Matching on `name` too keeps that path searchable.
     if (search !== undefined && search !== '') {
       queryBuilder.andWhere(
         `(user.first_name ILIKE :search
           OR user.last_name ILIKE :search
+          OR user.name ILIKE :search
           OR user.email ILIKE :search
           OR user.username ILIKE :search)`,
         { search: `%${search}%` },
@@ -427,9 +440,7 @@ export class TeachersService {
    * Only returns APPROVED teachers, and only the sanitized projection.
    */
   public async findApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherResponseDto> {
-    const profile = await this.publicTeacherQuery()
-      .andWhere('teacher.id = :id', { id })
-      .getOne();
+    const profile = await this.publicTeacherQuery().andWhere('teacher.id = :id', { id }).getOne();
 
     if (!profile) {
       throw new NotFoundException(
@@ -507,26 +518,54 @@ export class TeachersService {
     actorId?: string,
     ipAddress?: string,
   ): Promise<TeacherProfileWithDetails> {
-    const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: profileId },
-      relations: ['user', 'subjects'],
+    // A plain findOne()-then-save() has a check-then-act race: two concurrent
+    // approve/reject calls (a double-click, or two admins) can both read the
+    // row while status is still PENDING, both pass the conflict check below,
+    // and both write — the last save() wins silently with no error to either
+    // caller. Locking the user row for the lifetime of the transaction closes
+    // that window: the second transaction blocks until the first commits,
+    // then re-reads the now-APPROVED/REJECTED row and hits the conflict check
+    // for real, mirroring the pattern AuthService.rotateRefreshSession uses.
+    const profile = await this.dataSource.transaction(async (manager) => {
+      const teacherProfile = await manager.findOne(TeacherProfile, {
+        where: { id: profileId },
+        relations: ['subjects'],
+      });
+
+      if (!teacherProfile) {
+        throw new NotFoundException(
+          biBody(
+            `Teacher with ID ${profileId} not found`,
+            `المعلم بالمعرّف ${profileId} غير موجود`,
+          ),
+        );
+      }
+
+      const user = await manager.findOne(User, {
+        where: { id: teacherProfile.user_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!user) {
+        throw new NotFoundException(
+          biBody(
+            `Teacher with ID ${profileId} not found`,
+            `المعلم بالمعرّف ${profileId} غير موجود`,
+          ),
+        );
+      }
+
+      if (user.status === UserStatus.APPROVED) {
+        throw new ConflictException(biBody('Teacher is already approved', 'المعلم معتمد بالفعل'));
+      }
+
+      user.status = UserStatus.APPROVED;
+      user.rejection_reason = null;
+      await manager.save(User, user);
+
+      teacherProfile.user = user;
+      return teacherProfile;
     });
-
-    if (!profile) {
-      throw new NotFoundException(
-        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
-      );
-    }
-
-    if (profile.user.status === UserStatus.APPROVED) {
-      throw new ConflictException(biBody('Teacher is already approved', 'المعلم معتمد بالفعل'));
-    }
-
-    // Update user status
-    profile.user.status = UserStatus.APPROVED;
-    profile.user.rejection_reason = null;
-
-    await this.usersRepository.save(profile.user);
 
     // Approval is a reviewable administrative decision, so it is recorded in
     // `audit_logs` alongside every other admin action. The actor is optional
@@ -565,26 +604,49 @@ export class TeachersService {
     actorId?: string,
     ipAddress?: string,
   ): Promise<TeacherProfileWithDetails> {
-    const profile = await this.teacherProfilesRepository.findOne({
-      where: { id: profileId },
-      relations: ['user', 'subjects'],
+    // Same TOCTOU concern as approveTeacher — lock the user row for the
+    // transaction so a concurrent approve/reject on the same profile can't
+    // both win silently.
+    const profile = await this.dataSource.transaction(async (manager) => {
+      const teacherProfile = await manager.findOne(TeacherProfile, {
+        where: { id: profileId },
+        relations: ['subjects'],
+      });
+
+      if (!teacherProfile) {
+        throw new NotFoundException(
+          biBody(
+            `Teacher with ID ${profileId} not found`,
+            `المعلم بالمعرّف ${profileId} غير موجود`,
+          ),
+        );
+      }
+
+      const user = await manager.findOne(User, {
+        where: { id: teacherProfile.user_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!user) {
+        throw new NotFoundException(
+          biBody(
+            `Teacher with ID ${profileId} not found`,
+            `المعلم بالمعرّف ${profileId} غير موجود`,
+          ),
+        );
+      }
+
+      if (user.status === UserStatus.REJECTED) {
+        throw new ConflictException(biBody('Teacher is already rejected', 'المعلم مرفوض بالفعل'));
+      }
+
+      user.status = UserStatus.REJECTED;
+      user.rejection_reason = dto.reason;
+      await manager.save(User, user);
+
+      teacherProfile.user = user;
+      return teacherProfile;
     });
-
-    if (!profile) {
-      throw new NotFoundException(
-        biBody(`Teacher with ID ${profileId} not found`, `المعلم بالمعرّف ${profileId} غير موجود`),
-      );
-    }
-
-    if (profile.user.status === UserStatus.REJECTED) {
-      throw new ConflictException(biBody('Teacher is already rejected', 'المعلم مرفوض بالفعل'));
-    }
-
-    // Update user status with rejection reason
-    profile.user.status = UserStatus.REJECTED;
-    profile.user.rejection_reason = dto.reason;
-
-    await this.usersRepository.save(profile.user);
 
     if (actorId) {
       await this.activityLogs.recordAuditEvent(

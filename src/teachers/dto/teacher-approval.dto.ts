@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ApproveTeacherDto {
   @ApiProperty({
@@ -21,6 +21,8 @@ export class RejectTeacherDto {
     example: 'Insufficient qualifications or missing documentation',
     maxLength: 1000,
   })
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(1000)
   public reason!: string;
 }

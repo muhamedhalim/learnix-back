@@ -174,6 +174,41 @@ export class StudentLessonsController {
   }
 
   /**
+   * Get all progress records for the student
+   * Returns all lessons with their watch progress
+   *
+   * Registered before `:lessonId/progress` below: NestJS/Express match routes
+   * in registration order, and a dynamic `:lessonId` segment would otherwise
+   * swallow this static `my/progress` path (with `lessonId` literally set to
+   * `"my"`), which then fails `ParseUUIDPipe` on the sibling route.
+   */
+  @Get('my/progress')
+  @ApiOperation({
+    summary: 'Get all lesson progress',
+    description: 'Returns all lessons with their watch progress for the current student.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Array of progress records',
+    type: AllProgressResponseDto,
+  })
+  public async getAllProgress(@Request() req: UserRequest): Promise<AllProgressResponseDto> {
+    const userId = req.user?.userId;
+    if (userId === undefined || userId === '') {
+      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
+    }
+
+    const progressRecords = await this.progressService.getAllProgress(userId);
+    const visibleRecords = await Promise.all(
+      progressRecords.map(async (record) =>
+        (await this.paymentsService.hasLessonPlaybackAccess(userId, record.lessonId)) ? record : null,
+      ),
+    );
+
+    return { data: visibleRecords.filter((record) => record !== null) };
+  }
+
+  /**
    * Get progress for a specific lesson
    * Returns the student's watch progress or null if no progress exists
    */
@@ -209,35 +244,5 @@ export class StudentLessonsController {
     const progress = await this.progressService.getProgress(userId, lessonId);
 
     return { data: progress };
-  }
-
-  /**
-   * Get all progress records for the student
-   * Returns all lessons with their watch progress
-   */
-  @Get('my/progress')
-  @ApiOperation({
-    summary: 'Get all lesson progress',
-    description: 'Returns all lessons with their watch progress for the current student.',
-  })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Array of progress records',
-    type: AllProgressResponseDto,
-  })
-  public async getAllProgress(@Request() req: UserRequest): Promise<AllProgressResponseDto> {
-    const userId = req.user?.userId;
-    if (userId === undefined || userId === '') {
-      throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
-    }
-
-    const progressRecords = await this.progressService.getAllProgress(userId);
-    const visibleRecords = await Promise.all(
-      progressRecords.map(async (record) =>
-        (await this.paymentsService.hasLessonPlaybackAccess(userId, record.lessonId)) ? record : null,
-      ),
-    );
-
-    return { data: visibleRecords.filter((record) => record !== null) };
   }
 }

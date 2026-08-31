@@ -21,6 +21,19 @@ function validStudent(overrides: Partial<RegisterDto> = {}): Record<string, unkn
   };
 }
 
+function validTeacher(overrides: Partial<RegisterDto> = {}): Record<string, unknown> {
+  return {
+    name: 'Test Teacher',
+    email: 'teacher@example.com',
+    password: 'S3curePass',
+    phone: '01000000000',
+    requestedRole: UserRole.TEACHER,
+    qualifications: 'B.Ed in Mathematics',
+    yearsOfExperience: 3,
+    ...overrides,
+  };
+}
+
 async function errorsFor(payload: Record<string, unknown>): Promise<string[]> {
   const dto = plainToInstance(RegisterDto, payload);
   const errors = await validate(dto);
@@ -56,5 +69,33 @@ describe('RegisterDto validation (SEC-11 hardening)', () => {
 
   it('accepts an 8-character password (frontend-aligned minimum)', async () => {
     expect(await errorsFor(validStudent({ password: '12345678' }))).toEqual([]);
+  });
+
+  it('accepts a well-formed teacher registration', async () => {
+    expect(await errorsFor(validTeacher())).toEqual([]);
+  });
+
+  it('rejects a teacher registration missing qualifications', async () => {
+    const payload = validTeacher();
+    delete payload['qualifications'];
+    expect(await errorsFor(payload)).toContain('qualifications');
+  });
+
+  it('rejects a teacher registration with empty qualifications', async () => {
+    expect(await errorsFor(validTeacher({ qualifications: '' }))).toContain('qualifications');
+  });
+
+  it('rejects a teacher registration missing yearsOfExperience', async () => {
+    const payload = validTeacher();
+    delete payload['yearsOfExperience'];
+    expect(await errorsFor(payload)).toContain('yearsOfExperience');
+  });
+
+  it('rejects a teacher registration with a negative yearsOfExperience', async () => {
+    expect(await errorsFor(validTeacher({ yearsOfExperience: -1 }))).toContain('yearsOfExperience');
+  });
+
+  it('does not require qualifications/yearsOfExperience for a student registration', async () => {
+    expect(await errorsFor(validStudent())).toEqual([]);
   });
 });
