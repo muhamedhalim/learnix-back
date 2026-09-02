@@ -2,17 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  Index,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
-import { minorUnitsTransformer } from '../money.util';
 import { CollectionParty } from './collection-party.enum';
 import { ManualPaymentMethodType } from './manual-payment-method-type.enum';
 
 @Entity('manual_payment_methods')
-@Index('IDX_manual_payment_methods_enabled_order', ['enabled', 'display_order'])
 export class ManualPaymentMethod {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -29,9 +26,6 @@ export class ManualPaymentMethod {
 
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
-
-  @Column({ type: 'int', default: 0, name: 'display_order' })
-  display_order!: number;
 
   @Column({ type: 'varchar', length: 160, name: 'recipient_name' })
   recipient_name!: string;
@@ -59,27 +53,8 @@ export class ManualPaymentMethod {
   @Column({ type: 'varchar', length: 500, nullable: true, name: 'qr_file_key' })
   qr_file_key!: string | null;
 
-  @Column({
-    type: 'bigint',
-    nullable: true,
-    name: 'minimum_amount_minor',
-    transformer: minorUnitsTransformer,
-  })
-  minimum_amount_minor!: number | null;
-
-  @Column({
-    type: 'bigint',
-    nullable: true,
-    name: 'maximum_amount_minor',
-    transformer: minorUnitsTransformer,
-  })
-  maximum_amount_minor!: number | null;
-
   @Column({ type: 'char', length: 3, default: 'EGP' })
   currency!: string;
-
-  @Column({ type: 'int', default: 1440, name: 'order_expiration_minutes' })
-  order_expiration_minutes!: number;
 
   @Column({ type: 'boolean', default: true, name: 'proof_required' })
   proof_required!: boolean;

@@ -12,7 +12,6 @@ import {
   IsString,
   IsUUID,
   Length,
-  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -120,13 +119,6 @@ export class CreateManualPaymentMethodDto {
   @IsBoolean()
   public enabled?: boolean;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(10_000)
-  public display_order?: number;
-
   @IsString()
   @Length(2, 160)
   public recipient_name!: string;
@@ -138,28 +130,9 @@ export class CreateManualPaymentMethodDto {
   @Length(2, 5000)
   public instructions!: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  public minimum_amount_minor?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  public maximum_amount_minor?: number;
-
   @IsString()
   @Length(3, 3)
   public currency = 'EGP';
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(5)
-  @Max(43_200)
-  public order_expiration_minutes?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -199,13 +172,6 @@ export class UpdateManualPaymentMethodDto {
   public enabled?: boolean;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(10_000)
-  public display_order?: number;
-
-  @IsOptional()
   @IsString()
   @Length(2, 160)
   public recipient_name?: string;
@@ -220,28 +186,9 @@ export class UpdateManualPaymentMethodDto {
   public instructions?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  public minimum_amount_minor?: number | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  public maximum_amount_minor?: number | null;
-
-  @IsOptional()
   @IsString()
   @Length(3, 3)
   public currency?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(5)
-  @Max(43_200)
-  public order_expiration_minutes?: number;
 
   @IsOptional()
   @IsBoolean()

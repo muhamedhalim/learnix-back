@@ -3,7 +3,6 @@ import {
   normalizeManualPaymentConfiguration,
   serializeManualPaymentMethodForStudent,
 } from './manual-payment-method-configuration';
-import { ManualPaymentsService } from './services/manual-payments.service';
 
 describe('manual payment method configuration', () => {
   it.each([
@@ -60,15 +59,5 @@ describe('manual payment method configuration', () => {
     expect(response).not.toHaveProperty('destination_details');
     expect(response).not.toHaveProperty('internal_notes');
     expect(response).not.toHaveProperty('name_ar');
-  });
-
-  it('enforces integer minor-unit limit ordering in the backend service', () => {
-    const service = ManualPaymentsService.prototype as unknown as {
-      assertMethodLimits: (minimum?: number | null, maximum?: number | null) => void;
-    };
-    expect(() => service.assertMethodLimits(201, 200)).toThrow(
-      'Minimum amount cannot exceed maximum amount',
-    );
-    expect(() => service.assertMethodLimits(200, 200)).not.toThrow();
   });
 });

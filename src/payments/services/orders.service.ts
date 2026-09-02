@@ -80,6 +80,9 @@ interface InternalOrderPricing {
   metadata: Record<string, unknown>;
 }
 
+/** Fixed expiration window for manual-payment orders, since methods no longer configure their own. */
+const MANUAL_PAYMENT_EXPIRATION_MINUTES = 1440;
+
 export interface CheckoutQuote {
   product: {
     item_type: ItemType;
@@ -102,8 +105,6 @@ export interface CheckoutQuote {
       id: string;
       name: string;
       type: ManualPaymentMethod['type'];
-      minimum_amount_minor: number | null;
-      maximum_amount_minor: number | null;
       currency: string;
       proof_required: boolean;
       transaction_reference_required: boolean;
@@ -159,8 +160,14 @@ export class OrdersService {
     this.assertChargeable(finalAmountMinor);
     const manual = await this.manualMethods.find({
       where: { enabled: true, currency: EGP_CURRENCY },
-      order: { display_order: 'ASC', name: 'ASC' },
+      order: { name: 'ASC' },
     });
+    const manualFitsPaymentWindow =
+      !product.appointmentStartAt ||
+      this.lessonSessions.canPaymentWindowFit(
+        product.appointmentStartAt,
+        MANUAL_PAYMENT_EXPIRATION_MINUTES,
+      );
     return {
       product: {
         item_type: product.itemType,
@@ -179,26 +186,14 @@ export class OrdersService {
       },
       channels: {
         activation_code: product.itemType !== ItemType.LESSON_SESSION,
-        manual: manual
-          .filter(
-            (method) =>
-              this.withinLimits(method, finalAmountMinor) &&
-              (!product.appointmentStartAt ||
-                this.lessonSessions.canPaymentWindowFit(
-                  product.appointmentStartAt,
-                  method.order_expiration_minutes,
-                )),
-          )
-          .map((method) => ({
-            id: method.id,
-            name: method.name,
-            type: method.type,
-            minimum_amount_minor: method.minimum_amount_minor,
-            maximum_amount_minor: method.maximum_amount_minor,
-            currency: method.currency,
-            proof_required: method.proof_required,
-            transaction_reference_required: method.transaction_reference_required,
-          })),
+        manual: (manualFitsPaymentWindow ? manual : []).map((method) => ({
+          id: method.id,
+          name: method.name,
+          type: method.type,
+          currency: method.currency,
+          proof_required: method.proof_required,
+          transaction_reference_required: method.transaction_reference_required,
+        })),
         gateway: this.providers
           .list()
           .filter(
@@ -303,11 +298,7 @@ export class OrdersService {
           enabled: true,
         },
       });
-      if (
-        !method ||
-        method.currency !== EGP_CURRENCY ||
-        !this.withinLimits(method, finalAmountMinor)
-      ) {
+      if (!method || method.currency !== EGP_CURRENCY) {
         throw new BadRequestException(
           biBody(
             'Manual payment method is unavailable for this order',
@@ -331,9 +322,9 @@ export class OrdersService {
       return await retryTransaction(this.dataSource, async (manager) => {
         await this.assertNoActiveOrder(manager, studentId, dto.item_type, dto.item_id);
         const now = new Date();
-        const normalExpiresAt = new Date(
-          now.getTime() + (method?.order_expiration_minutes ?? 60) * 60 * 1000,
-        );
+        const expirationMinutes =
+          dto.payment_channel === PaymentChannel.MANUAL ? MANUAL_PAYMENT_EXPIRATION_MINUTES : 60;
+        const normalExpiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
         const expiresAt = product.appointmentStartAt
           ? new Date(
               Math.min(
@@ -1080,13 +1071,6 @@ export class OrdersService {
         biBody('Order total must be greater than zero', 'يجب أن يكون إجمالي الطلب أكبر من صفر'),
       );
     }
-  }
-
-  private withinLimits(method: ManualPaymentMethod, amountMinor: number): boolean {
-    return (
-      (method.minimum_amount_minor === null || amountMinor >= method.minimum_amount_minor) &&
-      (method.maximum_amount_minor === null || amountMinor <= method.maximum_amount_minor)
-    );
   }
 
   private generateOrderNumber(): string {

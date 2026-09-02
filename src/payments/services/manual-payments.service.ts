@@ -75,7 +75,6 @@ export class ManualPaymentsService {
     dto: CreateManualPaymentMethodDto,
     adminId: string,
   ): Promise<ManualPaymentMethod> {
-    this.assertMethodLimits(dto.minimum_amount_minor, dto.maximum_amount_minor);
     const configuration = this.validateConfiguration(dto.type, dto.configuration);
     return retryTransaction(this.dataSource, async (manager) => {
       const method = manager.create(ManualPaymentMethod, {
@@ -86,10 +85,6 @@ export class ManualPaymentsService {
         instructions: dto.instructions.trim(),
         internal_notes: dto.internal_notes?.trim() || null,
         enabled: dto.enabled ?? true,
-        display_order: dto.display_order ?? 0,
-        minimum_amount_minor: dto.minimum_amount_minor ?? null,
-        maximum_amount_minor: dto.maximum_amount_minor ?? null,
-        order_expiration_minutes: dto.order_expiration_minutes ?? 1440,
         proof_required: dto.proof_required ?? true,
         transaction_reference_required: dto.transaction_reference_required ?? true,
         countries: dto.countries ?? null,
@@ -130,9 +125,6 @@ export class ManualPaymentsService {
           biBody('Manual payment method not found', 'طريقة الدفع اليدوي غير موجودة'),
         );
       }
-      const minimum = dto.minimum_amount_minor ?? method.minimum_amount_minor;
-      const maximum = dto.maximum_amount_minor ?? method.maximum_amount_minor;
-      this.assertMethodLimits(minimum, maximum);
       const type = dto.type ?? method.type;
       const configuration = this.validateConfiguration(
         type,
@@ -166,7 +158,7 @@ export class ManualPaymentsService {
   public async listMethods(includeDisabled: boolean): Promise<ManualPaymentMethod[]> {
     const query = this.methods.createQueryBuilder('method');
     if (!includeDisabled) query.where('method.enabled = true');
-    return query.orderBy('method.display_order', 'ASC').addOrderBy('method.name', 'ASC').getMany();
+    return query.orderBy('method.name', 'ASC').getMany();
   }
 
   public async submit(
@@ -937,20 +929,4 @@ export class ManualPaymentsService {
     }
   }
 
-  private assertMethodLimits(minimum?: number | null, maximum?: number | null): void {
-    if (
-      minimum !== null &&
-      minimum !== undefined &&
-      maximum !== null &&
-      maximum !== undefined &&
-      minimum > maximum
-    ) {
-      throw new BadRequestException(
-        biBody(
-          'Minimum amount cannot exceed maximum amount',
-          'لا يمكن أن يتجاوز الحد الأدنى الحد الأقصى',
-        ),
-      );
-    }
-  }
 }
