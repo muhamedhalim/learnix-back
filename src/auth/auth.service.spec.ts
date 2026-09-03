@@ -1,5 +1,6 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
@@ -72,6 +73,7 @@ describe('AuthService', () => {
   let jwtService: jest.Mocked<JwtService>;
   let configService: jest.Mocked<ConfigService>;
   let sessionsService: jest.Mocked<SessionsService>;
+  let eventEmitter: jest.Mocked<Pick<EventEmitter2, 'emit'>>;
 
   const mockUser: Partial<User> = {
     id: 'stu_123456',
@@ -207,6 +209,10 @@ describe('AuthService', () => {
           provide: DataSource,
           useValue: mockDataSource,
         },
+        {
+          provide: EventEmitter2,
+          useValue: { emit: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -216,6 +222,7 @@ describe('AuthService', () => {
     jwtService = module.get(JwtService);
     configService = module.get(ConfigService);
     sessionsService = module.get(SessionsService);
+    eventEmitter = module.get(EventEmitter2);
 
     configService.get.mockImplementation((key: string) => {
       if (key === 'BCRYPT_ROUNDS') {
@@ -321,6 +328,38 @@ describe('AuthService', () => {
         expect.objectContaining({ user_id: 'stu_789012' }),
       );
       expect(mockManager.create).not.toHaveBeenCalledWith(TeacherProfile, expect.anything());
+    });
+
+    it('notifies admins that a new instructor registration is pending approval', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+
+      await service.register(teacherRegisterDto);
+
+      expect(eventEmitter.emit).toHaveBeenCalledWith('teacher.registration_pending', {
+        userId: 'stu_789012',
+        name: teacherRegisterDto.name,
+        email: teacherRegisterDto.email.toLowerCase(),
+      });
+    });
+
+    it('does not notify admins for a routine student registration', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+
+      await service.register(studentRegisterDto);
+
+      expect(eventEmitter.emit).not.toHaveBeenCalledWith(
+        'teacher.registration_pending',
+        expect.anything(),
+      );
+    });
+
+    it('does not notify admins when the registration loses a unique-constraint race', async () => {
+      userRepository.findOne.mockResolvedValueOnce(null);
+      mockManager.save.mockRejectedValueOnce(uniqueViolation('Key (email)=(teacher@test.com)'));
+
+      await service.register(teacherRegisterDto);
+
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 

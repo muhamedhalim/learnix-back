@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsNotEmpty, IsObject, IsOptional, MaxLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
+import { AdminNotificationCategory } from '../entities/admin-notification-category.enum';
+import { NotificationPriority } from '../entities/notification-priority.enum';
 import { NotificationType } from '../entities/notification-type.enum';
 
 export class SendNotificationDto {
@@ -35,4 +37,29 @@ export class SendNotificationDto {
   })
   @IsOptional()
   public send_sms?: boolean;
+
+  @ApiPropertyOptional({
+    enum: NotificationPriority,
+    description: 'Set only for admin-facing notifications',
+  })
+  @IsOptional()
+  @IsEnum(NotificationPriority)
+  public priority?: NotificationPriority;
+
+  @ApiPropertyOptional({
+    enum: AdminNotificationCategory,
+    description: 'Set only for admin-facing notifications',
+  })
+  @IsOptional()
+  @IsEnum(AdminNotificationCategory)
+  public category?: AdminNotificationCategory;
+
+  @ApiPropertyOptional({
+    description: 'Deep link to where the recipient takes action',
+    example: '/admin/teachers?status=pending',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  public link?: string;
 }

@@ -16,10 +16,12 @@ import {
   retryTransaction,
 } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
+import { AdminNotificationEvent } from '../../notifications/constants/admin-notification-events';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
+import { AdminNotificationsService } from '../../notifications/services/admin-notifications.service';
 import {
   CreateSettlementDto,
   PaySettlementDto,
@@ -41,6 +43,7 @@ import {
   SettlementEntry,
   SettlementStatus,
 } from '../entities';
+import { fromMinorUnits } from '../money.util';
 
 interface SumRow {
   value: string | null;
@@ -82,9 +85,15 @@ export interface TeacherWalletCurrencySummary {
   outstanding_platform_receivable_minor: number;
 }
 
+/** How long an available balance may sit unsettled before admins are alerted. */
+const OVERDUE_PAYOUT_THRESHOLD_DAYS = 14;
+/** The full-table aggregate below is cheap but pointless to re-run every minute. */
+const OVERDUE_PAYOUT_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class SettlementsService {
   private readonly minimumPayoutMinor: number;
+  private lastOverduePayoutCheckAt = 0;
 
   constructor(
     @InjectRepository(Settlement)
@@ -92,6 +101,7 @@ export class SettlementsService {
     @InjectRepository(FinancialLedgerEntry)
     private readonly ledger: Repository<FinancialLedgerEntry>,
     private readonly dataSource: DataSource,
+    private readonly adminNotifications: AdminNotificationsService,
     config: ConfigService,
   ) {
     this.minimumPayoutMinor = Math.max(
@@ -112,7 +122,8 @@ export class SettlementsService {
         teacher_collected_sales_minor: string;
         outstanding_platform_receivable_minor: string;
       }>
-    >(`
+    >(
+      `
       SELECT currency,
         COALESCE(SUM(CASE WHEN account = 'teacher_payable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS pending_balance_minor,
         COALESCE(SUM(CASE WHEN account = 'teacher_payable_available' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS available_balance_minor,
@@ -122,7 +133,9 @@ export class SettlementsService {
         COALESCE(SUM(CASE WHEN account = 'platform_receivable' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END), 0)::text AS outstanding_platform_receivable_minor,
         COALESCE(SUM(CASE WHEN direction = 'credit' AND (entry_type = 'teacher_earning_pending' OR (entry_type = 'teacher_earning_available' AND reference LIKE 'order:%')) THEN amount_minor ELSE 0 END), 0)::text AS lifetime_earnings_minor
       FROM financial_ledger_entries WHERE teacher_id = $1 GROUP BY currency ORDER BY currency ASC
-    `, [teacherId]);
+    `,
+      [teacherId],
+    );
     const balances = rows.map((row) => ({
       currency: String(row.currency),
       pending_balance_minor: Number(row.pending_balance_minor ?? 0),
@@ -150,7 +163,10 @@ export class SettlementsService {
 
   public async create(dto: CreateSettlementDto, adminId: string): Promise<Settlement> {
     const idempotencyFingerprint = this.createFingerprint(dto);
-    const idempotencyKey = this.normalizedIdempotencyKey(dto.idempotency_key, idempotencyFingerprint);
+    const idempotencyKey = this.normalizedIdempotencyKey(
+      dto.idempotency_key,
+      idempotencyFingerprint,
+    );
     try {
       return await retryTransaction(
         this.dataSource,
@@ -449,263 +465,273 @@ export class SettlementsService {
     }
     try {
       return await retryTransaction(
-      this.dataSource,
-      async (manager) => {
-        await acquireTeacherFinancialLock(manager, candidate.teacher_id);
-        const settlement = await this.lock(manager, settlementId);
-        const transferReference = dto.transfer_reference.trim();
-        if (!transferReference) {
-          throw new BadRequestException(
-            biBody('Transfer reference is required', 'مرجع التحويل مطلوب'),
-          );
-        }
-        const transferMethod = dto.transfer_method?.trim() || settlement.payment_method.trim();
-        if (!transferMethod) {
-          throw new BadRequestException(
-            biBody('Transfer method is required', 'Transfer method is required'),
-          );
-        }
-        const transferDate = dto.transfer_date ? new Date(dto.transfer_date) : new Date();
-        if (Number.isNaN(transferDate.getTime())) {
-          throw new BadRequestException(biBody('Transfer date is invalid', 'Transfer date is invalid'));
-        }
-        const executionFingerprint = this.executionFingerprint(
-          settlement,
-          transferReference,
-          dto,
-          transferMethod,
-        );
-        const executionKey = this.normalizedExecutionKey(dto.idempotency_key, executionFingerprint);
-        const keyOwner = await manager.findOne(Settlement, {
-          where: { execution_idempotency_key: executionKey },
-          lock: { mode: 'pessimistic_read' },
-        });
-        if (keyOwner && keyOwner.id !== settlement.id) {
-          throw new ConflictException(
-            biBody(
-              'Execution idempotency key belongs to a different settlement',
-              'Execution idempotency key belongs to a different settlement',
-            ),
-          );
-        }
-        if (settlement.status === SettlementStatus.PAID) {
-          if (settlement.execution_fingerprint === executionFingerprint) {
-            return settlement;
+        this.dataSource,
+        async (manager) => {
+          await acquireTeacherFinancialLock(manager, candidate.teacher_id);
+          const settlement = await this.lock(manager, settlementId);
+          const transferReference = dto.transfer_reference.trim();
+          if (!transferReference) {
+            throw new BadRequestException(
+              biBody('Transfer reference is required', 'مرجع التحويل مطلوب'),
+            );
           }
-          // Historical executions predate the fingerprint. Preserve their API
-          // replay behaviour only when every mutable request property matches.
-          if (
-            !dto.idempotency_key &&
-            settlement.execution_idempotency_key?.startsWith('legacy-execution:') &&
-            settlement.transfer_reference &&
-            this.normalizedTransferReference(settlement.transfer_reference) ===
-              this.normalizedTransferReference(transferReference) &&
-            (settlement.notes?.trim() ?? '') === (dto.notes?.trim() ?? '')
-          )
-            return settlement;
-          throw new ConflictException(
-            biBody(
-              'A paid settlement cannot be overwritten with a different transfer reference',
-              'لا يمكن استبدال مرجع تحويل لتسوية مدفوعة',
-            ),
+          const transferMethod = dto.transfer_method?.trim() || settlement.payment_method.trim();
+          if (!transferMethod) {
+            throw new BadRequestException(
+              biBody('Transfer method is required', 'Transfer method is required'),
+            );
+          }
+          const transferDate = dto.transfer_date ? new Date(dto.transfer_date) : new Date();
+          if (Number.isNaN(transferDate.getTime())) {
+            throw new BadRequestException(
+              biBody('Transfer date is invalid', 'Transfer date is invalid'),
+            );
+          }
+          const executionFingerprint = this.executionFingerprint(
+            settlement,
+            transferReference,
+            dto,
+            transferMethod,
           );
-        }
-        if (settlement.status !== SettlementStatus.APPROVED) {
-          throw new ConflictException(
-            biBody('Settlement must be approved before payment', 'يجب اعتماد التسوية قبل الدفع'),
+          const executionKey = this.normalizedExecutionKey(
+            dto.idempotency_key,
+            executionFingerprint,
           );
-        }
-        if (settlement.initiated_by === adminId || settlement.approved_by === adminId) {
-          throw new ConflictException(
-            biBody(
-              'Settlement creator or approver cannot disburse the same settlement',
-              'Settlement creator or approver cannot disburse the same settlement',
-            ),
-          );
-        }
-        const memberOrders = await manager
-          .getRepository(SettlementEntry)
-          .createQueryBuilder('membership')
-          .innerJoin(FinancialLedgerEntry, 'earning', 'earning.id = membership.ledger_entry_id')
-          .select('DISTINCT earning.order_id', 'order_id')
-          .where('membership.settlement_id = :settlementId', {
-            settlementId: settlement.id,
-          })
-          .getRawMany<{ order_id: string }>();
-        for (const orderId of memberOrders.map((row) => row.order_id).sort()) {
-          await manager.findOne(Order, {
-            where: { id: orderId },
-            lock: { mode: 'pessimistic_write' },
+          const keyOwner = await manager.findOne(Settlement, {
+            where: { execution_idempotency_key: executionKey },
+            lock: { mode: 'pessimistic_read' },
           });
-        }
-        const reversedMembers = await manager
-          .getRepository(SettlementEntry)
-          .createQueryBuilder('membership')
-          .innerJoin(FinancialLedgerEntry, 'earning', 'earning.id = membership.ledger_entry_id')
-          .innerJoin(
-            FinancialLedgerEntry,
-            'reversal',
-            'reversal.order_id = earning.order_id AND reversal.entry_type = :reversalType',
-            { reversalType: LedgerEntryType.TEACHER_EARNING_REVERSAL },
-          )
-          .where('membership.settlement_id = :settlementId', {
-            settlementId: settlement.id,
-          })
-          .getCount();
-        if (reversedMembers > 0) {
-          throw new ConflictException(
-            biBody(
-              'Settlement includes earnings reversed by a refund and must be recreated',
-              'تتضمن التسوية أرباحاً تم عكسها بسبب استرداد ويجب إعادة إنشائها',
-            ),
+          if (keyOwner && keyOwner.id !== settlement.id) {
+            throw new ConflictException(
+              biBody(
+                'Execution idempotency key belongs to a different settlement',
+                'Execution idempotency key belongs to a different settlement',
+              ),
+            );
+          }
+          if (settlement.status === SettlementStatus.PAID) {
+            if (settlement.execution_fingerprint === executionFingerprint) {
+              return settlement;
+            }
+            // Historical executions predate the fingerprint. Preserve their API
+            // replay behaviour only when every mutable request property matches.
+            if (
+              !dto.idempotency_key &&
+              settlement.execution_idempotency_key?.startsWith('legacy-execution:') &&
+              settlement.transfer_reference &&
+              this.normalizedTransferReference(settlement.transfer_reference) ===
+                this.normalizedTransferReference(transferReference) &&
+              (settlement.notes?.trim() ?? '') === (dto.notes?.trim() ?? '')
+            )
+              return settlement;
+            throw new ConflictException(
+              biBody(
+                'A paid settlement cannot be overwritten with a different transfer reference',
+                'لا يمكن استبدال مرجع تحويل لتسوية مدفوعة',
+              ),
+            );
+          }
+          if (settlement.status !== SettlementStatus.APPROVED) {
+            throw new ConflictException(
+              biBody('Settlement must be approved before payment', 'يجب اعتماد التسوية قبل الدفع'),
+            );
+          }
+          if (settlement.initiated_by === adminId || settlement.approved_by === adminId) {
+            throw new ConflictException(
+              biBody(
+                'Settlement creator or approver cannot disburse the same settlement',
+                'Settlement creator or approver cannot disburse the same settlement',
+              ),
+            );
+          }
+          const memberOrders = await manager
+            .getRepository(SettlementEntry)
+            .createQueryBuilder('membership')
+            .innerJoin(FinancialLedgerEntry, 'earning', 'earning.id = membership.ledger_entry_id')
+            .select('DISTINCT earning.order_id', 'order_id')
+            .where('membership.settlement_id = :settlementId', {
+              settlementId: settlement.id,
+            })
+            .getRawMany<{ order_id: string }>();
+          for (const orderId of memberOrders.map((row) => row.order_id).sort()) {
+            await manager.findOne(Order, {
+              where: { id: orderId },
+              lock: { mode: 'pessimistic_write' },
+            });
+          }
+          const reversedMembers = await manager
+            .getRepository(SettlementEntry)
+            .createQueryBuilder('membership')
+            .innerJoin(FinancialLedgerEntry, 'earning', 'earning.id = membership.ledger_entry_id')
+            .innerJoin(
+              FinancialLedgerEntry,
+              'reversal',
+              'reversal.order_id = earning.order_id AND reversal.entry_type = :reversalType',
+              { reversalType: LedgerEntryType.TEACHER_EARNING_REVERSAL },
+            )
+            .where('membership.settlement_id = :settlementId', {
+              settlementId: settlement.id,
+            })
+            .getCount();
+          if (reversedMembers > 0) {
+            throw new ConflictException(
+              biBody(
+                'Settlement includes earnings reversed by a refund and must be recreated',
+                'تتضمن التسوية أرباحاً تم عكسها بسبب استرداد ويجب إعادة إنشائها',
+              ),
+            );
+          }
+          const payableEntries = await manager
+            .getRepository(FinancialLedgerEntry)
+            .createQueryBuilder('entry')
+            .setLock('pessimistic_write')
+            .where('entry.teacher_id = :teacherId', { teacherId: settlement.teacher_id })
+            .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
+            .andWhere('entry.currency = :currency', { currency: settlement.currency })
+            .getMany();
+          const netAvailable = payableEntries.reduce(
+            (sum, entry) =>
+              sum +
+              (entry.direction === LedgerDirection.CREDIT
+                ? entry.amount_minor
+                : -entry.amount_minor),
+            0,
           );
-        }
-        const payableEntries = await manager
-          .getRepository(FinancialLedgerEntry)
-          .createQueryBuilder('entry')
-          .setLock('pessimistic_write')
-          .where('entry.teacher_id = :teacherId', { teacherId: settlement.teacher_id })
-          .andWhere('entry.account = :account', { account: 'teacher_payable_available' })
-          .andWhere('entry.currency = :currency', { currency: settlement.currency })
-          .getMany();
-        const netAvailable = payableEntries.reduce(
-          (sum, entry) =>
-            sum +
-            (entry.direction === LedgerDirection.CREDIT ? entry.amount_minor : -entry.amount_minor),
-          0,
-        );
-        if (netAvailable < settlement.gross_amount_minor) {
-          throw new ConflictException(
-            biBody(
-              'Settlement is no longer covered by the teacher net payable balance',
-              'Settlement is no longer covered by the teacher net payable balance',
-            ),
-          );
-        }
-        const duplicateReference = await manager
-          .getRepository(Settlement)
-          .createQueryBuilder('paid_settlement')
-          .setLock('pessimistic_read')
-          .where('paid_settlement.status = :status', { status: SettlementStatus.PAID })
-          .andWhere('LOWER(BTRIM(paid_settlement.transfer_reference)) = LOWER(BTRIM(:reference))', {
-            reference: transferReference,
-          })
-          .andWhere('paid_settlement.id != :id', { id: settlement.id })
-          .getOne();
-        if (duplicateReference) {
-          throw new ConflictException(
-            biBody('Transfer reference has already been used', 'تم استخدام مرجع التحويل مسبقاً'),
-          );
-        }
-        settlement.status = SettlementStatus.PAID;
-        settlement.transfer_reference = transferReference;
-        settlement.payment_method = transferMethod;
-        settlement.execution_idempotency_key = executionKey;
-        settlement.execution_fingerprint = executionFingerprint;
-        settlement.paid_by = adminId;
-        settlement.paid_at = transferDate;
-        if (dto.notes?.trim()) settlement.notes = dto.notes.trim();
-        await manager.save(Settlement, settlement);
-        const syntheticOrderId = await this.firstOrderId(manager, settlement.id);
-        if (!syntheticOrderId) {
-          throw new ConflictException(
-            biBody('Settlement has no ledger members', 'التسوية لا تحتوي على قيود مالية'),
-          );
-        }
-        const common = {
-          order_id: syntheticOrderId,
-          payment_id: null,
-          teacher_id: settlement.teacher_id,
-          currency: settlement.currency,
-          status: LedgerEntryStatus.SETTLED,
-          available_at: settlement.paid_at,
-          source_channel: PaymentChannel.LEGACY,
-          collection_party: CollectionParty.PLATFORM,
-          settlement_id: settlement.id,
-          metadata: { transfer_reference: settlement.transfer_reference },
-        };
-        const settlementEntries: Array<Partial<FinancialLedgerEntry>> = [
-          {
-            ...common,
-            account: 'teacher_payable_available',
-            entry_type: LedgerEntryType.SETTLEMENT_LIABILITY_CLEARING,
-            amount_minor: settlement.gross_amount_minor,
-            direction: LedgerDirection.DEBIT,
-            reference: `settlement:${settlement.id}:liability`,
-          },
-          {
-            ...common,
-            account: 'platform_cash',
-            entry_type: LedgerEntryType.PAYOUT,
-            amount_minor: settlement.payout_amount_minor,
-            direction: LedgerDirection.CREDIT,
-            reference: `settlement:${settlement.id}:payout`,
-          },
-        ];
-        if (settlement.deductions_minor > 0) {
-          settlementEntries.push({
-            ...common,
-            account: 'platform_revenue',
-            entry_type: LedgerEntryType.SETTLEMENT_DEDUCTION,
-            amount_minor: settlement.deductions_minor,
-            direction: LedgerDirection.CREDIT,
-            reference: `settlement:${settlement.id}:deduction`,
-          });
-        }
-        if (settlement.receivable_offset_minor > 0) {
-          settlementEntries.push(
-            {
-              ...common,
-              account: 'settlement_offset_clearing',
-              entry_type: LedgerEntryType.SETTLEMENT_OFFSET_CLEARING,
-              amount_minor: settlement.receivable_offset_minor,
-              direction: LedgerDirection.CREDIT,
-              reference: `settlement:${settlement.id}:offset-destination`,
-            },
-            {
-              ...common,
-              account: 'platform_receivable',
-              entry_type: LedgerEntryType.RECEIVABLE_SETTLEMENT,
-              amount_minor: settlement.receivable_offset_minor,
-              direction: LedgerDirection.DEBIT,
-              reference: `settlement:${settlement.id}:receivable-offset`,
-            },
-            {
-              ...common,
-              account: 'settlement_offset_clearing',
-              entry_type: LedgerEntryType.SETTLEMENT_OFFSET_CLEARING,
-              amount_minor: settlement.receivable_offset_minor,
-              direction: LedgerDirection.CREDIT,
-              reference: `settlement:${settlement.id}:receivable-clearing`,
-            },
-          );
-        }
-        await manager.insert(FinancialLedgerEntry, settlementEntries as never);
-        await this.audit(manager, adminId, 'settlement_paid', settlement, {
-          transfer_reference: settlement.transfer_reference,
-          transfer_method: settlement.payment_method,
-          transfer_date: settlement.paid_at.toISOString(),
-          execution_idempotency_key: executionKey,
-        });
-        await this.event(manager, 'settlement.completed', `settlement:${settlement.id}:paid`, {
-          settlement_id: settlement.id,
-          teacher_id: settlement.teacher_id,
-          payout_amount_minor: settlement.payout_amount_minor,
-        });
-        await this.notify(
-          manager,
-          settlement.teacher_id,
-          `settlement:${settlement.id}:teacher-paid`,
-          'Settlement paid',
-          `Settlement ${settlement.settlement_number} was paid.`,
-          {
-            settlement_id: settlement.id,
-            payout_amount_minor: settlement.payout_amount_minor,
+          if (netAvailable < settlement.gross_amount_minor) {
+            throw new ConflictException(
+              biBody(
+                'Settlement is no longer covered by the teacher net payable balance',
+                'Settlement is no longer covered by the teacher net payable balance',
+              ),
+            );
+          }
+          const duplicateReference = await manager
+            .getRepository(Settlement)
+            .createQueryBuilder('paid_settlement')
+            .setLock('pessimistic_read')
+            .where('paid_settlement.status = :status', { status: SettlementStatus.PAID })
+            .andWhere(
+              'LOWER(BTRIM(paid_settlement.transfer_reference)) = LOWER(BTRIM(:reference))',
+              {
+                reference: transferReference,
+              },
+            )
+            .andWhere('paid_settlement.id != :id', { id: settlement.id })
+            .getOne();
+          if (duplicateReference) {
+            throw new ConflictException(
+              biBody('Transfer reference has already been used', 'تم استخدام مرجع التحويل مسبقاً'),
+            );
+          }
+          settlement.status = SettlementStatus.PAID;
+          settlement.transfer_reference = transferReference;
+          settlement.payment_method = transferMethod;
+          settlement.execution_idempotency_key = executionKey;
+          settlement.execution_fingerprint = executionFingerprint;
+          settlement.paid_by = adminId;
+          settlement.paid_at = transferDate;
+          if (dto.notes?.trim()) settlement.notes = dto.notes.trim();
+          await manager.save(Settlement, settlement);
+          const syntheticOrderId = await this.firstOrderId(manager, settlement.id);
+          if (!syntheticOrderId) {
+            throw new ConflictException(
+              biBody('Settlement has no ledger members', 'التسوية لا تحتوي على قيود مالية'),
+            );
+          }
+          const common = {
+            order_id: syntheticOrderId,
+            payment_id: null,
+            teacher_id: settlement.teacher_id,
             currency: settlement.currency,
-          },
-        );
-        return settlement;
-      },
+            status: LedgerEntryStatus.SETTLED,
+            available_at: settlement.paid_at,
+            source_channel: PaymentChannel.LEGACY,
+            collection_party: CollectionParty.PLATFORM,
+            settlement_id: settlement.id,
+            metadata: { transfer_reference: settlement.transfer_reference },
+          };
+          const settlementEntries: Array<Partial<FinancialLedgerEntry>> = [
+            {
+              ...common,
+              account: 'teacher_payable_available',
+              entry_type: LedgerEntryType.SETTLEMENT_LIABILITY_CLEARING,
+              amount_minor: settlement.gross_amount_minor,
+              direction: LedgerDirection.DEBIT,
+              reference: `settlement:${settlement.id}:liability`,
+            },
+            {
+              ...common,
+              account: 'platform_cash',
+              entry_type: LedgerEntryType.PAYOUT,
+              amount_minor: settlement.payout_amount_minor,
+              direction: LedgerDirection.CREDIT,
+              reference: `settlement:${settlement.id}:payout`,
+            },
+          ];
+          if (settlement.deductions_minor > 0) {
+            settlementEntries.push({
+              ...common,
+              account: 'platform_revenue',
+              entry_type: LedgerEntryType.SETTLEMENT_DEDUCTION,
+              amount_minor: settlement.deductions_minor,
+              direction: LedgerDirection.CREDIT,
+              reference: `settlement:${settlement.id}:deduction`,
+            });
+          }
+          if (settlement.receivable_offset_minor > 0) {
+            settlementEntries.push(
+              {
+                ...common,
+                account: 'settlement_offset_clearing',
+                entry_type: LedgerEntryType.SETTLEMENT_OFFSET_CLEARING,
+                amount_minor: settlement.receivable_offset_minor,
+                direction: LedgerDirection.CREDIT,
+                reference: `settlement:${settlement.id}:offset-destination`,
+              },
+              {
+                ...common,
+                account: 'platform_receivable',
+                entry_type: LedgerEntryType.RECEIVABLE_SETTLEMENT,
+                amount_minor: settlement.receivable_offset_minor,
+                direction: LedgerDirection.DEBIT,
+                reference: `settlement:${settlement.id}:receivable-offset`,
+              },
+              {
+                ...common,
+                account: 'settlement_offset_clearing',
+                entry_type: LedgerEntryType.SETTLEMENT_OFFSET_CLEARING,
+                amount_minor: settlement.receivable_offset_minor,
+                direction: LedgerDirection.CREDIT,
+                reference: `settlement:${settlement.id}:receivable-clearing`,
+              },
+            );
+          }
+          await manager.insert(FinancialLedgerEntry, settlementEntries as never);
+          await this.audit(manager, adminId, 'settlement_paid', settlement, {
+            transfer_reference: settlement.transfer_reference,
+            transfer_method: settlement.payment_method,
+            transfer_date: settlement.paid_at.toISOString(),
+            execution_idempotency_key: executionKey,
+          });
+          await this.event(manager, 'settlement.completed', `settlement:${settlement.id}:paid`, {
+            settlement_id: settlement.id,
+            teacher_id: settlement.teacher_id,
+            payout_amount_minor: settlement.payout_amount_minor,
+          });
+          await this.notify(
+            manager,
+            settlement.teacher_id,
+            `settlement:${settlement.id}:teacher-paid`,
+            'Settlement paid',
+            `Settlement ${settlement.settlement_number} was paid.`,
+            {
+              settlement_id: settlement.id,
+              payout_amount_minor: settlement.payout_amount_minor,
+              currency: settlement.currency,
+            },
+          );
+          return settlement;
+        },
         { isolationLevel: 'SERIALIZABLE' },
       );
     } catch (error) {
@@ -724,9 +750,13 @@ export class SettlementsService {
     if (teacherId) query.where('settlement.teacher_id = :teacherId', { teacherId });
     if (filter.status) query.andWhere('settlement.status = :status', { status: filter.status });
     if (filter.currency)
-      query.andWhere('settlement.currency = :currency', { currency: filter.currency.toUpperCase() });
+      query.andWhere('settlement.currency = :currency', {
+        currency: filter.currency.toUpperCase(),
+      });
     if (filter.fiscal_period)
-      query.andWhere('settlement.fiscal_period = :fiscalPeriod', { fiscalPeriod: filter.fiscal_period });
+      query.andWhere('settlement.fiscal_period = :fiscalPeriod', {
+        fiscalPeriod: filter.fiscal_period,
+      });
     if (filter.search) {
       query.andWhere(
         `(settlement.settlement_number ILIKE :search OR settlement.transfer_reference ILIKE :search OR settlement.teacher_id::text ILIKE :search)`,
@@ -753,19 +783,25 @@ export class SettlementsService {
   }
 
   /** Admin/teacher settlement inspection projection; ledger and audit evidence is read-only. */
-  public async details(settlementId: string, forcedTeacherId?: string): Promise<Record<string, unknown>> {
+  public async details(
+    settlementId: string,
+    forcedTeacherId?: string,
+  ): Promise<Record<string, unknown>> {
     const settlement = await this.settlements.findOne({ where: { id: settlementId } });
     if (!settlement || (forcedTeacherId && settlement.teacher_id !== forcedTeacherId)) {
       throw new NotFoundException(biBody('Settlement not found', 'Settlement not found'));
     }
-    const allocations = await this.dataSource.query(`
+    const allocations = await this.dataSource.query(
+      `
       SELECT membership.id, membership.amount_minor, membership.created_at,
              entry.id AS ledger_entry_id, entry.order_id, entry.account, entry.entry_type,
              entry.direction, entry.currency, entry.reference, entry.status, entry.available_at
       FROM teacher_settlement_entries membership
       JOIN financial_ledger_entries entry ON entry.id = membership.ledger_entry_id
       WHERE membership.settlement_id = $1 ORDER BY membership.created_at ASC, membership.id ASC
-    `, [settlementId]);
+    `,
+      [settlementId],
+    );
     const ledgerEntries = await this.ledger.find({
       where: { settlement_id: settlementId },
       order: { created_at: 'ASC', id: 'ASC' },
@@ -778,7 +814,9 @@ export class SettlementsService {
   }
 
   /** Ledger-source balance projection used by the manual payroll queue. */
-  public async teacherBalances(filter: SettlementFilterDto): Promise<{ data: Record<string, unknown>[]; meta: PaginationMeta }> {
+  public async teacherBalances(
+    filter: SettlementFilterDto,
+  ): Promise<{ data: Record<string, unknown>[]; meta: PaginationMeta }> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
     const params: unknown[] = [];
@@ -816,7 +854,8 @@ export class SettlementsService {
       ${condition}`;
     const countRows = await this.dataSource.query(`SELECT COUNT(*)::int AS count ${base}`, params);
     const paginationParams = [...params, limit, (page - 1) * limit];
-    const rows = await this.dataSource.query(`
+    const rows = await this.dataSource.query(
+      `
       SELECT user_record.id AS teacher_id, user_record.name AS teacher_name, user_record.email AS teacher_email,
         balance.currency, balance.pending_minor::text AS pending_minor,
         GREATEST(balance.ledger_available_minor - COALESCE(reserved.reserved_minor, 0), 0)::text AS available_minor,
@@ -824,12 +863,97 @@ export class SettlementsService {
         COALESCE(paid.paid_minor, 0)::text AS paid_minor
       ${base}
       ORDER BY user_record.name ASC, balance.currency ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `, paginationParams);
+    `,
+      paginationParams,
+    );
     const total = Number(countRows[0]?.count ?? 0);
     return {
       data: rows,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit), hasNextPage: page * limit < total, hasPrevPage: page > 1 },
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
     };
+  }
+
+  /**
+   * Alert admins about teachers whose available (unpaid) balance has been
+   * sitting for longer than `OVERDUE_PAYOUT_THRESHOLD_DAYS` with no
+   * settlement created for it yet. A courtesy in-process gate skips the
+   * (cheap, but pointless-to-repeat) full-table aggregate unless it has been
+   * at least a day since the last check — safe even across multiple
+   * instances, since the day-scoped dedupe key below makes the notification
+   * itself idempotent regardless of how many instances happen to run it.
+   *
+   * Returns the number of teacher/currency balances flagged, for the
+   * maintenance-cycle log.
+   */
+  public async notifyOverduePayouts(): Promise<number> {
+    if (Date.now() - this.lastOverduePayoutCheckAt < OVERDUE_PAYOUT_CHECK_INTERVAL_MS) {
+      return 0;
+    }
+    this.lastOverduePayoutCheckAt = Date.now();
+
+    const rows = await this.dataSource.query<
+      Array<{
+        teacher_id: string;
+        teacher_name: string;
+        currency: string;
+        available_minor: string;
+        oldest_available_at: Date;
+      }>
+    >(
+      `
+      SELECT user_record.id AS teacher_id, user_record.name AS teacher_name, balance.currency,
+        GREATEST(balance.ledger_available_minor - COALESCE(reserved.reserved_minor, 0), 0)::text AS available_minor,
+        balance.oldest_available_at
+      FROM (
+        SELECT teacher_id, currency,
+          SUM(CASE WHEN account = 'teacher_payable_available' THEN CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END ELSE 0 END) AS ledger_available_minor,
+          MIN(available_at) FILTER (WHERE account = 'teacher_payable_available') AS oldest_available_at
+        FROM financial_ledger_entries
+        WHERE teacher_id IS NOT NULL
+        GROUP BY teacher_id, currency
+      ) balance
+      JOIN users user_record ON user_record.id = balance.teacher_id
+      LEFT JOIN (
+        SELECT settlement.teacher_id, settlement.currency, SUM(membership.amount_minor) AS reserved_minor
+        FROM teacher_settlements settlement
+        JOIN teacher_settlement_entries membership ON membership.settlement_id = settlement.id
+        WHERE settlement.status IN ('draft', 'approved')
+        GROUP BY settlement.teacher_id, settlement.currency
+      ) reserved ON reserved.teacher_id = balance.teacher_id AND reserved.currency = balance.currency
+      WHERE balance.oldest_available_at IS NOT NULL
+        AND balance.oldest_available_at <= NOW() - ($1 || ' days')::interval
+      `,
+      [OVERDUE_PAYOUT_THRESHOLD_DAYS],
+    );
+
+    const dayKey = new Date().toISOString().slice(0, 10);
+    let flagged = 0;
+    for (const row of rows) {
+      const availableMinor = Number(row.available_minor);
+      if (!Number.isSafeInteger(availableMinor) || availableMinor < this.minimumPayoutMinor) {
+        continue;
+      }
+      flagged += 1;
+      await this.adminNotifications.notifyAdmins(AdminNotificationEvent.PAYOUT_DUE, {
+        title: 'Instructor payout due',
+        message: `${row.teacher_name} has an unpaid available balance of ${fromMinorUnits(availableMinor).toFixed(2)} ${row.currency}, pending settlement for over ${OVERDUE_PAYOUT_THRESHOLD_DAYS} days.`,
+        link: '/admin/finance/settlements',
+        data: {
+          teacher_id: row.teacher_id,
+          currency: row.currency,
+          available_minor: availableMinor,
+        },
+        dedupeKey: `${row.teacher_id}:${row.currency}:${dayKey}`,
+      });
+    }
+    return flagged;
   }
 
   /**
@@ -1045,7 +1169,9 @@ export class SettlementsService {
   private fiscalPeriod(value?: string): string {
     const period = value?.trim() || new Date().toISOString().slice(0, 7);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
-      throw new BadRequestException(biBody('Fiscal period must be YYYY-MM', 'Fiscal period must be YYYY-MM'));
+      throw new BadRequestException(
+        biBody('Fiscal period must be YYYY-MM', 'Fiscal period must be YYYY-MM'),
+      );
     }
     return period;
   }

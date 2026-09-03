@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -162,6 +163,7 @@ export class PackagesService {
     private readonly productFinancialMetrics: ProductFinancialMetricsService,
     private readonly learningMetrics: LearningMetricsService,
     private readonly reviewsService: ReviewsService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -516,10 +518,7 @@ export class PackagesService {
    * Must be called as the first statement inside the same transaction that
    * performs the `LessonPackageItem` mutation.
    */
-  private async ensureOpenVersionForEdit(
-    manager: EntityManager,
-    packageId: string,
-  ): Promise<void> {
+  private async ensureOpenVersionForEdit(manager: EntityManager, packageId: string): Promise<void> {
     const pkg = await manager.findOne(LessonPackage, {
       where: { id: packageId },
       lock: { mode: 'pessimistic_write' },
@@ -549,11 +548,7 @@ export class PackagesService {
         locked_at: null,
       }),
     );
-    await manager.update(
-      LessonPackage,
-      { id: packageId },
-      { current_version_id: rolledOver.id },
-    );
+    await manager.update(LessonPackage, { id: packageId }, { current_version_id: rolledOver.id });
   }
 
   /**
@@ -1064,13 +1059,21 @@ export class PackagesService {
     status: CourseStatus,
   ): Promise<PackageWithDetails> {
     const pkg = await this.assertOwnership(packageId, teacherId);
+    const isNewlyPublished = status === CourseStatus.PUBLISHED && pkg.published_at === null;
     pkg.status = status;
     // Keep the legacy is_active flag consistent with the new status.
     pkg.is_active = status === CourseStatus.PUBLISHED;
-    if (status === CourseStatus.PUBLISHED && pkg.published_at === null) {
+    if (isNewlyPublished) {
       pkg.published_at = new Date();
     }
     await this.packagesRepository.save(pkg);
+    if (isNewlyPublished) {
+      this.eventEmitter.emit('package.published', {
+        packageId: pkg.id,
+        title: pkg.title,
+        teacherId: pkg.teacher_id,
+      });
+    }
     return this.findOne(packageId);
   }
 
@@ -1094,6 +1097,11 @@ export class PackagesService {
       pkg.published_at = new Date();
       pkg.scheduled_publish_at = null;
       await this.packagesRepository.save(pkg);
+      this.eventEmitter.emit('package.published', {
+        packageId: pkg.id,
+        title: pkg.title,
+        teacherId: pkg.teacher_id,
+      });
       this.logger.log(`Scheduled course ${pkg.id} auto-published`);
     }
   }

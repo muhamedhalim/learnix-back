@@ -1,24 +1,22 @@
 import type { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import type { Repository } from 'typeorm';
 
 import type { MailService } from '../mail/mail.service';
-import type { NotificationsService } from '../notifications/services/notifications.service';
-import type { User } from '../users/entities/user.entity';
+import { AdminNotificationEvent } from '../notifications/constants/admin-notification-events';
+import { AdminNotificationCategory } from '../notifications/entities/admin-notification-category.enum';
+import { NotificationPriority } from '../notifications/entities/notification-priority.enum';
+import type { AdminNotificationsService } from '../notifications/services/admin-notifications.service';
 import { OperationalAlertService, type OperationalAlert } from './operational-alert.service';
 
 interface Harness {
   service: OperationalAlertService;
-  notifications: { create: jest.Mock };
+  adminNotifications: { notifyAdmins: jest.Mock };
   mail: { send: jest.Mock; isConfigured: jest.Mock };
   fetchMock: jest.Mock;
 }
 
 function buildHarness(env: Record<string, string> = {}): Harness {
-  const users = {
-    find: jest.fn().mockResolvedValue([{ id: 'admin-1' }, { id: 'admin-2' }]),
-  } as unknown as Repository<User>;
-  const notifications = { create: jest.fn().mockResolvedValue(undefined) };
+  const adminNotifications = { notifyAdmins: jest.fn().mockResolvedValue(undefined) };
   const mail = {
     send: jest.fn().mockResolvedValue(true),
     isConfigured: jest.fn().mockReturnValue(true),
@@ -31,12 +29,11 @@ function buildHarness(env: Record<string, string> = {}): Harness {
   (globalThis as { fetch: unknown }).fetch = fetchMock;
 
   const service = new OperationalAlertService(
-    users,
-    notifications as unknown as NotificationsService,
+    adminNotifications as unknown as AdminNotificationsService,
     mail as unknown as MailService,
     config,
   );
-  return { service, notifications, mail, fetchMock };
+  return { service, adminNotifications, mail, fetchMock };
 }
 
 const criticalAlert: OperationalAlert = {
@@ -54,13 +51,60 @@ describe('OperationalAlertService', () => {
   });
 
   describe('in-app delivery (preserved behaviour)', () => {
-    it('still notifies every active admin', async () => {
-      const { service, notifications } = buildHarness();
+    it('delivers via the shared admin-notification fan-out, no dedupe key', async () => {
+      const { service, adminNotifications } = buildHarness();
 
       const outcome = await service.dispatch(criticalAlert);
 
       expect(outcome.inApp).toBe('sent');
-      expect(notifications.create).toHaveBeenCalledTimes(2);
+      expect(adminNotifications.notifyAdmins).toHaveBeenCalledTimes(1);
+      const [event, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
+        AdminNotificationEvent,
+        Record<string, unknown>,
+      ];
+      expect(event).toBe(AdminNotificationEvent.OPERATIONAL_ALERT);
+      expect(params).toMatchObject({
+        priority: NotificationPriority.CRITICAL,
+        category: AdminNotificationCategory.FINANCIAL,
+        link: '/admin/health',
+      });
+      expect(params.dedupeKey).toBeUndefined();
+    });
+
+    it('categorizes a non-financial, non-security alert key as system', async () => {
+      const { service, adminNotifications } = buildHarness();
+
+      await service.dispatch({ ...criticalAlert, key: 'scheduled_job.repeated_failure:job-1' });
+
+      const [, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
+        AdminNotificationEvent,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ category: AdminNotificationCategory.SYSTEM });
+    });
+
+    it('categorizes a security/auth-prefixed alert key as security', async () => {
+      const { service, adminNotifications } = buildHarness();
+
+      await service.dispatch({ ...criticalAlert, key: 'security.brute_force_lockout:user-1' });
+
+      const [, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
+        AdminNotificationEvent,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ category: AdminNotificationCategory.SECURITY });
+    });
+
+    it('maps severity to priority', async () => {
+      const { service, adminNotifications } = buildHarness();
+
+      await service.dispatch({ ...criticalAlert, severity: 'warning' });
+
+      const [, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
+        AdminNotificationEvent,
+        Record<string, unknown>,
+      ];
+      expect(params).toMatchObject({ priority: NotificationPriority.HIGH });
     });
   });
 
@@ -203,10 +247,9 @@ describe('OperationalAlertService', () => {
     it('never throws even when in-app delivery fails', async () => {
       const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
       try {
-        const { service, notifications } = buildHarness();
-        notifications.create.mockRejectedValue(new Error('db down'));
+        const { service, adminNotifications } = buildHarness();
+        adminNotifications.notifyAdmins.mockRejectedValue(new Error('db down'));
 
-        // Promise.allSettled inside means individual failures do not reject.
         await expect(service.dispatch(criticalAlert)).resolves.toBeDefined();
       } finally {
         errorSpy.mockRestore();
@@ -228,7 +271,7 @@ describe('OperationalAlertService', () => {
     });
 
     it('still records the repeat in-app', async () => {
-      const { service, notifications } = buildHarness({
+      const { service, adminNotifications } = buildHarness({
         ALERT_WEBHOOK_URL: 'https://hooks.example.com/abc',
       });
 
@@ -236,7 +279,7 @@ describe('OperationalAlertService', () => {
       const second = await service.dispatch(criticalAlert);
 
       expect(second.inApp).toBe('sent');
-      expect(notifications.create).toHaveBeenCalledTimes(4);
+      expect(adminNotifications.notifyAdmins).toHaveBeenCalledTimes(2);
     });
 
     it('does NOT suppress a different incident of the same type', async () => {

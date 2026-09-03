@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -96,6 +97,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly guardiansService: GuardiansService,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.bcryptRounds = this.configService.get<number>('BCRYPT_ROUNDS') ?? 12;
   }
@@ -181,7 +183,7 @@ export class AuthService {
       return acknowledgement;
     }
 
-    const created = await this.createPendingAccount({
+    const createdUserId = await this.createPendingAccount({
       email,
       phone,
       name: name.trim(),
@@ -194,29 +196,41 @@ export class AuthService {
       bio: bio ?? null,
     });
 
-    if (!created) {
+    if (createdUserId === false) {
       this.logger.log('Registration lost a unique-constraint race — acknowledged generically');
+    } else if (requestedRole === UserRole.TEACHER) {
+      // A student's own PENDING status is routine account housekeeping; a
+      // request for the teacher role is the one registration outcome an
+      // admin needs to act on, so it is the only one that reaches the admin
+      // notification catalog (see `AdminAlertsListener`).
+      this.eventEmitter.emit('teacher.registration_pending', {
+        userId: createdUserId,
+        name: name.trim(),
+        email,
+      });
     }
 
     return acknowledgement;
   }
 
   /**
-   * Write one PENDING account atomically. Returns `false` when a
-   * caller-supplied identifier lost a race against a simultaneous request
-   * (the DB unique constraints are the authority, not the `findOne` above,
-   * which two concurrent registrations can both pass). Retries only when the
-   * *generated* username collides, which is not the caller's conflict.
+   * Write one PENDING account atomically. Returns the new user's id, or
+   * `false` when a caller-supplied identifier lost a race against a
+   * simultaneous request (the DB unique constraints are the authority, not
+   * the `findOne` above, which two concurrent registrations can both pass).
+   * Retries only when the *generated* username collides, which is not the
+   * caller's conflict.
    */
-  private async createPendingAccount(input: PendingAccountInput): Promise<boolean> {
+  private async createPendingAccount(input: PendingAccountInput): Promise<string | false> {
     let lastUsernameCollision: unknown;
 
     for (let attempt = 0; attempt < MAX_USERNAME_ATTEMPTS; attempt++) {
       try {
+        let createdUserId = '';
         await this.dataSource.transaction(async (manager) => {
-          await this.persistPendingAccount(manager, input);
+          createdUserId = await this.persistPendingAccount(manager, input);
         });
-        return true;
+        return createdUserId;
       } catch (error) {
         const columns = uniqueViolationColumns(error);
         if (columns === null) throw error;
@@ -244,11 +258,14 @@ export class AuthService {
     throw lastUsernameCollision;
   }
 
-  /** The user row + its role-specific profile (+ guardian link, for students). */
+  /**
+   * The user row + its role-specific profile (+ guardian link, for
+   * students). Returns the new user's id.
+   */
   private async persistPendingAccount(
     manager: EntityManager,
     input: PendingAccountInput,
-  ): Promise<void> {
+  ): Promise<string> {
     const user = manager.create(User, {
       username: this.generateUsername(input.email),
       name: input.name,
@@ -298,6 +315,8 @@ export class AuthService {
       });
       await manager.save(TeacherProfile, profile);
     }
+
+    return createdUser.id;
   }
 
   /** Email prefix + random suffix, unique enough to satisfy `users.username`. */

@@ -10,6 +10,7 @@ import { PreferredLanguage } from '../../guardians/entities/preferred-language.e
 import { biBody } from '../../i18n/error-translator.util';
 import { User } from '../../users/entities/user.entity';
 import { UserRole } from '../../users/entities/user-role.enum';
+import { AdminNotificationEvent } from '../constants/admin-notification-events';
 import {
   AdminNotificationFilterDto,
   NotificationFilterDto,
@@ -17,11 +18,13 @@ import {
   UpdateNotificationSettingsDto,
 } from '../dto';
 import {
+  AdminNotificationCategory,
   Notification,
   NotificationChannel,
   NotificationDelivery,
   NotificationDeliveryStatus,
   NotificationOrigin,
+  NotificationPriority,
   NotificationSettings,
   NotificationStatus,
   NotificationType,
@@ -83,6 +86,9 @@ export interface AdminNotificationView {
   title: string;
   message: string;
   data: Record<string, unknown> | null;
+  priority: NotificationPriority | null;
+  category: AdminNotificationCategory | null;
+  link: string | null;
   legacy_status: NotificationStatus;
   in_app_state: 'published';
   read_state: 'read' | 'unread';
@@ -304,6 +310,9 @@ export class NotificationsService {
       title: dto.title,
       message: dto.message,
       data: dto.data ?? null,
+      priority: dto.priority ?? null,
+      category: dto.category ?? null,
+      link: dto.link ?? null,
       is_read: false,
       sent_at: now,
       sms_sent: false,
@@ -373,13 +382,14 @@ export class NotificationsService {
       recipient?.preferred_language === PreferredLanguage.AR
         ? SUPPORT_TICKET_COPY_AR[event]
         : SUPPORT_TICKET_COPY[event];
-    const href = recipient?.role === UserRole.CALL_CENTER
-      ? `/call-center/tickets/${ticket.id}`
-      : recipient?.role === UserRole.ADMIN
-        ? `/admin/complaints?ticket=${ticket.id}`
-        : recipient?.role === UserRole.TEACHER
-          ? `/teacher/complaints?ticket=${ticket.id}`
-          : `/student/complaints?ticket=${ticket.id}`;
+    const href =
+      recipient?.role === UserRole.CALL_CENTER
+        ? `/call-center/tickets/${ticket.id}`
+        : recipient?.role === UserRole.ADMIN
+          ? `/admin/complaints?ticket=${ticket.id}`
+          : recipient?.role === UserRole.TEACHER
+            ? `/teacher/complaints?ticket=${ticket.id}`
+            : `/student/complaints?ticket=${ticket.id}`;
     const notification = await this.create(
       {
         user_id: recipientUserId,
@@ -434,6 +444,9 @@ export class NotificationsService {
     title: string;
     message: string;
     data: Record<string, unknown> | null;
+    priority: NotificationPriority | null;
+    category: AdminNotificationCategory | null;
+    link: string | null;
     status: NotificationStatus;
     legacy_status: NotificationStatus;
     attempts: number;
@@ -469,9 +482,7 @@ export class NotificationsService {
       relations: { user: true, created_by: true },
     });
     if (!notification) {
-      throw new NotFoundException(
-        biBody('Notification not found', 'Notification not found'),
-      );
+      throw new NotFoundException(biBody('Notification not found', 'Notification not found'));
     }
     const deliveries = await this.notificationDeliveries.findForNotification(notificationId);
 
@@ -481,6 +492,9 @@ export class NotificationsService {
       title: notification.title,
       message: notification.message,
       data: notification.data,
+      priority: notification.priority,
+      category: notification.category,
+      link: notification.link,
       status: notification.status,
       legacy_status: notification.status,
       attempts: notification.attempts,
@@ -663,11 +677,21 @@ export class NotificationsService {
   }
 
   /**
-   * Get paginated notifications for a user
+   * Get paginated notifications for a user.
+   *
+   * `requesterRole` gates the admin allow-list: when the caller is an admin,
+   * only rows created for a cataloged `AdminNotificationEvent` (or the
+   * long-standing `OPERATIONAL` origin, which predates the catalog) are
+   * returned — everything else this endpoint could theoretically surface
+   * (homework, exam results, gamification, ...) is filtered out so an
+   * admin's personal inbox shows only notifications that need administrative
+   * attention. Every other role is unaffected: the extra clause is never
+   * applied for them.
    */
   public async findAllForUser(
     userId: string,
     filter: NotificationFilterDto,
+    requesterRole?: string,
   ): Promise<PaginatedNotifications> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
@@ -676,6 +700,16 @@ export class NotificationsService {
     const queryBuilder = this.notificationsRepository
       .createQueryBuilder('notification')
       .where('notification.user_id = :userId', { userId });
+
+    if (requesterRole === UserRole.ADMIN) {
+      queryBuilder.andWhere(
+        '(notification.source_event IN (:...adminEvents) OR notification.origin = :operationalOrigin)',
+        {
+          adminEvents: Object.values(AdminNotificationEvent),
+          operationalOrigin: NotificationOrigin.OPERATIONAL,
+        },
+      );
+    }
 
     // Apply filters
     if (filter.type !== undefined) {
@@ -704,6 +738,14 @@ export class NotificationsService {
       queryBuilder.andWhere('notification.sent_at <= :sentBefore', {
         sentBefore: new Date(filter.sent_before),
       });
+    }
+
+    if (filter.priority !== undefined) {
+      queryBuilder.andWhere('notification.priority = :priority', { priority: filter.priority });
+    }
+
+    if (filter.category !== undefined) {
+      queryBuilder.andWhere('notification.category = :category', { category: filter.category });
     }
 
     // Order by most recent first
@@ -787,6 +829,14 @@ export class NotificationsService {
       });
     }
 
+    if (filter.priority !== undefined) {
+      queryBuilder.andWhere('notification.priority = :priority', { priority: filter.priority });
+    }
+
+    if (filter.category !== undefined) {
+      queryBuilder.andWhere('notification.category = :category', { category: filter.category });
+    }
+
     if (filter.search !== undefined && filter.search.trim() !== '') {
       queryBuilder.andWhere(
         '(notification.title ILIKE :search OR notification.message ILIKE :search ' +
@@ -805,6 +855,9 @@ export class NotificationsService {
       title: notification.title,
       message: notification.message,
       data: notification.data,
+      priority: notification.priority,
+      category: notification.category,
+      link: notification.link,
       legacy_status: notification.status,
       in_app_state: 'published',
       read_state: notification.is_read ? 'read' : 'unread',
@@ -847,10 +900,28 @@ export class NotificationsService {
   /**
    * Get unread notification count for a user
    */
-  public async getUnreadCount(userId: string): Promise<number> {
-    return await this.notificationsRepository.count({
-      where: { user_id: userId, is_read: false },
-    });
+  /**
+   * Unread count for a user's own inbox — subject to the same admin
+   * allow-list as `findAllForUser`, so the badge an admin sees never counts
+   * a notification their list wouldn't show them.
+   */
+  public async getUnreadCount(userId: string, requesterRole?: string): Promise<number> {
+    const queryBuilder = this.notificationsRepository
+      .createQueryBuilder('notification')
+      .where('notification.user_id = :userId', { userId })
+      .andWhere('notification.is_read = false');
+
+    if (requesterRole === UserRole.ADMIN) {
+      queryBuilder.andWhere(
+        '(notification.source_event IN (:...adminEvents) OR notification.origin = :operationalOrigin)',
+        {
+          adminEvents: Object.values(AdminNotificationEvent),
+          operationalOrigin: NotificationOrigin.OPERATIONAL,
+        },
+      );
+    }
+
+    return await queryBuilder.getCount();
   }
 
   /**

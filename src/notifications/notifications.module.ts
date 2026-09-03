@@ -27,6 +27,7 @@ import {
   ParentMessage,
   PushDevice,
 } from './entities';
+import { AdminAlertsListener } from './listeners/admin-alerts.listener';
 import { ParentNotificationListener } from './listeners/parent-notification.listener';
 import { PurchaseParentNotificationListener } from './listeners/purchase-parent-notification.listener';
 import { Order } from '../payments/entities/order.entity';
@@ -35,6 +36,7 @@ import { PushNotificationProcessor } from './processors/push-notification.proces
 import { FirebasePushProvider } from './push/firebase-push.provider';
 import { PUSH_PROVIDER } from './push/push-provider.interface';
 import {
+  AdminNotificationsService,
   NotificationChannelPolicyService,
   NotificationDeliveryService,
   NotificationDispatchRecoveryService,
@@ -119,6 +121,8 @@ import { TemplateRendererService } from './templates/template-renderer.service';
   providers: [
     NotificationsService,
     NotificationTriggersService,
+    AdminNotificationsService,
+    AdminAlertsListener,
     SmsSenderService,
 
     // Preference policy + delivery ledger (shared by every channel)
@@ -152,6 +156,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
   exports: [
     NotificationsService,
     NotificationTriggersService,
+    AdminNotificationsService,
     NotificationChannelPolicyService,
     NotificationDeliveryService,
     NotificationEmailService,

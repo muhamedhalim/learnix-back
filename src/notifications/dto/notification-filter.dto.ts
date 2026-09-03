@@ -11,6 +11,8 @@ import {
   Min,
 } from 'class-validator';
 
+import { AdminNotificationCategory } from '../entities/admin-notification-category.enum';
+import { NotificationPriority } from '../entities/notification-priority.enum';
 import { NotificationType } from '../entities/notification-type.enum';
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { StrictBooleanQuery } from '../../common/decorators/strict-boolean-query.decorator';
@@ -74,6 +76,22 @@ export class NotificationFilterDto {
   @IsOptional()
   @IsDateString()
   public sent_before?: string;
+
+  @ApiPropertyOptional({
+    enum: NotificationPriority,
+    description: 'Filter by priority (admin notifications only)',
+  })
+  @IsOptional()
+  @IsEnum(NotificationPriority)
+  public priority?: NotificationPriority;
+
+  @ApiPropertyOptional({
+    enum: AdminNotificationCategory,
+    description: 'Filter by category (admin notifications only)',
+  })
+  @IsOptional()
+  @IsEnum(AdminNotificationCategory)
+  public category?: AdminNotificationCategory;
 }
 
 /**

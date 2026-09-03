@@ -1,18 +1,5 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -43,10 +30,7 @@ export class NotificationsController {
     @GetUser() user: JwtPayload,
     @Query() filter: NotificationFilterDto,
   ): Promise<{ message: string; data: unknown[]; meta: unknown }> {
-    const result = await this.notificationsService.findAllForUser(
-      user.userId,
-      filter,
-    );
+    const result = await this.notificationsService.findAllForUser(user.userId, filter, user.role);
     return {
       message: 'Notifications retrieved successfully',
       ...result,
@@ -61,7 +45,7 @@ export class NotificationsController {
   public async getUnreadCount(
     @GetUser() user: JwtPayload,
   ): Promise<{ message: string; data: { count: number } }> {
-    const count = await this.notificationsService.getUnreadCount(user.userId);
+    const count = await this.notificationsService.getUnreadCount(user.userId, user.role);
     return {
       message: 'Unread count retrieved successfully',
       data: { count },
@@ -77,10 +61,7 @@ export class NotificationsController {
     @Param('id', ParseUUIDPipe) notificationId: string,
     @GetUser() user: JwtPayload,
   ): Promise<{ message: string; data: unknown }> {
-    const notification = await this.notificationsService.markAsRead(
-      notificationId,
-      user.userId,
-    );
+    const notification = await this.notificationsService.markAsRead(notificationId, user.userId);
     return {
       message: 'Notification marked as read',
       data: notification,

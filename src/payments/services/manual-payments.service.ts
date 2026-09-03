@@ -17,8 +17,14 @@ import { DiscountCodesService } from '../../discount-codes/discount-codes.servic
 import { biBody } from '../../i18n/error-translator.util';
 import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
 import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
+import {
+  ADMIN_NOTIFICATION_CATALOG,
+  AdminNotificationEvent,
+} from '../../notifications/constants/admin-notification-events';
+import { AdminNotificationCategory } from '../../notifications/entities/admin-notification-category.enum';
 import { Notification } from '../../notifications/entities/notification.entity';
 import { NotificationOrigin } from '../../notifications/entities/notification-origin.enum';
+import { NotificationPriority } from '../../notifications/entities/notification-priority.enum';
 import { NotificationStatus } from '../../notifications/entities/notification-status.enum';
 import { NotificationType } from '../../notifications/entities/notification-type.enum';
 import { StorageService } from '../../storage/storage.service';
@@ -319,6 +325,9 @@ export class ManualPaymentsService {
           `Proof for order ${order.order_number} was received for review.`,
           { submission_id: submission.id, order_id: order.id },
         );
+        const hasRiskFlags = referenceDuplicates > 0 || fileDuplicates > 0;
+        const adminDefaults =
+          ADMIN_NOTIFICATION_CATALOG[AdminNotificationEvent.MANUAL_PAYMENT_REVIEW_REQUIRED];
         const admins = await manager.find(User, {
           where: { role: UserRole.ADMIN, is_active: true },
         });
@@ -327,14 +336,18 @@ export class ManualPaymentsService {
             manager,
             admin.id,
             `manual-submission:${submission.id}:admin:${admin.id}`,
-            referenceDuplicates > 0 || fileDuplicates > 0
-              ? 'Manual payment requires risk review'
-              : 'New manual payment proof',
+            hasRiskFlags ? 'Manual payment requires risk review' : 'New manual payment proof',
             `Order ${order.order_number} has a new proof submission.`,
             {
               submission_id: submission.id,
               order_id: order.id,
               risk_flags: submission.metadata?.['risk_flags'],
+            },
+            {
+              sourceEvent: AdminNotificationEvent.MANUAL_PAYMENT_REVIEW_REQUIRED,
+              priority: hasRiskFlags ? NotificationPriority.CRITICAL : adminDefaults.priority,
+              category: adminDefaults.category,
+              link: '/admin/payments?tab=manual',
             },
           );
         }
@@ -885,6 +898,12 @@ export class ManualPaymentsService {
     title: string,
     message: string,
     data: Record<string, unknown>,
+    admin?: {
+      sourceEvent: string;
+      priority: NotificationPriority;
+      category: AdminNotificationCategory;
+      link: string;
+    },
   ): Promise<void> {
     await manager
       .createQueryBuilder()
@@ -892,13 +911,16 @@ export class ManualPaymentsService {
       .into(Notification)
       .values({
         dedupe_key: dedupeKey,
-        origin: NotificationOrigin.SYSTEM,
-        source_event: 'manual_payment_notification',
+        origin: admin ? NotificationOrigin.OPERATIONAL : NotificationOrigin.SYSTEM,
+        source_event: admin?.sourceEvent ?? 'manual_payment_notification',
         user_id: userId,
         type: NotificationType.PURCHASE,
         title,
         message,
         data,
+        priority: admin?.priority ?? null,
+        category: admin?.category ?? null,
+        link: admin?.link ?? null,
         is_read: false,
         sent_at: new Date(),
         read_at: null,
@@ -928,5 +950,4 @@ export class ManualPaymentsService {
       );
     }
   }
-
 }

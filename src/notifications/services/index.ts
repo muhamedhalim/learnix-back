@@ -1,3 +1,4 @@
+export * from './admin-notifications.service';
 export * from './notification-channel-policy.service';
 export * from './notification-delivery.service';
 export * from './notification-dispatch-recovery.service';

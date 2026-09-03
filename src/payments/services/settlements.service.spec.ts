@@ -1,8 +1,15 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 
+import type { AdminNotificationsService } from '../../notifications/services/admin-notifications.service';
 import { LedgerDirection, LedgerEntryType, OrderStatus, SettlementStatus } from '../entities';
 import { SettlementsService } from './settlements.service';
+
+function fakeAdminNotifications() {
+  return {
+    notifyAdmins: jest.fn().mockResolvedValue(undefined),
+  } as unknown as AdminNotificationsService;
+}
 
 describe('SettlementsService teacher wallet', () => {
   it('uses teacher-owned ledger balances and never serializes platform-collected sales', async () => {
@@ -23,6 +30,7 @@ describe('SettlementsService teacher wallet', () => {
         ]),
       } as unknown as Repository<never>,
       { manager: {} } as DataSource,
+      fakeAdminNotifications(),
       { get: jest.fn().mockReturnValue('10000') } as unknown as ConfigService,
     );
     const result = await service.getTeacherWallet('teacher-a');
@@ -59,14 +67,29 @@ describe('SettlementsService teacher wallet', () => {
       {
         query: jest.fn().mockResolvedValue([
           {
-            currency: 'EGP', pending_balance_minor: '0', available_balance_minor: '100', lifetime_earnings_minor: '100', paid_out_minor: '0', refunded_reversed_minor: '0', teacher_collected_sales_minor: '0', outstanding_platform_receivable_minor: '0',
+            currency: 'EGP',
+            pending_balance_minor: '0',
+            available_balance_minor: '100',
+            lifetime_earnings_minor: '100',
+            paid_out_minor: '0',
+            refunded_reversed_minor: '0',
+            teacher_collected_sales_minor: '0',
+            outstanding_platform_receivable_minor: '0',
           },
           {
-            currency: 'USD', pending_balance_minor: '0', available_balance_minor: '200', lifetime_earnings_minor: '200', paid_out_minor: '0', refunded_reversed_minor: '0', teacher_collected_sales_minor: '0', outstanding_platform_receivable_minor: '0',
+            currency: 'USD',
+            pending_balance_minor: '0',
+            available_balance_minor: '200',
+            lifetime_earnings_minor: '200',
+            paid_out_minor: '0',
+            refunded_reversed_minor: '0',
+            teacher_collected_sales_minor: '0',
+            outstanding_platform_receivable_minor: '0',
           },
         ]),
       } as unknown as Repository<never>,
       { manager: {} } as DataSource,
+      fakeAdminNotifications(),
       { get: jest.fn().mockReturnValue('10000') } as unknown as ConfigService,
     );
     await expect(service.getTeacherWallet('teacher-a')).resolves.toMatchObject({
@@ -121,6 +144,7 @@ describe('SettlementsService stage-one safeguards', () => {
       { findOne: jest.fn().mockResolvedValue(settlement) } as unknown as Repository<never>,
       {} as Repository<never>,
       dataSource as unknown as DataSource,
+      fakeAdminNotifications(),
       config,
     );
 
@@ -181,6 +205,7 @@ describe('SettlementsService stage-one safeguards', () => {
       {} as Repository<never>,
       { createQueryBuilder: jest.fn().mockReturnValue(dueBuilder) } as unknown as Repository<never>,
       dataSource as unknown as DataSource,
+      fakeAdminNotifications(),
       config,
     );
 
@@ -202,6 +227,7 @@ describe('SettlementsService stage-one safeguards', () => {
       {} as Repository<never>,
       {} as Repository<never>,
       { manager: {} } as DataSource,
+      fakeAdminNotifications(),
       config,
     );
     const left = (service as never).createFingerprint({
@@ -215,5 +241,73 @@ describe('SettlementsService stage-one safeguards', () => {
       payment_method: 'bank',
     });
     expect(left).toBe(right);
+  });
+});
+
+describe('SettlementsService.notifyOverduePayouts', () => {
+  const config = { get: jest.fn().mockReturnValue('10000') } as unknown as ConfigService;
+
+  function buildService(queryResult: unknown[]) {
+    const dataSource = { query: jest.fn().mockResolvedValue(queryResult), manager: {} };
+    const adminNotifications = fakeAdminNotifications();
+    const service = new SettlementsService(
+      {} as Repository<never>,
+      {} as Repository<never>,
+      dataSource as unknown as DataSource,
+      adminNotifications,
+      config,
+    );
+    return { service, adminNotifications, dataSource };
+  }
+
+  it('alerts admins for a teacher whose available balance clears the minimum payout threshold', async () => {
+    const { service, adminNotifications } = buildService([
+      {
+        teacher_id: 'teacher-1',
+        teacher_name: 'Jane Doe',
+        currency: 'USD',
+        available_minor: '15000',
+        oldest_available_at: new Date('2026-08-01'),
+      },
+    ]);
+
+    const flagged = await service.notifyOverduePayouts();
+
+    expect(flagged).toBe(1);
+    expect(adminNotifications.notifyAdmins).toHaveBeenCalledTimes(1);
+    const [event, params] = (adminNotifications.notifyAdmins as jest.Mock).mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(event).toBe('payout_due');
+    expect(params).toMatchObject({ link: '/admin/finance/settlements' });
+    expect(params.message).toContain('Jane Doe');
+    expect(params.dedupeKey).toMatch(/^teacher-1:USD:\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('does not alert for a balance below the configured minimum payout', async () => {
+    const { service, adminNotifications } = buildService([
+      {
+        teacher_id: 'teacher-1',
+        teacher_name: 'Jane Doe',
+        currency: 'USD',
+        available_minor: '500',
+        oldest_available_at: new Date('2026-08-01'),
+      },
+    ]);
+
+    const flagged = await service.notifyOverduePayouts();
+
+    expect(flagged).toBe(0);
+    expect(adminNotifications.notifyAdmins).not.toHaveBeenCalled();
+  });
+
+  it('skips the aggregate query when it already ran within the last day', async () => {
+    const { service, dataSource } = buildService([]);
+
+    await service.notifyOverduePayouts();
+    await service.notifyOverduePayouts();
+
+    expect(dataSource.query).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,18 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-
-import { Repository } from 'typeorm';
 
 import { processEnvReader } from '../common/utils/redis-connection.util';
 import { resolveAppEnvLabel } from '../config/app-env';
 import { MailService } from '../mail/mail.service';
-import { NotificationType } from '../notifications/entities/notification-type.enum';
-import { NotificationOrigin } from '../notifications/entities/notification-origin.enum';
-import { NotificationsService } from '../notifications/services/notifications.service';
+import { AdminNotificationEvent } from '../notifications/constants/admin-notification-events';
+import { AdminNotificationCategory } from '../notifications/entities/admin-notification-category.enum';
+import { NotificationPriority } from '../notifications/entities/notification-priority.enum';
+import { AdminNotificationsService } from '../notifications/services/admin-notifications.service';
 import { resolveRelease } from '../observability/release';
-import { UserRole } from '../users/entities/user-role.enum';
-import { User } from '../users/entities/user.entity';
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 
@@ -47,7 +43,35 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const DEFAULT_MIN_INTERVAL_SECONDS = 900;
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 5_000;
 const MAX_TRACKED_KEYS = 2_000;
-const MAX_ADMIN_RECIPIENTS = 100;
+
+/** Alert-key prefix → admin-notification category. Anything unmatched is `SYSTEM`. */
+const ALERT_CATEGORY_PREFIXES: ReadonlyArray<
+  readonly [prefix: string, category: AdminNotificationCategory]
+> = [
+  ['payment.', AdminNotificationCategory.FINANCIAL],
+  ['refund.', AdminNotificationCategory.FINANCIAL],
+  ['finance.', AdminNotificationCategory.FINANCIAL],
+  ['security.', AdminNotificationCategory.SECURITY],
+  ['auth.', AdminNotificationCategory.SECURITY],
+];
+
+function categorizeAlert(key: string): AdminNotificationCategory {
+  return (
+    ALERT_CATEGORY_PREFIXES.find(([prefix]) => key.startsWith(prefix))?.[1] ??
+    AdminNotificationCategory.SYSTEM
+  );
+}
+
+function priorityForSeverity(severity: AlertSeverity): NotificationPriority {
+  switch (severity) {
+    case 'critical':
+      return NotificationPriority.CRITICAL;
+    case 'warning':
+      return NotificationPriority.HIGH;
+    case 'info':
+      return NotificationPriority.MEDIUM;
+  }
+}
 
 /**
  * The single delivery path for operational alerts.
@@ -87,9 +111,7 @@ export class OperationalAlertService {
   private delivering = false;
 
   public constructor(
-    @InjectRepository(User)
-    private readonly users: Repository<User>,
-    private readonly notifications: NotificationsService,
+    private readonly adminNotifications: AdminNotificationsService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
   ) {}
@@ -202,30 +224,17 @@ export class OperationalAlertService {
 
   private async deliverInApp(alert: OperationalAlert): Promise<'sent' | 'failed'> {
     try {
-      const admins = await this.users.find({
-        where: { role: UserRole.ADMIN, is_active: true },
-        select: { id: true },
-        take: MAX_ADMIN_RECIPIENTS,
+      // No `dedupeKey`: every dispatch should leave a fresh in-app row, even
+      // for a repeat of the same incident — only the external channels
+      // (email/webhook) are rate-limited by `isSuppressed`/`markDelivered`.
+      await this.adminNotifications.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
+        title: this.subject(alert),
+        message: alert.message,
+        link: '/admin/health',
+        data: { alertKey: alert.key, severity: alert.severity, ...(alert.context ?? {}) },
+        priority: priorityForSeverity(alert.severity),
+        category: categorizeAlert(alert.key),
       });
-      await Promise.allSettled(
-        admins.map(
-          async (admin) =>
-            await this.notifications.create(
-              {
-                user_id: admin.id,
-                type: NotificationType.CUSTOM,
-                title: this.subject(alert),
-                message: alert.message,
-                data: { alertKey: alert.key, severity: alert.severity, ...(alert.context ?? {}) },
-              },
-              false,
-              {
-                origin: NotificationOrigin.OPERATIONAL,
-                sourceEvent: alert.key.slice(0, 120),
-              },
-            ),
-        ),
-      );
       return 'sent';
     } catch (error) {
       this.logFailure('in_app', alert, error);

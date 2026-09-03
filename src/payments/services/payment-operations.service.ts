@@ -141,6 +141,9 @@ export class PaymentOperationsService {
       await this.runMonitoredMaintenanceTask('release_held_earnings', () =>
         this.settlements.releaseAvailableEarnings(),
       );
+      await this.runMonitoredMaintenanceTask('notify_overdue_payouts', () =>
+        this.settlements.notifyOverduePayouts(),
+      );
       await this.runMonitoredMaintenanceTask('publish_outbox', () => this.publishOutbox());
     } finally {
       try {

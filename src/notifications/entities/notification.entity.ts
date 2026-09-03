@@ -10,9 +10,11 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity';
+import { AdminNotificationCategory } from './admin-notification-category.enum';
 import { NotificationCampaign } from './notification-campaign.entity';
 import { NotificationDelivery } from './notification-delivery.entity';
 import { NotificationOrigin } from './notification-origin.enum';
+import { NotificationPriority } from './notification-priority.enum';
 import { NotificationStatus } from './notification-status.enum';
 import { NotificationType } from './notification-type.enum';
 
@@ -27,6 +29,7 @@ import { NotificationType } from './notification-type.enum';
   where: '"campaign_id" IS NOT NULL',
 })
 @Index('IDX_notifications_origin_sent', ['origin', 'sent_at'])
+@Index('IDX_notifications_user_priority', ['user_id', 'priority'])
 @Index('UQ_notifications_dedupe_key', ['dedupe_key'], {
   unique: true,
   where: '"dedupe_key" IS NOT NULL',
@@ -79,6 +82,22 @@ export class Notification {
 
   @Column({ type: 'jsonb', nullable: true })
   data!: Record<string, unknown> | null;
+
+  /**
+   * Populated only for admin-facing notifications (see
+   * `AdminNotificationEvent` / `ADMIN_NOTIFICATION_CATALOG`) — every other
+   * notification leaves this `null`.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  priority!: NotificationPriority | null;
+
+  /** Same population rule as `priority`: admin notifications only. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  category!: AdminNotificationCategory | null;
+
+  /** Deep link to where the recipient takes action, if any. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  link!: string | null;
 
   @Column({ type: 'boolean', default: false, name: 'is_read' })
   is_read!: boolean;
