@@ -19,6 +19,9 @@ function buildService(existingRows: Partial<MarketplaceCommissionSetting>[] = []
     }),
     create: jest.fn((data: Partial<MarketplaceCommissionSetting>) => data as MarketplaceCommissionSetting),
     save: jest.fn(async (entity: MarketplaceCommissionSetting) => ({ id: 'setting-1', ...entity })),
+    find: jest.fn(async () =>
+      [...existingRows].sort((a, b) => (b.effective_from?.getTime() ?? 0) - (a.effective_from?.getTime() ?? 0)),
+    ),
   };
   const commission = new CommissionService(new ConfigService({}));
   const service = new MarketplaceCommissionService(settings as never, commission);
@@ -77,5 +80,27 @@ describe('MarketplaceCommissionService (T095)', () => {
 
     expect(settings.save).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'old', superseded_at: expect.any(Date) }));
     expect(settings.save).toHaveBeenNthCalledWith(2, expect.objectContaining({ rate_bps: 2500 }));
+  });
+
+  it('getHistory() returns every row, newest first, superseded or not (T190, FR-285)', async () => {
+    const older: Partial<MarketplaceCommissionSetting> = {
+      id: 'older',
+      scope: MarketplaceCommissionScope.PLATFORM,
+      rate_bps: 3000,
+      effective_from: new Date('2026-01-01T00:00:00.000Z'),
+      superseded_at: new Date('2026-02-01T00:00:00.000Z'),
+    };
+    const newer: Partial<MarketplaceCommissionSetting> = {
+      id: 'newer',
+      scope: MarketplaceCommissionScope.PLATFORM,
+      rate_bps: 2500,
+      effective_from: new Date('2026-02-01T00:00:00.000Z'),
+      superseded_at: null,
+    };
+    const { service } = buildService([older, newer]);
+
+    const history = await service.getHistory();
+
+    expect(history.map((row) => row.id)).toEqual(['newer', 'older']);
   });
 });

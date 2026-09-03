@@ -80,6 +80,8 @@ export const MARKETPLACE_ERROR_CODES = {
   ADJUSTMENT_CURRENCY_NOT_HELD: 'ADJUSTMENT_CURRENCY_NOT_HELD',
   /** FR-173 — a manual debit that would drive the available balance negative. */
   ADJUSTMENT_WOULD_GO_NEGATIVE: 'ADJUSTMENT_WOULD_GO_NEGATIVE',
+  /** FR-284 — only a currently-published course can be added to the featured set. */
+  COURSE_NOT_FEATURABLE: 'COURSE_NOT_FEATURABLE',
 } as const;
 
 export type MarketplaceErrorCode =
@@ -424,5 +426,13 @@ export function adjustmentWouldGoNegative(): MarketplaceUnprocessableException {
     MARKETPLACE_ERROR_CODES.ADJUSTMENT_WOULD_GO_NEGATIVE,
     'This adjustment would drive the available balance negative',
     'هذا التعديل سيؤدي إلى رصيد متاح سالب',
+  );
+}
+
+export function courseNotFeaturable(): MarketplaceUnprocessableException {
+  return new MarketplaceUnprocessableException(
+    MARKETPLACE_ERROR_CODES.COURSE_NOT_FEATURABLE,
+    'Only a published course can be featured',
+    'يمكن تمييز الدورات المنشورة فقط',
   );
 }

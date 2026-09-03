@@ -95,4 +95,9 @@ export class MarketplaceCommissionService {
     });
     return this.settings.save(next);
   }
+
+  /** FR-285 (T190): full change history, newest first — every row `setRate()` has ever written, superseded or not. */
+  public async getHistory(): Promise<MarketplaceCommissionSetting[]> {
+    return this.settings.find({ order: { effective_from: 'DESC' } });
+  }
 }

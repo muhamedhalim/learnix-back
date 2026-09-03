@@ -10,6 +10,8 @@ import { PaginatedResponse } from '../../../common/interfaces/pagination.interfa
 import { FinancePermissions } from '../../../payments/decorators/finance-permissions.decorator';
 import { FinancePermissionsGuard } from '../../../payments/guards/finance-permissions.guard';
 import { PayoutRequestStatus } from '../../common/enums';
+import type { PayoutReport } from '../../admin/reporting.service';
+import { MarketplaceReportingService } from '../../admin/reporting.service';
 import { MarkPayoutFailedDto, MarkPayoutPaidDto, RejectPayoutDto } from '../dto/payout-admin.dto';
 import type { MarketplacePayoutRequest } from '../entities';
 import { PayoutAdminService } from '../payout-admin.service';
@@ -31,6 +33,7 @@ export class AdminPayoutController {
   constructor(
     private readonly payoutRequests: PayoutRequestService,
     private readonly payoutAdmin: PayoutAdminService,
+    private readonly reporting: MarketplaceReportingService,
   ) {}
 
   @Get()
@@ -42,6 +45,26 @@ export class AdminPayoutController {
     @Query('limit') limit = 20,
   ): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
     return this.payoutRequests.listQueue(status, Number(page), Number(limit));
+  }
+
+  /**
+   * FR-231. Declared before `GET :id` — a route parameter with
+   * `ParseUUIDPipe` would otherwise try (and fail) to parse the literal
+   * path segment `report` as a UUID, since Nest matches routes in
+   * declaration order.
+   */
+  @Get('report')
+  @FinancePermissions('marketplace.reports.view')
+  @ApiOperation({ summary: 'Requested / paid / rejected / reversed amounts per currency for a period (FR-231)' })
+  public async report(
+    @Query('currency') currency: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<PayoutReport> {
+    return this.reporting.getPayoutReport(currency, {
+      ...(from && { from: new Date(from) }),
+      ...(to && { to: new Date(to) }),
+    });
   }
 
   @Get(':id')

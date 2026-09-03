@@ -4,6 +4,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
 import { CatalogModule } from '../catalog/catalog.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { InstructorsModule } from '../instructors/instructors.module';
+import { MarketplaceAdminAlertsListener } from './admin-alerts.listener';
 import { CourseCompletionNotificationListener } from './course-completion-notification.listener';
 import { EarningsPayoutNotificationListener } from './earnings-payout-notification.listener';
 import { FreeEnrollmentNotificationListener } from './free-enrollment-notification.listener';
@@ -27,6 +28,7 @@ import { ReviewNotificationListener } from './review-notification.listener';
     RefundNotificationListener,
     ReviewNotificationListener,
     EarningsPayoutNotificationListener,
+    MarketplaceAdminAlertsListener,
   ],
 })
 export class MarketplaceNotificationsModule {}

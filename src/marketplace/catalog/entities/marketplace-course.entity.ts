@@ -143,6 +143,10 @@ export class MarketplaceCourse {
   @Column({ type: 'text', nullable: true, name: 'removal_reason' })
   removal_reason!: string | null;
 
+  /** FR-284: the admin-curated featured set on the public marketplace — null means not featured; ordering by this value newest-first is "most recently promoted first". */
+  @Column({ type: 'timestamptz', nullable: true, name: 'featured_at' })
+  featured_at!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;
 

@@ -40,6 +40,14 @@ export enum AdminNotificationEvent {
   PAYOUT_DUE = 'payout_due',
   /** A financial/system/security incident raised by `OperationalAlertService`. */
   OPERATIONAL_ALERT = 'operational_alert',
+  /** Marketplace: a professional-instructor application was submitted, awaiting review (FR-268). */
+  MARKETPLACE_APPLICATION_SUBMITTED = 'marketplace_application_submitted',
+  /** Marketplace: a course was submitted for approval, awaiting review (FR-268). */
+  MARKETPLACE_COURSE_SUBMITTED = 'marketplace_course_submitted',
+  /** Marketplace: a learner requested a refund (FR-268). */
+  MARKETPLACE_REFUND_REQUESTED = 'marketplace_refund_requested',
+  /** Marketplace: an instructor requested a payout (FR-268). */
+  MARKETPLACE_PAYOUT_REQUESTED = 'marketplace_payout_requested',
 }
 
 export interface AdminNotificationDefaults {
@@ -74,5 +82,21 @@ export const ADMIN_NOTIFICATION_CATALOG: Readonly<
   [AdminNotificationEvent.OPERATIONAL_ALERT]: {
     priority: NotificationPriority.HIGH,
     category: AdminNotificationCategory.SYSTEM,
+  },
+  [AdminNotificationEvent.MARKETPLACE_APPLICATION_SUBMITTED]: {
+    priority: NotificationPriority.MEDIUM,
+    category: AdminNotificationCategory.INSTRUCTOR_APPROVAL,
+  },
+  [AdminNotificationEvent.MARKETPLACE_COURSE_SUBMITTED]: {
+    priority: NotificationPriority.MEDIUM,
+    category: AdminNotificationCategory.CONTENT_REVIEW,
+  },
+  [AdminNotificationEvent.MARKETPLACE_REFUND_REQUESTED]: {
+    priority: NotificationPriority.MEDIUM,
+    category: AdminNotificationCategory.FINANCIAL,
+  },
+  [AdminNotificationEvent.MARKETPLACE_PAYOUT_REQUESTED]: {
+    priority: NotificationPriority.MEDIUM,
+    category: AdminNotificationCategory.PAYOUT,
   },
 });

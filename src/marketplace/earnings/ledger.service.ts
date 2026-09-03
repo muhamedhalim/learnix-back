@@ -235,6 +235,32 @@ export class LedgerService {
     return this.paginate(data, total, page, limit);
   }
 
+  /** FR-170, T192 — the admin ledger surface: every instructor's entries, optionally narrowed. Unlike `listEntries()`, not scoped to one instructor. */
+  public async listEntriesAdmin(
+    options: {
+      instructorId?: string;
+      entryType?: MarketplaceLedgerEntryType;
+      currency?: string;
+      from?: Date;
+      to?: Date;
+      page?: number;
+      limit?: number;
+    } = {},
+  ): Promise<PaginatedResponse<MarketplaceLedgerEntry>> {
+    const page = options.page ?? 1;
+    const limit = options.limit ?? 20;
+    const qb = this.entries.createQueryBuilder('l');
+    if (options.instructorId) qb.andWhere('l.instructor_id = :instructorId', { instructorId: options.instructorId });
+    if (options.entryType) qb.andWhere('l.entry_type = :entryType', { entryType: options.entryType });
+    if (options.currency) qb.andWhere('l.currency = :currency', { currency: options.currency });
+    if (options.from) qb.andWhere('l.created_at >= :from', { from: options.from });
+    if (options.to) qb.andWhere('l.created_at <= :to', { to: options.to });
+    qb.orderBy('l.created_at', 'DESC').skip((page - 1) * limit).take(limit);
+
+    const [data, total] = await qb.getManyAndCount();
+    return this.paginate(data, total, page, limit);
+  }
+
   private paginate<T>(data: T[], total: number, page: number, limit: number): PaginatedResponse<T> {
     return {
       data,

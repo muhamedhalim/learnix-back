@@ -249,14 +249,11 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
 
       const accountId = await createPayoutAccount(instructorUser.agent);
 
-      const debugRes = await instructorUser.agent
+      const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' });
-      // eslint-disable-next-line no-console
-      console.log('DEBUG payout create response', debugRes.status, JSON.stringify(debugRes.body), 'accountId=', accountId, typeof earning.net_amount_minor, earning.net_amount_minor);
-      const requestRes = debugRes;
-      expect(requestRes.status).toBe(201);
+        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .expect(201);
       const requestId = requestRes.body.id as string;
       expect(requestRes.body.status).toBe(PayoutRequestStatus.REQUESTED);
       expect(requestRes.body.amount_minor).toBe(earning.net_amount_minor);

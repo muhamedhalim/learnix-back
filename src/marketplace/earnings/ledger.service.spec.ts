@@ -196,4 +196,59 @@ describe('LedgerService', () => {
       expect(repo.save).not.toHaveBeenCalled();
     });
   });
+
+  describe('listEntriesAdmin (T192, FR-170)', () => {
+    function buildAdminQueryService(rows: MarketplaceLedgerEntry[], total: number) {
+      const qb = {
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([rows, total]),
+      };
+      const entries = { createQueryBuilder: jest.fn().mockReturnValue(qb) } as unknown as jest.Mocked<Repository<MarketplaceLedgerEntry>>;
+      const earnings = {} as jest.Mocked<Repository<InstructorEarning>>;
+      const money = new MarketplaceMoneyService({ resolve: jest.fn() } as never);
+      return { service: new LedgerService(entries, earnings, money), qb };
+    }
+
+    it('is not scoped to one instructor by default — every instructor\'s entries', async () => {
+      const { service, qb } = buildAdminQueryService([], 0);
+      await service.listEntriesAdmin();
+      expect(qb.andWhere).not.toHaveBeenCalledWith(expect.stringContaining('instructor_id'), expect.anything());
+    });
+
+    it('applies every optional filter when provided', async () => {
+      const { service, qb } = buildAdminQueryService([], 0);
+      const from = new Date('2026-01-01');
+      const to = new Date('2026-01-31');
+
+      await service.listEntriesAdmin({
+        instructorId: 'instructor-1',
+        entryType: MarketplaceLedgerEntryType.PAYOUT,
+        currency: 'EGP',
+        from,
+        to,
+      });
+
+      expect(qb.andWhere).toHaveBeenCalledWith('l.instructor_id = :instructorId', { instructorId: 'instructor-1' });
+      expect(qb.andWhere).toHaveBeenCalledWith('l.entry_type = :entryType', { entryType: MarketplaceLedgerEntryType.PAYOUT });
+      expect(qb.andWhere).toHaveBeenCalledWith('l.currency = :currency', { currency: 'EGP' });
+      expect(qb.andWhere).toHaveBeenCalledWith('l.created_at >= :from', { from });
+      expect(qb.andWhere).toHaveBeenCalledWith('l.created_at <= :to', { to });
+    });
+
+    it('paginates newest first', async () => {
+      const row = { id: 'ledger-1' } as MarketplaceLedgerEntry;
+      const { service, qb } = buildAdminQueryService([row], 1);
+
+      const result = await service.listEntriesAdmin({ page: 2, limit: 10 });
+
+      expect(qb.orderBy).toHaveBeenCalledWith('l.created_at', 'DESC');
+      expect(qb.skip).toHaveBeenCalledWith(10);
+      expect(qb.take).toHaveBeenCalledWith(10);
+      expect(result.data).toEqual([row]);
+      expect(result.meta.total).toBe(1);
+    });
+  });
 });
