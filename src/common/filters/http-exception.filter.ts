@@ -44,6 +44,8 @@ interface ProblemDetails {
   /** Stable machine-readable error code when the exception supplies one. */
   code?: string;
   errors?: string[];
+  /** Any further caller-supplied fields (e.g. a marketplace exception's `details` array or `reason`/`availableFrom`) — see `EXTRA_FIELD_ALLOWLIST` below. */
+  [extra: string]: unknown;
 }
 
 interface NestExceptionResponse {
@@ -54,6 +56,17 @@ interface NestExceptionResponse {
   code?: string;
   statusCode?: number;
 }
+
+/**
+ * Every key `createProblemDetails` already gives its own named handling —
+ * anything else a thrown exception's response object carries is an
+ * intentional extra payload field (a marketplace exception's `details`
+ * array, `reason`, `availableFrom`, `courseCount`, ...) and is passed
+ * through verbatim rather than silently dropped. `biBody()`'s own
+ * `message_ar` is consumed by `translateBody()` before this filter ever
+ * sees it, so it never reaches here as a leftover key.
+ */
+const KNOWN_RESPONSE_KEYS = new Set(['message', 'message_ar', 'error', 'errors', 'code', 'statusCode']);
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -137,6 +150,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let type = 'about:blank';
     let errors: string[] | undefined = undefined;
     let code: string | undefined = undefined;
+    let extraFields: Record<string, unknown> | undefined = undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -144,10 +158,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
       // Extract error details from NestJS validation errors
       if (typeof exceptionResponse === 'object') {
-        const responseObj = translateBody(
+        const translated = translateBody(
           exceptionResponse as unknown as Record<string, unknown>,
           locale,
-        ) as unknown as NestExceptionResponse;
+        );
+        const responseObj = translated as unknown as NestExceptionResponse;
 
         title = responseObj.error ?? exception.name;
         code = typeof responseObj.code === 'string' ? responseObj.code : undefined;
@@ -165,6 +180,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
           errors = translateMessages(responseObj.message, locale);
         } else if (Array.isArray(responseObj.errors)) {
           errors = translateMessages(responseObj.errors, locale);
+        }
+
+        // Anything beyond the fields above is an intentional extra payload
+        // field a caller's exception attached (see `KNOWN_RESPONSE_KEYS`) —
+        // pass it through rather than drop it.
+        const leftover = Object.entries(translated).filter(([key]) => !KNOWN_RESPONSE_KEYS.has(key));
+        if (leftover.length > 0) {
+          extraFields = Object.fromEntries(leftover);
         }
       } else if (typeof exceptionResponse === 'string') {
         detail = translateMessage(exceptionResponse, locale);
@@ -219,6 +242,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // Include validation errors if present
     if (errors !== undefined) {
       problemDetails.errors = errors;
+    }
+
+    // Extra caller-supplied fields never override the RFC 7807 fields above.
+    if (extraFields !== undefined) {
+      for (const [key, value] of Object.entries(extraFields)) {
+        if (!(key in problemDetails)) {
+          problemDetails[key] = value;
+        }
+      }
     }
 
     return problemDetails;

@@ -23,25 +23,29 @@ export class SecretBoxKeyError extends Error {}
 /**
  * Decodes and validates a base64-encoded AES-256 key. Throws with a message
  * precise enough to fix at deploy time rather than surfacing as a downstream
- * decrypt failure.
+ * decrypt failure. `keyName` names the offending env var in the error
+ * message — this util now backs more than one secret (meeting tokens,
+ * payout account identifiers), each with its own key, so a generic message
+ * would misdirect whoever reads it; defaults to the original meeting-token
+ * name so every existing call site's error text is unchanged.
  */
-export function decodeSecretBoxKey(keyBase64: string): Buffer {
+export function decodeSecretBoxKey(keyBase64: string, keyName = 'MEETING_TOKEN_ENCRYPTION_KEY'): Buffer {
   let key: Buffer;
   try {
     key = Buffer.from(keyBase64, 'base64');
   } catch {
-    throw new SecretBoxKeyError('MEETING_TOKEN_ENCRYPTION_KEY must be valid base64.');
+    throw new SecretBoxKeyError(`${keyName} must be valid base64.`);
   }
   if (key.length !== KEY_LENGTH_BYTES) {
     throw new SecretBoxKeyError(
-      `MEETING_TOKEN_ENCRYPTION_KEY must decode to exactly ${KEY_LENGTH_BYTES.toString()} bytes (got ${key.length.toString()}).`,
+      `${keyName} must decode to exactly ${KEY_LENGTH_BYTES.toString()} bytes (got ${key.length.toString()}).`,
     );
   }
   return key;
 }
 
-export function encryptSecret(plaintext: string, keyBase64: string): string {
-  const key = decodeSecretBoxKey(keyBase64);
+export function encryptSecret(plaintext: string, keyBase64: string, keyName?: string): string {
+  const key = decodeSecretBoxKey(keyBase64, keyName);
   const iv = randomBytes(IV_LENGTH_BYTES);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -51,8 +55,8 @@ export function encryptSecret(plaintext: string, keyBase64: string): string {
   );
 }
 
-export function decryptSecret(payload: string, keyBase64: string): string {
-  const key = decodeSecretBoxKey(keyBase64);
+export function decryptSecret(payload: string, keyBase64: string, keyName?: string): string {
+  const key = decodeSecretBoxKey(keyBase64, keyName);
   const parts = payload.split(':');
   const [version, ivB64, tagB64, cipherB64] = parts;
   if (parts.length !== 4 || version !== FORMAT_VERSION || !ivB64 || !tagB64 || cipherB64 === undefined) {
@@ -79,6 +83,17 @@ export function resolveMeetingEncryptionKey(): string {
   if (!key) {
     throw new SecretBoxKeyError(
       'MEETING_TOKEN_ENCRYPTION_KEY is not configured — meeting provider accounts cannot be stored.',
+    );
+  }
+  return key;
+}
+
+/** Backs `marketplace_payout_accounts.account_identifier_encrypted` — a distinct key from meeting tokens, since a bank/wallet identifier and an OAuth token have no reason to share a blast radius. */
+export function resolvePayoutEncryptionKey(): string {
+  const key = process.env['PAYOUT_ACCOUNT_ENCRYPTION_KEY'];
+  if (!key) {
+    throw new SecretBoxKeyError(
+      'PAYOUT_ACCOUNT_ENCRYPTION_KEY is not configured — payout accounts cannot be stored.',
     );
   }
   return key;

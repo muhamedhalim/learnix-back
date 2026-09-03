@@ -604,6 +604,16 @@ export class EnvironmentVariables {
   @IsOptional()
   public MEETING_TOKEN_ENCRYPTION_KEY?: string;
 
+  // Marketplace instructor payout accounts (FR-203). Optional in the same
+  // graceful-degradation shape: with no key configured,
+  // `PayoutAccountService` reports the capability unavailable rather than
+  // the app failing to boot. A distinct key from meeting tokens above —
+  // bank/wallet identifiers and OAuth tokens have no reason to share one.
+  /** Base64-encoded 32-byte AES-256-GCM key encrypting payout account identifiers at rest. */
+  @IsString()
+  @IsOptional()
+  public PAYOUT_ACCOUNT_ENCRYPTION_KEY?: string;
+
   /** Base URL the OAuth callback is registered under at each provider. Falls back to BACKEND_URL. */
   @IsString()
   @IsOptional()
@@ -687,6 +697,15 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     } catch (error) {
       throw new Error(
         `Environment validation failed: ${error instanceof SecretBoxKeyError ? error.message : 'MEETING_TOKEN_ENCRYPTION_KEY is invalid.'}`,
+      );
+    }
+  }
+  if (validatedConfig.PAYOUT_ACCOUNT_ENCRYPTION_KEY) {
+    try {
+      decodeSecretBoxKey(validatedConfig.PAYOUT_ACCOUNT_ENCRYPTION_KEY, 'PAYOUT_ACCOUNT_ENCRYPTION_KEY');
+    } catch (error) {
+      throw new Error(
+        `Environment validation failed: ${error instanceof SecretBoxKeyError ? error.message : 'PAYOUT_ACCOUNT_ENCRYPTION_KEY is invalid.'}`,
       );
     }
   }

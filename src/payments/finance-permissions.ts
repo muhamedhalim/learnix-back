@@ -29,6 +29,17 @@ export const FINANCE_PERMISSIONS = [
   'reports.export',
   'reconciliation.run',
   'reconciliation.review',
+  // Professional Courses Marketplace (spec.md §V, contracts/README.md §7).
+  // Additive only — no existing permission string above is altered.
+  'marketplace.reports.view',
+  'marketplace.reports.export',
+  'marketplace.refunds.view',
+  'marketplace.refunds.process',
+  'marketplace.payouts.view',
+  'marketplace.payouts.approve',
+  'marketplace.payouts.pay',
+  'marketplace.commission.manage',
+  'marketplace.ledger.adjust',
 ] as const;
 
 export type FinancePermission = (typeof FINANCE_PERMISSIONS)[number];

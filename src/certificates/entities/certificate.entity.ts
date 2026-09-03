@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -13,6 +14,8 @@ import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { User } from '../../users/entities/user.entity';
 import { CertificateStatus } from './certificate-status.enum';
 import type { CertificateTemplate } from './certificate-template.entity';
+
+export type CertificateSource = 'academic' | 'marketplace';
 
 /**
  * The design fields frozen into a certificate at issue time. Editing (or even
@@ -71,6 +74,16 @@ export interface CertificateRevocationContext {
 @Index('IDX_certificates_verification_code', ['verification_code'], { unique: true })
 @Index('IDX_certificates_number', ['certificate_number'], { unique: true })
 @Index('IDX_certificates_public_gallery', ['is_public', 'status', 'issued_at'])
+@Index('IDX_certificates_marketplace_course_id', ['marketplace_course_id'])
+@Index('IDX_certificates_source', ['source'])
+@Index('UQ_certificates_student_marketplace_course', ['student_id', 'marketplace_course_id'], {
+  unique: true,
+  where: '"marketplace_course_id" IS NOT NULL',
+})
+@Check(
+  'CHK_certificates_one_subject',
+  '("package_id" IS NOT NULL AND "marketplace_course_id" IS NULL) OR ("package_id" IS NULL AND "marketplace_course_id" IS NOT NULL)',
+)
 export class Certificate {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -88,12 +101,31 @@ export class Certificate {
   @JoinColumn({ name: 'student_id' })
   student!: User;
 
-  @Column({ type: 'uuid', name: 'package_id' })
-  package_id!: string;
+  /** Null for a marketplace-sourced certificate — see `CHK_certificates_one_subject`. */
+  @Column({ type: 'uuid', nullable: true, name: 'package_id' })
+  package_id!: string | null;
 
-  @ManyToOne(() => LessonPackage, { onDelete: 'CASCADE' })
+  @ManyToOne(() => LessonPackage, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'package_id' })
-  package!: LessonPackage;
+  package!: LessonPackage | null;
+
+  /**
+   * Null for an academic-sourced certificate. Deliberately a plain column
+   * with no typed relation to `MarketplaceCourse` — `certificates` stays
+   * part of the always-loaded academic core, and importing a marketplace
+   * entity type here would pull marketplace code into that core's
+   * dependency graph, defeating `MARKETPLACE_ENABLED=false`'s clean
+   * removability (the same one-way-dependency reasoning the payments
+   * `ItemType`/`item_id` polymorphism already established). The database
+   * foreign key (`FK_certificates_marketplace_course`) still enforces
+   * referential integrity without a TypeScript-level import.
+   */
+  @Column({ type: 'uuid', nullable: true, name: 'marketplace_course_id' })
+  marketplace_course_id!: string | null;
+
+  /** FR-252, FR-324 — explicitly identifies which subsystem issued this certificate. */
+  @Column({ type: 'varchar', length: 20, default: 'academic', name: 'source' })
+  source!: CertificateSource;
 
   @Column({ type: 'varchar', length: 200, name: 'student_name' })
   student_name!: string;

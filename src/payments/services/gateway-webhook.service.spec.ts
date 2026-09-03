@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { GatewayWebhookEvent, Payment, PaymentStatus } from '../entities';
+import { ItemType } from '../entities/item-type.enum';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { GatewayWebhookService } from './gateway-webhook.service';
 import { PaymentsService } from './payments.service';
@@ -189,6 +190,23 @@ describe('GatewayWebhookService', () => {
       status: 'failed',
     });
     expect(payments.processFailedPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes a marketplace payment failure through the state machine instead of the academic processFailedPayment() path (T105)', async () => {
+    payments.getPaymentByMerchantOrderId.mockResolvedValue({
+      ...payment(),
+      item_type: ItemType.MARKETPLACE_COURSE,
+    });
+
+    await expect(service.process(callback('failed'))).resolves.toMatchObject({ status: 'failed' });
+
+    expect(financialStateMachine.apply).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      'payment-1',
+      expect.objectContaining({ outcome: 'failed' }),
+    );
+    expect(payments.processFailedPayment).not.toHaveBeenCalled();
   });
 
   it('maps a refund callback to the existing refund finalization flow', async () => {

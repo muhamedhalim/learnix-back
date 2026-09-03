@@ -168,6 +168,14 @@ import { SettlementsService } from './services/settlements.service';
     ...(areQueuesEnabled() ? [MeetingProvisioningProcessor] : []),
   ],
   exports: [
+    // The marketplace reuses the shared `Payment` entity/table directly
+    // (item_type = 'marketplace_course') rather than a second payments
+    // schema — see `payments/entities/item-type.enum.ts` and
+    // `GatewayFinancialStateMachineService.apply()`'s marketplace branch.
+    // Exporting `TypeOrmModule` is additive: it only makes already-registered
+    // repositories injectable elsewhere, and changes nothing for the
+    // services above that already had access to them.
+    TypeOrmModule,
     PaymentsService,
     PAYMENT_GATEWAY,
     CommissionService,
@@ -177,6 +185,17 @@ import { SettlementsService } from './services/settlements.service';
     PaymentFinalizationService,
     PaymentOperationsService,
     LessonSessionsService,
+    // Lets `MarketplaceWebhookController` reuse the exact same HMAC-verified,
+    // idempotency-guarded webhook entry point academic checkout uses,
+    // rather than a second implementation.
+    GatewayWebhookService,
+    // Lets marketplace refund processing (T136) resolve the same
+    // provider-by-name registry the academic RefundsService uses, instead
+    // of a second implementation; and lets marketplace admin refund
+    // routes (T141) reuse the same `marketplace.*` finance-permission gate
+    // every other admin finance route already uses.
+    PaymentProviderRegistry,
+    FinancePermissionsGuard,
   ],
 })
 export class PaymentsModule implements OnModuleInit {

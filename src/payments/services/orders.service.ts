@@ -937,6 +937,12 @@ export class OrdersService {
     studentId: string,
   ): Promise<DiscountSnapshot> {
     if (!code?.trim()) return { id: null, amountMinor: 0, snapshot: null };
+    // Discount codes are an academic-purchase concept only — a marketplace course purchase
+    // never resolves a product through this academic service in the first place (FR-109:
+    // the marketplace checkout refuses a discount code outright, with DISCOUNTS_NOT_APPLICABLE).
+    if (product.itemType === ItemType.MARKETPLACE_COURSE) {
+      throw new BadRequestException(biBody('Discount codes are not applicable to this item', 'رموز الخصم غير قابلة للتطبيق على هذا العنصر'));
+    }
     const applicable = {
       [ItemType.LESSON]: ApplicableItem.LESSON,
       [ItemType.LESSON_SESSION]: ApplicableItem.LESSON,

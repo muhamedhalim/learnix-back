@@ -25,7 +25,7 @@ import { User } from '../users/entities/user.entity';
 import { generateCertificateNumber, generateVerificationCode } from './certificate-code.util';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatePreviewDto, CreateTemplateDto, UpdateTemplateDto } from './dto';
-import type { CertificateTemplateSnapshot } from './entities/certificate.entity';
+import type { CertificateSource, CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
 import { CertificateAutoIssuanceFailure } from './entities/certificate-auto-issuance-failure.entity';
 import { CertificateHistory } from './entities/certificate-history.entity';
@@ -44,7 +44,16 @@ export interface CourseProgress {
 export interface CertificateIssuedEvent {
   certificateId: string;
   studentId: string;
-  packageId: string;
+  /** Null for a marketplace-sourced certificate (FR-324) — `CertificateNotificationListener` never reads this field either way. */
+  packageId: string | null;
+}
+
+export interface MarketplaceCertificateInput {
+  studentId: string;
+  studentName: string;
+  courseTitle: string;
+  instructorName: string | null;
+  marketplaceCourseId: string;
 }
 
 export interface BulkIssueParams {
@@ -655,7 +664,16 @@ export class CertificatesService {
         biBody('Only a revoked certificate can be reissued', 'لا يمكن إعادة إصدار إلا شهادة ملغاة'),
       );
     }
-    await this.eligibility.assertEligible(certificate.student_id, certificate.package_id);
+    const packageId = certificate.package_id;
+    if (packageId === null) {
+      // A marketplace certificate never reaches this path — its own
+      // MarketplaceCertificateIssuanceService owns reissue (if any), reading
+      // solely marketplace-owned eligibility data (FR-324).
+      throw new BadRequestException(
+        biBody('This certificate is not an academic certificate', 'هذه الشهادة ليست شهادة أكاديمية'),
+      );
+    }
+    await this.eligibility.assertEligible(certificate.student_id, packageId);
     await this.certificateHistoryRepository.save(
       this.certificateHistoryRepository.create({
         certificate_id: certificate.id,
@@ -681,9 +699,99 @@ export class CertificatesService {
     this.eventEmitter.emit(CERTIFICATE_ISSUED_EVENT, {
       certificateId: saved.id,
       studentId: saved.student_id,
-      packageId: saved.package_id,
+      packageId,
     } satisfies CertificateIssuedEvent);
     return saved;
+  }
+
+  /**
+   * FR-324, FR-248. The certificates table's marketplace write path — the
+   * only one, mirroring `issueForCourse()`'s own shape (idempotency
+   * pre-check, re-check inside a locked transaction, unique-violation race
+   * caught and the winner returned) so both subjects share one set of
+   * "never a duplicate certificate" guarantees. Takes plain, already-
+   * resolved values rather than a `marketplaceCourseId` it would look up
+   * itself — the caller (`MarketplaceCertificateIssuanceService`) is the
+   * one that determined eligibility from marketplace-owned data (FR-324
+   * forbids this method, which lives in the always-loaded academic core,
+   * from reading any marketplace table itself). Reuses the exact template
+   * resolution, code generation and snapshot logic `issueForCourse()` uses
+   * — always the platform default template; marketplace instructors do not
+   * (yet) have their own certificate template ownership, unlike teachers.
+   * Emits the same `CERTIFICATE_ISSUED_EVENT` `CertificateNotificationListener`
+   * already reacts to (it only re-reads the saved row, never `packageId`),
+   * so the "certificate ready" notification is reused for free rather than
+   * re-implemented for marketplace.
+   */
+  public async issueMarketplaceCertificate(input: MarketplaceCertificateInput): Promise<Certificate> {
+    const existing = await this.certificatesRepository.findOne({
+      where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
+    });
+    if (existing) return existing;
+
+    let certificate: Certificate;
+    let created: boolean;
+    try {
+      ({ certificate, created } = await this.dataSource.transaction<{ certificate: Certificate; created: boolean }>(
+        async (manager) => {
+          const raced = await manager.findOne(Certificate, {
+            where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
+          });
+          if (raced) return { certificate: raced, created: false };
+
+          const template = await this.findDefaultTemplate();
+          this.assertTemplateCanBeIssued(template);
+
+          const record = manager.create(Certificate, {
+            certificate_number: await this.uniqueNumber(),
+            verification_code: await this.uniqueCode(),
+            student_id: input.studentId,
+            package_id: null,
+            marketplace_course_id: input.marketplaceCourseId,
+            source: 'marketplace',
+            student_name: input.studentName,
+            course_title: input.courseTitle,
+            teacher_name: input.instructorName,
+            completion_percentage: 100,
+            template_id: template?.id ?? null,
+            template_snapshot: this.snapshotOf(template),
+            status: CertificateStatus.ISSUED,
+            revoked_at: null,
+            revoke_reason: null,
+            revoked_by: null,
+            revocation_context: null,
+            issued_at: new Date(),
+          });
+          const saved = await manager.save(Certificate, record);
+          this.logger.log(
+            `Marketplace certificate ${saved.certificate_number} issued to student ${input.studentId} for course ${input.marketplaceCourseId}`,
+          );
+          return { certificate: saved, created: true };
+        },
+      ));
+    } catch (error) {
+      if (error instanceof QueryFailedError && (error as unknown as { code?: string }).code === '23505') {
+        const raced = await this.certificatesRepository.findOne({
+          where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
+        });
+        if (raced) return raced;
+      }
+      throw error;
+    }
+
+    if (created) {
+      this.eventEmitter.emit(CERTIFICATE_ISSUED_EVENT, {
+        certificateId: certificate.id,
+        studentId: certificate.student_id,
+        packageId: null,
+      } satisfies CertificateIssuedEvent);
+    }
+    return certificate;
+  }
+
+  /** Read-only lookup for the marketplace revocation trigger (T127) — never throws; a missing certificate is simply nothing to revoke. */
+  public async getMarketplaceCertificateForCourse(studentId: string, marketplaceCourseId: string): Promise<Certificate | null> {
+    return this.certificatesRepository.findOne({ where: { student_id: studentId, marketplace_course_id: marketplaceCourseId } });
   }
 
   /** Read an issued certificate, asserting teacher course-ownership when scoped. */
@@ -698,10 +806,14 @@ export class CertificatesService {
       throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
     }
     if (teacherId) {
-      const pkg = await this.packagesRepository.findOne({
-        where: { id: certificate.package_id },
-        select: { id: true, teacher_id: true },
-      });
+      // A marketplace certificate (package_id null) has no academic teacher
+      // to own it through this path — treat exactly like a mismatched owner.
+      const pkg = certificate.package_id
+        ? await this.packagesRepository.findOne({
+            where: { id: certificate.package_id },
+            select: { id: true, teacher_id: true },
+          })
+        : null;
       if (!pkg || pkg.teacher_id !== teacherId) {
         throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
       }
@@ -834,9 +946,10 @@ export class CertificatesService {
     studentId: string,
     page: number,
     limit: number,
+    source?: CertificateSource,
   ): Promise<{ data: Certificate[]; meta: PaginationMeta }> {
     const [data, total] = await this.certificatesRepository.findAndCount({
-      where: { student_id: studentId },
+      where: source ? { student_id: studentId, source } : { student_id: studentId },
       order: { issued_at: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -1036,11 +1149,15 @@ export class CertificatesService {
     thisMonth: number;
     topCourses: { packageId: string; title: string; count: number }[];
   }> {
-    const base = this.certificatesRepository.createQueryBuilder('c');
+    // FR-252: academic figures never include a marketplace-sourced row.
+    // The teacher-scoped branch already excludes them structurally (the
+    // INNER JOIN to lesson_packages never matches a NULL package_id), but
+    // the admin-wide branch has no such join — filtered explicitly here so
+    // both paths state the same invariant rather than one relying on an
+    // incidental join side effect.
+    const base = this.certificatesRepository.createQueryBuilder('c').where("c.source = 'academic'");
     if (teacherId) {
-      base
-        .innerJoin('lesson_packages', 'pkg', 'pkg.id = c.package_id')
-        .where('pkg.teacher_id = :teacherId', { teacherId });
+      base.innerJoin('lesson_packages', 'pkg', 'pkg.id = c.package_id').andWhere('pkg.teacher_id = :teacherId', { teacherId });
     }
 
     const total = await base.getCount();
@@ -1050,7 +1167,8 @@ export class CertificatesService {
     monthStart.setUTCHours(0, 0, 0, 0);
     const thisMonthQb = this.certificatesRepository
       .createQueryBuilder('c')
-      .where('c.issued_at >= :monthStart', { monthStart });
+      .where("c.source = 'academic'")
+      .andWhere('c.issued_at >= :monthStart', { monthStart });
     if (teacherId) {
       thisMonthQb
         .innerJoin('lesson_packages', 'pkg', 'pkg.id = c.package_id')

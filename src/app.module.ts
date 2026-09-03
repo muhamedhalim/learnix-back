@@ -70,6 +70,8 @@ import { TeachersModule } from './teachers/teachers.module';
 import { TeacherFollowUpModule } from './teacher-follow-up/teacher-follow-up.module';
 import { UploadModule } from './uploads/upload.module';
 import { WishlistModule } from './wishlist/wishlist.module';
+import { isMarketplaceEnabled } from './config/marketplace.config';
+import { MarketplaceModule } from './marketplace/marketplace.module';
 import { QueuesModule } from './queues/queues.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
@@ -365,6 +367,13 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     // Phase 3 Enhancements: Activity Logging & Bulk Operations
     ActivityLogsModule,
     BulkOperationsModule,
+
+    // Professional Courses Marketplace (independent feature — FR-005). Off
+    // by default until the feature reaches launch readiness; set
+    // MARKETPLACE_ENABLED=true to register it. With the flag unset or false,
+    // this array entry is simply empty and no marketplace route resolves —
+    // every academic module above is imported exactly as it always was.
+    ...(isMarketplaceEnabled() ? [MarketplaceModule] : []),
   ],
   controllers: [AppController],
   providers: [

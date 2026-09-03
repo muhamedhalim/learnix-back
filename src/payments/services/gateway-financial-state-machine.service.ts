@@ -11,6 +11,7 @@ import {
   Refund,
   RefundStatus,
 } from '../entities';
+import { ItemType } from '../entities/item-type.enum';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { CartCheckoutService } from './cart-checkout.service';
@@ -49,6 +50,63 @@ export class GatewayFinancialStateMachineService {
         where: { id: paymentId },
         lock: { mode: 'pessimistic_write' },
       });
+      // Professional Courses Marketplace (item_type = 'marketplace_course'): this
+      // module intentionally never imports marketplace code (MarketplaceModule is
+      // the one-way dependency — MARKETPLACE_ENABLED=false must keep removing the
+      // whole feature without touching payments). So rather than settling the
+      // purchase here, this only confirms the capture and hands off via the same
+      // outbox `PaymentOperationsService.publishOutbox()` already drains for
+      // `payment.succeeded`/`entitlement.granted` below — a marketplace listener
+      // (`MarketplaceSettlementListener`, `@OnEvent('payment.marketplace_item_succeeded')`)
+      // does the actual enrollment/earning/ledger write in its own transaction.
+      if (payment?.item_type === ItemType.MARKETPLACE_COURSE) {
+        if (webhook.outcome === 'succeeded') {
+          await manager
+            .createQueryBuilder()
+            .insert()
+            .into(PaymentDomainEvent)
+            .values({
+              event_name: 'payment.marketplace_item_succeeded',
+              dedupe_key: `payment:${payment.id}:marketplace-item-succeeded`,
+              payload: {
+                payment_id: payment.id,
+                order_id: payment.item_id,
+                verified_amount_minor: webhook.amountMinor,
+                verified_currency: webhook.currency,
+              },
+              published_at: null,
+              attempts: 0,
+              last_error: null,
+            } as never)
+            .orIgnore()
+            .execute();
+        } else if (webhook.outcome === 'failed') {
+          await manager
+            .createQueryBuilder()
+            .insert()
+            .into(PaymentDomainEvent)
+            .values({
+              event_name: 'payment.marketplace_item_failed',
+              dedupe_key: `payment:${payment.id}:marketplace-item-failed`,
+              payload: { payment_id: payment.id, order_id: payment.item_id },
+              published_at: null,
+              attempts: 0,
+              last_error: null,
+            } as never)
+            .orIgnore()
+            .execute();
+        }
+        event.status = 'processed';
+        event.processed_at = new Date();
+        event.error_message = null;
+        event.last_error = null;
+        event.lease_token = null;
+        event.claimed_by = null;
+        event.lease_expires_at = null;
+        event.next_retry_at = null;
+        await manager.save(event);
+        return 'completed';
+      }
       if (payment?.cart_checkout_id && payment.order_id === null) {
         if (webhook.outcome === 'succeeded' || webhook.outcome === 'refunded') {
           try {

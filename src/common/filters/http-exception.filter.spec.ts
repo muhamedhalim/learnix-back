@@ -1,5 +1,5 @@
 import type { ArgumentsHost } from '@nestjs/common';
-import { BadRequestException, HttpStatus } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpStatus, UnprocessableEntityException } from '@nestjs/common';
 
 import { HttpExceptionFilter } from './http-exception.filter';
 
@@ -87,5 +87,52 @@ describe('HttpExceptionFilter — Multer upload errors (SEC-06)', () => {
     } else {
       process.env['NODE_ENV'] = previous;
     }
+  });
+});
+
+describe('HttpExceptionFilter — extra caller-supplied response fields', () => {
+  const filter = new HttpExceptionFilter();
+
+  it('passes through a custom field (e.g. a marketplace exception\'s `details` array) that this filter does not itself know about', () => {
+    const { host, captured } = buildHost();
+    filter.catch(
+      new UnprocessableEntityException({
+        code: 'COURSE_NOT_READY_FOR_SUBMISSION',
+        message: 'This course is not ready for submission',
+        details: ['at_least_one_section', 'minimum_lessons'],
+      }),
+      host,
+    );
+    expect(captured.statusCode).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
+    expect(captured.body?.['details']).toEqual(['at_least_one_section', 'minimum_lessons']);
+    expect(captured.body?.code).toBe('COURSE_NOT_READY_FOR_SUBMISSION');
+  });
+
+  it('passes through multiple arbitrary extra fields at once (e.g. reason + availableFrom, or courseCount)', () => {
+    const { host, captured } = buildHost();
+    filter.catch(
+      new ConflictException({
+        code: 'CATEGORY_REFERENCED',
+        message: 'This category is assigned to 4 course(s) and cannot be deleted',
+        courseCount: 4,
+      }),
+      host,
+    );
+    expect(captured.body?.['courseCount']).toBe(4);
+  });
+
+  it('never lets an extra field override a real RFC 7807 field (e.g. a caller cannot spoof status or requestId)', () => {
+    const { host, captured } = buildHost();
+    filter.catch(
+      new BadRequestException({
+        code: 'X',
+        message: 'nope',
+        status: 999,
+        requestId: 'spoofed',
+      }),
+      host,
+    );
+    expect(captured.body?.['status']).toBe(HttpStatus.BAD_REQUEST);
+    expect(captured.body?.['requestId']).not.toBe('spoofed');
   });
 });

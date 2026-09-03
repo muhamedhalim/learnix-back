@@ -52,6 +52,24 @@ export class ActivityLogsService {
   }
 
   /**
+   * The most recent audit record for one `(action, targetType, targetId)`
+   * triple, or `null` if none exists. Lets a caller derive a "since the
+   * last time an admin did X" watermark (e.g. the marketplace's FR-016
+   * resubmission-attempt reset) without duplicating `audit_logs` access
+   * outside this service.
+   */
+  public async getLatestAuditRecord(
+    action: string,
+    targetType: string,
+    targetId: string,
+  ): Promise<AuditLog | null> {
+    return this.auditLogRepository.findOne({
+      where: { action, target_type: targetType, target_id: targetId },
+      order: { created_at: 'DESC' },
+    });
+  }
+
+  /**
    * Get activity logs for a specific user (student or teacher)
    */
   public async getUserActivityLogs(

@@ -9,6 +9,7 @@ import { getCurrentRequestId } from '../../observability/performance-context';
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
 import { ScheduledJobMonitorService } from '../../observability/scheduled-job-monitor.service';
 import { GatewayWebhookEvent, Payment, PaymentDomainEvent } from '../entities';
+import { ItemType } from '../entities/item-type.enum';
 import type { ProviderWebhookEvent } from '../providers/payment-gateway.interface';
 import { PaymentsService } from './payments.service';
 import { GatewayFinancialStateMachineService } from './gateway-financial-state-machine.service';
@@ -120,6 +121,17 @@ export class GatewayWebhookService {
         result = this.result('refunded', 'Payment refunded', payment.id, webhook);
       } else if (webhook.outcome === 'pending') {
         result = this.result('pending', 'Payment pending verification', payment.id, webhook);
+      } else if (payment.item_type === ItemType.MARKETPLACE_COURSE) {
+        // A marketplace purchase has no academic `Order` for
+        // `processFailedPayment()` below to touch — route a declined
+        // capture through the same transaction/outbox boundary as
+        // succeeded/refunded instead, so T105's
+        // `payment.marketplace_item_failed` outbox event actually reaches
+        // `MarketplaceSettlementListener`. The state machine's marketplace
+        // branch always completes the event itself, so return here rather
+        // than falling into the trailing `completeEvent()` below.
+        await this.financialStateMachine.apply(event.id, event.lease_token!, payment.id, webhook);
+        return this.result('failed', webhook.message ?? 'Payment declined', payment.id, webhook);
       } else {
         await this.payments.processFailedPayment(
           payment.id,

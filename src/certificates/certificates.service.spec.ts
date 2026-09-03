@@ -56,6 +56,7 @@ describe('CertificatesService', () => {
   const certificates = {
     findOne: jest.fn(),
     find: jest.fn(),
+    findAndCount: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
     createQueryBuilder: jest.fn(),
@@ -283,6 +284,135 @@ describe('CertificatesService', () => {
       );
       expect(result.certificate_number).toMatch(/^CERT-\d{4}-/);
       expect(emitter.emit).toHaveBeenCalled();
+    });
+  });
+
+  describe('issueMarketplaceCertificate (T126)', () => {
+    const input = {
+      studentId: 'S1',
+      studentName: 'Ada Lovelace',
+      courseTitle: 'React Basics',
+      instructorName: 'Nour Ahmed',
+      marketplaceCourseId: 'MC1',
+    };
+
+    it('returns the existing certificate (idempotent — exactly one per completed enrollment, FR-248)', async () => {
+      const existing = { id: 'c1', source: 'marketplace' } as Certificate;
+      certificates.findOne.mockResolvedValue(existing);
+
+      const result = await service.issueMarketplaceCertificate(input);
+
+      expect(result).toBe(existing);
+      expect(certificates.save).not.toHaveBeenCalled();
+    });
+
+    it('issues with source=marketplace, package_id=null, and the platform default template, emitting CERTIFICATE_ISSUED_EVENT', async () => {
+      certificates.findOne.mockResolvedValue(null);
+      templates.findOne.mockResolvedValue({
+        id: 't1',
+        status: CertificateTemplateStatus.PUBLISHED,
+        name: 'Default certificate',
+        title: 'Certificate of Completion',
+        body: 'Presented to {{student}} for {{course}}.',
+      });
+      certificates.create.mockImplementation((v: unknown) => v);
+      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+
+      const result = await service.issueMarketplaceCertificate(input);
+
+      expect(result).toMatchObject({
+        source: 'marketplace',
+        package_id: null,
+        marketplace_course_id: 'MC1',
+        student_name: 'Ada Lovelace',
+        course_title: 'React Basics',
+        teacher_name: 'Nour Ahmed',
+        completion_percentage: 100,
+        status: CertificateStatus.ISSUED,
+        template_id: 't1',
+      });
+      expect(templates.findOne).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ is_default: true }) }));
+      expect(emitter.emit).toHaveBeenCalledWith(
+        'certificate.issued',
+        expect.objectContaining({ studentId: 'S1', packageId: null }),
+      );
+    });
+
+    it('issues even with no platform default template configured, rather than refusing', async () => {
+      certificates.findOne.mockResolvedValue(null);
+      templates.findOne.mockResolvedValue(null);
+      certificates.create.mockImplementation((v: unknown) => v);
+      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+
+      const result = await service.issueMarketplaceCertificate(input);
+
+      expect(result.template_id).toBeNull();
+      expect(result.status).toBe(CertificateStatus.ISSUED);
+    });
+
+    it('never reads any academic table (packages, package purchases, lesson progress) while issuing (FR-324)', async () => {
+      certificates.findOne.mockResolvedValue(null);
+      templates.findOne.mockResolvedValue(null);
+      certificates.create.mockImplementation((v: unknown) => v);
+      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+
+      await service.issueMarketplaceCertificate(input);
+
+      expect(packages.findOne).not.toHaveBeenCalled();
+      expect(purchases.findOne).not.toHaveBeenCalled();
+      expect(purchases.createQueryBuilder).not.toHaveBeenCalled();
+      expect(progress.createQueryBuilder).not.toHaveBeenCalled();
+      expect(eligibility.assertEligible).not.toHaveBeenCalled();
+      expect(eligibility.lockActivePurchase).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getMarketplaceCertificateForCourse (T127)', () => {
+    it('returns the certificate for the (student, marketplace course) pair, or null', async () => {
+      const found = { id: 'c1' } as Certificate;
+      certificates.findOne.mockResolvedValue(found);
+
+      await expect(service.getMarketplaceCertificateForCourse('S1', 'MC1')).resolves.toBe(found);
+      expect(certificates.findOne).toHaveBeenCalledWith({ where: { student_id: 'S1', marketplace_course_id: 'MC1' } });
+    });
+  });
+
+  describe('getMyCertificates (T129/T131 — the marketplace listing endpoint)', () => {
+    it('filters by source when given one, never mixing academic and marketplace rows for one caller', async () => {
+      certificates.findAndCount.mockResolvedValue([[{ id: 'c1', source: 'marketplace' }], 1]);
+
+      await service.getMyCertificates('S1', 1, 20, 'marketplace');
+
+      expect(certificates.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { student_id: 'S1', source: 'marketplace' } }),
+      );
+    });
+
+    it('omits the source filter entirely when none is given (the academic /student/certificates route\'s existing behaviour, unchanged)', async () => {
+      certificates.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.getMyCertificates('S1', 1, 20);
+
+      expect(certificates.findAndCount).toHaveBeenCalledWith(expect.objectContaining({ where: { student_id: 'S1' } }));
+    });
+  });
+
+  describe('getAnalytics (T128)', () => {
+    it("filters the admin-wide total/thisMonth figures to source='academic' — a marketplace certificate never inflates them (FR-252)", async () => {
+      const totalQb = qb(3);
+      const monthQb = qb(1);
+      const topQb = qb([]);
+      certificates.createQueryBuilder
+        .mockReturnValueOnce(totalQb)
+        .mockReturnValueOnce(monthQb)
+        .mockReturnValueOnce(topQb);
+
+      const result = await service.getAnalytics();
+
+      expect(totalQb.where).toHaveBeenCalledWith("c.source = 'academic'");
+      expect(monthQb.where).toHaveBeenCalledWith("c.source = 'academic'");
+      expect(result.total).toBe(3);
+      expect(result.thisMonth).toBe(1);
     });
   });
 

@@ -78,6 +78,15 @@ export const QUEUE_NAMES = {
    * AD-7). Never enqueued by lesson/appointment creation itself.
    */
   MEETING_PROVISIONING: 'meeting-provisioning',
+
+  /**
+   * Professional Courses Marketplace background work: the refund-clearance
+   * sweep (FR-147), permanent-removal per-learner fan-out (FR-054a), and
+   * financial reconciliation (FR-320). One queue for the whole feature,
+   * matching how `CODE_GENERATION`/`CODE_EXPORT` share one domain-scoped
+   * pair rather than a queue per job type.
+   */
+  MARKETPLACE: 'marketplace',
 } as const;
 
 /**
@@ -154,6 +163,14 @@ export const JOB_TYPES = {
   MEETING: {
     /** Create the meeting at the provider for one appointment (Phase 5). */
     PROVISION: 'provision-meeting',
+  },
+  MARKETPLACE: {
+    /** Daily sweep: move eligible earnings from REFUND_CLEARANCE to AVAILABLE_BALANCE (FR-147). */
+    CLEARANCE_SWEEP: 'marketplace-clearance-sweep',
+    /** Per-order fan-out for a permanent course removal — refund + reversal (FR-054a). */
+    REMOVAL_ORDER: 'marketplace-removal-order',
+    /** Ledger-to-balance divergence check (FR-172, FR-320). */
+    RECONCILIATION: 'marketplace-reconciliation',
   },
 } as const;
 
@@ -434,6 +451,21 @@ export const QUEUE_CONFIGS = {
       backoff: { type: 'exponential' as const, delay: 15_000 },
       // A failed meeting is an operational concern, matching the
       // parent-notifications rationale — keep the failure trail.
+      removeOnFail: { age: 30 * 24 * 3600 },
+    },
+  },
+
+  [QUEUE_NAMES.MARKETPLACE]: {
+    ...DEFAULT_QUEUE_CONFIG,
+    defaultJobOptions: {
+      ...DEFAULT_QUEUE_CONFIG.defaultJobOptions,
+      // Financial background work: idempotent per FR-320, so retries are
+      // safe and a missed run is fully recoverable by the next sweep.
+      priority: 2,
+      attempts: 5,
+      backoff: { type: 'exponential' as const, delay: 10_000 },
+      // Refund/reversal failures are a finance-operations concern — keep
+      // the trail as long as the other financial queues do.
       removeOnFail: { age: 30 * 24 * 3600 },
     },
   },
