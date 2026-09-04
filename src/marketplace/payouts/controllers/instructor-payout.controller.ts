@@ -1,10 +1,14 @@
-import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
+import { THROTTLE } from '../../../common/constants';
 import { PaginatedResponse } from '../../../common/interfaces/pagination.interface';
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
 import { CurrentInstructor } from '../../common/decorators/current-instructor.decorator';
+import { MarketplaceListQueryDto } from '../../common/dto/marketplace-pagination.dto';
 import { idempotencyKeyMissing } from '../../common/errors';
+import { PayoutRequestThrottlerGuard } from '../../common/guards/per-account-throttler.guard';
 import type { MarketplaceInstructor } from '../../instructors/entities/marketplace-instructor.entity';
 import { CreatePayoutAccountDto, UpdatePayoutAccountDto } from '../dto/payout-account.dto';
 import { CreatePayoutRequestDto } from '../dto/payout-request.dto';
@@ -86,10 +90,9 @@ export class InstructorPayoutController {
   @ApiOperation({ summary: 'Own payout request history (FR-215)' })
   public async listRequests(
     @CurrentInstructor() instructor: MarketplaceInstructor,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query() query: MarketplaceListQueryDto,
   ): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
-    return this.requests.listOwn(instructor.id, Number(page), Number(limit));
+    return this.requests.listOwn(instructor.id, query.page, query.limit);
   }
 
   @Get('payouts/:id')
@@ -102,6 +105,8 @@ export class InstructorPayoutController {
   }
 
   @Post('payouts')
+  @UseGuards(PayoutRequestThrottlerGuard)
+  @Throttle({ default: THROTTLE.STRICT })
   @ApiOperation({ summary: 'Request a payout; Idempotency-Key required (FR-206, FR-209)' })
   public async createRequest(
     @CurrentInstructor() instructor: MarketplaceInstructor,

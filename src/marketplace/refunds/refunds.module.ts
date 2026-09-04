@@ -9,15 +9,18 @@ import { registerQueues } from '../../queues/register-queues.util';
 import { CatalogModule } from '../catalog/catalog.module';
 import { CourseRemovalService } from '../catalog/course-removal.service';
 import { MarketplaceRemovalProcessor } from '../catalog/processors/marketplace-removal.processor';
+import { MarketplaceCommonModule } from '../common/common.module';
 import { CommerceModule } from '../commerce/commerce.module';
 import { EarningsModule } from '../earnings/earnings.module';
 import { InstructorEarning } from '../earnings/entities/instructor-earning.entity';
+import { InstructorApplication } from '../instructors/entities/instructor-application.entity';
 import { AdminCourseRemovalController } from './controllers/admin-course-removal.controller';
 import { AdminRefundController } from './controllers/admin-refund.controller';
 import { LearnerRefundController } from './controllers/learner-refund.controller';
 import { RefundEligibilityService } from './eligibility.service';
 import { MarketplaceRefundRequest } from './entities';
 import { ClearanceSweepScheduler, ClearanceSweepService } from '../jobs/clearance.job';
+import { RetentionSweepScheduler, RetentionSweepService } from '../jobs/retention.job';
 import { RefundProcessingService } from './refund-processing.service';
 import { RefundRequestService } from './refund-request.service';
 
@@ -42,13 +45,18 @@ import { RefundRequestService } from './refund-request.service';
     // `ReviewsModule` already uses for entities it needs read/write access
     // to without importing their owning module) — `ClearanceSweepService`
     // needs a directly-injected repository, not just manager-level access.
-    TypeOrmModule.forFeature([MarketplaceRefundRequest, InstructorEarning]),
+    // `InstructorApplication` re-registered directly (same pattern) —
+    // `RetentionSweepService` needs a directly-injected repository, not
+    // just manager-level access, and importing `InstructorsModule` here
+    // would pull in far more than this one repository for no benefit.
+    TypeOrmModule.forFeature([MarketplaceRefundRequest, InstructorEarning, InstructorApplication]),
     CommerceModule,
     EarningsModule,
     PaymentsModule,
     IdempotencyModule,
     ActivityLogsModule,
     CatalogModule,
+    MarketplaceCommonModule,
     registerQueues({
       name: QUEUE_NAMES.MARKETPLACE,
       config: QUEUE_CONFIGS[QUEUE_NAMES.MARKETPLACE],
@@ -61,7 +69,8 @@ import { RefundRequestService } from './refund-request.service';
     RefundRequestService,
     CourseRemovalService,
     ClearanceSweepService,
-    ...(areQueuesEnabled() ? [MarketplaceRemovalProcessor, ClearanceSweepScheduler] : []),
+    RetentionSweepService,
+    ...(areQueuesEnabled() ? [MarketplaceRemovalProcessor, ClearanceSweepScheduler, RetentionSweepScheduler] : []),
   ],
   exports: [
     TypeOrmModule,

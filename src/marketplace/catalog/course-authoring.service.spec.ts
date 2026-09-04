@@ -112,7 +112,10 @@ function buildService(
     return qb;
   }) as never;
 
-  const sanitization = { sanitizeBasic: jest.fn((s: string) => s) } as unknown as jest.Mocked<SanitizationService>;
+  const sanitization = {
+    sanitizeBasic: jest.fn((s: string) => s),
+    sanitizeStrict: jest.fn((s: string) => s),
+  } as unknown as jest.Mocked<SanitizationService>;
 
   const service = new CourseAuthoringService(
     courses as never,

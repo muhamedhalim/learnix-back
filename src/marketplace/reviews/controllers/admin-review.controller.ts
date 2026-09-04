@@ -6,8 +6,8 @@ import { RolesGuard } from '../../../auth/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
-import { CourseReviewStatus } from '../../common/enums';
 import { ModerateReviewDto } from '../dto/moderate-review.dto';
+import { AdminReviewQueueQueryDto } from '../dto/review-filter.dto';
 import { MarketplaceCourseReview } from '../entities';
 import { ReviewModerationQueue, ReviewModerationService } from '../review-moderation.service';
 
@@ -28,12 +28,8 @@ export class AdminReviewController {
 
   @Get()
   @ApiOperation({ summary: 'Reported and flagged reviews, or a specific status (FR-261)' })
-  public async queue(
-    @Query('status') status?: CourseReviewStatus,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
-  ): Promise<ReviewModerationQueue> {
-    return this.moderation.listForModeration(status, Number(page), Number(limit));
+  public async queue(@Query() query: AdminReviewQueueQueryDto): Promise<ReviewModerationQueue> {
+    return this.moderation.listForModeration(query.status, query.page, query.limit);
   }
 
   @Post(':id/moderate')

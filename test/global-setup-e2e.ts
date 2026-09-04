@@ -39,6 +39,7 @@ import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 
 import { assertTestDatabaseIsSafe } from '../src/config/environment-isolation.guard';
+import { CreateMarketplaceMoney2096000000000 } from '../src/migrations/2096000000000-CreateMarketplaceMoney';
 
 export default async function globalSetup(): Promise<void> {
   config({ path: join(__dirname, '..', '.env.test') });
@@ -71,16 +72,33 @@ export default async function globalSetup(): Promise<void> {
     await probe.destroy();
   }
 
-  if (alreadyBuilt) return;
+  if (!alreadyBuilt) {
+    const dataSource = new DataSource({
+      type: 'postgres',
+      url,
+      entities: [join(__dirname, '..', 'src', '**', 'entities', '*.entity.ts')],
+      synchronize: true,
+      logging: false,
+    });
 
-  const dataSource = new DataSource({
-    type: 'postgres',
-    url,
-    entities: [join(__dirname, '..', 'src', '**', 'entities', '*.entity.ts')],
-    synchronize: true,
-    logging: false,
-  });
+    await dataSource.initialize();
+    await dataSource.destroy();
+  }
 
-  await dataSource.initialize();
-  await dataSource.destroy();
+  // `synchronize` builds tables from `@Entity()` decorators only — it has no
+  // concept of a raw-SQL trigger, so `TRG_mp_ledger_immutable` (FR-162, the
+  // database-level backstop `marketplace-ledger-immutability.e2e-spec.ts`
+  // exists specifically to prove) was silently never created in this e2e
+  // schema. Applied unconditionally, every run (not just the first, "build
+  // once" `alreadyBuilt` branch above) — idempotent by construction
+  // (`CREATE OR REPLACE FUNCTION` + `DROP TRIGGER IF EXISTS`), so a
+  // long-lived local Docker Postgres whose schema was already built by an
+  // earlier run (before this trigger was added here) still gets it.
+  const triggerSetup = new DataSource({ type: 'postgres', url, synchronize: false, logging: false });
+  await triggerSetup.initialize();
+  try {
+    await triggerSetup.query(CreateMarketplaceMoney2096000000000.ledgerTriggerSql());
+  } finally {
+    await triggerSetup.destroy();
+  }
 }

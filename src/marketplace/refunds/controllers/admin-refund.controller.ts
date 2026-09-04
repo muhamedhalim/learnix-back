@@ -17,8 +17,8 @@ import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { FinancePermissions } from '../../../payments/decorators/finance-permissions.decorator';
 import { FinancePermissionsGuard } from '../../../payments/guards/finance-permissions.guard';
-import { RefundRequestStatus } from '../../common/enums';
 import { DiscretionaryRefundDto } from '../dto/discretionary-refund.dto';
+import { AdminRefundQueueQueryDto } from '../dto/refund-queue-query.dto';
 import { MarketplaceRefundRequest } from '../entities';
 import { RefundProcessingService } from '../refund-processing.service';
 import { RefundRequestService, RefundRequestQueue } from '../refund-request.service';
@@ -47,12 +47,8 @@ export class AdminRefundController {
   @Get()
   @FinancePermissions('marketplace.refunds.view')
   @ApiOperation({ summary: 'Refund queue with eligibility inputs and verdict (FR-289)' })
-  public async queue(
-    @Query('status') status?: RefundRequestStatus,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
-  ): Promise<RefundRequestQueue> {
-    return this.refundRequests.listQueue(status, Number(page), Number(limit));
+  public async queue(@Query() query: AdminRefundQueueQueryDto): Promise<RefundRequestQueue> {
+    return this.refundRequests.listQueue(query.status, query.page, query.limit);
   }
 
   @Get(':id')

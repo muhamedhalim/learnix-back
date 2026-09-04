@@ -140,6 +140,10 @@ export class InstructorApplication {
   @Column({ type: 'timestamptz', nullable: true, name: 'submitted_at' })
   submitted_at!: Date | null;
 
+  /** T222 (FR-315) — set once the retention job has purged this decided application's personal content; null means not yet purged. */
+  @Column({ type: 'timestamptz', nullable: true, name: 'personal_data_purged_at' })
+  personal_data_purged_at!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   created_at!: Date;
 

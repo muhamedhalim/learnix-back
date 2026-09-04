@@ -75,7 +75,8 @@ export class ReconciliationService {
   private async negativeBalances(): Promise<Array<{ instructor_id: string; currency: string; available_minor: number }>> {
     const pairs = await this.earnings
       .createQueryBuilder('e')
-      .select('DISTINCT e.instructor_id', 'instructor_id')
+      .distinct(true)
+      .select('e.instructor_id', 'instructor_id')
       .addSelect('e.currency', 'currency')
       .getRawMany<{ instructor_id: string; currency: string }>();
 

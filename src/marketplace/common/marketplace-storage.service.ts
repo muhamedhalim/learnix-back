@@ -28,6 +28,11 @@ export class MarketplaceStorageService {
     return this.storage.upload({ ...params, visibility: 'private' });
   }
 
+  /** T222 (FR-315) — the retention sweep's only storage access; kept here rather than reaching around this boundary with a raw `StorageService` injection elsewhere. */
+  public async delete(path: string): Promise<void> {
+    await this.storage.delete(path);
+  }
+
   /**
    * `authorize` is re-evaluated on every call — never memoised by the
    * caller across requests. Returns a URL valid for at most

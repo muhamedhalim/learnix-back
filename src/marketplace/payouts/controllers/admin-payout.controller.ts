@@ -9,10 +9,10 @@ import type { JwtPayload } from '../../../common/interfaces/user-request.interfa
 import { PaginatedResponse } from '../../../common/interfaces/pagination.interface';
 import { FinancePermissions } from '../../../payments/decorators/finance-permissions.decorator';
 import { FinancePermissionsGuard } from '../../../payments/guards/finance-permissions.guard';
-import { PayoutRequestStatus } from '../../common/enums';
 import type { PayoutReport } from '../../admin/reporting.service';
 import { MarketplaceReportingService } from '../../admin/reporting.service';
 import { MarkPayoutFailedDto, MarkPayoutPaidDto, RejectPayoutDto } from '../dto/payout-admin.dto';
+import { AdminPayoutQueueQueryDto } from '../dto/payout-request.dto';
 import type { MarketplacePayoutRequest } from '../entities';
 import { PayoutAdminService } from '../payout-admin.service';
 import { PayoutRequestService } from '../payout-request.service';
@@ -39,12 +39,8 @@ export class AdminPayoutController {
   @Get()
   @FinancePermissions('marketplace.payouts.view')
   @ApiOperation({ summary: 'Payout queue, filterable by status (FR-215, FR-289)' })
-  public async queue(
-    @Query('status') status?: PayoutRequestStatus,
-    @Query('page') page = 1,
-    @Query('limit') limit = 20,
-  ): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
-    return this.payoutRequests.listQueue(status, Number(page), Number(limit));
+  public async queue(@Query() query: AdminPayoutQueueQueryDto): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
+    return this.payoutRequests.listQueue(query.status, query.page, query.limit);
   }
 
   /**

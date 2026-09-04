@@ -404,7 +404,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       ).resolves.toMatchObject({ status: 'active' });
       await expect(
         dataSource.getRepository(InstructorEarning).findOneByOrFail({ order_id: order.id }),
-      ).resolves.toMatchObject({ status: 'pending_earnings' });
+      ).resolves.toMatchObject({ status: 'refund_clearance' });
       expect(
         await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
       ).toBe(2);

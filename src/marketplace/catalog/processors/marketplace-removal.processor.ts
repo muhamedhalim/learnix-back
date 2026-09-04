@@ -5,6 +5,7 @@ import { Job } from 'bullmq';
 
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../../queues/queues.constants';
 import { ClearanceSweepService } from '../../jobs/clearance.job';
+import { RetentionSweepService } from '../../jobs/retention.job';
 import { CourseRemovalService, RemovalOrderJobData } from '../course-removal.service';
 
 /**
@@ -24,6 +25,7 @@ export class MarketplaceRemovalProcessor extends WorkerHost {
   constructor(
     private readonly removal: CourseRemovalService,
     private readonly clearanceSweep: ClearanceSweepService,
+    private readonly retentionSweep: RetentionSweepService,
   ) {
     super();
   }
@@ -35,6 +37,10 @@ export class MarketplaceRemovalProcessor extends WorkerHost {
     }
     if (job.name === JOB_TYPES.MARKETPLACE.CLEARANCE_SWEEP) {
       await this.clearanceSweep.runSweep();
+      return;
+    }
+    if (job.name === JOB_TYPES.MARKETPLACE.RETENTION_SWEEP) {
+      await this.retentionSweep.runSweep();
       return;
     }
     this.logger.warn(`Unknown job name ${job.name}`);

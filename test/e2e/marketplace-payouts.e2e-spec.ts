@@ -217,8 +217,8 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       instructorAgent: instructorUser.agent,
       adminAgent: admin.agent,
       categoryId: category.id,
-      priceMinor: opts.priceMinor,
-      currency: opts.currency,
+      ...(opts.priceMinor !== undefined && { priceMinor: opts.priceMinor }),
+      ...(opts.currency !== undefined && { currency: opts.currency }),
     });
     const { order } = await createPaidOrder(learner, course.id);
     const earning = await forceClear(order.id);
@@ -394,7 +394,7 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .expect(422);
 
       expect(res.body.code).toBe('PAYOUT_BELOW_MINIMUM');
-      expect(String(res.body.message)).toContain('50000');
+      expect(String(res.body.detail)).toContain('50000');
     });
   });
 

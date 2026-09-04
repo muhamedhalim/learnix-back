@@ -25,6 +25,7 @@ describe('MarketplaceReviewService (T149)', () => {
   let coursesRepo: { findOne: jest.Mock };
   let enrollmentsRepo: { findOne: jest.Mock };
   let eventEmitter: { emit: jest.Mock };
+  let sanitization: { sanitizeStrict: jest.Mock };
   let service: MarketplaceReviewService;
 
   beforeEach(() => {
@@ -39,7 +40,14 @@ describe('MarketplaceReviewService (T149)', () => {
     coursesRepo = { findOne: jest.fn() };
     enrollmentsRepo = { findOne: jest.fn() };
     eventEmitter = { emit: jest.fn() };
-    service = new MarketplaceReviewService(reviewsRepo as never, coursesRepo as never, enrollmentsRepo as never, eventEmitter as never);
+    sanitization = { sanitizeStrict: jest.fn((s: string) => s) };
+    service = new MarketplaceReviewService(
+      reviewsRepo as never,
+      coursesRepo as never,
+      enrollmentsRepo as never,
+      eventEmitter as never,
+      sanitization as never,
+    );
   });
 
   describe('createReview', () => {

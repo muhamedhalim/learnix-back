@@ -15,7 +15,7 @@ import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
-import { PerAccountThrottlerGuard } from '../../common/guards/per-account-throttler.guard';
+import { RefundRequestThrottlerGuard } from '../../common/guards/per-account-throttler.guard';
 import { idempotencyKeyMissing } from '../../common/errors';
 import { RefundEligibilityService, RefundEligibilityVerdict } from '../eligibility.service';
 import { MarketplaceRefundRequest } from '../entities';
@@ -51,7 +51,7 @@ export class LearnerRefundController {
   }
 
   @Post(':id/refund')
-  @UseGuards(PerAccountThrottlerGuard)
+  @UseGuards(RefundRequestThrottlerGuard)
   @Throttle({ default: THROTTLE.STRICT })
   @ApiOperation({ summary: 'Request a refund; Idempotency-Key required (FR-177, FR-199)' })
   public async requestRefund(

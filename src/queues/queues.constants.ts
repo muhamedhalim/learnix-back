@@ -171,6 +171,8 @@ export const JOB_TYPES = {
     REMOVAL_ORDER: 'marketplace-removal-order',
     /** Ledger-to-balance divergence check (FR-172, FR-320). */
     RECONCILIATION: 'marketplace-reconciliation',
+    /** Daily sweep: purge personal content from decided instructor applications past their 24-month retention window (FR-315). */
+    RETENTION_SWEEP: 'marketplace-retention-sweep',
   },
 } as const;
 

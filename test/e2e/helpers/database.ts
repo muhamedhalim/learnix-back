@@ -30,6 +30,29 @@ async function pause(ms: number): Promise<void> {
  * resolved. The retry is bounded so a genuine, permanent lock problem still
  * fails the run instead of hanging it.
  */
+/**
+ * `marketplace_currencies` is platform reference/configuration data (an
+ * admin-managed allow-list), not per-test transactional state — production
+ * seeds it once via migration `2096000000000-CreateMarketplaceMoney`, never
+ * per request. `resetDatabase()` truncates every entity table including this
+ * one, and nothing else re-seeds it afterward, so every marketplace e2e test
+ * beyond the very first `beforeEach` in a run was silently missing its only
+ * enabled currency row — any code path that validates through
+ * `CurrencyRegistryService.resolve()` (payout requests, in particular) would
+ * fail with "Currency EGP is not enabled" for a reason having nothing to do
+ * with the behaviour under test. Re-seeding the exact same row the real
+ * migration inserts keeps every test's baseline identical to a freshly
+ * migrated database, matching production.
+ */
+async function reseedReferenceData(dataSource: DataSource): Promise<void> {
+  await dataSource.query(`
+    INSERT INTO "marketplace_currencies"
+      ("code", "minor_unit_exponent", "is_enabled", "min_price_minor", "max_price_minor", "min_payout_minor")
+    VALUES ('EGP', 2, true, 5000, 2000000, 50000)
+    ON CONFLICT ("code") DO NOTHING;
+  `);
+}
+
 export async function resetDatabase(dataSource: DataSource, attempts = 3): Promise<void> {
   const tables = dataSource.entityMetadatas
     .map((entity) => `"${entity.tableName}"`)
@@ -42,6 +65,7 @@ export async function resetDatabase(dataSource: DataSource, attempts = 3): Promi
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       await dataSource.query(statement);
+      await reseedReferenceData(dataSource);
       return;
     } catch (error: unknown) {
       const code = (error as { code?: string; driverError?: { code?: string } }).code

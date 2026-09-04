@@ -84,10 +84,10 @@ export class CourseAuthoringService {
       instructor_id: instructorId,
       category_id: dto.category_id,
       slug: slugify(dto.title, 'course'),
-      title: dto.title,
-      title_ar: dto.title_ar ?? null,
-      summary: dto.summary,
-      summary_ar: dto.summary_ar ?? null,
+      title: this.sanitization.sanitizeStrict(dto.title),
+      title_ar: dto.title_ar != null ? this.sanitization.sanitizeStrict(dto.title_ar) : null,
+      summary: this.sanitization.sanitizeStrict(dto.summary),
+      summary_ar: dto.summary_ar != null ? this.sanitization.sanitizeStrict(dto.summary_ar) : null,
       description: this.sanitization.sanitizeBasic(dto.description),
       description_ar: dto.description_ar ? this.sanitization.sanitizeBasic(dto.description_ar) : null,
       level: dto.level,
@@ -109,10 +109,10 @@ export class CourseAuthoringService {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
 
-    if (dto.title !== undefined) course.title = dto.title;
-    if (dto.title_ar !== undefined) course.title_ar = dto.title_ar;
-    if (dto.summary !== undefined) course.summary = dto.summary;
-    if (dto.summary_ar !== undefined) course.summary_ar = dto.summary_ar;
+    if (dto.title !== undefined) course.title = this.sanitization.sanitizeStrict(dto.title);
+    if (dto.title_ar !== undefined) course.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
+    if (dto.summary !== undefined) course.summary = this.sanitization.sanitizeStrict(dto.summary);
+    if (dto.summary_ar !== undefined) course.summary_ar = this.sanitization.sanitizeStrict(dto.summary_ar);
     if (dto.description !== undefined) course.description = this.sanitization.sanitizeBasic(dto.description);
     if (dto.description_ar !== undefined) course.description_ar = this.sanitization.sanitizeBasic(dto.description_ar);
     if (dto.category_id !== undefined) course.category_id = dto.category_id;
@@ -155,8 +155,8 @@ export class CourseAuthoringService {
     const count = await this.sections.count({ where: { course_id: course.id } });
     const section = this.sections.create({
       course_id: course.id,
-      title: dto.title,
-      title_ar: dto.title_ar ?? null,
+      title: this.sanitization.sanitizeStrict(dto.title),
+      title_ar: dto.title_ar != null ? this.sanitization.sanitizeStrict(dto.title_ar) : null,
       position: count,
     });
     return this.sections.save(section);
@@ -172,8 +172,8 @@ export class CourseAuthoringService {
     this.assertEditable(course);
     const section = await this.getOwnedSectionOrThrow(course.id, sectionId);
 
-    if (dto.title !== undefined) section.title = dto.title;
-    if (dto.title_ar !== undefined) section.title_ar = dto.title_ar;
+    if (dto.title !== undefined) section.title = this.sanitization.sanitizeStrict(dto.title);
+    if (dto.title_ar !== undefined) section.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
     return this.sections.save(section);
   }
 
@@ -220,8 +220,8 @@ export class CourseAuthoringService {
     const count = await this.lessons.count({ where: { section_id: section.id } });
     const lesson = this.lessons.create({
       section_id: section.id,
-      title: dto.title,
-      title_ar: dto.title_ar ?? null,
+      title: this.sanitization.sanitizeStrict(dto.title),
+      title_ar: dto.title_ar != null ? this.sanitization.sanitizeStrict(dto.title_ar) : null,
       position: count,
       content_type: dto.content_type,
       video_id: dto.video_id ?? null,
@@ -250,8 +250,8 @@ export class CourseAuthoringService {
       await this.assertFreePreviewBound(course.id, totalInCourse);
     }
 
-    if (dto.title !== undefined) lesson.title = dto.title;
-    if (dto.title_ar !== undefined) lesson.title_ar = dto.title_ar;
+    if (dto.title !== undefined) lesson.title = this.sanitization.sanitizeStrict(dto.title);
+    if (dto.title_ar !== undefined) lesson.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
     if (dto.content_type !== undefined) lesson.content_type = dto.content_type;
     if (dto.video_id !== undefined) lesson.video_id = dto.video_id;
     if (dto.content_html !== undefined) lesson.content_html = this.sanitization.sanitizeBasic(dto.content_html);

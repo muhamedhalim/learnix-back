@@ -62,6 +62,10 @@ export const MARKETPLACE_ERROR_CODES = {
   ORDER_ALREADY_OPEN: 'ORDER_ALREADY_OPEN',
   /** FR-121 — the free-enrollment rate limit (per-minute or per-day) was reached. */
   FREE_ENROLLMENT_RATE_LIMITED: 'FREE_ENROLLMENT_RATE_LIMITED',
+  /** FR-308 — the per-account refund-request rate limit was reached. */
+  REFUND_REQUEST_RATE_LIMITED: 'REFUND_REQUEST_RATE_LIMITED',
+  /** FR-308 — the per-account payout-request rate limit was reached. */
+  PAYOUT_REQUEST_RATE_LIMITED: 'PAYOUT_REQUEST_RATE_LIMITED',
   /** FR-111 — the free-enrollment endpoint only ever grants a genuinely zero-value course; a paid course must go through checkout. */
   COURSE_NOT_FREE: 'COURSE_NOT_FREE',
   /** FR-054a — a permanently removed course can never be republished or reopened for editing. */
@@ -348,6 +352,26 @@ export function freeEnrollmentRateLimited(
     MARKETPLACE_ERROR_CODES.FREE_ENROLLMENT_RATE_LIMITED,
     `Free enrollment rate limit reached (${limit})`,
     `تم الوصول إلى الحد الأقصى لمعدل التسجيل المجاني (${limit})`,
+    [limit],
+  );
+}
+
+/** FR-308 — mirrors {@link freeEnrollmentRateLimited}'s shape for the refund-request route, so the client gets a route-accurate reason rather than a borrowed "free enrollment" message. */
+export function refundRequestRateLimited(limit: 'per_minute'): MarketplaceUnprocessableException {
+  return new MarketplaceUnprocessableException(
+    MARKETPLACE_ERROR_CODES.REFUND_REQUEST_RATE_LIMITED,
+    `Refund request rate limit reached (${limit})`,
+    `تم الوصول إلى الحد الأقصى لمعدل طلبات الاسترداد (${limit})`,
+    [limit],
+  );
+}
+
+/** FR-308 — mirrors {@link freeEnrollmentRateLimited}'s shape for the payout-request route. */
+export function payoutRequestRateLimited(limit: 'per_minute'): MarketplaceUnprocessableException {
+  return new MarketplaceUnprocessableException(
+    MARKETPLACE_ERROR_CODES.PAYOUT_REQUEST_RATE_LIMITED,
+    `Payout request rate limit reached (${limit})`,
+    `تم الوصول إلى الحد الأقصى لمعدل طلبات السحب (${limit})`,
     [limit],
   );
 }

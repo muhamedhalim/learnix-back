@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, type NestModule, RequestMethod } from '@nestjs/common';
 
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { CertificatesModule } from '../certificates/certificates.module';
@@ -10,6 +10,7 @@ import { StorageModule } from '../storage/storage.module';
 import { MarketplaceAdminModule } from './admin/admin.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { MarketplaceCommonModule } from './common/common.module';
+import { NoStoreMiddleware } from './common/no-store.middleware';
 import { CommerceModule } from './commerce/commerce.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { EarningsModule } from './earnings/earnings.module';
@@ -59,4 +60,27 @@ import { ReviewsModule } from './reviews/reviews.module';
     LearningModule,
   ],
 })
-export class MarketplaceModule {}
+export class MarketplaceModule implements NestModule {
+  /**
+   * FR-303, FR-330, T208/T213. Every marketplace response is `no-store` by
+   * default — that is the safe default for a module dominated by
+   * financial, ownership-scoped and signed-content data — except the small,
+   * genuinely public, anonymous catalogue surface, which gets its own short
+   * public cache instead (T213's caching implementation) rather than none
+   * at all. Paths below are given without the global API prefix, matching
+   * every other `NestModule.configure()` in this codebase (`BooksModule`).
+   */
+  public configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(NoStoreMiddleware)
+      .exclude(
+        { path: 'marketplace/courses', method: RequestMethod.GET },
+        { path: 'marketplace/courses/:slug', method: RequestMethod.GET },
+        { path: 'marketplace/courses/:slug/curriculum', method: RequestMethod.GET },
+        { path: 'marketplace/courses/:slug/reviews', method: RequestMethod.GET },
+        { path: 'marketplace/categories', method: RequestMethod.GET },
+        { path: 'marketplace/instructors/:slug', method: RequestMethod.GET },
+      )
+      .forRoutes('*');
+  }
+}

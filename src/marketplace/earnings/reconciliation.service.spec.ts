@@ -3,6 +3,7 @@ import { ReconciliationService } from './reconciliation.service';
 function buildQb(rows: unknown[] = []) {
   const qb: Record<string, jest.Mock> = {
     select: jest.fn().mockReturnThis(),
+    distinct: jest.fn().mockReturnThis(),
     addSelect: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),

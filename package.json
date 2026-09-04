@@ -25,6 +25,7 @@
     "dev:infra:down": "docker compose --env-file .env.development.local -f docker-compose.dev.yml down",
     "seed:admin": "ts-node src/database/seed-admin.ts",
     "seed:staging": "ts-node -r tsconfig-paths/register src/database/seed-staging.ts",
+    "seed:marketplace-load": "ts-node -r tsconfig-paths/register scripts/seed-marketplace-load.ts",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- -d src/data-source.ts migration:generate",
     "migration:create": "npm run typeorm -- migration:create",

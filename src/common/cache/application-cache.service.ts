@@ -22,7 +22,8 @@ export type ApplicationCacheFamily =
   | 'student_report'
   | 'platform_report'
   | 'student_profile'
-  | 'user_profile';
+  | 'user_profile'
+  | 'marketplace_catalog';
 
 export const APPLICATION_CACHE_FAMILIES: readonly ApplicationCacheFamily[] = [
   'admin_dashboard',
@@ -35,6 +36,7 @@ export const APPLICATION_CACHE_FAMILIES: readonly ApplicationCacheFamily[] = [
   'platform_report',
   'student_profile',
   'user_profile',
+  'marketplace_catalog',
 ] as const;
 
 export interface ApplicationCacheDescriptor {

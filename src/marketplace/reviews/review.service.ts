@@ -5,6 +5,7 @@ import { IsNull, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
+import { SanitizationService } from '../../common/sanitization/sanitization.service';
 import { MarketplaceCourse } from '../catalog/entities';
 import { CourseReviewStatus, MarketplaceCourseStatus, MarketplaceEnrollmentStatus } from '../common/enums';
 import { reviewAlreadyExists } from '../common/errors';
@@ -48,6 +49,7 @@ export class MarketplaceReviewService {
     @InjectRepository(MarketplaceEnrollment)
     private readonly enrollments: Repository<MarketplaceEnrollment>,
     private readonly eventEmitter: EventEmitter2,
+    private readonly sanitization: SanitizationService,
   ) {}
 
   /**
@@ -80,7 +82,7 @@ export class MarketplaceReviewService {
       enrollment_id: enrollment.id,
       learner_id: learnerId,
       rating: dto.rating,
-      comment: dto.comment ?? null,
+      comment: dto.comment != null ? this.sanitization.sanitizeStrict(dto.comment) : null,
     });
     try {
       review = await this.reviews.save(review);
@@ -103,7 +105,7 @@ export class MarketplaceReviewService {
   public async updateOwnReview(learnerId: string, reviewId: string, dto: UpdateReviewDto): Promise<MarketplaceCourseReview> {
     const review = await this.getOwnOrThrow(learnerId, reviewId);
     if (dto.rating !== undefined) review.rating = dto.rating;
-    if (dto.comment !== undefined) review.comment = dto.comment;
+    if (dto.comment !== undefined) review.comment = dto.comment != null ? this.sanitization.sanitizeStrict(dto.comment) : null;
     return this.reviews.save(review);
   }
 
