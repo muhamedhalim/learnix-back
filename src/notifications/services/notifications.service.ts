@@ -98,7 +98,7 @@ export interface AdminNotificationView {
   sent_at: Date;
   read_at: Date | null;
   created_at: Date;
-  recipient: { id: string; name: string; email: string; role: string };
+  recipient: { id: string; name: string; email: string; role: string | null };
   created_by: { id: string; name: string; email: string } | null;
   deliveries: AdminNotificationDeliveryView[];
 }
@@ -474,7 +474,7 @@ export class NotificationsService {
       id: string;
       name: string;
       email: string;
-      role: string;
+      role: string | null;
     };
   }> {
     const notification = await this.notificationsRepository.findOne({

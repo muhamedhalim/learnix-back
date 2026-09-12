@@ -8,7 +8,12 @@ import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
 import { InstructorApplicationStatus } from '../common/enums';
-import { applicationAlreadyOpen, applicationNotReadyForSubmission, applicationResubmissionBlocked } from '../common/errors';
+import {
+  accountAlreadyExistsForApplicant,
+  applicationAlreadyOpen,
+  applicationNotReadyForSubmission,
+  applicationResubmissionBlocked,
+} from '../common/errors';
 import { MarketplaceApplicationAttemptsResetEvent } from '../events/audit.events';
 import { MarketplaceApplicationSubmittedEvent } from '../events/domain.events';
 import type {
@@ -19,6 +24,7 @@ import type {
   ApplicationWorkExperienceEntry,
 } from './entities/instructor-application.entity';
 import { InstructorApplication } from './entities/instructor-application.entity';
+import { InstructorAccountService } from './instructor-account.service';
 
 const RESET_ATTEMPTS_ACTION = 'marketplace_application_attempts_reset';
 const RESET_ATTEMPTS_TARGET_TYPE = 'marketplace_applicant';
@@ -67,6 +73,7 @@ export class InstructorApplicationService {
   constructor(
     @InjectRepository(InstructorApplication)
     private readonly applications: Repository<InstructorApplication>,
+    private readonly accounts: InstructorAccountService,
     private readonly activityLogs: ActivityLogsService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -76,6 +83,71 @@ export class InstructorApplicationService {
       where: OPEN_STATUSES.map((status) => ({ user_id: userId, status })),
       order: { created_at: 'DESC' },
     });
+  }
+
+  /**
+   * Submits an application from someone who has no platform account at all.
+   *
+   * This is the entry point that makes instructor access independent of the
+   * academic systems: it never touches `AuthService.register`, never creates a
+   * student or teacher profile, and never assigns an academic role. The row is
+   * stored with `user_id = null` plus contact details, and goes straight to
+   * `submitted` — there is no anonymous draft to come back and edit, because
+   * there is no one to authenticate as the owner of it.
+   *
+   * The account itself is provisioned only if an admin approves
+   * (`InstructorService.approveApplication` → `InstructorAccountService`), so
+   * a rejected public application leaves no account behind.
+   */
+  public async submitPublic(
+    contact: { email: string; phone: string },
+    fields: UpdateApplicationFields,
+  ): Promise<InstructorApplication> {
+    const email = contact.email.trim().toLowerCase();
+    const phone = contact.phone.trim();
+
+    // Someone who can already sign in must apply as themselves, so one person
+    // never ends up with two identities.
+    const existing = await this.accounts.findByEmailOrPhone(email, phone);
+    if (existing !== null) {
+      throw accountAlreadyExistsForApplicant();
+    }
+
+    const application = this.applications.create({
+      user_id: null,
+      applicant_email: email,
+      applicant_phone: phone,
+      status: InstructorApplicationStatus.SUBMITTED,
+      submitted_at: new Date(),
+      display_name: fields.display_name ?? '',
+      years_of_experience: fields.years_of_experience ?? 0,
+      ...fields,
+    });
+
+    // FR-011's mandatory set, enforced at submission exactly as for a
+    // signed-in applicant — a public application has no draft stage in which
+    // it could legitimately be incomplete.
+    const missing = this.missingMandatoryFields(application);
+    if (missing.length > 0) {
+      throw applicationNotReadyForSubmission(missing);
+    }
+
+    let saved: InstructorApplication;
+    try {
+      saved = await this.applications.save(application);
+    } catch (error) {
+      const dbError = error as { code?: string };
+      if (dbError.code === POSTGRES_UNIQUE_VIOLATION) {
+        throw applicationAlreadyOpen();
+      }
+      throw error;
+    }
+
+    this.eventEmitter.emit(
+      MarketplaceApplicationSubmittedEvent.EVENT_NAME,
+      new MarketplaceApplicationSubmittedEvent(saved.id, saved.user_id),
+    );
+    return saved;
   }
 
   /** Creates a new draft. Refuses if an open application already exists, or if resubmission is currently blocked. */

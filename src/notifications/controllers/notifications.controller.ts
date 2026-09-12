@@ -30,7 +30,7 @@ export class NotificationsController {
     @GetUser() user: JwtPayload,
     @Query() filter: NotificationFilterDto,
   ): Promise<{ message: string; data: unknown[]; meta: unknown }> {
-    const result = await this.notificationsService.findAllForUser(user.userId, filter, user.role);
+    const result = await this.notificationsService.findAllForUser(user.userId, filter, user.role ?? undefined);
     return {
       message: 'Notifications retrieved successfully',
       ...result,
@@ -45,7 +45,7 @@ export class NotificationsController {
   public async getUnreadCount(
     @GetUser() user: JwtPayload,
   ): Promise<{ message: string; data: { count: number } }> {
-    const count = await this.notificationsService.getUnreadCount(user.userId, user.role);
+    const count = await this.notificationsService.getUnreadCount(user.userId, user.role ?? undefined);
     return {
       message: 'Unread count retrieved successfully',
       data: { count },

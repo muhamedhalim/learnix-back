@@ -30,6 +30,8 @@ export const MARKETPLACE_ERROR_CODES = {
   APPLICATION_NOT_READY_FOR_SUBMISSION: 'APPLICATION_NOT_READY_FOR_SUBMISSION',
   /** FR-015 — the applicant already has an open (non-terminal) application. */
   APPLICATION_ALREADY_OPEN: 'APPLICATION_ALREADY_OPEN',
+  /** A public applicant's contact details already belong to an account — they must sign in and apply as themselves. */
+  ACCOUNT_ALREADY_EXISTS_FOR_APPLICANT: 'ACCOUNT_ALREADY_EXISTS_FOR_APPLICANT',
   /** FR-016 — resubmission is blocked by the 14-day wait or the 3-application cap. */
   APPLICATION_RESUBMISSION_BLOCKED: 'APPLICATION_RESUBMISSION_BLOCKED',
   /** FR-077, FR-281 — a requested page size exceeds the stated maximum. */
@@ -203,6 +205,20 @@ export function applicationAlreadyOpen(): MarketplaceConflictException {
     MARKETPLACE_ERROR_CODES.APPLICATION_ALREADY_OPEN,
     'You already have an open instructor application',
     'لديك بالفعل طلب انضمام كمدرّب مفتوح',
+  );
+}
+
+/**
+ * Deliberately explicit rather than a generic "already exists": the applicant
+ * needs to know the remedy is to sign in and apply as themselves, not to pick
+ * a different email. It leaks only what the person submitting already knows
+ * about their own address.
+ */
+export function accountAlreadyExistsForApplicant(): MarketplaceConflictException {
+  return new MarketplaceConflictException(
+    MARKETPLACE_ERROR_CODES.ACCOUNT_ALREADY_EXISTS_FOR_APPLICANT,
+    'An account already uses these details — please sign in and apply from your account',
+    'يوجد حساب يستخدم هذه البيانات بالفعل — يرجى تسجيل الدخول وتقديم الطلب من حسابك',
   );
 }
 

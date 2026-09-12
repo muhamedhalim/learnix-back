@@ -13,7 +13,8 @@ export class MarketplaceApplicationSubmittedEvent {
   public static readonly EVENT_NAME = 'marketplace.application.submitted';
   constructor(
     public readonly applicationId: string,
-    public readonly applicantUserId: string,
+    /** Null for a public application: the applicant has no account until approval provisions one. */
+    public readonly applicantUserId: string | null,
   ) {}
 }
 
@@ -30,7 +31,8 @@ export class MarketplaceApplicationRejectedEvent {
   public static readonly EVENT_NAME = 'marketplace.application.rejected';
   constructor(
     public readonly applicationId: string,
-    public readonly applicantUserId: string,
+    /** Null for a rejected public application: no account was ever provisioned for it. */
+    public readonly applicantUserId: string | null,
     public readonly reason: string,
   ) {}
 }

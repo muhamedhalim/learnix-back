@@ -6,6 +6,7 @@ import { InstructorApplicationStatus } from '../common/enums';
 import { InstructorApplication } from './entities/instructor-application.entity';
 import { MarketplaceInstructor } from './entities/marketplace-instructor.entity';
 import { InstructorService } from './instructor.service';
+import type { InstructorAccountService } from './instructor-account.service';
 import type { InstructorApplicationService } from './instructor-application.service';
 
 function buildApplication(overrides: Partial<InstructorApplication> = {}): InstructorApplication {
@@ -56,10 +57,19 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
   const activityLogs = {
     recordAuditEvent: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<ActivityLogsService>;
+  const accounts = {
+    resolveOrCreateAccount: jest.fn(),
+    sendAccountSetupLink: jest.fn().mockResolvedValue(undefined),
+    findByEmailOrPhone: jest.fn().mockResolvedValue(null),
+  } as unknown as jest.Mocked<InstructorAccountService>;
   const eventEmitter = { emit: jest.fn() } as unknown as jest.Mocked<EventEmitter2>;
+  const applications = {
+    save: jest.fn(async (entity: InstructorApplication) => entity),
+  };
   const manager = {
     create: jest.fn((_entity: unknown, data: Partial<MarketplaceInstructor>) => data as MarketplaceInstructor),
     save: jest.fn(async (entity: MarketplaceInstructor) => ({ ...entity, id: 'instr-new' })),
+    getRepository: jest.fn(() => applications),
   };
   const dataSource = {
     transaction: jest.fn(async (isolationOrFn: unknown, maybeFn?: unknown) => {
@@ -71,18 +81,19 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
   const service = new InstructorService(
     instructors as never,
     applicationService,
+    accounts,
     activityLogs,
     dataSource as never,
     eventEmitter,
   );
-  return { service, instructors, applicationService, activityLogs, eventEmitter, manager };
+  return { service, instructors, applicationService, accounts, activityLogs, eventEmitter, manager };
 }
 
 describe('InstructorService', () => {
   describe('approveApplication', () => {
     it('creates the capability record from the approved application, in the same transaction, with users.role never read or written (FR-009, Q2)', async () => {
       const application = buildApplication();
-      const { service, manager, activityLogs, eventEmitter } = buildService(null, application);
+      const { service, manager, accounts, activityLogs, eventEmitter } = buildService(null, application);
 
       const result = await service.approveApplication('app-1', 'admin-1');
 
@@ -104,13 +115,15 @@ describe('InstructorService', () => {
       );
       expect(result.id).toBe('instr-new');
 
-      // The capability record itself carries no role field, and this
-      // transaction's manager mock exposes only create/save — a call the
-      // real code made against a `users` table (findOne/getRepository/query)
-      // would fail against this mock, not silently succeed.
+      // The capability record itself carries no role field, and an applicant
+      // who already has an account must not send approval anywhere near the
+      // `users` table: provisioning is the only thing that touches it, and
+      // this path skips provisioning entirely.
       const createdRow = manager.create.mock.calls[0]?.[1] as Record<string, unknown>;
       expect(createdRow).not.toHaveProperty('role');
-      expect(Object.keys(manager)).toEqual(['create', 'save']);
+      expect(manager.getRepository).not.toHaveBeenCalled();
+      expect(accounts.resolveOrCreateAccount).not.toHaveBeenCalled();
+      expect(accounts.sendAccountSetupLink).not.toHaveBeenCalled();
     });
 
     it('generates a slug from the display name', async () => {

@@ -19,7 +19,10 @@ export class RolesGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<UserRequest>();
     const { user } = request;
 
-    if (user === undefined || user.role === '') {
+    // A null role is a marketplace-only identity carrying no academic role.
+    // It satisfies no `@Roles(...)` requirement, so it is denied here rather
+    // than being compared — academic routes stay closed to it by default.
+    if (user === undefined || user.role === null || user.role === '') {
       return false;
     }
 

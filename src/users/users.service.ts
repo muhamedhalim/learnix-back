@@ -552,7 +552,7 @@ export class UsersService {
       new CallCenterEmployeeCreatedEvent(
         actor.userId,
         created.id,
-        { userName: created.name, userRole: created.role },
+        { userName: created.name, userRole: UserRole.CALL_CENTER },
         ipAddress ?? undefined,
       ),
     );

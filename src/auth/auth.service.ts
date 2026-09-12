@@ -428,7 +428,7 @@ export class AuthService {
     userId: string;
     email: string;
     name: string;
-    role: UserRole;
+    role: UserRole | null;
     sessionId: string;
   } | null> {
     if (payload.sid === '') return null;

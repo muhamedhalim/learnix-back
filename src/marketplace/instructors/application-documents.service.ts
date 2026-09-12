@@ -78,10 +78,19 @@ export class ApplicationDocumentsService {
   }
 
   /** A signed URL for one of an applicant's own documents, or one a reviewing administrator is entitled to see. */
-  public async getSignedDocumentUrl(applicationId: string, key: string, requesterId: string, isAdmin: boolean): Promise<string> {
+  public async getSignedDocumentUrl(
+    applicationId: string,
+    key: string,
+    requesterId: string | null,
+    isAdmin: boolean,
+  ): Promise<string> {
     const application = await this.applications.findOne({ where: { id: applicationId } });
+    // An anonymous caller is never the owner of an ownerless (public)
+    // application: without this, `null === null` would authorise anyone to
+    // read another applicant's private documents.
+    const isOwner = requesterId !== null && application?.user_id === requesterId;
     const authorized = () =>
-      !!application && (application.user_id === requesterId || isAdmin) && (application.document_keys ?? []).includes(key);
+      !!application && (isOwner || isAdmin) && (application.document_keys ?? []).includes(key);
     return this.storage.getSignedUrl(key, authorized);
   }
 }

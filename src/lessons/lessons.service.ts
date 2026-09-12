@@ -1226,7 +1226,11 @@ export class LessonsService {
    * active lesson purchase / package enrolment. Returns the lesson so callers
    * avoid a second fetch.
    */
-  public async assertViewerAccess(lessonId: string, userId: string, role: string): Promise<Lesson> {
+  public async assertViewerAccess(
+    lessonId: string,
+    userId: string,
+    role: string | null,
+  ): Promise<Lesson> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
     });
@@ -1269,7 +1273,7 @@ export class LessonsService {
   public async getSignedPlaybackUrl(
     lessonId: string,
     userId: string,
-    role: string,
+    role: string | null,
   ): Promise<{ signedUrl: string; expiresIn: number }> {
     const lesson = await this.assertViewerAccess(lessonId, userId, role);
     if (!lesson.bunny_video_id || lesson.bunny_video_status !== 'ready') {

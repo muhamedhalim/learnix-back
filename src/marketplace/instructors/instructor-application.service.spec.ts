@@ -3,6 +3,7 @@ import type { EventEmitter2 } from '@nestjs/event-emitter';
 import type { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { InstructorApplicationStatus } from '../common/enums';
 import { InstructorApplication } from './entities/instructor-application.entity';
+import type { InstructorAccountService } from './instructor-account.service';
 import { InstructorApplicationService } from './instructor-application.service';
 
 function buildApplication(overrides: Partial<InstructorApplication> = {}): InstructorApplication {
@@ -69,10 +70,21 @@ function buildService(rows: InstructorApplication[] = []): {
     recordAuditEvent: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<ActivityLogsService>;
   const eventEmitter = { emit: jest.fn() } as unknown as jest.Mocked<EventEmitter2>;
+  const accounts = {
+    findByEmailOrPhone: jest.fn().mockResolvedValue(null),
+    resolveOrCreateAccount: jest.fn(),
+    sendAccountSetupLink: jest.fn().mockResolvedValue(undefined),
+  } as unknown as jest.Mocked<InstructorAccountService>;
 
   return {
-    service: new InstructorApplicationService(applications as never, activityLogs, eventEmitter),
+    service: new InstructorApplicationService(
+      applications as never,
+      accounts,
+      activityLogs,
+      eventEmitter,
+    ),
     applications,
+    accounts,
     activityLogs,
     eventEmitter,
   };

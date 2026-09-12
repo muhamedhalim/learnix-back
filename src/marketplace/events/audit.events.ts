@@ -33,7 +33,7 @@ export class MarketplaceApplicationRejectedEvent extends AuditEvent {
   constructor(
     adminId: string,
     applicationId: string,
-    details: { applicantUserId: string; applicantName: string; reason: string },
+    details: { applicantUserId: string | null; applicantName: string; reason: string },
     ipAddress?: string,
   ) {
     super(

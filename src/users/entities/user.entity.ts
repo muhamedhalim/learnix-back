@@ -45,13 +45,28 @@ export class User {
   // `parent_phone` removed — a student's guardians now live in `guardians` /
   // `student_guardians` (see CreateGuardianSystem1800000000000).
 
+  /**
+   * Academic role, or NULL for a marketplace-only identity — an approved
+   * instructor who never registered as a student or teacher.
+   *
+   * Every academic role check, list, report and analytics query is keyed on
+   * this column, so NULL keeps such an account out of all of them by
+   * construction rather than by remembering to filter: SQL comparisons never
+   * match NULL and `RolesGuard` denies it. Instructor authority is not stored
+   * here at all — it lives in `marketplace_instructors` (spec Clarifications
+   * 2026-09-03: this field "MUST NOT gain a new value").
+   *
+   * The `student` default is retained so existing inserts that omit the column
+   * behave exactly as before; only marketplace provisioning passes NULL.
+   */
   @Column({
     type: 'enum',
     enum: UserRole,
+    nullable: true,
     default: UserRole.STUDENT,
   })
   @Index('IDX_users_role')
-  role!: UserRole;
+  role!: UserRole | null;
 
   @Column({ default: true })
   is_active!: boolean;

@@ -54,17 +54,48 @@ export interface ApplicationProfessionalLink {
   unique: true,
   where: "\"status\" IN ('draft','submitted','under_review','approved')",
 })
+/** One open public application per email address, mirroring FR-015 for applicants with no account yet. */
+@Index('UQ_mp_applications_applicant_email_open', ['applicant_email'], {
+  unique: true,
+  where: "\"user_id\" IS NULL AND \"status\" IN ('draft','submitted','under_review','approved')",
+})
 @Check('CHK_mp_applications_reject_reason', "\"status\" <> 'rejected' OR \"decision_reason\" IS NOT NULL")
+/** Every application identifies its applicant: an existing account, or contact details to provision one. */
+@Check(
+  'CHK_mp_applications_applicant_identity',
+  '"user_id" IS NOT NULL OR "applicant_email" IS NOT NULL',
+)
 export class InstructorApplication {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'uuid', name: 'user_id' })
-  user_id!: string;
+  /**
+   * The applicant's platform identity, or NULL for an application submitted
+   * before the applicant had an account at all.
+   *
+   * A person must be able to apply to teach without first registering into
+   * the academic student or teacher lifecycle, so a public application carries
+   * its own contact details (`applicant_email` / `applicant_phone`) and gets a
+   * `user_id` only at approval, when the account is provisioned. Postgres
+   * treats NULLs as distinct in unique indexes, so
+   * `UQ_mp_applications_user_open` keeps constraining signed-in applicants
+   * exactly as before while anonymous rows are deduplicated by
+   * `UQ_mp_applications_applicant_email_open` instead.
+   */
+  @Column({ type: 'uuid', name: 'user_id', nullable: true })
+  user_id!: string | null;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'user_id' })
-  user!: User;
+  user!: User | null;
+
+  /** Contact email for a public application; NULL once/if `user_id` is set at registration time. */
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'applicant_email' })
+  applicant_email!: string | null;
+
+  /** Contact phone for a public application, stored canonically (E.164). */
+  @Column({ type: 'varchar', length: 30, nullable: true, name: 'applicant_phone' })
+  applicant_phone!: string | null;
 
   @Column({
     type: 'varchar',

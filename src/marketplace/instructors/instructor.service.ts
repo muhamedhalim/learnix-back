@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, Repository } from 'typeorm';
@@ -21,6 +21,8 @@ import {
 } from '../events/domain.events';
 import { slugify } from '../common/utils/slugify.util';
 import { InstructorApplicationService } from './instructor-application.service';
+import { InstructorAccountService } from './instructor-account.service';
+import { InstructorApplication } from './entities/instructor-application.entity';
 import { MarketplaceInstructor } from './entities/marketplace-instructor.entity';
 
 @Injectable()
@@ -29,6 +31,7 @@ export class InstructorService {
     @InjectRepository(MarketplaceInstructor)
     private readonly instructors: Repository<MarketplaceInstructor>,
     private readonly applicationService: InstructorApplicationService,
+    private readonly accounts: InstructorAccountService,
     private readonly activityLogs: ActivityLogsService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
@@ -56,11 +59,33 @@ export class InstructorService {
    * that never landed, or the successful retry double it.
    */
   public async approveApplication(applicationId: string, adminId: string): Promise<MarketplaceInstructor> {
-    const { instructor, application } = await retryTransaction(this.dataSource, async (manager) => {
+    const { instructor, application, account, applicantUserId } = await retryTransaction(
+      this.dataSource,
+      async (manager) => {
       const application = await this.applicationService.markApprovedWithManager(manager, applicationId, adminId);
 
+      // A public application carries no platform identity: approval is what
+      // provisions one, in this same transaction so a mid-way failure can
+      // never leave an account without its capability or the reverse. An
+      // applicant who already had an account keeps it untouched.
+      const account =
+        application.user_id === null
+          ? await this.accounts.resolveOrCreateAccount(manager, application)
+          : null;
+      if (account !== null) {
+        application.user_id = account.user.id;
+        await manager.getRepository(InstructorApplication).save(application);
+      }
+
+      const applicantUserId = application.user_id;
+      if (applicantUserId === null) {
+        throw new ConflictException(
+          biBody('Could not resolve the applicant account', 'تعذّر تحديد حساب مقدّم الطلب'),
+        );
+      }
+
       const instructor = manager.create(MarketplaceInstructor, {
-        user_id: application.user_id,
+        user_id: applicantUserId,
         application_id: application.id,
         status: MarketplaceInstructorStatus.APPROVED,
         slug: slugify(application.display_name, 'instructor'),
@@ -83,19 +108,26 @@ export class InstructorService {
         approved_by: adminId,
       });
       const saved = await manager.save(instructor);
-      return { instructor: saved, application };
-    });
+      return { instructor: saved, application, account, applicantUserId };
+      },
+    );
 
     await this.activityLogs.recordAuditEvent(
       new MarketplaceApplicationApprovedEvent(adminId, applicationId, {
-        applicantUserId: application.user_id,
+        applicantUserId,
         applicantName: application.display_name,
       }),
     );
     this.eventEmitter.emit(
       ApplicationApprovedDomainEvent.EVENT_NAME,
-      new ApplicationApprovedDomainEvent(applicationId, application.user_id, instructor.id),
+      new ApplicationApprovedDomainEvent(applicationId, applicantUserId, instructor.id),
     );
+
+    // Only a freshly provisioned account needs to choose a password. Sending
+    // fails loudly in logs but never unwinds the approval above.
+    if (account?.created === true) {
+      await this.accounts.sendAccountSetupLink(account.user);
+    }
 
     return instructor;
   }
