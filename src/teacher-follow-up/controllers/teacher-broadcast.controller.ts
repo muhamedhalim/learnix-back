@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { SkipCacheInvalidation } from '../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
@@ -24,6 +25,8 @@ export class TeacherBroadcastController {
   constructor(private readonly broadcast: TeacherBroadcastService) {}
 
   @Post('preview')
+  // Read-only dry run: resolves recipients and renders a sample message, persists nothing (T030).
+  @SkipCacheInvalidation()
   @ApiOperation({ summary: 'Preview who will receive a broadcast before sending it' })
   public async preview(@GetUser() user: JwtPayload, @Body() dto: TeacherBroadcastDto) {
     const data = await this.broadcast.preview(user.userId, dto);

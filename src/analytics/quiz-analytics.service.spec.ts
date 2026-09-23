@@ -12,6 +12,7 @@ import { AttendanceRecord } from '../attendance/entities/attendance-record.entit
 import { HomeworkSubmission } from '../lessons/entities/homework-submission.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { Subject } from '../subjects/entities/subject.entity';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { QuizAnalyticsService } from './quiz-analytics.service';
 
 describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
@@ -25,6 +26,8 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
   const lessonProgress = { find: jest.fn() };
   const attendance = { find: jest.fn() };
   const subjects = { find: jest.fn() };
+  // Pass-through by default so every pre-existing assertion still exercises the real queries.
+  const applicationCache = { getOrCompute: jest.fn() };
 
   function rawBuilder(one: unknown = null, many: unknown[] = []) {
     const builder: Record<string, jest.Mock> = {};
@@ -80,6 +83,9 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
     lessonProgress.find.mockResolvedValue([]);
     attendance.find.mockResolvedValue([]);
     subjects.find.mockResolvedValue([]);
+    applicationCache.getOrCompute.mockImplementation(
+      async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QuizAnalyticsService,
@@ -92,6 +98,7 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
         { provide: getRepositoryToken(LessonProgress), useValue: lessonProgress },
         { provide: getRepositoryToken(AttendanceRecord), useValue: attendance },
         { provide: getRepositoryToken(Subject), useValue: subjects },
+        { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
     service = module.get(QuizAnalyticsService);
@@ -432,6 +439,93 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
         current: { attempts: 0, avgPercent: 0 },
         previous: { attempts: 0, avgPercent: 0 },
       },
+    });
+  });
+
+  describe('caching (T039)', () => {
+    it('caches the per-exam analytics for the owning teacher only, keyed by teacher and exam', async () => {
+      exams.findOne.mockResolvedValue({ id: 'E1', teacher_id: 'me' });
+      answers.query.mockResolvedValue([]);
+
+      await service.getExamQuestionAnalytics('E1', 'me');
+
+      expect(applicationCache.getOrCompute).toHaveBeenCalledTimes(1);
+      expect(applicationCache.getOrCompute).toHaveBeenCalledWith(
+        {
+          family: 'teacher_quiz_analytics',
+          endpoint: 'analytics.quiz.teacher-exam',
+          scope: 'owner:me',
+          parts: ['exam', 'E1'],
+          ttlMs: 30_000,
+        },
+        expect.any(Function),
+      );
+    });
+
+    it('checks ownership BEFORE the cache, so a non-owner never reads a warmed entry', async () => {
+      exams.findOne.mockResolvedValue({ id: 'E1', teacher_id: 'owner' });
+
+      await expect(service.getExamQuestionAnalytics('E1', 'intruder')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+
+      expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
+    });
+
+    it('answers a missing exam with not-found before touching the cache', async () => {
+      exams.findOne.mockResolvedValue(null);
+
+      await expect(service.getExamQuestionAnalytics('nope', 'me')).rejects.toThrow();
+
+      expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
+    });
+
+    it('a per-exam cache hit still issues the ownership query but no aggregate SQL', async () => {
+      exams.findOne.mockResolvedValue({ id: 'E1', teacher_id: 'me' });
+      const cached = [{ questionId: 'Q1', topic: null, difficulty: 50 }];
+      applicationCache.getOrCompute.mockResolvedValue(cached);
+
+      const result = await service.getExamQuestionAnalytics('E1', 'me');
+
+      expect(result).toBe(cached);
+      expect(exams.findOne).toHaveBeenCalledTimes(1);
+      expect(answers.query).not.toHaveBeenCalled();
+    });
+
+    it('caches teacher-wide analytics under the principal teacher scope with a 30 s TTL', async () => {
+      const cached = { totalAttempts: 3 };
+      applicationCache.getOrCompute.mockResolvedValue(cached);
+
+      const result = await service.getTeacherAnalytics('teacher-1');
+
+      expect(result).toBe(cached);
+      expect(applicationCache.getOrCompute).toHaveBeenCalledWith(
+        {
+          family: 'teacher_quiz_analytics',
+          endpoint: 'analytics.quiz.teacher',
+          scope: 'owner:teacher-1',
+          parts: ['teacher-1'],
+          ttlMs: 30_000,
+        },
+        expect.any(Function),
+      );
+      // A hit runs no SQL at all.
+      expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+      expect(attempts.query).not.toHaveBeenCalled();
+    });
+
+    it('never mixes two teachers: different teachers get different scopes and keys', async () => {
+      applicationCache.getOrCompute.mockResolvedValue({});
+
+      await service.getTeacherAnalytics('teacher-1');
+      await service.getTeacherAnalytics('teacher-2');
+
+      const descriptors = applicationCache.getOrCompute.mock.calls.map(
+        (call) => call[0] as { scope: string; parts: unknown[] },
+      );
+      expect(descriptors[0]?.scope).toBe('owner:teacher-1');
+      expect(descriptors[1]?.scope).toBe('owner:teacher-2');
+      expect(descriptors[0]?.parts).not.toEqual(descriptors[1]?.parts);
     });
   });
 });

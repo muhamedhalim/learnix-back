@@ -15,6 +15,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../common/cache/cache-invalidation.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { UserRequest } from '../../common/interfaces/user-request.interface';
 import { biBody } from '../../i18n/error-translator.util';
@@ -117,6 +118,13 @@ export class StudentLessonsController {
    * Records the student's watch progress
    */
   @Post(':lessonId/progress')
+  // Writes `lesson_progress` only, which only student_report reads. It never writes `lesson_purchases`
+  // (`access_granted_at` is set only by payment finalization). First completion also emits lesson.completed
+  // (`certificates`, notifications) and a BullMQ parent-notification job (`parent_messages` by the worker); no
+  // family reads certificates or notifications, and the worker write stays TTL-bounded like every queue writer (T032).
+  // Only the student writes their own row (`req.user.userId`, student role), and `student_report` is keyed
+  // `owner:<studentId>`, so the principal's own slice is the exact set affected (T035).
+  @InvalidatesCache([{ family: 'student_report', scope: 'self' }])
   @ApiOperation({
     summary: 'Update lesson progress',
     description:

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -32,6 +33,9 @@ export class LearnerCheckoutController {
   ) {}
 
   @Post()
+  // Writes only a `marketplace_orders` row (awaiting_payment); no family reads it today. Declared per the T032 plan
+  // rather than skipped, so a future family that reads marketplace orders is not silently missed.
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @Throttle({ default: THROTTLE.PAYMENTS })
   @ApiOperation({ summary: 'Create an order for a paid course (FR-093); Idempotency-Key required' })
   public async createOrder(
@@ -49,6 +53,9 @@ export class LearnerCheckoutController {
   }
 
   @Post(':id/pay')
+  // Writes a marketplace `payments` row (item_type marketplace_course, order_id NULL, so no academic report joins it)
+  // and `marketplace_orders.payment_id`; idempotency lives in Redis. Declared per the T032 plan (see createOrder).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @Throttle({ default: THROTTLE.PAYMENTS })
   @ApiOperation({ summary: 'Obtain a gateway payment intent for an existing order; reuses PAYMENT_GATEWAY' })
   public async pay(

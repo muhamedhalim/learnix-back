@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, In, LessThan, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../../common/cache/application-cache.service';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { SaveAnswersDto, SubmitAttemptDto } from '../dto';
@@ -29,6 +30,11 @@ import {
 } from '../entities';
 import { QuestionTypeRegistry } from '../question-types/question-type-registry';
 import { AttemptGradingService } from './attempt-grading.service';
+import {
+  studentExamCacheScopes,
+  teacherExamCacheScopes,
+  teacherQuizCacheScopes,
+} from './exam-cache-scopes';
 import { ExamAccessService } from './exam-access.service';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
@@ -101,6 +107,7 @@ export class AttemptService {
     private readonly access: ExamAccessService,
     private readonly examGradedPublisher: ExamGradedPublisher,
     private readonly questionTypes: QuestionTypeRegistry,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   // ==================== START / RESUME ====================
@@ -186,6 +193,11 @@ export class AttemptService {
       }
       throw err;
     }
+
+    // The new attempt is committed: refresh this student's and the exam owner's
+    // cached slices before any queue call below can fail the request.
+    // A new attempt is IN_PROGRESS, which teacher quiz analytics ignore, so that family is not touched.
+    await this.invalidateAttemptCaches(studentId, exam.teacher_id, false);
 
     // Server-authoritative auto-submit: a delayed job finalises the attempt when
     // the deadline (+ grace) elapses, even if the client never returns.
@@ -428,7 +440,7 @@ export class AttemptService {
     attemptId: string,
     options: { auto: boolean; submitDto?: SubmitAttemptDto },
   ): Promise<SubmissionSummary> {
-    const { summary, examId, manualAnswerIds } = await retryTransaction(
+    const { summary, examId, manualAnswerIds, owners } = await retryTransaction(
       this.dataSource,
       async (manager) => {
         const attempt = await manager.findOne(ExamAttempt, {
@@ -447,6 +459,8 @@ export class AttemptService {
             summary: this.toSummary(attempt, existing),
             examId: attempt.exam_id,
             manualAnswerIds: [] as string[],
+            // Nothing was written, so nothing to invalidate.
+            owners: null as { studentId: string; teacherId: string } | null,
           };
         }
 
@@ -496,9 +510,17 @@ export class AttemptService {
           summary: this.toSummary(graded, answers),
           examId: attempt.exam_id,
           manualAnswerIds: answers.filter((a) => a.manual_required).map((a) => a.id),
+          owners: { studentId: attempt.student_id, teacherId: exam.teacher_id },
         };
       },
     );
+
+    // The finalisation is durable: invalidate the student's and the exam owner's
+    // cached slices first, so a queue failure below cannot leave them stale. This
+    // funnel also serves auto-submit and the expiry sweep, which have no request.
+    if (owners !== null) {
+      await this.invalidateAttemptCaches(owners.studentId, owners.teacherId, true);
+    }
 
     // Post-commit side effects (queues): cancel the pending auto-submit, refresh
     // analytics, and request AI suggestions for any pending manual answers.
@@ -516,6 +538,29 @@ export class AttemptService {
       `Attempt ${attemptId} finalised (${options.auto ? 'auto' : 'manual'}) → ${summary.state}`,
     );
     return summary;
+  }
+
+  /**
+   * Invalidates only the two owners an attempt write affects (the student and the
+   * exam's teacher) instead of every owner's entries. Best-effort: a cache failure
+   * must never fail an already-committed attempt.
+   */
+  private async invalidateAttemptCaches(
+    studentId: string,
+    teacherId: string,
+    reachedSubmission: boolean,
+  ): Promise<void> {
+    try {
+      await this.applicationCache.invalidateScopes([
+        ...studentExamCacheScopes(studentId),
+        ...teacherExamCacheScopes(teacherId),
+        ...(reachedSubmission ? teacherQuizCacheScopes(teacherId) : []),
+      ]);
+    } catch (error) {
+      this.logger.error(
+        `Failed to invalidate exam caches after an attempt write: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   // ==================== RESULT ====================

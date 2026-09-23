@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -59,6 +60,9 @@ export class AdminRefundController {
   }
 
   @Post('discretionary')
+  // Same refund write set as the learner refund route, plus an `audit_logs` row that admin_dashboard reads
+  // (`recentAdminActivity`); platform_report is kept per the T032 plan as a conservative superset.
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @FinancePermissions('marketplace.refunds.process')
   @ApiOperation({ summary: 'Grant a refund outside policy; reason mandatory (FR-186, FR-289)' })
   public async discretionary(
@@ -77,6 +81,8 @@ export class AdminRefundController {
    * of a manual database edit — a real operational gap, closed here.
    */
   @Post(':id/retry')
+  // Re-runs `RefundProcessingService.process`: the same refund write set as the learner refund route (no audit row).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @FinancePermissions('marketplace.refunds.process')
   @ApiOperation({ summary: 'Retry a refund stuck FAILED after a provider outage' })
   public async retry(@Param('id', ParseUUIDPipe) id: string): Promise<MarketplaceRefundRequest> {

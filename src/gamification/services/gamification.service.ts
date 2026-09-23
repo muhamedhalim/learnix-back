@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../../common/cache/application-cache.service';
 import { Difficulty } from '../../exams/entities/difficulty.enum';
 import type { QuestionResponsePayload } from '../../exams/entities/content.types';
 import { MIN_SOLVE_TIME_MS, QUESTION_RATING_BY_DIFFICULTY, STARTING_RATING } from '../gamification.constants';
@@ -80,6 +81,8 @@ export interface SolveResult {
  */
 @Injectable()
 export class GamificationService {
+  private readonly logger = new Logger(GamificationService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly rankService: RankService,
@@ -89,6 +92,7 @@ export class GamificationService {
     private readonly solves: Repository<QuestionSolve>,
     private readonly rulesService: GamificationRulesService,
     private readonly campaignsService: GamificationCampaignsService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /** The authenticated student's own game summary (profile + level progress + tier). */
@@ -108,6 +112,22 @@ export class GamificationService {
   }
 
   /**
+   * Best-effort: a cache failure must never fail a committed write. The public
+   * profile and leaderboard (`gamification_public`) read what this service writes,
+   * and the writers below run outside any HTTP route (sweep) or on a GET
+   * (`ensureProfile`), so they invalidate explicitly.
+   */
+  private async invalidatePublicGamification(reason: string): Promise<void> {
+    try {
+      await this.applicationCache.invalidate(['gamification_public']);
+    } catch (error) {
+      this.logger.error(
+        `Failed to invalidate gamification_public after ${reason}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
    * Zero out streaks for students who missed a day, so leaderboards/profiles
    * don't show a stale streak until the student next solves. A student is still
    * "current" if their last active day is today or yesterday; anything older is
@@ -123,7 +143,11 @@ export class GamificationService {
       .where('current_streak > 0')
       .andWhere('(last_active_date IS NULL OR last_active_date < :yesterday)', { yesterday })
       .execute();
-    return result.affected ?? 0;
+    const affected = result.affected ?? 0;
+    // Streaks are shown on public profiles and leaderboards; a sweep that changed
+    // nothing must not evict them.
+    if (affected > 0) await this.invalidatePublicGamification('the streak sweep');
+    return affected;
   }
 
   /** Ensure a game profile exists for a student (idempotent). */
@@ -140,7 +164,12 @@ export class GamificationService {
       total_time_ms: 0,
     });
     try {
-      return await this.profiles.save(created);
+      const saved = await this.profiles.save(created);
+      // A new profile joins the public leaderboard and can start a public profile.
+      // Only a successful insert invalidates: the existing-row and concurrent-create
+      // re-read paths wrote nothing.
+      await this.invalidatePublicGamification('creating a game profile');
+      return saved;
     } catch {
       // Concurrent create — the unique(user_id) guard won; re-read.
       const row = await this.profiles.findOne({ where: { user_id: userId } });

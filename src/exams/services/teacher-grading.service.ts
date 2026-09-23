@@ -1,17 +1,20 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../../common/cache/application-cache.service';
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { biBody } from '../../i18n/error-translator.util';
 import { GradeAnswerDto } from '../dto';
 import { Exam, ExamAttempt, ExamAttemptAnswer, ExamQuestion, QuestionType } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
+import { studentExamCacheScopes } from './exam-cache-scopes';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
 
@@ -26,6 +29,8 @@ const AUTO_GRADED_TYPES = new Set<QuestionType>([
 /** Teacher-facing grading: view submissions, inspect an attempt, grade essays. */
 @Injectable()
 export class TeacherGradingService {
+  private readonly logger = new Logger(TeacherGradingService.name);
+
   constructor(
     @InjectRepository(Exam) private readonly exams: Repository<Exam>,
     @InjectRepository(ExamAttempt) private readonly attempts: Repository<ExamAttempt>,
@@ -35,6 +40,7 @@ export class TeacherGradingService {
     private readonly gradingOrchestrator: AttemptGradingService,
     private readonly jobs: ExamJobsService,
     private readonly examGradedPublisher: ExamGradedPublisher,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   public async getSubmissions(
@@ -179,6 +185,11 @@ export class TeacherGradingService {
       );
     });
 
+    // The committed grade changes this student's dashboard, profile and report. The
+    // route declares the teacher's own slice (`self`, the exam owner); the student
+    // is a different owner, so that slice is invalidated here, after the commit.
+    await this.invalidateStudentCaches(attempt.student_id);
+
     await this.jobs.enqueueAnalytics(examId);
 
     // Manually grading the last outstanding answer is what flips an attempt from
@@ -187,6 +198,17 @@ export class TeacherGradingService {
     await this.examGradedPublisher.publishIfGraded(attempt.id);
 
     return { attempt_id: attempt.id, state: state.state, score_total: state.score_total };
+  }
+
+  /** Best-effort: a cache failure must never fail an already-committed grade. */
+  private async invalidateStudentCaches(studentId: string): Promise<void> {
+    try {
+      await this.applicationCache.invalidateScopes(studentExamCacheScopes(studentId));
+    } catch (error) {
+      this.logger.error(
+        `Failed to invalidate student caches after grading: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async assertExamOwner(examId: string, teacherId: string): Promise<Exam> {

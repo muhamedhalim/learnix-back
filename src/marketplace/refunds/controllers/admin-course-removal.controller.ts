@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { FinancePermissions } from '../../../payments/decorators/finance-permissions.decorator';
@@ -30,6 +31,10 @@ export class AdminCourseRemovalController {
   constructor(private readonly removal: CourseRemovalService) {}
 
   @Post(':id/remove')
+  // Request path writes `marketplace_courses` (unpublish + removed_at), `marketplace_course_removals`,
+  // `audit_logs` (x2) and enqueues BullMQ jobs; `admin_dashboard` reads audit logs. The per-learner refund /
+  // revoke fan-out runs later in the queue processor (non-HTTP writer, TTL-bounded, unchanged) (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @FinancePermissions('marketplace.refunds.process')
   @ApiOperation({
     summary:

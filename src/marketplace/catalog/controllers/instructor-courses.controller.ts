@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
 import { CurrentInstructor } from '../../common/decorators/current-instructor.decorator';
 import type { MarketplaceInstructor } from '../../instructors/entities/marketplace-instructor.entity';
@@ -35,6 +36,8 @@ export class InstructorCoursesController {
   }
 
   @Post()
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Create a draft course (FR-041)' })
   public async create(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -53,6 +56,8 @@ export class InstructorCoursesController {
   }
 
   @Patch(':id')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Edit own course; on a published course, classifies the edit as material (FR-071) or cosmetic (FR-072)' })
   public async update(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -65,6 +70,8 @@ export class InstructorCoursesController {
   }
 
   @Delete(':id')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Delete own course; refused when it has ever had an enrollment (FR-054)' })
   public async remove(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -112,6 +119,8 @@ export class InstructorCoursesController {
   }
 
   @Post(':id/submit')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'draft|rejected → submitted_for_review; 422 lists every unmet readiness item (FR-056, FR-063)' })
   public async submit(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -121,6 +130,8 @@ export class InstructorCoursesController {
   }
 
   @Post(':id/publish')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'approved → published; instructor only (FR-067)' })
   public async publish(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -130,6 +141,8 @@ export class InstructorCoursesController {
   }
 
   @Post(':id/unpublish')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'published → unpublished; existing access is never withdrawn (FR-069)' })
   public async unpublish(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -140,6 +153,8 @@ export class InstructorCoursesController {
   }
 
   @Post(':id/republish')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'unpublished → published, when still approved (FR-060)' })
   public async republish(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -149,6 +164,8 @@ export class InstructorCoursesController {
   }
 
   @Post(':id/reopen-for-edit')
+  // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'unpublished → draft, reopened for a fresh edit/submit cycle (FR-060)' })
   public async reopenForEdit(
     @CurrentInstructor() instructor: MarketplaceInstructor,

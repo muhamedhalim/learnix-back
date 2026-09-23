@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -65,12 +66,17 @@ export class AdminCoursesController {
   }
 
   @Post(':id/approve')
+  // Writes `marketplace_courses`, `marketplace_course_review_decisions` and `audit_logs`
+  // (recordAuditEvent); `admin_dashboard` reads recent audit logs (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'submitted_for_review → approved (FR-060)' })
   public async approve(@Param('id', ParseUUIDPipe) id: string, @GetUser() admin: JwtPayload): Promise<void> {
     await this.lifecycle.approve(admin.userId, id);
   }
 
   @Post(':id/reject')
+  // Same write set as approve: course row, review decision, `audit_logs` (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'submitted_for_review → rejected; reasons plus per-item notes (FR-066)' })
   public async reject(
     @Param('id', ParseUUIDPipe) id: string,
@@ -81,6 +87,8 @@ export class AdminCoursesController {
   }
 
   @Post(':id/unpublish')
+  // Writes `marketplace_courses` and `audit_logs` (adminUnpublish -> recordAuditEvent) (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'published → unpublished; reason mandatory, and audited (FR-068, FR-290)' })
   public async unpublish(
     @Param('id', ParseUUIDPipe) id: string,

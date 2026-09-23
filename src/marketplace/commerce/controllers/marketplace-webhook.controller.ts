@@ -37,6 +37,11 @@ export class MarketplaceWebhookController {
   ) {}
 
   @Post()
+  // Deliberately NOT `@InvalidatesCache`: `GatewayWebhookService.process()` resolves the payment by merchant reference and
+  // runs the academic finalization (lesson/package/book entitlements, orders, refunds) for any payment delivered here, so a
+  // marketplace-only family set would leave student/teacher/admin families stale. It stays on the global fallback until
+  // T033 declares the verified union for both webhook routes. A marketplace item's enrollment itself is written later by
+  // the outbox-driven `MarketplaceSettlementListener` (a non-HTTP writer), not by this request (T032).
   @SkipCsrf()
   @ApiOperation({ summary: 'Paymob webhook callback for a marketplace course purchase' })
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })

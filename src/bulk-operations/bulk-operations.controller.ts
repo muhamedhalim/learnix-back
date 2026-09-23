@@ -22,6 +22,7 @@ import {
 
 import { HybridAuthGuard } from '../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { SkipCacheInvalidation } from '../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
@@ -69,6 +70,8 @@ export class BulkOperationsController {
   @Post('students/bulk-import/preview')
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
+  // Dry run: validates the CSV and persists nothing (T030).
+  @SkipCacheInvalidation()
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_CSV_BYTES, files: 1 } }),
   )

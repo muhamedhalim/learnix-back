@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { Exam } from '../exams/entities/exam.entity';
 import { ExamAttempt } from '../exams/entities/exam-attempt.entity';
 import { ExamAttemptAnswer } from '../exams/entities/exam-attempt-answer.entity';
@@ -85,6 +86,46 @@ interface StudentVisibleAttempt {
   feedback: string[];
 }
 
+/** Teacher-wide quiz analytics; cached per teacher (`teacher_quiz_analytics`). */
+export interface TeacherQuizAnalytics {
+  totalAttempts: number;
+  averageScore: number;
+  highestScore: number;
+  lowestScore: number;
+  passRate: number;
+  failRate: number;
+  completionRate: number;
+  eligibleStudents: number;
+  completedStudents: number;
+  gradeDistribution: { range: string; count: number }[];
+  mostFailedQuestions: {
+    questionId: string;
+    topic: string | null;
+    correctRate: number;
+    attempts: number;
+  }[];
+  attemptTimeline: { date: string; count: number; avgPercent: number }[];
+  periodComparison: {
+    current: { attempts: number; avgPercent: number };
+    previous: { attempts: number; avgPercent: number };
+  };
+  leaderboard: { studentName: string; avgPercent: number; attempts: number }[];
+  weakLessons: { lessonTitle: string; avgPercent: number }[];
+  examComparisons: {
+    examId: string;
+    title: string;
+    attempts: number;
+    avgPercent: number;
+    passRate: number;
+  }[];
+  coursePerformance: {
+    courseId: string;
+    title: string;
+    attempts: number;
+    avgPercent: number;
+  }[];
+}
+
 /**
  * Quiz/exam analytics derived from the attempt engine's data. All score
  * percentages are computed as score_total / max_score (guarded against zero).
@@ -109,6 +150,7 @@ export class QuizAnalyticsService {
     private readonly attendanceRepository: Repository<AttendanceRecord>,
     @InjectRepository(Subject)
     private readonly subjectsRepository: Repository<Subject>,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /* ===================== Student ===================== */
@@ -571,44 +613,24 @@ export class QuizAnalyticsService {
 
   /* ===================== Teacher ===================== */
 
-  public async getTeacherAnalytics(teacherId: string): Promise<{
-    totalAttempts: number;
-    averageScore: number;
-    highestScore: number;
-    lowestScore: number;
-    passRate: number;
-    failRate: number;
-    completionRate: number;
-    eligibleStudents: number;
-    completedStudents: number;
-    gradeDistribution: { range: string; count: number }[];
-    mostFailedQuestions: {
-      questionId: string;
-      topic: string | null;
-      correctRate: number;
-      attempts: number;
-    }[];
-    attemptTimeline: { date: string; count: number; avgPercent: number }[];
-    periodComparison: {
-      current: { attempts: number; avgPercent: number };
-      previous: { attempts: number; avgPercent: number };
-    };
-    leaderboard: { studentName: string; avgPercent: number; attempts: number }[];
-    weakLessons: { lessonTitle: string; avgPercent: number }[];
-    examComparisons: {
-      examId: string;
-      title: string;
-      attempts: number;
-      avgPercent: number;
-      passRate: number;
-    }[];
-    coursePerformance: {
-      courseId: string;
-      title: string;
-      attempts: number;
-      avgPercent: number;
-    }[];
-  }> {
+  public async getTeacherAnalytics(teacherId: string): Promise<TeacherQuizAnalytics> {
+    // The teacher id comes from the authenticated principal, never from a parameter,
+    // so the owner scope cannot be chosen by the caller. TTL 30 s equals the frontend
+    // staleTime for this view (cache-policy.ts `dashboard`).
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'teacher_quiz_analytics',
+        endpoint: 'analytics.quiz.teacher',
+        scope: `owner:${teacherId}`,
+        parts: [teacherId],
+        ttlMs: 30_000,
+      },
+      async () => await this.computeTeacherAnalytics(teacherId),
+    );
+  }
+
+  // The statements below stay sequential (no Promise.all): the DB pool is 10 (app.module.ts).
+  private async computeTeacherAnalytics(teacherId: string): Promise<TeacherQuizAnalytics> {
     const teacherExams = {
       teacherId,
       analyticsAttemptStates: TEACHER_ANALYTICS_ATTEMPT_STATES,
@@ -1092,34 +1114,48 @@ export class QuizAnalyticsService {
       );
     }
 
-    // PostgreSQL computes p-value and top/bottom-third discrimination without
-    // materializing per-answer rows in the API process.
-    const rows = await this.queryExamQuestionAggregates(examId);
+    // Cached only AFTER the ownership check above: a non-owner is refused before any
+    // cache read, so a warmed entry can never be served to another teacher. A hit still
+    // costs the one ownership `findOne`, and the entry is scoped to the owning teacher.
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'teacher_quiz_analytics',
+        endpoint: 'analytics.quiz.teacher-exam',
+        scope: `owner:${teacherId}`,
+        parts: ['exam', examId],
+        ttlMs: 30_000,
+      },
+      async () => {
+        // PostgreSQL computes p-value and top/bottom-third discrimination without
+        // materializing per-answer rows in the API process.
+        const rows = await this.queryExamQuestionAggregates(examId);
 
-    const result: {
-      questionId: string;
-      topic: string | null;
-      difficulty: number;
-      correctPercentage: number;
-      incorrectPercentage: number;
-      discrimination: number;
-      attempts: number;
-    }[] = [];
+        const result: {
+          questionId: string;
+          topic: string | null;
+          difficulty: number;
+          correctPercentage: number;
+          incorrectPercentage: number;
+          discrimination: number;
+          attempts: number;
+        }[] = [];
 
-    for (const row of rows) {
-      const correctPercentage = Number(row.difficulty);
-      result.push({
-        questionId: row.questionId,
-        topic: row.topic,
-        difficulty: correctPercentage,
-        correctPercentage,
-        incorrectPercentage: Math.max(0, 100 - correctPercentage),
-        discrimination: Number(row.discrimination),
-        attempts: Number(row.attempts),
-      });
-    }
+        for (const row of rows) {
+          const correctPercentage = Number(row.difficulty);
+          result.push({
+            questionId: row.questionId,
+            topic: row.topic,
+            difficulty: correctPercentage,
+            correctPercentage,
+            incorrectPercentage: Math.max(0, 100 - correctPercentage),
+            discrimination: Number(row.discrimination),
+            attempts: Number(row.attempts),
+          });
+        }
 
-    return result;
+        return result;
+      },
+    );
   }
 
   private async queryExamQuestionAggregates(examId: string): Promise<

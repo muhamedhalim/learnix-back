@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
@@ -43,6 +44,11 @@ export class StudentPracticeController {
   }
 
   @Post('practice/answer')
+  // Writes `student_game_profiles`, `student_subject_ratings` and `question_solves`, which the public
+  // profile and leaderboard (`gamification_public`) read. The whole family is invalidated, not one owner
+  // slice: a solve changes other students' leaderboard ranks and `global_rank` (T037; this replaces the
+  // temporary T030 exemption).
+  @InvalidatesCache(['gamification_public'])
   @ApiOperation({ summary: 'Submit an answer — grades + awards + returns result' })
   public async answer(@GetUser() user: JwtPayload, @Body() dto: SubmitAnswerDto) {
     return this.practice.submitAnswer(user.userId, {
@@ -54,6 +60,9 @@ export class StudentPracticeController {
   }
 
   @Post('practice/session')
+  // `ensureProfile` may insert a game profile, which joins the public leaderboard (also invalidated
+  // by the service itself on insert). The session row is read by no cached family (T037).
+  @InvalidatesCache(['gamification_public'])
   @ApiOperation({ summary: 'Open a practice session' })
   public async startSession(@GetUser() user: JwtPayload, @Body() dto: StartSessionDto) {
     const session = await this.practice.startSession(user.userId, {

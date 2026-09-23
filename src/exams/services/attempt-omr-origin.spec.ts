@@ -24,6 +24,7 @@ function buildService(existingAttempt: ExamAttempt | null): {
     access as never,
     {} as never, // examGradedPublisher
     {} as never, // questionTypes
+    {} as never, // applicationCache
   );
   return { service, attempts, dataSource };
 }

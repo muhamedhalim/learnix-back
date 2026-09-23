@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -33,6 +34,9 @@ export class AdminReviewController {
   }
 
   @Post(':id/moderate')
+  // Writes `marketplace_course_reviews` (status/moderation fields) only — no audit log. Ratings and counts
+  // are read by `marketplace_catalog` (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Approve, hide or remove a review; reason mandatory except to approve (FR-261, FR-262)' })
   public async moderate(
     @GetUser() user: JwtPayload,

@@ -18,6 +18,7 @@ function buildService(
     {} as never, // access
     {} as never, // examGradedPublisher
     {} as never, // questionTypes
+    {} as never, // applicationCache
   );
   return { service, attempts, answers: answersRepo };
 }

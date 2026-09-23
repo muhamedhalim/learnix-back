@@ -18,6 +18,7 @@ import { GatewayWebhookService } from '../../src/payments/services/gateway-webho
 import { PaymentOperationsService } from '../../src/payments/services/payment-operations.service';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { createEnrolledStudent } from './helpers/enrolled-student';
 
 /**
  * T213 (US11 Phase 14, performance/caching). FR-330: the public catalogue
@@ -226,4 +227,93 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
       .expect(200);
     expect(previewRes.headers['cache-control']).toBe('no-store');
   }, 60_000);
+
+  /**
+   * Wave 1 (T030, T031): mutations that write nothing the catalogue reads must
+   * no longer evict it. Same DB-bypass technique as the first test: a price
+   * change made directly in the database can only become visible if the cached
+   * list entry was invalidated, so seeing the OLD price proves the entry
+   * survived the unrelated request. Every fixture request (publishing, user
+   * registration, subject creation) happens BEFORE the list is warmed, because
+   * those legitimately invalidate.
+   */
+  describe('catalogue survives unrelated mutations (T030, T031)', () => {
+    async function warmListThenBypassPriceChange(courseId: string): Promise<void> {
+      const server = app.getHttpServer() as Server;
+      const warmed = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
+      const warmedItem = (warmed.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      expect(warmedItem?.price_minor).toBe(100000);
+
+      // Bypasses the API entirely — no controller runs, so no invalidation fires either.
+      await dataSource.getRepository(MarketplaceCourse).update(courseId, { price_minor: 999999 });
+    }
+
+    async function expectListStillServesCachedPrice(courseId: string): Promise<void> {
+      const server = app.getHttpServer() as Server;
+      const after = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
+      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      expect(afterItem?.price_minor).toBe(100000); // the DB now says 999999: only a surviving cache entry can answer 100000
+    }
+
+    it('a notifications read-all does not evict the cached catalogue list (T030)', async () => {
+      const { courseId } = await publishCourse();
+      const learner = await createAuthenticatedUser(app, dataSource);
+      await warmListThenBypassPriceChange(courseId);
+
+      await learner.agent.post(`${API_PREFIX}/notifications/read-all`).expect(201);
+
+      await expectListStillServesCachedPrice(courseId);
+    }, 60_000);
+
+    it('a declared academic mutation (student lesson progress) does not evict the cached marketplace list (T031)', async () => {
+      const { courseId } = await publishCourse();
+      const { student, lesson } = await createEnrolledStudent(app, dataSource);
+      await warmListThenBypassPriceChange(courseId);
+
+      // Declared with `@InvalidatesCache([{ family: 'student_report', scope: 'self' }])`: it bumps only this
+      // student's own student_report slice, so neither the global generation nor `marketplace_catalog` moves.
+      const res = await student.agent
+        .post(`${API_PREFIX}/student/lessons/${lesson.id}/progress`)
+        .send({ watchedDuration: 60 });
+      expect([200, 201]).toContain(res.status);
+
+      await expectListStillServesCachedPrice(courseId);
+    }, 60_000);
+
+    /**
+     * The contrast case. A teacher creating a lesson is an ACADEMIC mutation but is
+     * UNDECLARED, so it takes the correctness fallback (contract rule 1): the global
+     * generation is bumped, and every family's key material includes the global
+     * generation, so the catalogue is evicted along with everything else. Only routes
+     * that declare their families (or are exempt) stop evicting it. Pinning this keeps
+     * "undeclared routes still global" (T031 acceptance) honest.
+     */
+    it('an UNDECLARED academic mutation (teacher creates a lesson) still evicts the list through the global fallback (T031: undeclared routes stay global)', async () => {
+      const { courseId } = await publishCourse();
+      const teacher = await createAuthenticatedUser(app, dataSource, {
+        role: 'teacher',
+        overrides: { requestedRole: 'teacher' },
+      });
+      const subject = await teacher.agent
+        .post(`${API_PREFIX}/teacher/subjects`)
+        .send({ name: `Catalogue cache subject ${Date.now()}-${Math.random().toString(36).slice(2)}` })
+        .expect(201);
+      await warmListThenBypassPriceChange(courseId);
+
+      await teacher.agent
+        .post(`${API_PREFIX}/teacher/lessons`)
+        .send({
+          title: 'Academic lesson',
+          subject_id: (subject.body as { subject: { id: string } }).subject.id,
+          price: 0,
+          is_group: true,
+        })
+        .expect(201);
+
+      const server = app.getHttpServer() as Server;
+      const after = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
+      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      expect(afterItem?.price_minor).toBe(999999); // global bump: the cached entry is unreachable, the DB value is read fresh
+    }, 60_000);
+  });
 });

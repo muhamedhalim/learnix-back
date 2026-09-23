@@ -15,6 +15,7 @@ import { Throttle } from '@nestjs/throttler';
 
 import type { Request, Response } from 'express';
 
+import { SkipCacheInvalidation } from '../common/cache/cache-invalidation.decorator';
 import { THROTTLE } from '../common/constants';
 import { LOGIN_THROTTLE } from '../common/throttle/login-throttle';
 import { getClientIp } from '../common/utils/client-ip.util';
@@ -152,6 +153,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  // Writes only `user_sessions`, which no cache family reads (T030).
+  @SkipCacheInvalidation()
   // Resolves to THROTTLE.AUTH (5 per 5 min) on production with no override
   // path; only non-production deployments may raise it. See login-throttle.ts.
   @Throttle({ default: LOGIN_THROTTLE })
@@ -170,6 +173,8 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  // Rotates the `user_sessions` row only; no cache family reads it (T030).
+  @SkipCacheInvalidation()
   // Tighten from the 300/min global backstop to limit refresh-token brute-force
   // / abuse. Uses the 5/min DEFAULT tier (not the stricter 5-per-5-min AUTH
   // tier) because refresh legitimately fires on every access-token expiry and
@@ -238,6 +243,8 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
+  // Deletes the `user_sessions` row only; principal lookup is never cached (T030).
+  @SkipCacheInvalidation()
   @UseGuards(JwtAuthGuard)
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   public async logout(

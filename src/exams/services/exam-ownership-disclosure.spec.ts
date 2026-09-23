@@ -39,6 +39,7 @@ describe('exam ownership non-disclosure', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     const omr = new OmrSheetsService(
       exams as never,
