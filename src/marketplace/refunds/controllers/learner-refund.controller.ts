@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -51,6 +52,11 @@ export class LearnerRefundController {
   }
 
   @Post(':id/refund')
+  // An eligible request completes the refund in-request: `marketplace_refund_requests`, `marketplace_orders`,
+  // `marketplace_enrollments` (REVOKED, so `enrollment_count` drops), `marketplace_course_reviews.withdrawn_at`
+  // (catalogue rating), `certificates`, earnings + ledger, and notifications via listeners. Only marketplace_catalog
+  // reads those; admin_dashboard/platform_report are kept per the T032 plan as a conservative superset.
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @UseGuards(RefundRequestThrottlerGuard)
   @Throttle({ default: THROTTLE.STRICT })
   @ApiOperation({ summary: 'Request a refund; Idempotency-Key required (FR-177, FR-199)' })

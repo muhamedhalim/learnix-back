@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -28,6 +29,10 @@ export class FreeEnrollmentController {
   constructor(private readonly freeEnrollment: FreeEnrollmentService) {}
 
   @Post('enroll-free')
+  // Writes `marketplace_orders` + `marketplace_enrollments` (`enrollment_count` in the cached catalogue) and, via
+  // listeners, `notifications`. admin_dashboard/platform_report read no marketplace table today; kept per the
+  // T032 plan as a conservative superset.
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @Throttle({ default: THROTTLE.DEFAULT })
   @ApiOperation({ summary: 'Zero-value enrollment, no gateway (FR-111, FR-112); rate limited per account (FR-121)' })
   public async enrollFree(@GetUser() user: JwtPayload, @Body() dto: EnrollFreeDto): Promise<MarketplaceOrder> {

@@ -280,3 +280,59 @@ describe('AnalyticsService.getExamAnalytics', () => {
     expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
   });
 });
+
+describe('AnalyticsService.recomputeExam', () => {
+  function build(exam: { id: string; teacher_id: string } | null) {
+    const examsRepository = { findOne: jest.fn().mockResolvedValue(exam) };
+    const applicationCache = {
+      invalidate: jest.fn().mockResolvedValue(undefined),
+      invalidateScopes: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new AnalyticsService(
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      examsRepository as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      applicationCache as never,
+    );
+    return { service, examsRepository, applicationCache };
+  }
+
+  it("invalidates only the exam's teacher scope of exam_analytics and teacher_quiz_analytics", async () => {
+    const { service, examsRepository, applicationCache } = build({
+      id: 'exam-1',
+      teacher_id: 'teacher-a',
+    });
+
+    await service.recomputeExam('exam-1');
+
+    expect(examsRepository.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'exam-1' } }),
+    );
+    expect(applicationCache.invalidateScopes).toHaveBeenCalledWith([
+      { family: 'exam_analytics', scope: 'owner:teacher-a' },
+      { family: 'teacher_quiz_analytics', scope: 'owner:teacher-a' },
+    ]);
+    expect(applicationCache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the whole family when the exam cannot be resolved', async () => {
+    const { service, applicationCache } = build(null);
+
+    await service.recomputeExam('missing-exam');
+
+    expect(applicationCache.invalidate).toHaveBeenCalledWith([
+      'exam_analytics',
+      'teacher_quiz_analytics',
+    ]);
+    expect(applicationCache.invalidateScopes).not.toHaveBeenCalled();
+  });
+});

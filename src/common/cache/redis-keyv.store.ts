@@ -34,6 +34,23 @@ export class RedisKeyvStore extends EventEmitter {
     return (value ?? undefined) as Value | undefined;
   }
 
+  /**
+   * Batched read used by Keyv `getMany` (and therefore `cacheManager.mget`):
+   * one Redis `MGET` instead of one round trip per key. Absent keys resolve to
+   * `undefined`, exactly like `get`. Keyv deserializes each row and deletes the
+   * expired ones itself, so semantics match the per-key path.
+   *
+   * MGET requires all keys on one node; the cache client is a standalone
+   * connection (not Redis Cluster).
+   */
+  public async getMany<Value>(keys: string[]): Promise<Array<Value | undefined>> {
+    if (keys.length === 0) {
+      return [];
+    }
+    const values = await this.client.mGet(keys.map((key) => this.prefixed(key)));
+    return values.map((value) => (value ?? undefined) as Value | undefined);
+  }
+
   public async set(key: string, value: unknown, ttl?: number): Promise<boolean> {
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
 

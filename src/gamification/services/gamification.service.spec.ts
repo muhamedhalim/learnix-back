@@ -105,6 +105,7 @@ function buildHarness(options: {
       return current;
     },
   };
+  const applicationCache = { invalidate: jest.fn().mockResolvedValue(undefined) };
   const profileLookup = { findOne: jest.fn().mockResolvedValue(profile) };
   const rulesService = { resolveCurrent: jest.fn().mockResolvedValue(options.ruleSet ?? DEFAULT_RULE_SET) };
   const campaignsService = {
@@ -117,8 +118,9 @@ function buildHarness(options: {
     solveRepo as never,
     rulesService as never,
     campaignsService as never,
+    applicationCache as never,
   );
-  return { service, profile, solves, xpEvents, campaignsService, rulesService };
+  return { service, profile, solves, xpEvents, campaignsService, rulesService, applicationCache };
 }
 
 describe('GamificationService practice scoring', () => {

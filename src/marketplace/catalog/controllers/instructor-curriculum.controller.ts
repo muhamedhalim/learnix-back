@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
 import { CurrentInstructor } from '../../common/decorators/current-instructor.decorator';
 import type { MarketplaceInstructor } from '../../instructors/entities/marketplace-instructor.entity';
@@ -34,6 +35,8 @@ export class InstructorCurriculumController {
   // ------------------------------------------------------------ sections
 
   @Post('sections')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Add a curriculum section' })
   public async createSection(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -46,6 +49,8 @@ export class InstructorCurriculumController {
   }
 
   @Patch('sections/:sectionId')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Rename a section' })
   public async updateSection(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -59,6 +64,8 @@ export class InstructorCurriculumController {
   }
 
   @Delete('sections/:sectionId')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Remove a section and its lessons' })
   public async deleteSection(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -70,6 +77,8 @@ export class InstructorCurriculumController {
   }
 
   @Post('sections/reorder')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Reorder sections (FR-045)' })
   public async reorderSections(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -83,6 +92,8 @@ export class InstructorCurriculumController {
   // ------------------------------------------------------------- lessons
 
   @Post('lessons')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Add a lesson; durationSeconds required (FR-046)' })
   public async createLesson(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -95,6 +106,8 @@ export class InstructorCurriculumController {
   }
 
   @Patch('lessons/:lessonId')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Edit a lesson' })
   public async updateLesson(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -108,6 +121,8 @@ export class InstructorCurriculumController {
   }
 
   @Delete('lessons/:lessonId')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Remove a lesson' })
   public async deleteLesson(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -119,6 +134,8 @@ export class InstructorCurriculumController {
   }
 
   @Post('lessons/reorder')
+  // Writes only marketplace course/section/lesson rows (+ course totals/pending marker); no audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Reorder the lessons within one section (FR-045)' })
   public async reorderLessons(
     @CurrentInstructor() instructor: MarketplaceInstructor,
@@ -130,6 +147,10 @@ export class InstructorCurriculumController {
   }
 
   @Post('lessons/:lessonId/video-upload')
+  // Stamps `video_id` on a `marketplace_course_lessons` row only. The catalogue serves lessons from the
+  // published version snapshot, so no family reads it today; declared conservatively rather than left
+  // on the global bump (a skip candidate). No audit log (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Bunny TUS signing — reuses the existing signing service' })
   public async createVideoUpload(
     @CurrentInstructor() instructor: MarketplaceInstructor,

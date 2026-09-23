@@ -2,6 +2,7 @@ import { Body, Controller, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { ReportReviewDto } from '../dto/report-review.dto';
@@ -21,6 +22,9 @@ export class ReviewReportController {
   constructor(private readonly moderation: ReviewModerationService) {}
 
   @Post(':id/report')
+  // Writes `marketplace_review_reports` and increments `marketplace_course_reviews.report_count`. The
+  // catalogue does not read `report_count`; declared at table level (a skip candidate) (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Report a review; does not itself hide it (FR-260)' })
   public async report(
     @GetUser() user: JwtPayload,

@@ -727,14 +727,27 @@ export class AnalyticsService {
    * Recompute + warm the cached analytics for an exam. Invoked asynchronously by
    * the exam-analytics BullMQ worker whenever an attempt's grade changes, so the
    * teacher dashboard reads are always fresh without paying the cost on-request.
+   *
+   * Only the exam's teacher scope is invalidated (`exam_analytics` entries are
+   * keyed `owner:<exam.teacher_id>` in `getExamAnalytics`; teacher quiz analytics
+   * use the same owner scope), so one teacher's grading no longer evicts every other
+   * teacher's cached analytics. If the exam cannot be resolved there is no owner to
+   * scope by, so the whole exam family is invalidated instead. (The unresolvable-exam
+   * fallback also bumps `teacher_quiz_analytics` for the same reason.)
    */
   public async recomputeExam(examId: string): Promise<void> {
-    await this.applicationCache.invalidate(['exam_analytics']);
-    try {
-      void examId;
-    } catch {
-      // Exam no longer exists / not gradable yet — nothing to warm.
+    const exam = await this.examsRepository.findOne({
+      where: { id: examId },
+      select: { id: true, teacher_id: true },
+    });
+    if (exam === null) {
+      await this.applicationCache.invalidate(['exam_analytics', 'teacher_quiz_analytics']);
+      return;
     }
+    await this.applicationCache.invalidateScopes([
+      { family: 'exam_analytics', scope: `owner:${exam.teacher_id}` },
+      { family: 'teacher_quiz_analytics', scope: `owner:${exam.teacher_id}` },
+    ]);
   }
 
   private assertAnalyticsAccess(principal: JwtPayload, ownerId: string): void {

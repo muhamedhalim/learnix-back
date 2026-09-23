@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
@@ -50,6 +51,9 @@ export class AdminInstructorsController {
   }
 
   @Post(':id/suspend')
+  // Writes `marketplace_instructors` (status; the catalogue hides a suspended instructor's courses) and
+  // `audit_logs`; `admin_dashboard` reads audit logs (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'Suspend an instructor; reason mandatory (FR-021)' })
   public async suspend(
     @Param('id', ParseUUIDPipe) id: string,
@@ -60,6 +64,8 @@ export class AdminInstructorsController {
   }
 
   @Post(':id/reinstate')
+  // Same write set as suspend: `marketplace_instructors` + `audit_logs` (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'Reinstate a suspended instructor (FR-021)' })
   public async reinstate(
     @Param('id', ParseUUIDPipe) id: string,
@@ -69,6 +75,8 @@ export class AdminInstructorsController {
   }
 
   @Post(':id/profile-changes/approve')
+  // Writes `marketplace_instructors` (queued profile edits go live) and `audit_logs` (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: "Apply every currently queued FR-029 profile edit at once" })
   public async approveProfileChanges(
     @Param('id', ParseUUIDPipe) id: string,
@@ -78,6 +86,8 @@ export class AdminInstructorsController {
   }
 
   @Post(':id/profile-changes/reject')
+  // Writes `marketplace_instructors` (clears the pending queue) and `audit_logs` (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'Discard every currently queued FR-029 profile edit; live values untouched; reason mandatory' })
   public async rejectProfileChanges(
     @Param('id', ParseUUIDPipe) id: string,

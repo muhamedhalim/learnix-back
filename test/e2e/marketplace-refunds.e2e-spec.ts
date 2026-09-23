@@ -1,5 +1,9 @@
+import type { Server } from 'node:http';
+
 import type { INestApplication } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
+
+import request from 'supertest';
 
 import { MarketplaceCategory, MarketplaceCourse } from '../../src/marketplace/catalog/entities';
 import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/commerce/entities';
@@ -21,6 +25,7 @@ import { PaymentStatus } from '../../src/payments/entities/payment-status.enum';
 import type { ProviderWebhookEvent } from '../../src/payments/providers/payment-gateway.interface';
 import { GatewayWebhookService } from '../../src/payments/services/gateway-webhook.service';
 import { PaymentOperationsService } from '../../src/payments/services/payment-operations.service';
+import { PaymentProviderRegistry } from '../../src/payments/services/payment-provider-registry.service';
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import {
@@ -532,5 +537,60 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
       .send({ reason: 'No key' })
       .expect(400);
+  });
+
+  /**
+   * T032 catalogue freshness after a refund. The e2e environment has no
+   * reachable gateway, so a genuinely completed refund cannot happen without a
+   * provider double. This is the ONLY substitution: the real HTTP route, the
+   * real `RefundProcessingService` reversal transaction (enrollment -> REVOKED)
+   * and the real `CacheInvalidationInterceptor` all run; only the provider's
+   * `refund()` answer is faked at the external boundary, then restored.
+   * Every fixture request is made before the first catalogue read, because
+   * publishing and checkout legitimately invalidate.
+   */
+  describe('catalogue enrollment_count freshness after a refund (T032)', () => {
+    it('a completed learner refund lowers the catalogue list and detail enrollment_count on the very next request', async () => {
+      const { learner, order, course, payment } = await actors();
+      const server = app.getHttpServer() as Server;
+
+      const readCounts = async (): Promise<{ list: number | undefined; detail: number | undefined }> => {
+        const list = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
+        const item = (list.body.items as Array<{ id: string; enrollment_count: number }>).find(
+          (i) => i.id === course.id,
+        );
+        const detail = await request(server)
+          .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+          .expect(200);
+        return {
+          list: item?.enrollment_count,
+          detail: (detail.body as { enrollment_count?: number }).enrollment_count,
+        };
+      };
+
+      // Warm both cached reads: the paid enrollment is active, so the count is 1.
+      expect(await readCounts()).toEqual({ list: 1, detail: 1 });
+
+      const gateway = app.get(PaymentProviderRegistry).get(payment.provider);
+      const supportsRefunds = jest.spyOn(gateway, 'supportsRefunds').mockReturnValue(true);
+      const providerRefund = jest
+        .spyOn(gateway, 'refund')
+        .mockResolvedValue({ providerReference: `test-refund-${order.id}`, status: 'succeeded' });
+      try {
+        const res = await learner.agent
+          .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+          .set('Idempotency-Key', `refund-${Date.now()}`)
+          .send({ reason: 'Catalogue freshness after refund' })
+          .expect(201);
+        expect(res.body.status).toBe(RefundRequestStatus.COMPLETED);
+        expect(providerRefund).toHaveBeenCalledTimes(1);
+      } finally {
+        supportsRefunds.mockRestore();
+        providerRefund.mockRestore();
+      }
+
+      // The reversal revoked the enrollment; no TTL wait for the catalogue to show it.
+      expect(await readCounts()).toEqual({ list: 0, detail: 0 });
+    }, 60_000);
   });
 });

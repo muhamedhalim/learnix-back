@@ -1,5 +1,9 @@
+import type { Server } from 'node:http';
+
 import type { INestApplication } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
+
+import request from 'supertest';
 
 import { LessonContentType, MarketplaceOrderStatus } from '../../src/marketplace/common/enums';
 import { MarketplaceCategory, MarketplaceCourse } from '../../src/marketplace/catalog/entities';
@@ -283,5 +287,90 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       status: MarketplaceOrderStatus.FAILED,
     });
     expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id })).toBe(0);
+  });
+
+  /**
+   * T032 catalogue freshness: `enrollment_count` is part of the cached public
+   * catalogue (list + detail, family `marketplace_catalog`), so an enrollment
+   * must be visible on the NEXT request, never after the 60 s TTL. Every
+   * fixture request is made before the first read, because publishing and
+   * checkout legitimately invalidate.
+   */
+  describe('catalogue enrollment_count freshness (T032)', () => {
+    async function catalogueEnrollmentCounts(
+      courseId: string,
+      slug: string,
+    ): Promise<{ list: number | undefined; detail: number | undefined }> {
+      const server = app.getHttpServer() as Server;
+      const list = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
+      const item = (list.body.items as Array<{ id: string; enrollment_count: number }>).find((i) => i.id === courseId);
+      const detail = await request(server).get(`${API_PREFIX}/marketplace/courses/${slug}`).expect(200);
+      return {
+        list: item?.enrollment_count,
+        detail: (detail.body as { enrollment_count?: number }).enrollment_count,
+      };
+    }
+
+    it('a free enrollment is reflected in the catalogue list and detail enrollment_count on the very next request', async () => {
+      const { instructorUser, admin, learner, category } = await actors();
+      const course = await publishCourse({
+        instructorAgent: instructorUser.agent,
+        adminAgent: admin.agent,
+        categoryId: category.id,
+        priceMinor: 0,
+      });
+
+      // Warm both cached reads: nobody is enrolled yet.
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+        .send({ courseId: course.id })
+        .expect(201);
+
+      // No TTL wait: the declared marketplace_catalog invalidation already fired.
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
+    }, 60_000);
+
+    /**
+     * BLOCKED, deliberately skipped — not passing. This is the requirement as
+     * written (paid enrollment -> `enrollment_count` fresh on the next request);
+     * the current code cannot satisfy it:
+     *
+     *  - A paid enrollment row is written by `MarketplaceSettlementListener`,
+     *    driven by the payments OUTBOX DRAIN (`PaymentOperationsService.publishOutbox`),
+     *    a non-HTTP writer. No `CacheInvalidationInterceptor` runs for it.
+     *  - Nothing under `src/marketplace` or `src/payments` calls
+     *    `ApplicationCacheService.invalidate*` (grep), so the drain never bumps
+     *    `marketplace_catalog`.
+     *  - The HTTP webhook routes (`/payments/webhook`, `/marketplace/webhooks/payment`)
+     *    stay UNDECLARED (T033 owns them) and bump the global generation when THEY
+     *    complete, which is BEFORE the drain writes the enrollment. Any catalogue
+     *    read between those two moments re-caches the old count for up to 60 s.
+     *
+     * Same window as before Wave 1 (TTL-bounded, cf. contract rule 4 "non-HTTP
+     * writers keep today's behavior"), so it is not a regression, but it is a
+     * stale window against the T032 acceptance line. To unblock: invalidate
+     * `marketplace_catalog` (+ `admin_dashboard`, `platform_report`) from the
+     * settlement listener after it creates the enrollment, or record a rule-7
+     * written TTL-drift exception. Un-skip this test with that change.
+     */
+    it.skip('a paid enrollment settled by webhook + outbox drain is reflected in the catalogue enrollment_count on the very next request [BLOCKED: the outbox-drain writer never invalidates marketplace_catalog]', async () => {
+      const { instructorUser, admin, learner, category } = await actors();
+      const course = await publishCourse({
+        instructorAgent: instructorUser.agent,
+        adminAgent: admin.agent,
+        categoryId: category.id,
+      });
+      const { payment } = await createOrderAndPayment(learner, course.id);
+
+      // Warm both cached reads: the order exists but is unpaid, so nobody is enrolled.
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+
+      await webhooks.process(webhookFor(payment, 'succeeded', 'catalogue-freshness-event'));
+      await operations.publishOutbox();
+
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
+    }, 60_000);
   });
 });

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { SkipCacheInvalidation } from '../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
@@ -53,6 +54,9 @@ export class NotificationsController {
   }
 
   @Post(':id/read')
+  // Writes `notifications.is_read/read_at` only; no cache family reads them
+  // (teacher `readRate` reads `parent_messages.status`) (T030).
+  @SkipCacheInvalidation()
   @ApiResponse({
     status: 404,
     description: 'Notification not found',
@@ -69,6 +73,8 @@ export class NotificationsController {
   }
 
   @Post('read-all')
+  // Same write set as `:id/read` (T030).
+  @SkipCacheInvalidation()
   @ApiResponse({
     status: 200,
     description: 'All notifications marked as read',

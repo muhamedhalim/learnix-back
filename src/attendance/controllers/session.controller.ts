@@ -15,6 +15,7 @@ import type { Request } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
@@ -109,6 +110,10 @@ export class SessionController {
    * Update session progress (during playback)
    */
   @Patch('sessions/:sessionId/progress')
+  // Writes only `lesson_sessions.video_progress_percent` (no attendance record; that is `exit`). Read by
+  // lesson_analytics (completion_rate), admin_dashboard (lesson_completion_rate) and platform_report (completionRate).
+  // teacher_report reads lesson_sessions only via entered_at/student_id; kept per the T032 plan as a conservative superset.
+  @InvalidatesCache(['lesson_analytics', 'admin_dashboard', 'platform_report', 'teacher_report'])
   @ApiOperation({ summary: 'Update session progress (during playback)' })
   @ApiResponse({
     status: HttpStatus.OK,

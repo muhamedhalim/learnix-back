@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../auth/guards/roles.guard';
+import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { CategoryService } from '../category.service';
 import { CreateCategoryDto, UpdateCategoryDto } from '../dto/category.dto';
@@ -24,12 +25,16 @@ export class AdminCategoriesController {
   }
 
   @Post()
+  // Writes `marketplace_categories` only (no audit log) — read by `marketplace_catalog` (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Create a category or sub-category, at most two levels deep (FR-036)' })
   public async create(@Body() dto: CreateCategoryDto): Promise<MarketplaceCategory> {
     return this.categories.create(dto);
   }
 
   @Patch(':id')
+  // Writes `marketplace_categories` only (no audit log) — read by `marketplace_catalog` (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Edit, reorder (display_order) or activate/deactivate a category (FR-035, FR-040)' })
   public async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -39,6 +44,8 @@ export class AdminCategoriesController {
   }
 
   @Delete(':id')
+  // Writes `marketplace_categories` only (no audit log) — read by `marketplace_catalog` (T031).
+  @InvalidatesCache(['marketplace_catalog'])
   @ApiOperation({ summary: 'Delete a category; refused with the referencing course count if any course is assigned (FR-039)' })
   public async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.categories.delete(id);

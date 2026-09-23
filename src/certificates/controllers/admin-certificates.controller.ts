@@ -22,6 +22,7 @@ import type { Request } from 'express';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { SkipCacheInvalidation } from '../../common/cache/cache-invalidation.decorator';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { THROTTLE } from '../../common/constants';
@@ -126,6 +127,8 @@ export class AdminCertificatesController {
   }
 
   @Post('templates/preview/pdf')
+  // Renders an UNSAVED template to a PDF buffer; nothing is persisted (T030).
+  @SkipCacheInvalidation()
   @Throttle({ default: THROTTLE.DEFAULT })
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Render an unsaved template design as a sample PDF' })

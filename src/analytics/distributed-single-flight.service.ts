@@ -12,6 +12,9 @@ import { performanceMetrics } from '../observability/performance-metrics.registr
 
 const CACHE_MISS = Symbol('CACHE_MISS');
 
+/** Waiter back-off ceiling; a configured poll interval above it is honoured as the ceiling. */
+const MAX_LOCK_POLL_INTERVAL_MS = 250;
+
 export interface CacheMetricContext {
   family: string;
   endpoint: string;
@@ -143,6 +146,11 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
 
     const lockKey = `${this.lockKeyPrefix}cache-lock:${cacheKey}`;
     const deadline = Date.now() + this.waitTimeoutMs;
+    // Capped exponential back-off: the first wait is the configured
+    // CACHE_LOCK_POLL_INTERVAL_MS, then it doubles up to the ceiling, so a long
+    // contended wait issues far fewer Redis commands than fixed-interval polling.
+    const maxPollIntervalMs = Math.max(this.pollIntervalMs, MAX_LOCK_POLL_INTERVAL_MS);
+    let pollWaitMs = this.pollIntervalMs;
 
     do {
       const token = randomUUID();
@@ -154,7 +162,9 @@ export class DistributedSingleFlightService implements OnModuleInit, OnModuleDes
       const cached = await this.getCached<T>(cacheKey, metric);
       if (cached !== CACHE_MISS) return cached;
 
-      await this.delay(this.pollIntervalMs);
+      // Never sleep past the wait budget, so the timeout bound is unchanged.
+      await this.delay(Math.min(pollWaitMs, Math.max(deadline - Date.now(), 1)));
+      pollWaitMs = Math.min(pollWaitMs * 2, maxPollIntervalMs);
     } while (Date.now() < deadline);
 
     this.logger.warn(
