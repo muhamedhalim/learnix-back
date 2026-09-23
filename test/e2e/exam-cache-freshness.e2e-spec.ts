@@ -84,6 +84,12 @@ interface QuizExamQuestion {
   attempts: number;
 }
 
+interface QuizStudentAnalytics {
+  totalAttempts: number;
+  bestQuiz: { title: string; percent: number } | null;
+  attempts: { examName: string; percentage: number }[];
+}
+
 interface ExamFixture {
   examId: string;
   choiceEqId: string;
@@ -337,6 +343,8 @@ describe('exam cache freshness, owner isolation and teacher quiz analytics (spec
     getData<QuizTeacherAnalytics>(teacher, '/analytics/quiz/teacher');
   const quizExam = (teacher: AuthenticatedUser, examId: string) =>
     getData<QuizExamQuestion[]>(teacher, `/analytics/quiz/teacher/exams/${examId}`);
+  const quizStudent = (student: AuthenticatedUser) =>
+    getData<QuizStudentAnalytics>(student, '/analytics/quiz/student');
 
   function subjectAverage(progress: StudentProgress): number | null | undefined {
     return progress.subjects.find((s) => s.subjectId === subjectId)?.averageScore;
@@ -772,6 +780,102 @@ describe('exam cache freshness, owner isolation and teacher quiz analytics (spec
   });
 
   // ===============================================================================================
+  // T040: student quiz analytics cache
+  // ===============================================================================================
+
+  describe('T040 - student quiz analytics cache', () => {
+    it('reflects a manual grade on the next /analytics/quiz/student request', async () => {
+      const teacher = await createTeacher();
+      const student = await createStudent();
+      const fx = await seedExam(teacher.userId);
+
+      const empty = await quizStudent(student);
+      expect(empty.totalAttempts).toBe(0);
+
+      const attemptId = await startAttempt(student, fx.examId);
+      await saveAnswers(student, attemptId, fx);
+      await submitAttempt(student, attemptId);
+      // GRADING: the essay is unmarked, so the attempt is not yet student-visible.
+      expect((await quizStudent(student)).totalAttempts).toBe(0);
+
+      await gradeEssay(teacher, fx, attemptId);
+      const graded = await quizStudent(student);
+      expect(graded.totalAttempts).toBe(1);
+      expect(graded.bestQuiz).toEqual({ title: 'Cache Freshness Exam', percent: GRADED_PERCENT });
+    });
+
+    it('exam review_policy flipping to NEVER hides an already-visible result on the next request (no TTL wait)', async () => {
+      const teacher = await createTeacher();
+      const student = await createStudent();
+      const fx = await seedExam(teacher.userId);
+      await completeGradedAttempt(student, teacher, fx);
+
+      const warm = await quizStudent(student);
+      expect(warm.totalAttempts).toBe(1);
+
+      // The teacher locks results (config change bypasses the API on purpose: no published-exam route
+      // edits `review_policy` directly; the undeclared `PATCH :id/schedule` below is the real trigger).
+      await ctx.dataSource.query(
+        `UPDATE exams SET config = jsonb_set(config, '{review_policy}', '"never"') WHERE id = $1`,
+        [fx.examId],
+      );
+      // Still served from the cache (the config write above bypassed the API and invalidated nothing).
+      expect(await quizStudent(student)).toEqual(warm);
+
+      // Any undeclared exam-authoring mutation (global fallback) invalidates every family, including
+      // this one, so the next read recomputes and applies the new (bypass-written) NEVER policy.
+      await teacher.agent
+        .patch(`${API_PREFIX}/teacher/exams/${fx.examId}/schedule`)
+        .send({ end_window_at: null })
+        .expect(200);
+
+      const hidden = await quizStudent(student);
+      expect(hidden.totalAttempts).toBe(0);
+      expect(hidden.attempts).toEqual([]);
+    });
+
+    it("does not mix two students: one student's grade never appears in, or evicts, another student's cached entry", async () => {
+      const teacher = await createTeacher();
+      const studentA = await createStudent();
+      const studentB = await createStudent();
+      const fx = await seedExam(teacher.userId);
+
+      await completeGradedAttempt(studentA, teacher, fx);
+      const warmA = await quizStudent(studentA);
+      expect(warmA.totalAttempts).toBe(1);
+      const warmB = await quizStudent(studentB);
+      expect(warmB.totalAttempts).toBe(0);
+
+      await completeGradedAttempt(studentB, teacher, fx);
+
+      // B's grade is visible to B on the very next request...
+      const freshB = await quizStudent(studentB);
+      expect(freshB.totalAttempts).toBe(1);
+      // ...and A's cached entry (a different owner scope) is untouched by B's write.
+      expect(await quizStudent(studentA)).toEqual(warmA);
+    });
+
+    it('a cache hit runs no exam-attempt SQL', async () => {
+      const teacher = await createTeacher();
+      const student = await createStudent();
+      const fx = await seedExam(teacher.userId);
+      await completeGradedAttempt(student, teacher, fx);
+      await quizStudent(student); // miss: computes and caches
+
+      const counter = new StatementCounter(ctx.dataSource);
+      counter.start();
+      await student.agent
+        .get(`${API_PREFIX}/analytics/quiz/student`)
+        .set('X-Request-Id', 't040-student-hit')
+        .expect(200);
+      counter.stop();
+
+      expect(counter.count({ requestId: 't040-student-hit', table: 'exam_attempts' })).toBe(0);
+      expect(counter.count({ requestId: 't040-student-hit', table: 'exam_attempt_answers' })).toBe(0);
+    });
+  });
+
+  // ===============================================================================================
   // Invalidation contract: exact calls per route, unrelated families untouched
   // ===============================================================================================
 
@@ -818,7 +922,7 @@ describe('exam cache freshness, owner isolation and teacher quiz analytics (spec
       expect(await quizTeacher(teacher)).toEqual(warmQuiz);
     });
 
-    it("POST student/exams/attempts/:attemptId/submit additionally invalidates the owner's teacher_quiz_analytics, but not admin_dashboard, and never the global generation", async () => {
+    it("POST student/exams/attempts/:attemptId/submit additionally invalidates the owner's teacher_quiz_analytics and the student's own student_quiz_analytics (T040), but not admin_dashboard, and never the global generation", async () => {
       const teacher = await createTeacher();
       const student = await createStudent();
       const fx = await seedExam(teacher.userId);
@@ -832,13 +936,13 @@ describe('exam cache freshness, owner isolation and teacher quiz analytics (spec
       expect(familyLevelFamilies(watch)).toEqual(['platform_report']);
       expect(scopedSlices(watch)).toEqual(
         [
-          ...slicesOf(studentFamilies, student.userId),
+          ...slicesOf([...studentFamilies, 'student_quiz_analytics'], student.userId),
           ...slicesOf([...teacherFamilies, 'teacher_quiz_analytics'], teacher.userId),
         ].sort(),
       );
     });
 
-    it("POST teacher/exams/:id/answers/:answerId/grade invalidates the teacher's own slices and the graded student's slices only, with no family-level or global bump", async () => {
+    it("POST teacher/exams/:id/answers/:answerId/grade invalidates the teacher's own slices and the graded student's slices only (incl. student_quiz_analytics, T040), with no family-level or global bump", async () => {
       const teacher = await createTeacher();
       const student = await createStudent();
       const fx = await seedExam(teacher.userId);
@@ -853,7 +957,7 @@ describe('exam cache freshness, owner isolation and teacher quiz analytics (spec
       expect(watch.invalidate).not.toHaveBeenCalled();
       expect(scopedSlices(watch)).toEqual(
         [
-          ...slicesOf(studentFamilies, student.userId),
+          ...slicesOf([...studentFamilies, 'student_quiz_analytics'], student.userId),
           ...slicesOf([...teacherFamilies, 'teacher_quiz_analytics'], teacher.userId),
         ].sort(),
       );

@@ -27,7 +27,11 @@ export type ApplicationCacheFamily =
   // W1-C6 (b, c): anonymous, caller-independent public gamification reads (T037).
   | 'gamification_public'
   // W1-C7 (a): teacher quiz analytics, owner-scoped (T039).
-  | 'teacher_quiz_analytics';
+  | 'teacher_quiz_analytics'
+  // W1-C7 (c): student quiz analytics, owner-scoped (T040).
+  | 'student_quiz_analytics'
+  // W1-C8: reconciliation-warnings snapshot, role-scoped (T041).
+  | 'finance_reconciliation';
 
 export const APPLICATION_CACHE_FAMILIES: readonly ApplicationCacheFamily[] = [
   'admin_dashboard',
@@ -43,6 +47,8 @@ export const APPLICATION_CACHE_FAMILIES: readonly ApplicationCacheFamily[] = [
   'marketplace_catalog',
   'gamification_public',
   'teacher_quiz_analytics',
+  'student_quiz_analytics',
+  'finance_reconciliation',
 ] as const;
 
 /** One owner's slice of an owner-scoped family (see `invalidateScopes`). */

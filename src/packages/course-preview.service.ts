@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, IsNull, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -20,6 +21,9 @@ import { LessonPackageItem } from './entities/lesson-package-item.entity';
 /** Free previews are unauthenticated, so the signed URL is kept intentionally short-lived. */
 const FREE_PREVIEW_SIGNED_URL_TTL_SECONDS = 10 * 60;
 
+/** Public, anonymous cache TTL for the unsigned half of the preview (T037 a). */
+const PREVIEW_CACHE_TTL_MS = 60_000;
+
 interface PreviewLesson {
   id: string;
   title: string;
@@ -33,6 +37,32 @@ interface PreviewLesson {
    * short-lived signed URL is safe to hand out.
    */
   video: { signed_url: string; expires_in: number } | null;
+}
+
+/**
+ * Cached shape of one preview lesson (T037 a): the real `video` field is never
+ * computed here — only whether the lesson qualifies for one — so the signed
+ * URL is generated fresh on every request, after the cache read, and never
+ * spends its 10-minute TTL sitting in Redis (rule 8: no cache family or
+ * Cache-Control header stores a Bunny signed URL, `expires_in`, or signed
+ * playback data). `signable_video_id` never reaches the HTTP body; it exists
+ * only to let the post-read mapper sign without a second database round trip.
+ * It is not secret (the same id is already observable inside `signed_url`
+ * today, `gates/W1-C6d.md` section 3), so holding it in Redis is not a rule 8
+ * violation — only the SIGNED value is prohibited from being cached.
+ */
+interface CachedPreviewLesson {
+  id: string;
+  title: string;
+  duration: number | null;
+  is_free_preview: boolean;
+  locked: boolean;
+  signable_video_id: string | null;
+}
+
+interface CachedPreviewSection {
+  chapter: { id: string; title: string } | null;
+  lessons: CachedPreviewLesson[];
 }
 
 /**
@@ -59,9 +89,74 @@ export class CoursePreviewService {
     private readonly reviewsService: ReviewsService,
     private readonly media: MediaService,
     private readonly bunnyStream: BunnyStreamService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
+  /**
+   * T037 (a): only the unsigned half of the preview is cached. A 404 thrown
+   * inside `computePreview` propagates before `getOrCompute` stores anything,
+   * so an unpublished/missing course is never cached as "not found".
+   */
   public async getPreview(packageId: string): Promise<unknown> {
+    const cached = await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'packages.preview',
+        scope: 'public',
+        parts: [packageId],
+        ttlMs: PREVIEW_CACHE_TTL_MS,
+      },
+      async () => await this.computePreview(packageId),
+    );
+    return { ...cached, curriculum: cached.curriculum.map((section) => this.signSection(section)) };
+  }
+
+  private signSection(section: CachedPreviewSection): {
+    chapter: { id: string; title: string } | null;
+    lessons: PreviewLesson[];
+  } {
+    return {
+      chapter: section.chapter,
+      lessons: section.lessons.map(({ signable_video_id, ...lesson }) => {
+        const signedUrl = signable_video_id
+          ? this.bunnyStream.generateSignedEmbedUrl(
+              signable_video_id,
+              FREE_PREVIEW_SIGNED_URL_TTL_SECONDS,
+            )
+          : null;
+        return {
+          ...lesson,
+          video: signedUrl
+            ? { signed_url: signedUrl, expires_in: FREE_PREVIEW_SIGNED_URL_TTL_SECONDS }
+            : null,
+        };
+      }),
+    };
+  }
+
+  private async computePreview(packageId: string): Promise<{
+    id: string;
+    title: string;
+    title_ar: string | null;
+    description: string | null;
+    description_ar: string | null;
+    thumbnail_url: string | null;
+    intro_video_url: string | null;
+    price: number;
+    original_price: number | null;
+    category: string | null;
+    tags: string[];
+    requirements: string[];
+    what_you_learn: string[];
+    faq: unknown[];
+    last_updated: Date;
+    lessons_count: number;
+    students_count: number;
+    rating: unknown;
+    instructor: unknown;
+    curriculum: CachedPreviewSection[];
+    related: unknown[];
+  }> {
     const pkg = await this.packagesRepository.findOne({
       where: {
         id: packageId,
@@ -126,9 +221,7 @@ export class CoursePreviewService {
     };
   }
 
-  private async buildCurriculum(
-    packageId: string,
-  ): Promise<{ chapter: { id: string; title: string } | null; lessons: PreviewLesson[] }[]> {
+  private async buildCurriculum(packageId: string): Promise<CachedPreviewSection[]> {
     const [chapters, items] = await Promise.all([
       this.chaptersRepository.find({
         where: { package_id: packageId },
@@ -155,32 +248,20 @@ export class CoursePreviewService {
         : [];
     const lessonMap = new Map(lessons.map((l) => [l.id, l]));
 
-    const toPreview = (lesson: Lesson): PreviewLesson => {
+    const toPreview = (lesson: Lesson): CachedPreviewLesson => {
       const free = lesson.is_free_preview;
       const videoReady = lesson.bunny_video_id !== null && lesson.bunny_video_status === 'ready';
-      const signedUrl =
-        free && videoReady
-          ? this.bunnyStream.generateSignedEmbedUrl(
-              lesson.bunny_video_id as string,
-              FREE_PREVIEW_SIGNED_URL_TTL_SECONDS,
-            )
-          : null;
       return {
         id: lesson.id,
         title: lesson.title,
         duration: lesson.duration,
         is_free_preview: free,
         locked: !free,
-        video: signedUrl
-          ? { signed_url: signedUrl, expires_in: FREE_PREVIEW_SIGNED_URL_TTL_SECONDS }
-          : null,
+        signable_video_id: free && videoReady ? (lesson.bunny_video_id as string) : null,
       };
     };
 
-    const sections: {
-      chapter: { id: string; title: string } | null;
-      lessons: PreviewLesson[];
-    }[] = [];
+    const sections: CachedPreviewSection[] = [];
 
     for (const chapter of chapters) {
       const chapterLessons = items

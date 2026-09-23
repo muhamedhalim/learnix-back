@@ -153,8 +153,11 @@ describe('practice routes invalidate gamification_public (T037 writers)', () => 
   const reflector = new Reflector();
   const proto = StudentPracticeController.prototype;
 
-  it('declares the whole gamification_public family on practice/answer and drops the temporary skip', () => {
-    expect(reflector.get(INVALIDATES_CACHE_KEY, proto.answer)).toEqual(['gamification_public']);
+  it('declares the whole gamification_public family (and the answering student\'s own student_quiz_analytics slice, T040) on practice/answer and drops the temporary skip', () => {
+    expect(reflector.get(INVALIDATES_CACHE_KEY, proto.answer)).toEqual([
+      'gamification_public',
+      { family: 'student_quiz_analytics', scope: 'self' },
+    ]);
     expect(reflector.get(SKIP_CACHE_INVALIDATION_KEY, proto.answer)).toBeUndefined();
   });
 

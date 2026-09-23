@@ -3,6 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
@@ -28,6 +29,9 @@ describe('CoursePreviewService.getPreview', () => {
   const bunnyStream = {
     generateSignedEmbedUrl: jest.fn().mockReturnValue('https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1'),
   };
+  const applicationCache = {
+    getOrCompute: jest.fn(async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute()),
+  };
 
   const relatedQb = {
     where: jest.fn().mockReturnThis(),
@@ -38,6 +42,9 @@ describe('CoursePreviewService.getPreview', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    applicationCache.getOrCompute.mockImplementation(
+      async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+    );
     packages.createQueryBuilder.mockReturnValue(relatedQb);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,6 +58,7 @@ describe('CoursePreviewService.getPreview', () => {
         { provide: ReviewsService, useValue: reviews },
         { provide: MediaService, useValue: media },
         { provide: BunnyStreamService, useValue: bunnyStream },
+        { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
     service = module.get(CoursePreviewService);
@@ -124,5 +132,69 @@ describe('CoursePreviewService.getPreview', () => {
     expect(JSON.stringify(free.video)).not.toMatch(/bunny_video_id|bunny_library_id|"b1"|"lib"/);
     expect(locked.locked).toBe(true);
     expect(locked.video).toBeNull();
+  });
+
+  describe('caching (T037 a)', () => {
+    it('caches under public_catalog/public, keyed by package id, 60 s TTL', async () => {
+      packages.findOne.mockResolvedValue(null);
+      await expect(service.getPreview('P1')).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(applicationCache.getOrCompute).toHaveBeenCalledWith(
+        {
+          family: 'public_catalog',
+          endpoint: 'packages.preview',
+          scope: 'public',
+          parts: ['P1'],
+          ttlMs: 60_000,
+        },
+        expect.any(Function),
+      );
+    });
+
+    it('the cached value itself carries no signed_url or expires_in (only a signable marker); signing happens after the read', async () => {
+      const cachedValue = {
+        id: 'P1',
+        curriculum: [
+          {
+            chapter: null,
+            lessons: [
+              { id: 'L1', title: 'Free', duration: 60, is_free_preview: true, locked: false, signable_video_id: 'b1' },
+            ],
+          },
+        ],
+      };
+      expect(JSON.stringify(cachedValue)).not.toMatch(/signed_url|expires_in/);
+
+      applicationCache.getOrCompute.mockResolvedValue(cachedValue);
+      const result = (await service.getPreview('P1')) as {
+        curriculum: { lessons: { video: { signed_url: string; expires_in: number } | null }[] }[];
+      };
+
+      // The HTTP response, produced fresh from the cached marker, does carry a per-request signed URL.
+      expect(result.curriculum[0]!.lessons[0]!.video).toEqual({
+        signed_url: 'https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1',
+        expires_in: 600,
+      });
+      expect(bunnyStream.generateSignedEmbedUrl).toHaveBeenCalledWith('b1', 600);
+      // The raw cached shape (as stored) is never re-exposed with the marker still on it.
+      expect(JSON.stringify(result)).not.toContain('signable_video_id');
+    });
+
+    it('a hit runs no database query at all', async () => {
+      applicationCache.getOrCompute.mockResolvedValue({ id: 'P1', curriculum: [] });
+
+      await service.getPreview('P1');
+
+      expect(packages.findOne).not.toHaveBeenCalled();
+    });
+
+    it('a 404 is never cached: computePreview throws before getOrCompute can store anything', async () => {
+      packages.findOne.mockResolvedValue(null);
+
+      await expect(service.getPreview('missing')).rejects.toBeInstanceOf(NotFoundException);
+
+      // getOrCompute was invoked (it owns the try/store), but its own compute callback is what threw.
+      expect(applicationCache.getOrCompute).toHaveBeenCalledTimes(1);
+    });
   });
 });

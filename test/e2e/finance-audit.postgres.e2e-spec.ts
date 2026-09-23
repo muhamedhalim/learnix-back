@@ -349,4 +349,99 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
       hasPrevPage: false,
     });
   });
+
+  /**
+   * T041 (`gates/W1-C8.md`, approved): the reconciliation-warnings snapshot is cached (10 min TTL, or
+   * one generation bump reaching `finance_reconciliation`), so `detected_at` is the compute time, not
+   * the request time, and a second visit within the same snapshot does not re-run the sweep.
+   */
+  describe('GET /admin/finance/reports/reconciliation-warnings (T041)', () => {
+    it('requires reconciliation.review', async () => {
+      const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
+      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+
+      await admin.agent.get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`).expect(403);
+    });
+
+    it("detected_at is the compute time (not the request time) and a repeat visit within the snapshot returns the identical detected_at (no re-sweep)", async () => {
+      const [teacher, student] = await Promise.all([
+        makeTeacher('recon-1'),
+        makeStudent(),
+      ]);
+      // A paid order with no entitlement row is exactly what `paid_orders_without_entitlement` flags.
+      await makePaidOrder(teacher, student, 'AUDIT-RECON-1');
+
+      const admin = await financeAdmin();
+      const before = new Date();
+      const first = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`)
+        .expect(200);
+      const after = new Date();
+
+      const warnings = first.body.data as Array<{
+        type: string;
+        affected_count: number;
+        detected_at: string;
+      }>;
+      const paidWithoutEntitlement = warnings.find((w) => w.type === 'paid_orders_without_entitlement');
+      expect(paidWithoutEntitlement).toBeDefined();
+      expect(paidWithoutEntitlement!.affected_count).toBeGreaterThanOrEqual(1);
+      const detectedAt = new Date(paidWithoutEntitlement!.detected_at).getTime();
+      expect(detectedAt).toBeGreaterThanOrEqual(before.getTime());
+      expect(detectedAt).toBeLessThanOrEqual(after.getTime());
+
+      // A second admin visit inside the same TTL/generation window is a cache hit: `detected_at` does
+      // not move even though real time has advanced, proving the sweep was not re-run.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const second = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`)
+        .expect(200);
+      const secondWarnings = second.body.data as Array<{ type: string; detected_at: string }>;
+      expect(secondWarnings.find((w) => w.type === 'paid_orders_without_entitlement')?.detected_at).toBe(
+        paidWithoutEntitlement!.detected_at,
+      );
+    });
+
+    it('counts are never silently capped below the truth: an exact count under 101 is reported as-is', async () => {
+      const [teacher, student] = await Promise.all([
+        makeTeacher('recon-2'),
+        makeStudent(),
+      ]);
+      await Promise.all([
+        makePaidOrder(teacher, student, 'AUDIT-RECON-2A'),
+        makePaidOrder(teacher, student, 'AUDIT-RECON-2B'),
+      ]);
+
+      const admin = await financeAdmin();
+      const res = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`)
+        .expect(200);
+
+      const warnings = res.body.data as Array<{ type: string; affected_count: number }>;
+      const found = warnings.find((w) => w.type === 'paid_orders_without_entitlement');
+      expect(found?.affected_count).toBe(2);
+    });
+  });
+
+  /** `GET admin/finance/reconciliation` (the live endpoint) is unaffected by the T041 snapshot cache. */
+  describe('GET /admin/finance/reconciliation stays live', () => {
+    it('reflects a newly created warning immediately, with no cache in front of it', async () => {
+      const admin = await financeAdmin();
+      const warm = await admin.agent.get(`${API_PREFIX}/admin/finance/reconciliation`).expect(200);
+      const before = (
+        warm.body.data.paid_orders_without_entitlement as unknown[]
+      ).length;
+
+      const [teacher, student] = await Promise.all([
+        makeTeacher('recon-live'),
+        makeStudent(),
+      ]);
+      await makePaidOrder(teacher, student, 'AUDIT-RECON-LIVE');
+
+      const fresh = await admin.agent.get(`${API_PREFIX}/admin/finance/reconciliation`).expect(200);
+      expect(
+        (fresh.body.data.paid_orders_without_entitlement as unknown[]).length,
+      ).toBe(before + 1);
+    });
+  });
 });

@@ -23,6 +23,43 @@ interface StudentAnalyticsFilter {
   to?: string;
 }
 
+interface StudentQuizAnalytics {
+  totalAttempts: number;
+  averageScore: number;
+  passRate: number;
+  totalTimeMinutes: number;
+  bestQuiz: { title: string; percent: number } | null;
+  worstQuiz: { title: string; percent: number } | null;
+  progress: { date: string; percent: number }[];
+  strongTopics: StudentPerformanceInsight[];
+  weakTopics: StudentPerformanceInsight[];
+  performanceInsights: { minimumAssessments: number; hasEnoughData: boolean };
+  performanceByQuestionType: { type: string; percent: number; answers: number }[];
+  attempts: StudentVisibleAttempt[];
+}
+
+/**
+ * Deterministic cache-key input for `getStudentAnalytics` (T040): fixed key order,
+ * every field present (absent -> `null`, never omitted, so two calls with the
+ * same effective filter always hash the same key), `from`/`to` normalized to
+ * ISO-8601 so equivalent date inputs collapse to one key.
+ */
+function normalizeStudentAnalyticsFilter(
+  filter: StudentAnalyticsFilter,
+): Record<'subject_id' | 'teacher_id' | 'from' | 'to', string | null> {
+  const toIso = (value: string | undefined): string | null => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+  };
+  return {
+    subject_id: filter.subjectId ?? null,
+    teacher_id: filter.teacherId ?? null,
+    from: toIso(filter.from),
+    to: toIso(filter.to),
+  };
+}
+
 interface StudentAttemptHighlightsRow {
   bestQuiz: { title: string; percent: number } | null;
   worstQuiz: { title: string; percent: number } | null;
@@ -158,20 +195,26 @@ export class QuizAnalyticsService {
   public async getStudentAnalytics(
     studentId: string,
     filter: StudentAnalyticsFilter = {},
-  ): Promise<{
-    totalAttempts: number;
-    averageScore: number;
-    passRate: number;
-    totalTimeMinutes: number;
-    bestQuiz: { title: string; percent: number } | null;
-    worstQuiz: { title: string; percent: number } | null;
-    progress: { date: string; percent: number }[];
-    strongTopics: StudentPerformanceInsight[];
-    weakTopics: StudentPerformanceInsight[];
-    performanceInsights: { minimumAssessments: number; hasEnoughData: boolean };
-    performanceByQuestionType: { type: string; percent: number; answers: number }[];
-    attempts: StudentVisibleAttempt[];
-  }> {
+    view: 'full' = 'full',
+  ): Promise<StudentQuizAnalytics> {
+    // T040: owner-scoped, 30 s TTL (= frontend `staleTime`, `useQuizAnalytics.ts`). `view` is present from the
+    // start (today always 'full') so a future response variant (T062, Wave 3) never collides with this key.
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'student_quiz_analytics',
+        endpoint: 'analytics.quiz.student',
+        scope: `owner:${studentId}`,
+        parts: ['student', normalizeStudentAnalyticsFilter(filter), view],
+        ttlMs: 30_000,
+      },
+      async () => await this.computeStudentAnalytics(studentId, filter),
+    );
+  }
+
+  private async computeStudentAnalytics(
+    studentId: string,
+    filter: StudentAnalyticsFilter,
+  ): Promise<StudentQuizAnalytics> {
     const query = this.attemptsRepository
       .createQueryBuilder('attempt')
       .innerJoinAndSelect('attempt.exam', 'exam')

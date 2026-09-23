@@ -2,6 +2,7 @@ import { AttemptState, ExamAttempt } from '../entities';
 import { AttemptService } from './attempt.service';
 import {
   studentExamCacheScopes,
+  studentQuizCacheScopes,
   teacherExamCacheScopes,
   teacherQuizCacheScopes,
 } from './exam-cache-scopes';
@@ -17,7 +18,11 @@ function scopes(studentId: string, teacherId: string) {
 
 /** Slices invalidated when an attempt reaches submission/grading. */
 function finalizedScopes(studentId: string, teacherId: string) {
-  return [...scopes(studentId, teacherId), ...teacherQuizCacheScopes(teacherId)];
+  return [
+    ...scopes(studentId, teacherId),
+    ...teacherQuizCacheScopes(teacherId),
+    ...studentQuizCacheScopes(studentId),
+  ];
 }
 
 describe('exam cache scopes', () => {
@@ -202,9 +207,12 @@ describe('AttemptService.startAttempt cache invalidation', () => {
 
     expect(invalidateScopes).toHaveBeenCalledTimes(1);
     expect(invalidateScopes).toHaveBeenCalledWith(scopes(STUDENT, TEACHER));
-    // A new attempt is IN_PROGRESS; teacher quiz analytics ignore it, so it is not invalidated.
+    // A new attempt is IN_PROGRESS; teacher and student quiz analytics ignore it, so neither is invalidated.
     expect(invalidateScopes.mock.calls[0]?.[0]).not.toContainEqual(
       expect.objectContaining({ family: 'teacher_quiz_analytics' }),
+    );
+    expect(invalidateScopes.mock.calls[0]?.[0]).not.toContainEqual(
+      expect.objectContaining({ family: 'student_quiz_analytics' }),
     );
   });
 
@@ -287,14 +295,17 @@ describe('TeacherGradingService cache invalidation', () => {
     return { service, order, jobs };
   }
 
-  it("invalidates only the graded student's slice; the teacher's own slice is the route's `self`", async () => {
+  it("invalidates only the graded student's slice (incl. student_quiz_analytics, T040); the teacher's own slice is the route's `self`", async () => {
     const invalidateScopes = jest.fn().mockResolvedValue(undefined);
     const { service } = build(invalidateScopes);
 
     await service.gradeAnswer('exam-1', 'answer-1', TEACHER, { score: 8 } as never);
 
     expect(invalidateScopes).toHaveBeenCalledTimes(1);
-    expect(invalidateScopes).toHaveBeenCalledWith(studentExamCacheScopes(STUDENT));
+    expect(invalidateScopes).toHaveBeenCalledWith([
+      ...studentExamCacheScopes(STUDENT),
+      ...studentQuizCacheScopes(STUDENT),
+    ]);
   });
 
   it('never fails a committed grade because the cache is unavailable', async () => {

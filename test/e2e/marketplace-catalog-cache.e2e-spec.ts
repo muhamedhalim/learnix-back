@@ -270,8 +270,8 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
       const { student, lesson } = await createEnrolledStudent(app, dataSource);
       await warmListThenBypassPriceChange(courseId);
 
-      // Declared with `@InvalidatesCache([{ family: 'student_report', scope: 'self' }])`: it bumps only this
-      // student's own student_report slice, so neither the global generation nor `marketplace_catalog` moves.
+      // Declared with `@InvalidatesCache([...])`: it bumps only this student's own `student_report` and
+      // `student_quiz_analytics` (T040) slices, so neither the global generation nor `marketplace_catalog` moves.
       const res = await student.agent
         .post(`${API_PREFIX}/student/lessons/${lesson.id}/progress`)
         .send({ watchedDuration: 60 });

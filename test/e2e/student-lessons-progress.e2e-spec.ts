@@ -149,7 +149,7 @@ describe('Student lesson progress routing (e2e)', () => {
       await letAsyncListenersSettle();
     });
 
-    it("a progress write refreshes only the writer's report: another student's cached report is untouched, and only { student_report, owner:<writer> } is invalidated", async () => {
+    it("a progress write refreshes only the writer's report: another student's cached report is untouched, and only { student_report, owner:<writer> } (plus student_quiz_analytics, T040) is invalidated", async () => {
       const teacher = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
         role: 'teacher',
         overrides: { requestedRole: 'teacher' },
@@ -180,7 +180,12 @@ describe('Student lesson progress routing (e2e)', () => {
         expect(invalidateAll).not.toHaveBeenCalled();
         expect(invalidate).not.toHaveBeenCalled();
         expect(invalidateScopes.mock.calls).toEqual([
-          [[{ family: 'student_report', scope: `owner:${studentA.userId}` }]],
+          [
+            [
+              { family: 'student_report', scope: `owner:${studentA.userId}` },
+              { family: 'student_quiz_analytics', scope: `owner:${studentA.userId}` },
+            ],
+          ],
         ]);
       } finally {
         jest.restoreAllMocks();

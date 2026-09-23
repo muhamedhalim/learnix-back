@@ -11,6 +11,7 @@ import {
   SETTLED_ORDER_STATUS_SQL,
   SETTLED_ORDER_STATUSES,
 } from '../../common/metrics/settled-order.sql';
+import { ApplicationCacheService } from '../../common/cache/application-cache.service';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { DiscountCodesService } from '../../discount-codes/discount-codes.service';
@@ -90,6 +91,7 @@ export class PaymentOperationsService {
     private readonly jobMonitor: ScheduledJobMonitorService,
     private readonly lessonSessions: LessonSessionsService,
     private readonly cartCheckout: CartCheckoutService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -145,6 +147,12 @@ export class PaymentOperationsService {
         this.settlements.notifyOverduePayouts(),
       );
       await this.runMonitoredMaintenanceTask('publish_outbox', () => this.publishOutbox());
+      // T041: pre-warms the reconciliation-warnings snapshot so a miss costs an admin visitor at
+      // most once per TTL; `getOrCompute` only recomputes when the cached entry is absent/expired.
+      await this.runMonitoredMaintenanceTask(
+        'warm_reconciliation_warnings',
+        async () => (await this.reportReconciliationWarnings()).length,
+      );
     } finally {
       try {
         await guard.query(`SELECT pg_advisory_unlock(hashtext($1))`, ['finance-maintenance-v1']);
@@ -1031,7 +1039,7 @@ export class PaymentOperationsService {
         })
         .andWhere('NOT EXISTS (SELECT 1 FROM entitlements e WHERE e.order_id = order.id)')
         .select(['order.id', 'order.order_number'])
-        .take(100)
+        .take(101)
         .getMany(),
       this.payments
         .createQueryBuilder('payment')
@@ -1045,7 +1053,7 @@ export class PaymentOperationsService {
           settledOrderStatuses: [...SETTLED_ORDER_STATUSES],
         })
         .select(['payment.id', 'payment.order_id'])
-        .take(100)
+        .take(101)
         .getMany(),
       this.dataSource
         .getRepository(Entitlement)
@@ -1056,7 +1064,7 @@ export class PaymentOperationsService {
           entitledOrderStatuses: [...ENTITLED_ORDER_STATUSES],
         })
         .select(['entitlement.id', 'entitlement.order_id'])
-        .take(100)
+        .take(101)
         .getMany(),
       this.dataSource
         .getRepository(FinancialLedgerEntry)
@@ -1070,7 +1078,7 @@ export class PaymentOperationsService {
         .having(
           `SUM(CASE WHEN entry.direction = 'debit' THEN entry.amount_minor ELSE -entry.amount_minor END) != 0`,
         )
-        .limit(100)
+        .limit(101)
         .getRawMany(),
       this.dataSource
         .getRepository(ManualPaymentSubmission)
@@ -1085,7 +1093,7 @@ export class PaymentOperationsService {
         .groupBy('submission.manual_payment_method_id')
         .addGroupBy('submission.transaction_reference')
         .having('COUNT(*) > 1')
-        .limit(100)
+        .limit(101)
         .getRawMany(),
       this.dataSource.getRepository(GatewayWebhookEvent).find({
         where: { status: 'failed' },
@@ -1105,14 +1113,14 @@ export class PaymentOperationsService {
           settledOrderStatusesManual: [...SETTLED_ORDER_STATUSES],
         })
         .select(['submission.id', 'submission.order_id'])
-        .take(100)
+        .take(101)
         .getMany(),
       this.orders
         .createQueryBuilder('order')
         .where('order.status = :paid', { paid: OrderStatus.PAID })
         .andWhere("order.collection_party = 'unknown'")
         .select(['order.id', 'order.order_number', 'order.payment_channel'])
-        .take(100)
+        .take(101)
         .getMany(),
       this.dataSource.query(`
         SELECT pending.id, pending.teacher_id, pending.currency, pending.amount_minor, pending.available_at
@@ -1125,7 +1133,7 @@ export class PaymentOperationsService {
             WHERE released.reference = 'release:' || pending.id::text || ':available'
           )
         ORDER BY pending.available_at ASC
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT pending.id, pending.order_id, pending.teacher_id
@@ -1141,7 +1149,7 @@ export class PaymentOperationsService {
             WHERE reversal.order_id = pending.order_id
               AND reversal.entry_type = 'teacher_earning_reversal'
           )
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT membership.ledger_entry_id, SUM(membership.amount_minor)::text AS allocated_minor,
@@ -1152,7 +1160,7 @@ export class PaymentOperationsService {
         WHERE settlement.status IN ('draft', 'approved', 'paid')
         GROUP BY membership.ledger_entry_id
         HAVING SUM(membership.amount_minor) > MAX(earning.amount_minor)
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT settlement.id, settlement.gross_amount_minor,
@@ -1162,7 +1170,7 @@ export class PaymentOperationsService {
         WHERE settlement.status IN ('draft', 'approved', 'paid')
         GROUP BY settlement.id
         HAVING COALESCE(SUM(membership.amount_minor), 0) <> settlement.gross_amount_minor
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT settlement.id, settlement.teacher_id, settlement.currency, settlement.gross_amount_minor
@@ -1175,7 +1183,7 @@ export class PaymentOperationsService {
               AND entry.currency = settlement.currency
               AND entry.account = 'teacher_payable_available'
           ), 0)
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource
         .getRepository(Settlement)
@@ -1195,7 +1203,7 @@ export class PaymentOperationsService {
           'settlement.paid_by',
           'settlement.paid_at',
         ])
-        .take(100)
+        .take(101)
         .getMany(),
       this.dataSource.query(`
         SELECT lower(btrim(transfer_reference)) AS transfer_reference, COUNT(*)::int AS count
@@ -1203,14 +1211,14 @@ export class PaymentOperationsService {
         WHERE status = 'paid' AND transfer_reference IS NOT NULL
         GROUP BY lower(btrim(transfer_reference))
         HAVING COUNT(*) > 1
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT idempotency_key, COUNT(*)::int AS count
         FROM teacher_settlements
         GROUP BY idempotency_key
         HAVING COUNT(*) > 1
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT refund.order_id, SUM(refund.amount_minor)::text AS succeeded_refunds_minor,
@@ -1222,7 +1230,7 @@ export class PaymentOperationsService {
         GROUP BY refund.order_id
         HAVING SUM(refund.amount_minor) > MAX("order".final_amount_minor)
             OR SUM(refund.amount_minor) <> MAX("order".refunded_amount_minor)
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT teacher_id, currency,
@@ -1231,7 +1239,7 @@ export class PaymentOperationsService {
         WHERE account = 'teacher_payable_available'
         GROUP BY teacher_id, currency
         HAVING SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END) < 0
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT 'financial_ledger_entries.order_id' AS relation, entry.id
@@ -1248,7 +1256,7 @@ export class PaymentOperationsService {
         FROM teacher_settlement_entries membership
         LEFT JOIN financial_ledger_entries entry ON entry.id = membership.ledger_entry_id
         WHERE entry.id IS NULL
-        LIMIT 100
+        LIMIT 101
       `),
     ]);
     const [
@@ -1268,7 +1276,7 @@ export class PaymentOperationsService {
           AND EXISTS (SELECT 1 FROM financial_ledger_entries available WHERE available.reference = 'release:' || pending.id::text || ':available')
           AND NOT EXISTS (SELECT 1 FROM financial_ledger_entries debit WHERE debit.reference = 'release:' || pending.id::text || ':pending'
                             AND debit.amount_minor = pending.amount_minor AND debit.currency = pending.currency AND debit.direction = 'debit')
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT settlement.id, settlement.currency, settlement.gross_amount_minor, settlement.payout_amount_minor
@@ -1278,7 +1286,7 @@ export class PaymentOperationsService {
                       AND entry.direction = 'debit' AND entry.amount_minor = settlement.gross_amount_minor AND entry.currency = settlement.currency)
           OR NOT EXISTS (SELECT 1 FROM financial_ledger_entries entry WHERE entry.reference = 'settlement:' || settlement.id::text || ':payout'
                          AND entry.direction = 'credit' AND entry.amount_minor = settlement.payout_amount_minor AND entry.currency = settlement.currency)
-        ) LIMIT 100
+        ) LIMIT 101
       `),
       this.dataSource.query(`
         SELECT teacher_id, currency, SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END)::text AS closing_balance_minor
@@ -1286,7 +1294,7 @@ export class PaymentOperationsService {
         WHERE account IN ('teacher_payable','teacher_payable_available')
         GROUP BY teacher_id, currency
         HAVING SUM(CASE WHEN direction = 'credit' THEN amount_minor ELSE -amount_minor END) < 0
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT settlement.id, settlement.status, membership.id AS settlement_entry_id
@@ -1294,7 +1302,7 @@ export class PaymentOperationsService {
         WHERE settlement.status IN ('cancelled','rejected')
           AND EXISTS (SELECT 1 FROM financial_ledger_entries entry WHERE entry.settlement_id = settlement.id
                       AND entry.entry_type IN ('settlement_liability_clearing','payout'))
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT user_record.id AS teacher_id, entry.currency,
@@ -1303,7 +1311,7 @@ export class PaymentOperationsService {
         WHERE (user_record.deleted_at IS NOT NULL OR user_record.is_active = false)
         GROUP BY user_record.id, entry.currency
         HAVING SUM(CASE WHEN entry.direction = 'credit' THEN entry.amount_minor ELSE -entry.amount_minor END) <> 0
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT 'settlement_allocation' AS relation, membership.id
@@ -1312,19 +1320,19 @@ export class PaymentOperationsService {
         UNION ALL
         SELECT 'refund_order', refund.id FROM refunds refund JOIN orders "order" ON "order".id = refund.order_id
         WHERE refund.currency <> "order".currency
-        LIMIT 100
+        LIMIT 101
       `),
       this.dataSource.query(`
         SELECT teacher_id, fiscal_period, currency, payout_amount_minor, array_agg(id) AS settlement_ids
         FROM teacher_settlements WHERE status IN ('draft','approved','paid')
-        GROUP BY teacher_id, fiscal_period, currency, payout_amount_minor HAVING COUNT(*) > 1 LIMIT 100
+        GROUP BY teacher_id, fiscal_period, currency, payout_amount_minor HAVING COUNT(*) > 1 LIMIT 101
       `),
       this.dataSource.query(`
         SELECT settlement.id, settlement.gross_amount_minor, COALESCE(SUM(CASE WHEN entry.entry_type = 'settlement_liability_clearing' THEN entry.amount_minor ELSE 0 END), 0)::text AS clearing_minor
         FROM teacher_settlements settlement LEFT JOIN financial_ledger_entries entry ON entry.settlement_id = settlement.id
         WHERE settlement.status = 'paid' GROUP BY settlement.id
         HAVING COALESCE(SUM(CASE WHEN entry.entry_type = 'settlement_liability_clearing' THEN entry.amount_minor ELSE 0 END), 0) <> settlement.gross_amount_minor
-        LIMIT 100
+        LIMIT 101
       `),
     ]);
     return {
@@ -1966,7 +1974,27 @@ export class PaymentOperationsService {
     return clauses.join(' AND ');
   }
 
+  /**
+   * T041 (`gates/W1-C8.md`, approved): a snapshot, not a live query. Computed at most once per TTL
+   * (10 min) plus once per generation bump reaching `finance_reconciliation` — whichever visitor or the
+   * maintenance pre-warm below hits it first pays the ~27-statement `reconciliationReport()` sweep; every
+   * other reader gets the cached snapshot. `detected_at` is stamped inside `computeReconciliationWarnings`,
+   * so it is always the real compute time, never the request time. `GET admin/finance/reconciliation` (the
+   * live endpoint) calls `reconciliationReport()` directly and is unaffected by this cache.
+   */
   public async reportReconciliationWarnings(): Promise<Array<Record<string, unknown>>> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'finance_reconciliation',
+        endpoint: 'payments.reconciliation-warnings',
+        scope: 'role:admin',
+        ttlMs: 600_000,
+      },
+      async () => await this.computeReconciliationWarnings(),
+    );
+  }
+
+  private async computeReconciliationWarnings(): Promise<Array<Record<string, unknown>>> {
     const report = await this.reconciliationReport();
     const severityByKey: Record<string, 'critical' | 'warning'> = {
       negative_teacher_available_balances: 'critical',
@@ -1980,6 +2008,9 @@ export class PaymentOperationsService {
         type,
         severity: severityByKey[type] ?? 'warning',
         detected_at: new Date().toISOString(),
+        // Every `reconciliationReport()` sub-query is capped at 101 rows (T009): a count of 101 means
+        // "101 or more" and the consumer (`admin/reports/page.tsx`) renders it as "100+"; below that,
+        // the count is exact. Never a silent under-count from an unrelated internal LIMIT.
         affected_count: (value as unknown[]).length,
         samples: (value as unknown[]).slice(0, 5),
       }));

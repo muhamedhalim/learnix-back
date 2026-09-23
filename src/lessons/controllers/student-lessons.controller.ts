@@ -124,7 +124,11 @@ export class StudentLessonsController {
   // family reads certificates or notifications, and the worker write stays TTL-bounded like every queue writer (T032).
   // Only the student writes their own row (`req.user.userId`, student role), and `student_report` is keyed
   // `owner:<studentId>`, so the principal's own slice is the exact set affected (T035).
-  @InvalidatesCache([{ family: 'student_report', scope: 'self' }])
+  // T040: `lesson_progress` also feeds `student_quiz_analytics` (performance-by-subject engagement evidence).
+  @InvalidatesCache([
+    { family: 'student_report', scope: 'self' },
+    { family: 'student_quiz_analytics', scope: 'self' },
+  ])
   @ApiOperation({
     summary: 'Update lesson progress',
     description:

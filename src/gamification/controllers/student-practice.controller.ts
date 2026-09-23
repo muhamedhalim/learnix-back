@@ -47,8 +47,9 @@ export class StudentPracticeController {
   // Writes `student_game_profiles`, `student_subject_ratings` and `question_solves`, which the public
   // profile and leaderboard (`gamification_public`) read. The whole family is invalidated, not one owner
   // slice: a solve changes other students' leaderboard ranks and `global_rank` (T037; this replaces the
-  // temporary T030 exemption).
-  @InvalidatesCache(['gamification_public'])
+  // temporary T030 exemption). `question_solves` also feeds the answering student's own `student_quiz_analytics`
+  // performance insights (T040) — that slice is owner-scoped since only the answering student's evidence changes.
+  @InvalidatesCache(['gamification_public', { family: 'student_quiz_analytics', scope: 'self' }])
   @ApiOperation({ summary: 'Submit an answer — grades + awards + returns result' })
   public async answer(@GetUser() user: JwtPayload, @Body() dto: SubmitAnswerDto) {
     return this.practice.submitAnswer(user.userId, {

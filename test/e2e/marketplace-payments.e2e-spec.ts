@@ -333,29 +333,23 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     }, 60_000);
 
     /**
-     * BLOCKED, deliberately skipped — not passing. This is the requirement as
-     * written (paid enrollment -> `enrollment_count` fresh on the next request);
-     * the current code cannot satisfy it:
-     *
-     *  - A paid enrollment row is written by `MarketplaceSettlementListener`,
-     *    driven by the payments OUTBOX DRAIN (`PaymentOperationsService.publishOutbox`),
-     *    a non-HTTP writer. No `CacheInvalidationInterceptor` runs for it.
-     *  - Nothing under `src/marketplace` or `src/payments` calls
-     *    `ApplicationCacheService.invalidate*` (grep), so the drain never bumps
-     *    `marketplace_catalog`.
-     *  - The HTTP webhook routes (`/payments/webhook`, `/marketplace/webhooks/payment`)
-     *    stay UNDECLARED (T033 owns them) and bump the global generation when THEY
-     *    complete, which is BEFORE the drain writes the enrollment. Any catalogue
-     *    read between those two moments re-caches the old count for up to 60 s.
-     *
-     * Same window as before Wave 1 (TTL-bounded, cf. contract rule 4 "non-HTTP
-     * writers keep today's behavior"), so it is not a regression, but it is a
-     * stale window against the T032 acceptance line. To unblock: invalidate
-     * `marketplace_catalog` (+ `admin_dashboard`, `platform_report`) from the
-     * settlement listener after it creates the enrollment, or record a rule-7
-     * written TTL-drift exception. Un-skip this test with that change.
+     * Rule-7 exception, spec 004 T032, recorded in `gates/W1-C2-webhook.md` §5
+     * and `implementation/T032-write-sets.md` §6 (approved by the constitution
+     * owner, Muhamed Halim, in session, 2026-09-23): `marketplace_catalog`
+     * (`enrollment_count`) MAY lag a paid marketplace enrollment by up to the
+     * family TTL (60 s), because the enrollment is written by the payments
+     * outbox drain (`PaymentOperationsService.publishOutbox`) via
+     * `MarketplaceSettlementListener` — a non-HTTP writer that never
+     * invalidates the family. This is the accepted-drift counterpart of the
+     * free-enrollment test above (which IS a declared HTTP writer and stays
+     * immediately fresh). This test proves both halves of the accepted
+     * contract: (1) the drain's own write does not clear the stale cached
+     * value, and (2) any subsequent DECLARED marketplace writer (here, an
+     * instructor course edit, which the T031 `@InvalidatesCache` decoration on
+     * `PATCH marketplace/instructor/courses/:id` clears unconditionally) still
+     * recovers it — so the drift is bounded, not a permanent inconsistency.
      */
-    it.skip('a paid enrollment settled by webhook + outbox drain is reflected in the catalogue enrollment_count on the very next request [BLOCKED: the outbox-drain writer never invalidates marketplace_catalog]', async () => {
+    it('a paid enrollment settled by webhook + outbox drain lags until the next declared marketplace write (accepted rule-7 drift)', async () => {
       const { instructorUser, admin, learner, category } = await actors();
       const course = await publishCourse({
         instructorAgent: instructorUser.agent,
@@ -369,6 +363,20 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
 
       await webhooks.process(webhookFor(payment, 'succeeded', 'catalogue-freshness-event'));
       await operations.publishOutbox();
+
+      await expect(
+        dataSource.getRepository(MarketplaceEnrollment).countBy({ course_id: course.id }),
+      ).resolves.toBe(1);
+
+      // Accepted drift: the outbox-drain writer never invalidated
+      // `marketplace_catalog`, so the cached count still reads stale.
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+
+      // A declared marketplace writer clears it (bounded drift, not a permanent gap).
+      await instructorUser.agent
+        .patch(`${API_PREFIX}/marketplace/instructor/courses/${course.id}`)
+        .send({ title: 'Cache-freshness probe edit' })
+        .expect(200);
 
       expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
     }, 60_000);

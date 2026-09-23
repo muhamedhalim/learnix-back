@@ -354,7 +354,7 @@ describe('cache invalidation declarations (e2e, T030/T031/T032/T035)', () => {
   });
 
   describe('owner-scoped declaration: POST /student/lessons/:lessonId/progress (@InvalidatesCache self)', () => {
-    it('calls invalidateScopes with exactly [{ student_report, owner:<studentId> }] and nothing else', async () => {
+    it('calls invalidateScopes with exactly [{ student_report, owner:<studentId> }, { student_quiz_analytics, owner:<studentId> }] and nothing else', async () => {
       const { student, lesson } = await createEnrolledStudent(ctx.app, ctx.dataSource);
       clearSpies();
 
@@ -364,9 +364,11 @@ describe('cache invalidation declarations (e2e, T030/T031/T032/T035)', () => {
       expect([200, 201]).toContain(res.status);
 
       // `self` is resolved from the authenticated principal only — never from the URL or body.
+      // T040: `lesson_progress` also feeds the owner's own `student_quiz_analytics` performance insights.
       expect(spies.scopes).toHaveBeenCalledTimes(1);
       expect(spies.scopes).toHaveBeenCalledWith([
         { family: 'student_report', scope: `owner:${student.userId}` },
+        { family: 'student_quiz_analytics', scope: `owner:${student.userId}` },
       ]);
       expect(spies.all).not.toHaveBeenCalled();
       expect(spies.families).not.toHaveBeenCalled();

@@ -14,7 +14,7 @@ import { biBody } from '../../i18n/error-translator.util';
 import { GradeAnswerDto } from '../dto';
 import { Exam, ExamAttempt, ExamAttemptAnswer, ExamQuestion, QuestionType } from '../entities';
 import { AttemptGradingService } from './attempt-grading.service';
-import { studentExamCacheScopes } from './exam-cache-scopes';
+import { studentExamCacheScopes, studentQuizCacheScopes } from './exam-cache-scopes';
 import { ExamGradedPublisher } from './exam-graded-publisher.service';
 import { ExamJobsService } from './exam-jobs.service';
 
@@ -203,7 +203,10 @@ export class TeacherGradingService {
   /** Best-effort: a cache failure must never fail an already-committed grade. */
   private async invalidateStudentCaches(studentId: string): Promise<void> {
     try {
-      await this.applicationCache.invalidateScopes(studentExamCacheScopes(studentId));
+      await this.applicationCache.invalidateScopes([
+        ...studentExamCacheScopes(studentId),
+        ...studentQuizCacheScopes(studentId),
+      ]);
     } catch (error) {
       this.logger.error(
         `Failed to invalidate student caches after grading: ${error instanceof Error ? error.message : String(error)}`,

@@ -528,4 +528,83 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
       expect(descriptors[0]?.parts).not.toEqual(descriptors[1]?.parts);
     });
   });
+
+  describe('caching (T040)', () => {
+    beforeEach(() => {
+      const emptyBuilder: Record<string, jest.Mock> = {};
+      for (const method of ['innerJoinAndSelect', 'leftJoinAndSelect', 'where', 'andWhere', 'orderBy']) {
+        emptyBuilder[method] = jest.fn(() => emptyBuilder);
+      }
+      emptyBuilder.getMany = jest.fn().mockResolvedValue([]);
+      attempts.createQueryBuilder.mockReturnValue(emptyBuilder);
+      answers.find = jest.fn().mockResolvedValue([]);
+    });
+
+    it('caches student analytics under the owner scope with a 30 s TTL, keyed by normalized filter and view', async () => {
+      await service.getStudentAnalytics('student-1', { subjectId: 'math' });
+
+      expect(applicationCache.getOrCompute).toHaveBeenCalledWith(
+        {
+          family: 'student_quiz_analytics',
+          endpoint: 'analytics.quiz.student',
+          scope: 'owner:student-1',
+          parts: ['student', { subject_id: 'math', teacher_id: null, from: null, to: null }, 'full'],
+          ttlMs: 30_000,
+        },
+        expect.any(Function),
+      );
+    });
+
+    it('never mixes two students: different students get different scopes', async () => {
+      await service.getStudentAnalytics('student-1');
+      await service.getStudentAnalytics('student-2');
+
+      const descriptors = applicationCache.getOrCompute.mock.calls.map(
+        (call) => call[0] as { scope: string },
+      );
+      expect(descriptors[0]?.scope).toBe('owner:student-1');
+      expect(descriptors[1]?.scope).toBe('owner:student-2');
+    });
+
+    it('absent filter fields normalize to explicit null, and equivalent date inputs collapse to the same key', async () => {
+      await service.getStudentAnalytics('student-1', {});
+      await service.getStudentAnalytics('student-1', {
+        from: '2026-01-01T00:00:00.000Z',
+      });
+      await service.getStudentAnalytics('student-1', {
+        from: '2026-01-01T00:00:00Z',
+      });
+
+      const parts = applicationCache.getOrCompute.mock.calls.map(
+        (call) => (call[0] as { parts: unknown[] }).parts[1],
+      );
+      expect(parts[0]).toEqual({ subject_id: null, teacher_id: null, from: null, to: null });
+      // Both spellings of the same instant normalize to the identical ISO string.
+      expect(parts[1]).toEqual(parts[2]);
+    });
+
+    it('a different subject_id/teacher_id/from/to filter produces a different key', async () => {
+      await service.getStudentAnalytics('student-1', { subjectId: 'math' });
+      await service.getStudentAnalytics('student-1', { subjectId: 'science' });
+      await service.getStudentAnalytics('student-1', { teacherId: 'T1' });
+      await service.getStudentAnalytics('student-1', { from: '2026-01-01' });
+      await service.getStudentAnalytics('student-1', { to: '2026-01-01' });
+
+      const parts = applicationCache.getOrCompute.mock.calls.map(
+        (call) => (call[0] as { parts: unknown[] }).parts[1],
+      );
+      const unique = new Set(parts.map((part) => JSON.stringify(part)));
+      expect(unique.size).toBe(parts.length);
+    });
+
+    it('a cache hit runs no SQL at all', async () => {
+      const cached = { totalAttempts: 5 };
+      applicationCache.getOrCompute.mockResolvedValue(cached);
+
+      const result = await service.getStudentAnalytics('student-1');
+
+      expect(result).toBe(cached);
+      expect(attempts.createQueryBuilder).not.toHaveBeenCalled();
+    });
+  });
 });

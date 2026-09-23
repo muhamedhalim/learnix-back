@@ -32,6 +32,7 @@ import { QuestionTypeRegistry } from '../question-types/question-type-registry';
 import { AttemptGradingService } from './attempt-grading.service';
 import {
   studentExamCacheScopes,
+  studentQuizCacheScopes,
   teacherExamCacheScopes,
   teacherQuizCacheScopes,
 } from './exam-cache-scopes';
@@ -555,6 +556,7 @@ export class AttemptService {
         ...studentExamCacheScopes(studentId),
         ...teacherExamCacheScopes(teacherId),
         ...(reachedSubmission ? teacherQuizCacheScopes(teacherId) : []),
+        ...(reachedSubmission ? studentQuizCacheScopes(studentId) : []),
       ]);
     } catch (error) {
       this.logger.error(

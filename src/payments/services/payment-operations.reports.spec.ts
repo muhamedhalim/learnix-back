@@ -16,6 +16,7 @@ describe('PaymentOperationsService financial reporting', () => {
     {} as never,
     {} as never,
     {} as never,
+    { getOrCompute: jest.fn((_d: unknown, compute: () => unknown) => compute()) } as never,
   );
 
   beforeEach(() => {

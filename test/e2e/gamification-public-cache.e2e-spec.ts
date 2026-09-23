@@ -314,10 +314,15 @@ describe('public gamification cache: freshness, privacy and isolation (spec 004 
         .send({ question_id: questionId, response: { optionId: 'opt_1' }, time_ms: 1500 })
         .expect(201);
 
-      // Exactly the declared family: no global bump, no other family, no owner scope.
+      // Exactly the declared families: no global bump; the family-level `gamification_public` bump
+      // (every viewer's leaderboard/profile ranks may have moved) plus the answering student's own
+      // `student_quiz_analytics` slice (T040: `question_solves` also feeds performance insights) —
+      // never any other student's `student_quiz_analytics` scope.
       expect(watch.invalidateAll).not.toHaveBeenCalled();
-      expect(watch.invalidateScopes).not.toHaveBeenCalled();
       expect(familiesOf(watch.invalidate)).toEqual([['gamification_public']]);
+      expect(watch.invalidateScopes).toHaveBeenCalledWith([
+        { family: 'student_quiz_analytics', scope: `owner:${student.user.userId}` },
+      ]);
 
       expect((await getProfile(student.username)).total_solved).toBe(2);
       expect(rowFor(await getLeaderboard(), student.username)?.attempts).toBe(2);

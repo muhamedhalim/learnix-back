@@ -31,6 +31,15 @@ export function teacherQuizCacheScopes(teacherId: string): ApplicationCacheScope
   return [{ family: 'teacher_quiz_analytics', scope: `owner:${teacherId}` }];
 }
 
+/**
+ * Student quiz analytics (`student_quiz_analytics`, T040) reads only GRADED attempts
+ * (`isStudentResultVisible`), so it is affected by a finalization that reaches
+ * submission or a manual grade, but NOT by starting an attempt.
+ */
+export function studentQuizCacheScopes(studentId: string): ApplicationCacheScopeInvalidation[] {
+  return [{ family: 'student_quiz_analytics', scope: `owner:${studentId}` }];
+}
+
 export function studentExamCacheScopes(studentId: string): ApplicationCacheScopeInvalidation[] {
   return STUDENT_EXAM_FAMILIES.map((family) => ({ family, scope: `owner:${studentId}` }));
 }
