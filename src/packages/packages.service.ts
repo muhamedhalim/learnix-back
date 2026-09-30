@@ -815,7 +815,7 @@ export class PackagesService {
     const [financial, engagement, rating] = await Promise.all([
       this.productFinancialMetrics.getProductFinancialMetrics(ItemType.PACKAGE, packageId),
       this.learningMetrics.getPackageEngagementMetrics(packageId),
-      this.reviewsService.getPackageAggregates(packageId),
+      this.reviewsService.getPackageAggregatesLive(packageId),
     ]);
 
     const money = financial.primary;

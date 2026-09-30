@@ -658,6 +658,15 @@ export class ReviewsService {
     );
   }
 
+  /**
+   * Uncached roll-up for authenticated/admin readers (e.g. `PackagesService.getPackageStats`, the
+   * DEF-007 product-metrics layer). The public 60 s `public_catalog` cache is for the anonymous
+   * catalogue only; internal stats must reflect approved reviews immediately.
+   */
+  public async getPackageAggregatesLive(packageId: string): Promise<ReviewAggregates> {
+    return await this.computePackageAggregates(packageId);
+  }
+
   private async computePackageAggregates(packageId: string): Promise<ReviewAggregates> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId },
