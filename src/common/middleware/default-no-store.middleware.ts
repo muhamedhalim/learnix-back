@@ -8,8 +8,8 @@ import type { NextFunction, Request, Response } from 'express';
  * unless a route explicitly opts out — the safe default for an app
  * dominated by authenticated, ownership-scoped and signed-content data.
  *
- * `marketplace/*` is excluded: `MarketplaceModule` already owns its own
- * `NoStoreMiddleware` (plain `no-store`, no `private`) with its own,
+ * `marketplace/*` is excluded: `MarketplaceModule` owns its own
+ * `NoStoreMiddleware` (the same `private, no-store` value) with its own,
  * separately-decided exclusions for the public anonymous catalogue surface
  * (`gates/W1-C6d.md`/T042's own "Default branch" text) — this default does
  * not touch that namespace at all, so neither module has to reason about

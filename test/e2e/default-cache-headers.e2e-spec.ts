@@ -54,4 +54,15 @@ describe('app-wide default Cache-Control header (spec 004 T042 Step 0)', () => {
     // narrow guard that Step 0 did not silently start overriding it.
     expect(res.headers['cache-control']).not.toBe('private, no-store');
   });
+
+  it('a finance route (GET admin/finance/orders) carries private, no-store and never a public/s-maxage directive', async () => {
+    const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
+
+    const res = await admin.agent.get(`${API_PREFIX}/admin/finance/orders`);
+
+    // The header is set by middleware before the guard runs, so it is asserted
+    // whatever the finance permission outcome is for this fixture admin.
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(res.headers['cache-control']).not.toMatch(/public|s-maxage/);
+  });
 });

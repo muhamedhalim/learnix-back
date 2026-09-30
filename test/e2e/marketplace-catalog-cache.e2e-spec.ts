@@ -225,7 +225,8 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     const previewRes = await request(server)
       .get(`${API_PREFIX}/marketplace/courses/${slug}/preview/${freeLesson!.id}`)
       .expect(200);
-    expect(previewRes.headers['cache-control']).toBe('no-store');
+    expect(previewRes.headers['cache-control']).toBe('private, no-store');
+    expect(previewRes.headers['cache-control']).not.toMatch(/public|s-maxage/);
   }, 60_000);
 
   /**

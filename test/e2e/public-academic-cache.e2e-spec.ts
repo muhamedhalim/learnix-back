@@ -79,6 +79,16 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
     return res.body as never;
   }
 
+  it('T042: the package preview (miss and hit) is private, no-store and never public/s-maxage — it carries a per-request signed URL', async () => {
+    const { packageId } = await seedPreviewFixture();
+
+    for (const _pass of ['miss', 'hit']) {
+      const res = await request(server).get(`${API_PREFIX}/packages/${packageId}/preview`).expect(200);
+      expect(res.headers['cache-control']).toBe('private, no-store');
+      expect(res.headers['cache-control']).not.toMatch(/public|s-maxage/);
+    }
+  });
+
   it('a repeat request is a cache hit: no database statement at all', async () => {
     const { packageId } = await seedPreviewFixture();
     await getPreview(packageId); // miss: computes and caches

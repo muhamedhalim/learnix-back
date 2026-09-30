@@ -62,7 +62,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 })
 export class MarketplaceModule implements NestModule {
   /**
-   * FR-303, FR-330, T208/T213. Every marketplace response is `no-store` by
+   * FR-303, FR-330, T208/T213. Every marketplace response is `private, no-store` by
    * default — that is the safe default for a module dominated by
    * financial, ownership-scoped and signed-content data — except the small,
    * genuinely public, anonymous catalogue surface, which gets its own short
@@ -76,8 +76,9 @@ export class MarketplaceModule implements NestModule {
    * route, not just marketplace's). Narrowed now that `AppModule` owns a
    * real app-wide default (`DefaultNoStoreMiddleware`, `private, no-store`)
    * so the two middlewares govern disjoint route sets with no ordering
-   * dependency between them. This module's own plain `no-store` (no
-   * `private`) on its own routes is unchanged.
+   * dependency between them. This module's own middleware now emits the same `private, no-store`
+   * value as the app default (owner decision, T042 / `gates/W1-C9.md`), so
+   * there is a single Cache-Control contract app-wide.
    */
   public configure(consumer: MiddlewareConsumer): void {
     consumer

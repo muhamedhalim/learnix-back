@@ -198,7 +198,7 @@ describe('marketplace private file access (Phase 14, T208)', () => {
 
     expect(res.body.lesson_id).toBe(lessonId);
     expect(res.body.content_html).toContain('Private lesson content');
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['cache-control']).toBe('private, no-store');
   });
 
   it('access lost after purchase (e.g. a completed refund revoking the enrollment) is refused on the very next request — not a stale cached grant', async () => {
@@ -231,7 +231,7 @@ describe('marketplace private file access (Phase 14, T208)', () => {
     const { courseId } = await publishVideoCourse(instructor.agent, admin.agent);
 
     const res = await instructor.agent.get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(200);
-    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['cache-control']).toBe('private, no-store');
   });
 
   it('the public, anonymous catalogue surface is explicitly excluded from no-store — it is meant to be cacheable', async () => {
