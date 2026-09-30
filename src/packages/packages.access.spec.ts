@@ -71,6 +71,11 @@ function buildService(options: {
     {} as never,
     {} as DataSource,
     { resolveThumbnailUrl: jest.fn().mockReturnValue(null) } as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    { getOrCompute: jest.fn((_descriptor: unknown, compute: () => unknown) => compute()) } as never,
   );
   return { service, queryBuilder };
 }

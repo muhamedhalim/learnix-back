@@ -193,7 +193,7 @@ export class CoursePreviewService {
       price: Number(pkg.price),
       original_price: pkg.original_price != null ? Number(pkg.original_price) : null,
       category: pkg.category,
-      tags: pkg.tags,
+      tags: pkg.tags ?? [],
       requirements: pkg.requirements ?? [],
       what_you_learn: pkg.what_you_learn ?? [],
       faq: pkg.faq ?? [],

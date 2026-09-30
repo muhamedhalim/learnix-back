@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { EntityManager, Repository, type SelectQueryBuilder } from 'typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
 import { Notification } from '../notifications/entities/notification.entity';
 import { NotificationOrigin } from '../notifications/entities/notification-origin.enum';
@@ -75,6 +76,7 @@ export class CertificateEligibilityService {
   constructor(
     @InjectRepository(PackagePurchase)
     private readonly packagePurchases: Repository<PackagePurchase>,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /** Narrow an existing `package_purchases` query to still-valid purchases. */
@@ -220,6 +222,11 @@ export class CertificateEligibilityService {
     // Drop it out of the public gallery in the same write.
     certificate.is_public = false;
     const saved = await manager.save(Certificate, certificate);
+    // T038 (R6): this write can be reached from crons/webhooks with no HTTP
+    // request to trigger the interceptor's post-mutation bump, and it just
+    // dropped a certificate out of the public gallery — that must be visible
+    // at once, not after up to 60 s of TTL drift.
+    await this.applicationCache.invalidate(['public_catalog']);
 
     await this.notifyRevoked(manager, saved, revocation);
     this.logger.log(

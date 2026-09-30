@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, EntityManager, IsNull, LessThanOrEqual, QueryFailedError, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
 import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
@@ -96,6 +97,9 @@ export interface PublicCertificateCard {
   issued_at: Date;
 }
 
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class CertificatesService {
   private readonly logger = new Logger(CertificatesService.name);
@@ -123,6 +127,7 @@ export class CertificatesService {
     private readonly eventEmitter: EventEmitter2,
     private readonly eligibility: CertificateEligibilityService,
     private readonly dataSource: DataSource,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /* ===================== Completion ===================== */
@@ -638,6 +643,11 @@ export class CertificatesService {
     certificate.revocation_context = { source: 'manual' };
     certificate.is_public = false;
     const saved = await this.certificatesRepository.save(certificate);
+    // T038 (R6): reached from the marketplace enrollment-revoked LISTENER
+    // (no HTTP request, so the interceptor never runs) as well as the admin/
+    // teacher routes — invalidate explicitly so a just-revoked certificate
+    // leaves the public gallery immediately either way.
+    await this.applicationCache.invalidate(['public_catalog']);
     this.logger.log(`Certificate ${saved.certificate_number} revoked`);
     return saved;
   }
@@ -843,8 +853,33 @@ export class CertificatesService {
    * The public achievements gallery: only certificates their owners chose to
    * publish, and only while still valid. Returns a sanitized projection —
    * the DB id, student id, and grades never leave the server.
+   *
+   * Cached (T038, W1-C6 d), `public_catalog`/`public`, 60 s TTL. Privacy-
+   * sensitive: revoke/reissue (`revokeCertificate`) and the visibility toggle
+   * (`setVisibility`) reach this via the interceptor's global invalidateAll()
+   * fallback (neither route declares `@InvalidatesCache`); the non-HTTP
+   * revoke path (`CertificateEligibilityService.revokeForWithdrawnAccess`,
+   * reachable from refund crons with no HTTP request) invalidates explicitly
+   * — see that method. No rule-7 TTL-drift exception was needed.
    */
   public async getPublicCertificates(options: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }): Promise<PaginatedList<PublicCertificateCard>> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'certificates.public',
+        scope: 'public',
+        parts: [options.page ?? 1, options.limit ?? 12, (options.search ?? '').trim().toLowerCase()],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computePublicCertificates(options),
+    );
+  }
+
+  private async computePublicCertificates(options: {
     page?: number;
     limit?: number;
     search?: string;

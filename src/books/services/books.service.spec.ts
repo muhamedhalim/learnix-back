@@ -4,6 +4,9 @@ describe('BooksService title compatibility', () => {
   const teacherId = 'teacher-id';
   const subject = { id: 'subject-id', deleted_at: null };
   const storage = { toKey: jest.fn(), tryDelete: jest.fn() };
+  const applicationCache = {
+    getOrCompute: jest.fn((_descriptor: unknown, compute: () => unknown) => compute()),
+  };
 
   it('mirrors a new single title into the legacy title_ar column when creating a book', async () => {
     const books = {
@@ -19,6 +22,7 @@ describe('BooksService title compatibility', () => {
       { findOne: jest.fn().mockResolvedValue(subject) } as never,
       {} as never,
       storage as never,
+      applicationCache as never,
     );
 
     await service.create(teacherId, {
@@ -55,6 +59,7 @@ describe('BooksService title compatibility', () => {
       { findOne: jest.fn() } as never,
       {} as never,
       storage as never,
+      applicationCache as never,
     );
 
     await service.update(book.id, teacherId, { title: 'Advanced Algebra' });
@@ -76,6 +81,7 @@ describe('BooksService title compatibility', () => {
       {} as never,
       purchases as never,
       storage as never,
+      applicationCache as never,
     );
 
     await expect(service.hardDelete(book.id)).rejects.toThrow(
@@ -92,7 +98,7 @@ describe('BooksService title compatibility', () => {
         findOne: jest.fn().mockResolvedValue(book),
         softDelete: jest.fn().mockResolvedValue(undefined),
       };
-      const service = new BooksService(books as never, {} as never, {} as never, storage as never);
+      const service = new BooksService(books as never, {} as never, {} as never, storage as never, applicationCache as never);
 
       await service.adminDelete(book.id);
 
@@ -101,7 +107,7 @@ describe('BooksService title compatibility', () => {
 
     it('throws NotFoundException when the book does not exist', async () => {
       const books = { findOne: jest.fn().mockResolvedValue(null), softDelete: jest.fn() };
-      const service = new BooksService(books as never, {} as never, {} as never, storage as never);
+      const service = new BooksService(books as never, {} as never, {} as never, storage as never, applicationCache as never);
 
       await expect(service.adminDelete('missing-id')).rejects.toThrow('not found');
       expect(books.softDelete).not.toHaveBeenCalled();
@@ -111,7 +117,7 @@ describe('BooksService title compatibility', () => {
       // adminDelete queries with deleted_at: IsNull(), so an already-deleted
       // book resolves to null from the repository — same as a missing book.
       const books = { findOne: jest.fn().mockResolvedValue(null), softDelete: jest.fn() };
-      const service = new BooksService(books as never, {} as never, {} as never, storage as never);
+      const service = new BooksService(books as never, {} as never, {} as never, storage as never, applicationCache as never);
 
       await expect(service.adminDelete('already-deleted-id')).rejects.toThrow('not found');
       expect(books.softDelete).not.toHaveBeenCalled();
@@ -126,7 +132,7 @@ describe('BooksService title compatibility', () => {
       // No bookPurchasesRepository call is made by adminDelete at all —
       // passing an empty mock proves the purchase-history check from
       // hardDelete does not apply to the soft-delete path.
-      const service = new BooksService(books as never, {} as never, {} as never, storage as never);
+      const service = new BooksService(books as never, {} as never, {} as never, storage as never, applicationCache as never);
 
       await service.adminDelete(book.id);
 

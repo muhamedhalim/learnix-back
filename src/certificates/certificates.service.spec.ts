@@ -17,6 +17,7 @@ import { LessonPackageItem } from '../packages/entities/lesson-package-item.enti
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CertificatePdfService } from './certificate-pdf.service';
 import { CertificatesService } from './certificates.service';
@@ -113,9 +114,17 @@ describe('CertificatesService', () => {
   const dataSource = {
     transaction: jest.fn(async (run: (m: typeof manager) => Promise<unknown>) => run(manager)),
   };
+  const applicationCache = {
+    getOrCompute: jest.fn((_descriptor: unknown, compute: () => unknown) => compute()),
+    invalidate: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    applicationCache.getOrCompute.mockImplementation(
+      (_descriptor: unknown, compute: () => unknown) => compute(),
+    );
+    applicationCache.invalidate.mockResolvedValue(undefined);
     templates.createQueryBuilder.mockReturnValue(qb(0));
     // Baseline: no active purchase, no locked-version snapshot yet — tests
     // opt into the "purchased/locked" path explicitly. `clearAllMocks` only
@@ -147,6 +156,7 @@ describe('CertificatesService', () => {
         { provide: EventEmitter2, useValue: emitter },
         { provide: CertificateEligibilityService, useValue: eligibility },
         { provide: DataSource, useValue: dataSource },
+        { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
     service = module.get(CertificatesService);

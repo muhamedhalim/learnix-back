@@ -122,6 +122,9 @@ export interface TeacherStats {
   reviewCount: number;
 }
 
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
+
 @Injectable()
 export class TeachersService {
   private readonly logger = new Logger(TeachersService.name);
@@ -375,8 +378,32 @@ export class TeachersService {
   /**
    * Public, unauthenticated directory listing of approved teachers.
    * Returns a sanitized projection with no email/phone/parent_phone/status.
+   * Cached (T038, W1-C6 d): backs `GET teachers`, `GET teachers/by-subject/:subjectId`
+   * and (via `SubjectsService.findTeachersBySubject`) `GET subjects/:id/teachers`.
    */
   public async findApprovedTeachersPublic(
+    filter: Omit<TeacherFilterDto, 'status'>,
+  ): Promise<PaginatedResponse<PublicTeacherResponseDto>> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'teachers.list',
+        scope: 'public',
+        parts: [
+          (filter.search ?? '').trim().toLowerCase(),
+          filter.subjectId ?? null,
+          filter.sortBy ?? 'created_at',
+          filter.order ?? 'desc',
+          filter.page ?? 1,
+          filter.limit ?? 20,
+        ],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeApprovedTeachersPublic(filter),
+    );
+  }
+
+  private async computeApprovedTeachersPublic(
     filter: Omit<TeacherFilterDto, 'status'>,
   ): Promise<PaginatedResponse<PublicTeacherResponseDto>> {
     const {
@@ -438,8 +465,23 @@ export class TeachersService {
   /**
    * Public, unauthenticated single-teacher lookup.
    * Only returns APPROVED teachers, and only the sanitized projection.
+   * Cached (T038, W1-C6 d): a 404 is thrown inside the compute callback, so
+   * `getOrCompute` never stores a "not found" result.
    */
   public async findApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherResponseDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'teachers.detail',
+        scope: 'public',
+        parts: [id],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeApprovedTeacherByIdPublic(id),
+    );
+  }
+
+  private async computeApprovedTeacherByIdPublic(id: string): Promise<PublicTeacherResponseDto> {
     const profile = await this.publicTeacherQuery().andWhere('teacher.id = :id', { id }).getOne();
 
     if (!profile) {

@@ -17,6 +17,7 @@ import {
 import { ReviewStatus } from './entities/review-status.enum';
 import { TeacherReview } from './entities/teacher-review.entity';
 import { ReviewsService } from './reviews.service';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 
 /** A chainable query-builder mock whose terminal calls resolve to `result`. */
 function qbMock(result: unknown) {
@@ -58,9 +59,15 @@ describe('ReviewsService', () => {
   const lessonProgress = { findOne: jest.fn() };
   const helpfulVotes = { findOne: jest.fn(), save: jest.fn(), remove: jest.fn(), create: jest.fn(), delete: jest.fn(), createQueryBuilder: jest.fn() };
   const packages = { findOne: jest.fn() };
+  const applicationCache = {
+    getOrCompute: jest.fn((_descriptor: unknown, compute: () => unknown) => compute()),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    applicationCache.getOrCompute.mockImplementation(
+      (_descriptor: unknown, compute: () => unknown) => compute(),
+    );
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReviewsService,
@@ -73,6 +80,7 @@ describe('ReviewsService', () => {
         { provide: getRepositoryToken(LessonProgress), useValue: lessonProgress },
         { provide: getRepositoryToken(ReviewHelpfulVote), useValue: helpfulVotes },
         { provide: getRepositoryToken(LessonPackage), useValue: packages },
+        { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
     service = module.get(ReviewsService);

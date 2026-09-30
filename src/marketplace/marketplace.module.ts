@@ -69,6 +69,15 @@ export class MarketplaceModule implements NestModule {
    * public cache instead (T213's caching implementation) rather than none
    * at all. Paths below are given without the global API prefix, matching
    * every other `NestModule.configure()` in this codebase (`BooksModule`).
+   *
+   * T042 (W1-C9, Step 0): scoped to `marketplace/*` (was `forRoutes('*')`,
+   * which — since Nest applies `forRoutes` app-wide regardless of which
+   * module declares it — made this the app's only real default for every
+   * route, not just marketplace's). Narrowed now that `AppModule` owns a
+   * real app-wide default (`DefaultNoStoreMiddleware`, `private, no-store`)
+   * so the two middlewares govern disjoint route sets with no ordering
+   * dependency between them. This module's own plain `no-store` (no
+   * `private`) on its own routes is unchanged.
    */
   public configure(consumer: MiddlewareConsumer): void {
     consumer
@@ -81,6 +90,6 @@ export class MarketplaceModule implements NestModule {
         { path: 'marketplace/categories', method: RequestMethod.GET },
         { path: 'marketplace/instructors/:slug', method: RequestMethod.GET },
       )
-      .forRoutes('*');
+      .forRoutes('marketplace/*path');
   }
 }

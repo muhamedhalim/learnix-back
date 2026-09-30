@@ -13,6 +13,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { CertificateTemplate, CertificateTemplateStatus } from '../certificates/entities';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { LearningMetricsService, ProductFinancialMetricsService } from '../common/metrics';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
@@ -43,6 +44,9 @@ import { CourseStatus } from './entities/course-status.enum';
 import { CourseVersion } from './entities/course-version.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
+
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
 
 export interface PackageWithDetails {
   id: string;
@@ -164,6 +168,7 @@ export class PackagesService {
     private readonly learningMetrics: LearningMetricsService,
     private readonly reviewsService: ReviewsService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /**
@@ -315,7 +320,35 @@ export class PackagesService {
     return await this.findAll({ ...filter, teacher_id: teacherId });
   }
 
+  /**
+   * Cached (T038, W1-C6 d): backs `GET packages` and, via `findByTeacherPublic`,
+   * `GET packages/teacher/:teacherId`.
+   */
   public async findAllPublic(
+    filter: PackageFilterDto,
+  ): Promise<PaginatedResponse<PublicPackageResponseDto>> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'packages.list',
+        scope: 'public',
+        parts: [
+          (filter.search ?? '').trim().toLowerCase(),
+          filter.teacher_id ?? null,
+          filter.minPrice ?? null,
+          filter.maxPrice ?? null,
+          filter.sortBy ?? PackageSortBy.CREATED_AT,
+          filter.order ?? 'desc',
+          filter.page ?? 1,
+          filter.limit ?? 20,
+        ],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeAllPublic(filter),
+    );
+  }
+
+  private async computeAllPublic(
     filter: PackageFilterDto,
   ): Promise<PaginatedResponse<PublicPackageResponseDto>> {
     const result = await this.findAll(filter);
@@ -343,8 +376,25 @@ export class PackagesService {
     return this.findDetailedPackage(id);
   }
 
-  /** Public package detail: only an active, published, non-deleted course. */
+  /**
+   * Public package detail: only an active, published, non-deleted course.
+   * Cached (T038, W1-C6 d); a 404 is thrown inside the compute callback, so
+   * `getOrCompute` never stores a "not found" result.
+   */
   public async findPublicOne(id: string): Promise<PublicPackageResponseDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'packages.detail',
+        scope: 'public',
+        parts: [id],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computePublicOne(id),
+    );
+  }
+
+  private async computePublicOne(id: string): Promise<PublicPackageResponseDto> {
     const pkg = await this.findDetailedPackage(id, {
       is_active: true,
       status: CourseStatus.PUBLISHED,

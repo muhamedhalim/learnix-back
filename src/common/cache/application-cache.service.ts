@@ -24,6 +24,8 @@ export type ApplicationCacheFamily =
   | 'student_profile'
   | 'user_profile'
   | 'marketplace_catalog'
+  // W1-C6 (a): anonymous, unsigned public academic catalog reads (T037/T038).
+  | 'public_catalog'
   // W1-C6 (b, c): anonymous, caller-independent public gamification reads (T037).
   | 'gamification_public'
   // W1-C7 (a): teacher quiz analytics, owner-scoped (T039).
@@ -45,6 +47,7 @@ export const APPLICATION_CACHE_FAMILIES: readonly ApplicationCacheFamily[] = [
   'student_profile',
   'user_profile',
   'marketplace_catalog',
+  'public_catalog',
   'gamification_public',
   'teacher_quiz_analytics',
   'student_quiz_analytics',

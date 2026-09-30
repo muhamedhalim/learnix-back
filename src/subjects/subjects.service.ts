@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import {
   SubjectApprovedEvent,
   SubjectCreatedEvent,
@@ -36,6 +37,9 @@ import {
 import { SubjectStatus } from './entities/subject-status.enum';
 import { Subject } from './entities/subject.entity';
 import { SubjectAdminView, SubjectWithCounts } from './interfaces';
+
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
 
 /** Who is asking, which decides which rows a read may return. */
 type Audience =
@@ -102,7 +106,13 @@ export class SubjectsService {
     private readonly dataSource: DataSource,
     private readonly activityLogs: ActivityLogsService,
     private readonly teachersService: TeachersService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
+
+  /** T038 (W1-C6 d): normalized key parts for `findAll`'s `public_catalog` cache entry. */
+  private publicListCacheParts(filter: SubjectFilterDto): unknown[] {
+    return [(filter.search ?? '').trim().toLowerCase(), filter.page ?? 1, filter.limit ?? 20];
+  }
 
   // ───────────────────────────────────────────────────────── creation ──────
 
@@ -167,7 +177,16 @@ export class SubjectsService {
    * Public catalogue: approved subjects only, no owner or status exposed.
    */
   public async findAll(filter: SubjectFilterDto): Promise<PaginatedResponse<SubjectWithCounts>> {
-    return await this.listPublic(filter, { kind: 'public' });
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'subjects.list',
+        scope: 'public',
+        parts: this.publicListCacheParts(filter),
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.listPublic(filter, { kind: 'public' }),
+    );
   }
 
   /**
@@ -239,8 +258,25 @@ export class SubjectsService {
     return subject;
   }
 
-  /** Public single read: anything not approved is indistinguishable from absent. */
+  /**
+   * Public single read: anything not approved is indistinguishable from
+   * absent. Cached (T038, W1-C6 d): a 404 is thrown inside the compute
+   * callback, so `getOrCompute` never stores a "not found" result.
+   */
   public async findOnePublic(id: string): Promise<Subject> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'subjects.detail',
+        scope: 'public',
+        parts: [id],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeOnePublic(id),
+    );
+  }
+
+  private async computeOnePublic(id: string): Promise<Subject> {
     const subject = await this.subjectsRepository.findOne({
       where: { id, status: SubjectStatus.APPROVED },
     });

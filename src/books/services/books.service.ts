@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../../common/cache/application-cache.service';
 import { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { biBody } from '../../i18n/error-translator.util';
 import { StorageService } from '../../storage/storage.service';
@@ -18,6 +19,9 @@ import { usableSubjectByIdWhere } from '../../subjects/subject-visibility.util';
 import { BookFilterDto, CreateBookDto, UpdateBookDto } from '../dto';
 import { Book } from '../entities/book.entity';
 import { BookPurchase } from '../entities/book-purchase.entity';
+
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
 
 @Injectable()
 export class BooksService {
@@ -31,6 +35,7 @@ export class BooksService {
     @InjectRepository(BookPurchase)
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly storageService: StorageService,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /**
@@ -83,9 +88,35 @@ export class BooksService {
   }
 
   /**
-   * Find all books (public, with filters)
+   * Find all books (public, with filters). Cached (T038, W1-C6 d): backs
+   * `GET books` and (unauthenticated visibility is identical) the teacher's
+   * own-books listing.
    */
   public async findAll(filter: BookFilterDto): Promise<{
+    data: Book[];
+    meta: PaginationMeta;
+  }> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'books.list',
+        scope: 'public',
+        parts: [
+          (filter.search ?? '').trim().toLowerCase(),
+          filter.subject_id ?? null,
+          filter.teacher_id ?? null,
+          filter.sortBy ?? 'created_at',
+          filter.order ?? 'desc',
+          filter.page ?? 1,
+          filter.limit ?? 20,
+        ],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeAll(filter),
+    );
+  }
+
+  private async computeAll(filter: BookFilterDto): Promise<{
     data: Book[];
     meta: PaginationMeta;
   }> {
@@ -156,9 +187,23 @@ export class BooksService {
   }
 
   /**
-   * Find a single book by ID
+   * Find a single book by ID. Cached (T038, W1-C6 d); a 404 is thrown inside
+   * the compute callback, so `getOrCompute` never stores a "not found" result.
    */
   public async findOne(id: string): Promise<Book> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'books.detail',
+        scope: 'public',
+        parts: [id],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeOne(id),
+    );
+  }
+
+  private async computeOne(id: string): Promise<Book> {
     const book = await this.booksRepository.findOne({
       where: { id, deleted_at: IsNull() },
       relations: ['teacher', 'subject'],

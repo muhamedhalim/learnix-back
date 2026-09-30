@@ -3,6 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import {
   ACTIVE_PACKAGE_PURCHASE_SQL,
@@ -16,6 +17,7 @@ describe('CertificateEligibilityService', () => {
   let service: CertificateEligibilityService;
   let query: Record<string, jest.Mock>;
   let purchases: { createQueryBuilder: jest.Mock };
+  let applicationCache: { invalidate: jest.Mock };
   let manager: {
     findOne: jest.Mock;
     save: jest.Mock;
@@ -68,11 +70,13 @@ describe('CertificateEligibilityService', () => {
     // `findActivePurchase` inside the service reaches for a repository off the
     // manager when one is supplied.
     (manager as unknown as { getRepository: jest.Mock }).getRepository = jest.fn(() => purchases);
+    applicationCache = { invalidate: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CertificateEligibilityService,
         { provide: getRepositoryToken(PackagePurchase), useValue: purchases },
+        { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
     service = module.get(CertificateEligibilityService);
@@ -149,6 +153,10 @@ describe('CertificateEligibilityService', () => {
           revocation_context: revocation.context,
         }),
       );
+      // T038 (R6): reachable from crons with no HTTP request, so the drop out
+      // of the public gallery is invalidated explicitly, not left to the
+      // interceptor.
+      expect(applicationCache.invalidate).toHaveBeenCalledWith(['public_catalog']);
     });
 
     it('is a no-op when there is no certificate at all', async () => {
@@ -157,6 +165,7 @@ describe('CertificateEligibilityService', () => {
         service.revokeForWithdrawnAccess(manager as never, revocation),
       ).resolves.toBeNull();
       expect(manager.save).not.toHaveBeenCalled();
+      expect(applicationCache.invalidate).not.toHaveBeenCalled();
     });
 
     it('writes no second record when the certificate is already revoked', async () => {
@@ -167,6 +176,7 @@ describe('CertificateEligibilityService', () => {
         service.revokeForWithdrawnAccess(manager as never, revocation),
       ).resolves.toBeNull();
       expect(manager.save).not.toHaveBeenCalled();
+      expect(applicationCache.invalidate).not.toHaveBeenCalled();
     });
 
     it('keeps the certificate when another valid purchase of the course survives', async () => {
@@ -177,6 +187,7 @@ describe('CertificateEligibilityService', () => {
         service.revokeForWithdrawnAccess(manager as never, revocation),
       ).resolves.toBeNull();
       expect(manager.save).not.toHaveBeenCalled();
+      expect(applicationCache.invalidate).not.toHaveBeenCalled();
     });
 
     it('never deletes the historical certificate row', async () => {

@@ -58,6 +58,10 @@ function buildService(packages: LessonPackage[]): PackagesService {
     ),
   };
 
+  const applicationCache = {
+    getOrCompute: jest.fn((_descriptor: unknown, compute: () => unknown) => compute()),
+  };
+
   return new PackagesService(
     packagesRepository,
     {} as Repository<never>,
@@ -67,6 +71,11 @@ function buildService(packages: LessonPackage[]): PackagesService {
     {} as Repository<never>,
     {} as DataSource,
     media as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    applicationCache as never,
   );
 }
 

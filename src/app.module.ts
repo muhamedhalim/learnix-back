@@ -2,7 +2,16 @@
 import './polyfills';
 
 import { CacheModule } from '@nestjs/cache-manager';
-import { Inject, Injectable, Logger, Module, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  MiddlewareConsumer,
+  Module,
+  type NestModule,
+  type OnModuleDestroy,
+  RequestMethod,
+} from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -33,6 +42,7 @@ import { CommentsModule } from './comments/comments.module';
 import { RedisKeyvStore } from './common/cache/redis-keyv.store';
 import { CacheInvalidationInterceptor } from './common/cache/cache-invalidation.interceptor';
 import { THROTTLE } from './common/constants';
+import { DefaultNoStoreMiddleware } from './common/middleware/default-no-store.middleware';
 import { SanitizationModule } from './common/sanitization/sanitization.module';
 import { resolveDatabaseSsl } from './common/utils/database-ssl.util';
 import { namespacedPrefix } from './common/utils/redis-namespace.util';
@@ -387,4 +397,18 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     { provide: APP_INTERCEPTOR, useClass: CacheInvalidationInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * T042 (W1-C9, Step 0): app-wide `private, no-store` default, registered
+   * outside `MarketplaceModule`. `marketplace/*` is excluded — that module
+   * owns its own `NoStoreMiddleware` with its own decided exclusions for
+   * the public catalogue, and this default is not meant to interact with it
+   * (see `DefaultNoStoreMiddleware`'s own doc comment).
+   */
+  public configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(DefaultNoStoreMiddleware)
+      .exclude({ path: 'marketplace/*path', method: RequestMethod.ALL })
+      .forRoutes('*');
+  }
+}

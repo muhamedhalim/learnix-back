@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { IsNull, Repository } from 'typeorm';
 
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PaginatedResponse, PaginationMeta } from '../common/interfaces/pagination.interface';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonProgress } from '../lessons/entities/lesson-progress.entity';
@@ -27,6 +28,9 @@ import {
   ReviewForManagement,
   ReviewWithStudent,
 } from './interfaces/review-aggregates.interface';
+
+/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
+const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
 
 interface RatingAggregateRow {
   total: string;
@@ -59,6 +63,7 @@ export class ReviewsService {
     private readonly helpfulVotesRepository: Repository<ReviewHelpfulVote>,
     @InjectRepository(LessonPackage)
     private readonly packagesRepository: Repository<LessonPackage>,
+    private readonly applicationCache: ApplicationCacheService,
   ) {}
 
   /* ===================== Eligibility checks ===================== */
@@ -543,10 +548,28 @@ export class ReviewsService {
 
   /* ===================== Public reads ===================== */
 
+  /** Cached (T038, W1-C6 d); a 404 is thrown inside the compute callback. */
   public async getTeacherReviews(
     teacherId: string,
     page = 1,
     limit = 20,
+  ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'reviews.teacher',
+        scope: 'public',
+        parts: [teacherId, page, limit],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeTeacherReviews(teacherId, page, limit),
+    );
+  }
+
+  private async computeTeacherReviews(
+    teacherId: string,
+    page: number,
+    limit: number,
   ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
     const teacher = await this.usersRepository.findOne({
       where: { id: teacherId, role: UserRole.TEACHER },
@@ -569,10 +592,28 @@ export class ReviewsService {
     return { data, meta: this.buildMeta(page, limit, total), aggregates };
   }
 
+  /** Cached (T038, W1-C6 d); a 404 is thrown inside the compute callback. */
   public async getLessonReviews(
     lessonId: string,
     page = 1,
     limit = 20,
+  ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'reviews.lesson',
+        scope: 'public',
+        parts: [lessonId, page, limit],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computeLessonReviews(lessonId, page, limit),
+    );
+  }
+
+  private async computeLessonReviews(
+    lessonId: string,
+    page: number,
+    limit: number,
   ): Promise<PaginatedResponse<ReviewWithStudent> & { aggregates: ReviewAggregates }> {
     const lesson = await this.lessonsRepository.findOne({
       where: { id: lessonId },
@@ -599,7 +640,25 @@ export class ReviewsService {
    * Rating aggregates for a course (package), derived from the reviews of the
    * lessons it contains — no separate package_reviews table needed.
    */
+  /**
+   * Cached (T038, W1-C6 d) — existence oracle for unpublished package ids is
+   * a pre-existing behavior (`gates/W1-C6d.md` 2.6), not changed by caching.
+   * A 404 is thrown inside the compute callback.
+   */
   public async getPackageAggregates(packageId: string): Promise<ReviewAggregates> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'public_catalog',
+        endpoint: 'reviews.package_summary',
+        scope: 'public',
+        parts: [packageId],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
+      async () => await this.computePackageAggregates(packageId),
+    );
+  }
+
+  private async computePackageAggregates(packageId: string): Promise<ReviewAggregates> {
     const pkg = await this.packagesRepository.findOne({
       where: { id: packageId },
       select: { id: true },
