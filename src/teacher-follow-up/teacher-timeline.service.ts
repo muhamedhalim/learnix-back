@@ -18,11 +18,9 @@ export class TeacherTimelineService {
   public async getTimeline(teacherId: string, studentId: string): Promise<TimelineEntry[]> {
     await this.followUp.assertOwnsStudent(teacherId, studentId);
 
-    const [attempts, attendance, homework, messages] = await Promise.all([
-      this.followUp.fetchAttemptRowsFor(teacherId, studentId),
-      this.followUp.fetchAttendanceRowsFor(teacherId, studentId),
+    const [{ attempts, attendance, messages }, homework] = await Promise.all([
+      this.followUp.fetchTimelineSourcesFor(teacherId, studentId),
       this.followUp.fetchHomeworkRowsFor(teacherId, studentId),
-      this.followUp.fetchScopedMessagesFor(teacherId, studentId),
     ]);
 
     const entries: TimelineEntry[] = [];

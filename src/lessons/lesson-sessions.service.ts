@@ -318,9 +318,15 @@ export class LessonSessionsService {
     return stuck.length;
   }
 
-  public async listForStudent(studentId: string): Promise<Array<Record<string, unknown>>> {
+  public async listForStudent(
+    studentId: string,
+    lessonId?: string,
+  ): Promise<Array<Record<string, unknown>>> {
     const bookings = await this.dataSource.getRepository(LessonSessionBooking).find({
-      where: { student_id: studentId },
+      where: {
+        student_id: studentId,
+        ...(lessonId === undefined ? {} : { session: { lesson_id: lessonId } }),
+      },
       relations: ['session', 'session.lesson', 'session.teacher', 'order', 'payment'],
       order: { created_at: 'DESC' },
     });
@@ -855,8 +861,23 @@ export class LessonSessionsService {
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   public async dispatchScheduledSessionNotifications(): Promise<void> {
-    const now = new Date();
-    const reminderHorizon = new Date(now.getTime() + 24 * 60 * 60_000);
+    const now = this.currentTime();
+    // T070: a booking is a candidate only when some notification it could still
+    // receive this run is missing, not merely because it starts within 24 h. The
+    // SQL windows are a strict superset of the JS windows below: timestamptz keeps
+    // microseconds while `Date` keeps milliseconds, so every boundary gets 1 ms of
+    // slack. A candidate that turns out to need nothing only costs a deduped insert;
+    // a booking the loop would notify can never be left out.
+    const oneHourMs = 60 * 60_000;
+    const horizonPlusSlack = new Date(now.getTime() + 24 * oneHourMs + 1);
+    const oneHourMinusSlack = new Date(now.getTime() + oneHourMs - 1);
+    const oneHourPlusSlack = new Date(now.getTime() + oneHourMs + 1);
+    const missingKey = (event: string, recipientId: string): string => `NOT EXISTS (
+          SELECT 1 FROM notifications notification
+          WHERE notification.dedupe_key = CONCAT(
+            'lesson-session:', session.id, ':booking:', booking.id, ':${event}:', ${recipientId}
+          )
+        )`;
     const bookings = await this.dataSource
       .getRepository(LessonSessionBooking)
       .createQueryBuilder('booking')
@@ -866,20 +887,23 @@ export class LessonSessionsService {
       .innerJoinAndSelect('booking.student', 'student')
       .where('booking.status = :status', { status: LessonSessionBookingStatus.CONFIRMED })
       .andWhere(`(
-        NOT EXISTS (
-          SELECT 1 FROM notifications notification
-          WHERE notification.dedupe_key = CONCAT(
-            'lesson-session:', session.id, ':booking:', booking.id, ':confirmed:', booking.student_id
+        ${missingKey('confirmed', 'booking.student_id')}
+        OR ${missingKey('confirmed', 'session.teacher_id')}
+        OR (
+          session.start_at > :oneHourMinusSlack AND session.start_at <= :horizonPlusSlack
+          AND (
+            ${missingKey('reminder_24h', 'booking.student_id')}
+            OR ${missingKey('reminder_24h', 'session.teacher_id')}
           )
         )
-        OR NOT EXISTS (
-          SELECT 1 FROM notifications notification
-          WHERE notification.dedupe_key = CONCAT(
-            'lesson-session:', session.id, ':booking:', booking.id, ':confirmed:', session.teacher_id
+        OR (
+          session.start_at > :now AND session.start_at <= :oneHourPlusSlack
+          AND (
+            ${missingKey('reminder_1h', 'booking.student_id')}
+            OR ${missingKey('reminder_1h', 'session.teacher_id')}
           )
         )
-        OR (session.start_at > :now AND session.start_at <= :horizon)
-      )`, { now, horizon: reminderHorizon })
+      )`, { now, oneHourMinusSlack, oneHourPlusSlack, horizonPlusSlack })
       .getMany();
     for (const booking of bookings) {
       await this.notifyBookingEvent(booking.id, 'confirmed', booking);
@@ -921,6 +945,11 @@ export class LessonSessionsService {
     for (const booking of cancelledBookings) {
       await this.notifyBookingEvent(booking.id, 'cancelled', booking);
     }
+  }
+
+  /** The cron's clock, a seam so a test can pin the window boundaries exactly. */
+  private currentTime(): Date {
+    return new Date();
   }
 
   private async notifyBookingEvent(

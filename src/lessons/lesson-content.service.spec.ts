@@ -101,3 +101,139 @@ describe('LessonContentService attachment and submission access', () => {
     expect(sql).not.toContain('package_purchases');
   });
 });
+
+describe('LessonContentService homework notification fan-out (T069)', () => {
+  const order: string[] = [];
+  const lessons = { findOne: jest.fn() };
+  const notifications = { createMany: jest.fn() };
+  const events = { emit: jest.fn() };
+  let purchaseQuery: jest.Mock;
+  let userQb: Record<string, jest.Mock>;
+  let service: LessonContentService;
+
+  const homework = {
+    id: 'hw-1',
+    lesson_id: 'lesson-1',
+    title: 'Fractions',
+    title_ar: null,
+    description: 'Do all of them',
+    description_ar: null,
+    due_at: new Date('2026-03-01T10:00:00.000Z'),
+  } as unknown as LessonHomework;
+
+  const student = (id: string, preferred_language: string) => ({
+    id,
+    name: `Name ${id}`,
+    preferred_language,
+  });
+
+  const dispatch = async (action: 'assigned' | 'updated'): Promise<void> =>
+    (
+      service as unknown as {
+        dispatchHomeworkNotifications: (h: LessonHomework, a: string) => Promise<void>;
+      }
+    ).dispatchHomeworkNotifications(homework, action);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    order.length = 0;
+    lessons.findOne.mockResolvedValue({ id: 'lesson-1', title: 'Math' });
+    // The homework audience now comes from the shared audience builder (a parameterised query).
+    purchaseQuery = jest.fn().mockResolvedValue([{ student_id: 's1' }, { student_id: 's2' }, { student_id: 's3' }]);
+    userQb = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getMany: jest
+        .fn()
+        .mockResolvedValue([student('s1', 'ar'), student('s2', 'en'), student('s3', 'ar')]),
+    };
+    notifications.createMany.mockImplementation(async () => {
+      order.push('createMany');
+      return [
+        { ok: true, id: 'n1' },
+        { ok: false, error: new Error('x') },
+        { ok: true, id: 'n3' },
+      ];
+    });
+    events.emit.mockImplementation((_channel: string, event: { studentId?: string }) => {
+      order.push(`event:${String(event.studentId)}`);
+    });
+    service = new LessonContentService(
+      lessons as unknown as Repository<Lesson>,
+      {} as unknown as Repository<LessonAttachment>,
+      {} as unknown as Repository<LessonHomework>,
+      {} as unknown as Repository<HomeworkSubmission>,
+      {} as unknown as Repository<LessonNote>,
+      { manager: { query: purchaseQuery } } as unknown as Repository<LessonPurchase>,
+      { createQueryBuilder: jest.fn().mockReturnValue(userQb) } as unknown as Repository<User>,
+      notifications as unknown as NotificationsService,
+      events as unknown as EventEmitter2,
+      {} as unknown as StorageService,
+      { get: jest.fn().mockReturnValue('http://localhost:3001') } as unknown as ConfigService,
+    );
+  });
+
+  it('creates every notification in one createMany call with localized rows and no SMS', async () => {
+    await dispatch('assigned');
+
+    expect(userQb['where']).toHaveBeenCalledWith('u.id = ANY(:studentIds)', {
+      studentIds: ['s1', 's2', 's3'],
+    });
+    expect(notifications.createMany).toHaveBeenCalledTimes(1);
+    const rows = notifications.createMany.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(rows.map((row) => row['user_id'])).toEqual(['s1', 's2', 's3']);
+    expect(rows.every((row) => row['send_sms'] === false && row['type'] === 'homework')).toBe(true);
+    expect(rows.map((row) => row['title'])).toEqual(['واجب جديد', 'New homework', 'واجب جديد']);
+    expect(rows[1]).toMatchObject({
+      message: expect.stringContaining('Fractions — Do all of them — due '),
+      data: {
+        homework_id: 'hw-1',
+        lesson_id: 'lesson-1',
+        due_at: '2026-03-01T10:00:00.000Z',
+        href: '/student/homework',
+      },
+    });
+  });
+
+  it('emits HomeworkAssignedEvent only for inserted rows, in order, after the insert returned', async () => {
+    await dispatch('assigned');
+
+    expect(order).toEqual(['createMany', 'event:s1', 'event:s3']);
+    expect(events.emit).toHaveBeenCalledTimes(2);
+    const first = events.emit.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(first).toMatchObject({
+      studentId: 's1',
+      subjectId: 'hw-1',
+      variables: {
+        studentName: 'Name s1',
+        lessonName: 'Math',
+        homeworkTitle: 'Fractions',
+        dueAt: '2026-03-01T10:00:00.000Z',
+      },
+    });
+  });
+
+  it('emits no event when the homework was only updated', async () => {
+    await dispatch('updated');
+
+    expect(notifications.createMany).toHaveBeenCalledTimes(1);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it('does nothing without an audience', async () => {
+    purchaseQuery.mockResolvedValue([]);
+
+    await dispatch('assigned');
+
+    expect(notifications.createMany).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for a lesson that no longer exists', async () => {
+    lessons.findOne.mockResolvedValue(null);
+
+    await dispatch('assigned');
+
+    expect(notifications.createMany).not.toHaveBeenCalled();
+  });
+});

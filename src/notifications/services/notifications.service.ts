@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 
 import { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { maskPhone } from '../../common/utils/mask.util';
@@ -61,6 +62,12 @@ export type SupportTicketNotificationEvent =
   | 'sla_first_response_exceeded'
   | 'sla_resolution_warning'
   | 'sla_resolution_exceeded';
+
+/** Rows per multi-row INSERT in {@link NotificationsService.createMany}; same as the bulk-notification processor. */
+export const NOTIFICATION_INSERT_CHUNK_SIZE = 500;
+
+/** Per input row, in input order: created (with its id) or failed. */
+export type CreateManyOutcome = { ok: true; id: string } | { ok: false; error: unknown };
 
 interface NotificationCreateOptions {
   dedupeKey?: string;
@@ -281,25 +288,15 @@ export class NotificationsService {
   });
 
   /**
-   * Create and send a notification
+   * The column values of a new in-app notification. One definition for
+   * {@link create} and {@link createMany}, so the defaults cannot drift apart.
    */
-  public async create(
+  private notificationFields(
     dto: SendNotificationDto,
-    sendSms = true,
-    options: NotificationCreateOptions = {},
-  ): Promise<Notification> {
-    if (options.dedupeKey !== undefined) {
-      const existing = await this.notificationsRepository.findOneBy({
-        dedupe_key: options.dedupeKey,
-      });
-      if (existing) {
-        return existing;
-      }
-    }
-    const now = new Date();
-
-    // Create notification record
-    const notification = this.notificationsRepository.create({
+    options: NotificationCreateOptions,
+    now: Date,
+  ): QueryDeepPartialEntity<Notification> & Partial<Notification> {
+    return {
       dedupe_key: options.dedupeKey ?? null,
       campaign_id: options.campaignId ?? null,
       created_by_user_id: options.createdByUserId ?? null,
@@ -324,7 +321,110 @@ export class NotificationsService {
       attempts: 0,
       error_message: null,
       delivered_at: null,
-    });
+    } as QueryDeepPartialEntity<Notification> & Partial<Notification>;
+  }
+
+  /**
+   * Many in-app notifications with the same defaults as {@link create}, as
+   * multi-row INSERTs of {@link NOTIFICATION_INSERT_CHUNK_SIZE} (T069).
+   *
+   * - **Per-chunk autocommit.** Each chunk is its own statement; there is no
+   *   enclosing transaction or shared query runner, so a later chunk's failure can
+   *   never roll back rows an earlier chunk committed.
+   * - **Per-recipient isolation.** A failed multi-row INSERT falls back to one
+   *   {@link create} per row for THAT chunk only (each in autocommit), then the next
+   *   chunk proceeds. A chunk that inserted is never retried row by row.
+   * - **Side effects only after the INSERT.** Push for a chunk is enqueued after its
+   *   INSERT returned (the fallback path pushes inside each successful `create`);
+   *   never before, never for a failed row, and a push problem never fails the caller.
+   * - No dedupe key and no SMS: rows must pass `send_sms: false`, otherwise this
+   *   throws instead of silently skipping the guardian fan-out.
+   *
+   * Returns one outcome per input row, in input order.
+   */
+  public async createMany(
+    rows: SendNotificationDto[],
+    options: Omit<NotificationCreateOptions, 'dedupeKey'> = {},
+  ): Promise<CreateManyOutcome[]> {
+    if (rows.some((row) => row.send_sms !== false)) {
+      throw new Error('createMany never sends SMS: every row must set send_sms to false');
+    }
+    const outcomes: CreateManyOutcome[] = [];
+    const now = new Date();
+
+    for (let start = 0; start < rows.length; start += NOTIFICATION_INSERT_CHUNK_SIZE) {
+      const chunk = rows.slice(start, start + NOTIFICATION_INSERT_CHUNK_SIZE);
+      let insertedIds: (string | undefined)[];
+      try {
+        const insert = await this.notificationsRepository
+          .createQueryBuilder()
+          .insert()
+          .into(Notification)
+          .values(chunk.map((row) => this.notificationFields(row, options, now)))
+          .returning(['id'])
+          .execute();
+        insertedIds = (insert.identifiers as { id?: string }[]).map((identifier) => identifier.id);
+      } catch (error) {
+        this.logger.warn(
+          `Multi-row notification insert failed for ${String(chunk.length)} row(s); creating them one by one: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
+        for (const row of chunk) {
+          try {
+            const saved = await this.create(row, false, options);
+            outcomes.push({ ok: true, id: saved.id });
+          } catch (rowError) {
+            outcomes.push({ ok: false, error: rowError });
+          }
+        }
+        continue;
+      }
+
+      // The chunk is committed: from here on nothing may re-insert it.
+      const ids = chunk.map((_row, index) => insertedIds[index]);
+      for (const id of ids) outcomes.push({ ok: true, id: id ?? '' });
+      const pushable = ids.filter((id): id is string => typeof id === 'string' && id !== '');
+      if (pushable.length !== chunk.length) {
+        this.logger.error(
+          `Notification insert returned ${String(pushable.length)} id(s) for ${String(chunk.length)} row(s)`,
+        );
+      }
+      if (options.push !== false && pushable.length > 0) {
+        try {
+          await this.pushJobs.enqueueDeliveryMany(pushable);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to enqueue push for ${String(pushable.length)} notification(s): ` +
+              (error instanceof Error ? error.message : String(error)),
+          );
+        }
+      }
+    }
+    return outcomes;
+  }
+
+  /**
+   * Create and send a notification
+   */
+  public async create(
+    dto: SendNotificationDto,
+    sendSms = true,
+    options: NotificationCreateOptions = {},
+  ): Promise<Notification> {
+    if (options.dedupeKey !== undefined) {
+      const existing = await this.notificationsRepository.findOneBy({
+        dedupe_key: options.dedupeKey,
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+    const now = new Date();
+
+    // Create notification record
+    const notification = this.notificationsRepository.create(
+      this.notificationFields(dto, options, now),
+    );
 
     let saved: Notification;
     try {

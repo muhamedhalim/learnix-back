@@ -57,6 +57,7 @@ describe('CommentsService', () => {
           provide: getRepositoryToken(Lesson),
           useValue: {
             findOne: jest.fn(),
+            exists: jest.fn(),
           },
         },
         {
@@ -254,12 +255,7 @@ describe('CommentsService', () => {
         updated_at: new Date(),
       };
 
-      const mockLesson: Partial<Lesson> = {
-        id: mockLessonId,
-      };
-      jest
-        .spyOn(lessonsRepository, 'findOne')
-        .mockResolvedValue(mockLesson as Lesson);
+      jest.spyOn(lessonsRepository, 'exists').mockResolvedValue(true);
 
       jest
         .spyOn(commentsRepository, 'findAndCount')
@@ -276,10 +272,21 @@ describe('CommentsService', () => {
       }
       expect(result.meta.page).toBe(1);
       expect(result.meta.total).toBe(1);
+
+      // T082: an existence probe, and only the mapped columns are selected (users as {id, name}).
+      expect(lessonsRepository.exists).toHaveBeenCalledWith({
+        where: { id: mockLessonId, deleted_at: expect.anything() },
+      });
+      const options = jest.mocked(commentsRepository.findAndCount).mock.calls[0]?.[0];
+      expect(options?.select).toMatchObject({
+        student: { id: true, name: true },
+        replies: { id: true, reply_text: true, created_at: true, teacher: { id: true, name: true } },
+      });
+      expect(options?.where).toMatchObject({ lesson_id: mockLessonId });
     });
 
     it('should throw NotFoundException when lesson does not exist', async () => {
-      jest.spyOn(lessonsRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(lessonsRepository, 'exists').mockResolvedValue(false);
 
       await expect(
         service.getCommentsByLesson(mockLessonId, 1, 20),
@@ -287,12 +294,7 @@ describe('CommentsService', () => {
     });
 
     it('should handle pagination correctly', async () => {
-      const mockLesson: Partial<Lesson> = {
-        id: mockLessonId,
-      };
-      jest
-        .spyOn(lessonsRepository, 'findOne')
-        .mockResolvedValue(mockLesson as Lesson);
+      jest.spyOn(lessonsRepository, 'exists').mockResolvedValue(true);
 
       jest
         .spyOn(commentsRepository, 'findAndCount')

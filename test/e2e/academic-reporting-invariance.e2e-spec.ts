@@ -396,4 +396,57 @@ describe('academic reporting invariance — report figures never move when marke
     );
     expect(Number(egpBalanceAfter?.available_minor)).toBe(84_000);
   }, 60_000);
+
+  it('T054: a widget subset deep-equals the same widgets of the full report; unselected ones are empty', async () => {
+    const users = dataSource.getRepository(User);
+    const make = (username: string, role: UserRole, phone: string) =>
+      users.save(
+        users.create({
+          username,
+          name: username,
+          first_name: null,
+          last_name: null,
+          email: `${username}@example.test`,
+          phone,
+          role,
+          status: UserStatus.APPROVED,
+          is_active: true,
+          password_hash: null,
+        }),
+      );
+    const teacher = await make('widgets-teacher-1', UserRole.TEACHER, '01130000011');
+    const student = await make('widgets-student-1', UserRole.STUDENT, '01130000012');
+    await seedAcademicOrder(teacher.id, student.id, 'subset', new Date('2026-02-15T10:00:00.000Z'));
+
+    const admin = await financeAdmin();
+    // No explicit range: ledger rows are dated at insert time, inside the default window.
+    const full = await financialReport(admin, teacher.id);
+    const subsetRes = await admin.agent
+      .get(`${API_PREFIX}/admin/finance/reports`)
+      .query({
+        teacher_id: teacher.id,
+        currency: 'EGP',
+        widgets: 'summary,teacher_receivables',
+      })
+      .expect(200);
+    const { generated_at: _g, filters: _f, ...subset } = subsetRes.body.data as Record<string, unknown>;
+    const { filters: _ff, ...fullRest } = full;
+
+    // Selected widgets carry real data for this fixture and match the full report exactly.
+    expect((fullRest['summary'] as unknown[]).length).toBeGreaterThan(0);
+    expect((fullRest['teachers'] as { data: unknown[] }).data.length).toBeGreaterThan(0);
+    expect(subset['summary']).toEqual(fullRest['summary']);
+    expect(subset['teachers']).toEqual(fullRest['teachers']);
+    // Unselected widgets are empty, not computed, and not reported as errors (some of them
+    // fail in the full report on this database for reasons unrelated to selection).
+    for (const key of ['trends', 'product_breakdown', 'top_products', 'settlement_analytics', 'ledger_movements', 'settlement_history']) {
+      expect(subset[key]).toEqual([]);
+    }
+    expect(subset['widget_errors']).toEqual([]);
+
+    await admin.agent
+      .get(`${API_PREFIX}/admin/finance/reports`)
+      .query({ widgets: 'nope' })
+      .expect(400);
+  }, 60_000);
 });

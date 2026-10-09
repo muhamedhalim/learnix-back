@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -17,6 +18,7 @@ import { UserStatus } from '../../users/entities/user-status.enum';
 import { UsersService } from '../../users/users.service';
 import { AuthService } from '../auth.service';
 import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
+import { isInfrastructureError } from '../infrastructure-error.util';
 
 @Injectable()
 export class HybridAuthGuard implements CanActivate {
@@ -128,6 +130,9 @@ export class HybridAuthGuard implements CanActivate {
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      if (isInfrastructureError(error)) {
+        throw new ServiceUnavailableException('Authentication service temporarily unavailable');
+      }
       throw new UnauthorizedException('Invalid authentication token');
     }
   }
@@ -196,6 +201,9 @@ export class HybridAuthGuard implements CanActivate {
         `Firebase verification failed: ${error instanceof Error ? error.message : String(error)}.`,
       );
 
+      if (isInfrastructureError(error)) {
+        throw new ServiceUnavailableException('Authentication service temporarily unavailable');
+      }
       throw new UnauthorizedException('Invalid authentication token');
     }
   }

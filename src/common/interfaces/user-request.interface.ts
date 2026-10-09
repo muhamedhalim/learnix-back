@@ -1,5 +1,7 @@
 import type { Request } from 'express';
 
+import type { FinancePermission } from '../../payments/finance-permissions';
+
 export interface JwtPayload {
   userId: string;
   email: string;
@@ -12,6 +14,12 @@ export interface JwtPayload {
    */
   role: string | null;
   sessionId?: string;
+  /**
+   * Loaded from the live principal statement on cookie-authenticated requests
+   * (never from the JWT). Absent for Firebase bearers, where consumers fall
+   * back to a database read.
+   */
+  financePermissions?: FinancePermission[];
   /** Optional until tenancy claims are enabled; cache scopes already support it. */
   tenantId?: string;
 }

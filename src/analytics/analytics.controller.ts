@@ -20,6 +20,7 @@ import { AdminDashboardService } from './admin-dashboard.service';
 import {
   AdminDashboardDto,
   AdminDashboardQueryDto,
+  LessonAnalyticsBatchQueryDto,
   ExamAnalyticsDto,
   LessonAnalyticsDto,
   StudentDashboardDto,
@@ -119,6 +120,25 @@ export class AnalyticsController {
   }
 
   // ==================== PER-RESOURCE ANALYTICS ====================
+
+  /**
+   * Analytics for several lessons at once (package Analytics tab): one request
+   * instead of one per lesson. Every id is authorised before anything is read.
+   */
+  @Get('lessons')
+  @Roles('admin', 'teacher')
+  @ApiOperation({
+    summary: 'Get analytics for several lessons',
+    description:
+      'Returns one LessonAnalyticsDto per requested id, in request order. Any unknown id yields 404 and any id the caller may not read yields 403 for the whole request.',
+  })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Lesson analytics', type: [LessonAnalyticsDto] })
+  public async getLessonAnalyticsBatch(
+    @GetUser() user: JwtPayload,
+    @Query() query: LessonAnalyticsBatchQueryDto,
+  ): Promise<{ data: LessonAnalyticsDto[] }> {
+    return { data: await this.analyticsService.getLessonAnalyticsBatch(user, query.lesson_ids) };
+  }
 
   /**
    * Get analytics for a specific lesson

@@ -1,7 +1,13 @@
+import { FindOperator } from 'typeorm';
+
 import type { SanitizationService } from '../../common/sanitization/sanitization.service';
 import { CourseLevel, LessonContentType, MarketplaceCourseStatus } from '../common/enums';
 import { CourseAuthoringService } from './course-authoring.service';
-import type { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection } from './entities';
+import {
+  MarketplaceCourseSection,
+  type MarketplaceCourse,
+  type MarketplaceCourseLesson,
+} from './entities';
 
 function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCourse {
   return {
@@ -38,8 +44,27 @@ function buildLesson(overrides: Partial<MarketplaceCourseLesson> = {}): Marketpl
 function buildRepo<T extends { id: string }>(rows: T[]) {
   return {
     rows,
-    find: jest.fn(async ({ where }: { where: Record<string, unknown> } = { where: {} }) =>
-      rows.filter((r) => Object.entries(where ?? {}).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v)),
+    find: jest.fn(
+      async ({
+        where,
+        order,
+      }: { where: Record<string, unknown>; order?: Record<string, 'ASC' | 'DESC'> } = { where: {} }) => {
+        const matched = rows.filter((r) =>
+          Object.entries(where ?? {}).every(([k, v]) => {
+            const value = (r as unknown as Record<string, unknown>)[k];
+            return v instanceof FindOperator ? (v.value as unknown[]).includes(value) : value === v;
+          }),
+        );
+        const keys = Object.entries(order ?? {});
+        return [...matched].sort((a, b) => {
+          for (const [key, direction] of keys) {
+            const left = (a as unknown as Record<string, string | number>)[key]!;
+            const right = (b as unknown as Record<string, string | number>)[key]!;
+            if (left !== right) return (left < right ? -1 : 1) * (direction === 'DESC' ? -1 : 1);
+          }
+          return 0;
+        });
+      },
     ),
     findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
       rows.find((r) => Object.entries(where).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v)) ?? null,
@@ -117,17 +142,118 @@ function buildService(
     sanitizeStrict: jest.fn((s: string) => s),
   } as unknown as jest.Mocked<SanitizationService>;
 
+  // The transactional manager the renumbering runs on. Its two statements are simulated: park the
+  // named rows on negative positions, then give them 0..n-1 in the order of the id array.
+  const manager: {
+    transaction: jest.Mock;
+    remove: jest.Mock;
+    find: jest.Mock;
+    query: jest.Mock;
+  } = {
+    transaction: jest.fn(async (work: (m: typeof manager) => Promise<unknown>) => work(manager)),
+    remove: jest.fn(async (entity: { course_id?: string }) =>
+      entity.course_id === undefined ? lessons.remove(entity as never) : sections.remove(entity as never),
+    ),
+    find: jest.fn(async (target: unknown, options: Record<string, unknown>) =>
+      target === MarketplaceCourseSection ? sections.find(options as never) : lessons.find(options as never),
+    ),
+    query: jest.fn(async (sql: string, params: unknown[]) => {
+      const rows: Array<{ id: string; position: number }> = sql.includes('marketplace_course_sections')
+        ? sectionRows
+        : lessonRows;
+      const ids = params[1] as string[];
+      if (sql.includes('-(position + 1)')) {
+        for (const row of rows) if (ids.includes(row.id)) row.position = -(row.position + 1);
+      } else {
+        ids.forEach((id, index) => {
+          const row = rows.find((r) => r.id === id);
+          if (row) row.position = index;
+        });
+      }
+    }),
+  };
+  (sections as unknown as { manager: unknown }).manager = manager;
+  (lessons as unknown as { manager: unknown }).manager = manager;
+
+  // T073: the latest review decision per rejected course, read in one statement.
+  const decisions = { query: jest.fn().mockResolvedValue([]) };
+
   const service = new CourseAuthoringService(
     courses as never,
     sections as never,
     lessons as never,
     enrollments as never,
     sanitization,
+    decisions as never,
   );
-  return { service, courses, sections, lessons, enrollments };
+  return { service, courses, sections, lessons, enrollments, manager, decisions };
 }
 
 describe('CourseAuthoringService', () => {
+  describe('listOwnCourses (T073 latest review reasons)', () => {
+    const course = (id: string, status: MarketplaceCourseStatus): MarketplaceCourse =>
+      buildCourse({ id, status });
+
+    it('reads no decisions when none of the instructor\'s courses is rejected', async () => {
+      const rows = [
+        course('c1', MarketplaceCourseStatus.DRAFT),
+        course('c2', MarketplaceCourseStatus.PUBLISHED),
+      ];
+      const { service, decisions } = buildService(rows, [], []);
+
+      const result = await service.listOwnCourses('instr-1');
+
+      expect(decisions.query).not.toHaveBeenCalled();
+      expect(result.map((item) => 'latest_review_reasons' in item)).toEqual([false, false]);
+    });
+
+    it('fetches the latest reasons of every rejected course in ONE statement, keyed only by this instructor\'s ids', async () => {
+      const rows = [
+        course('c1', MarketplaceCourseStatus.REJECTED),
+        course('c2', MarketplaceCourseStatus.DRAFT),
+        course('c3', MarketplaceCourseStatus.REJECTED),
+        course('c4', MarketplaceCourseStatus.REJECTED),
+      ];
+      const { service, decisions } = buildService(rows, [], []);
+      decisions.query.mockResolvedValue([
+        { course_id: 'c1', reasons: ['Cover is blurry'] },
+        { course_id: 'c3', reasons: [] },
+      ]);
+
+      const result = await service.listOwnCourses('instr-1');
+
+      expect(decisions.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = decisions.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('DISTINCT ON (course_id)');
+      expect(sql).toContain('course_id = ANY($1::uuid[])');
+      expect(sql).toContain('ORDER BY course_id, reviewed_at DESC');
+      expect(params).toEqual([['c1', 'c3', 'c4']]);
+      const byId = new Map(result.map((item) => [item.id, item]));
+      expect(byId.get('c1')?.latest_review_reasons).toEqual(['Cover is blurry']);
+      expect(byId.get('c3')?.latest_review_reasons).toEqual([]);
+      // Rejected but with no decision row at all.
+      expect(byId.get('c4')?.latest_review_reasons).toBeNull();
+      // Non-rejected rows are untouched.
+      expect('latest_review_reasons' in byId.get('c2')!).toBe(false);
+    });
+
+    it('returns the same rows in the same order as before', async () => {
+      const rows = [
+        course('c1', MarketplaceCourseStatus.REJECTED),
+        course('c2', MarketplaceCourseStatus.DRAFT),
+      ];
+      const { service, decisions, courses } = buildService(rows, [], []);
+      decisions.query.mockResolvedValue([{ course_id: 'c1', reasons: ['x'] }]);
+
+      const result = await service.listOwnCourses('instr-1');
+
+      expect(courses.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { instructor_id: 'instr-1' }, order: { created_at: 'DESC' } }),
+      );
+      expect(result.map((item) => item.id)).toEqual(['c1', 'c2']);
+    });
+  });
+
   describe('createCourse / updateCourse', () => {
     it('creates a draft course scoped to the calling instructor', async () => {
       const { service, courses } = buildService([], [], []);
@@ -196,6 +322,24 @@ describe('CourseAuthoringService', () => {
       expect(result.sections[0]?.lessons[0]?.id).toBe(lesson.id);
     });
 
+    it("T071: getCourseWithCurriculum reads every section's lessons in one statement, in section order", async () => {
+      const course = buildCourse();
+      const a = buildSection({ id: 'a', position: 0 });
+      const b = buildSection({ id: 'b', position: 1 });
+      const c = buildSection({ id: 'c', position: 2 });
+      const l1 = buildLesson({ id: 'l1', section_id: 'b', position: 0 });
+      const l2 = buildLesson({ id: 'l2', section_id: 'a', position: 1 });
+      const l3 = buildLesson({ id: 'l3', section_id: 'a', position: 0 });
+      const { service, lessons } = buildService([course], [a, b, c], [l1, l2, l3]);
+      const result = await service.getCourseWithCurriculum('course-1');
+      expect(result.sections.map((section) => section.lessons.map((lesson) => lesson.id))).toEqual([
+        ['l3', 'l2'],
+        ['l1'],
+        [],
+      ]);
+      expect(lessons.find).toHaveBeenCalledTimes(1);
+    });
+
     it('getCourseWithCurriculum throws for a nonexistent course', async () => {
       const { service } = buildService([], [], []);
       await expect(service.getCourseWithCurriculum('missing')).rejects.toThrow();
@@ -233,11 +377,47 @@ describe('CourseAuthoringService', () => {
       const course = buildCourse();
       const a = buildSection({ id: 'a', position: 0 });
       const b = buildSection({ id: 'b', position: 1 });
-      const { service, sections } = buildService([course], [a, b], []);
+      const { service, manager } = buildService([course], [a, b], []);
       await service.reorderSections('instr-1', 'course-1', ['b', 'a']);
       expect(b.position).toBe(0);
       expect(a.position).toBe(1);
-      expect(sections.update).toHaveBeenCalledTimes(2);
+      // One transaction, two statements (park on negative positions, then the final ones).
+      expect(manager.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.query).toHaveBeenCalledTimes(2);
+    });
+
+    it('renumbers through disjoint negative positions, scoped by the course, so a swap cannot collide', async () => {
+      const course = buildCourse();
+      const a = buildSection({ id: 'a', position: 0 });
+      const b = buildSection({ id: 'b', position: 1 });
+      const { service, manager } = buildService([course], [a, b], []);
+      await service.reorderSections('instr-1', 'course-1', ['b', 'a']);
+      const [park, finalise] = manager.query.mock.calls as Array<[string, unknown[]]>;
+      expect(park![0]).toContain('SET position = -(position + 1)');
+      expect(park![0]).toContain('course_id = $1');
+      expect(park![1]).toEqual(['course-1', ['b', 'a']]);
+      expect(finalise![0]).toContain('WITH ORDINALITY');
+      expect(finalise![0]).toContain('t.course_id = $1');
+      expect(finalise![1]).toEqual(['course-1', ['b', 'a']]);
+    });
+
+    it('does not touch any row when the reorder list names a foreign id', async () => {
+      const course = buildCourse();
+      const a = buildSection({ id: 'a', position: 0 });
+      const b = buildSection({ id: 'b', position: 1 });
+      const { service, manager } = buildService([course], [a, b], []);
+      await expect(service.reorderSections('instr-1', 'course-1', ['b', 'a', 'x'])).rejects.toThrow();
+      expect(manager.transaction).not.toHaveBeenCalled();
+      expect(manager.query).not.toHaveBeenCalled();
+    });
+
+    it('counts a duplicated id once, at its last occurrence', async () => {
+      const course = buildCourse();
+      const a = buildSection({ id: 'a', position: 0 });
+      const b = buildSection({ id: 'b', position: 1 });
+      const { service, manager } = buildService([course], [a, b], []);
+      await service.reorderSections('instr-1', 'course-1', ['a', 'b', 'a']);
+      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['course-1', ['b', 'a']]);
     });
 
     it('refuses a reorder list that does not match the existing section set exactly', async () => {
@@ -255,6 +435,19 @@ describe('CourseAuthoringService', () => {
       await service.deleteSection('instr-1', 'course-1', 'a');
       expect(b.position).toBe(0);
       expect(courses.update).toHaveBeenCalled();
+    });
+
+    it('T071: removes the section and renumbers the rest inside one transaction', async () => {
+      const course = buildCourse();
+      const a = buildSection({ id: 'a', position: 0 });
+      const b = buildSection({ id: 'b', position: 1 });
+      const c = buildSection({ id: 'c', position: 2 });
+      const { service, manager } = buildService([course], [a, b, c], []);
+      await service.deleteSection('instr-1', 'course-1', 'a');
+      expect(manager.transaction).toHaveBeenCalledTimes(1);
+      expect(manager.remove).toHaveBeenCalledWith(a);
+      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['course-1', ['b', 'c']]);
+      expect([b.position, c.position]).toEqual([0, 1]);
     });
   });
 
@@ -340,11 +533,12 @@ describe('CourseAuthoringService', () => {
       const section = buildSection();
       const l1 = buildLesson({ id: 'l1', position: 0 });
       const l2 = buildLesson({ id: 'l2', position: 1 });
-      const { service, lessons } = buildService([course], [section], [l1, l2]);
+      const { service, manager } = buildService([course], [section], [l1, l2]);
       await service.reorderLessons('instr-1', 'course-1', 'section-1', ['l2', 'l1']);
       expect(l2.position).toBe(0);
       expect(l1.position).toBe(1);
-      expect(lessons.update).toHaveBeenCalledTimes(2);
+      expect(manager.query).toHaveBeenCalledTimes(2);
+      expect((manager.query.mock.calls[0] as [string, unknown[]])[0]).toContain('section_id = $1');
     });
 
     it('deletes a lesson, recompacts positions and recomputes totals', async () => {

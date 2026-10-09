@@ -14,6 +14,13 @@ import {
 
 import { MeetingProvider } from '../entities/meeting-provider.enum';
 
+/** `GET /student/lesson-sessions`: optionally narrow the caller's own bookings to one lesson (T088). */
+export class StudentLessonSessionsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  public lesson_id?: string;
+}
+
 export class CreateLessonSessionSlotDto {
   @IsDateString()
   public start_at!: string;

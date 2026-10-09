@@ -67,6 +67,32 @@ describe('PlayerService (T125)', () => {
       ]);
     });
 
+    it('loads lesson rows without their bodies: the curriculum map selects only the columns it returns (T083)', async () => {
+      const { service, lessons } = buildService({
+        sections: [{ id: 's1', title: 'Intro', title_ar: null, position: 0 }],
+        lessons: [],
+      });
+
+      await service.getPlayerData('learner-1', 'enrollment-1');
+
+      const options = lessons.find.mock.calls[0]![0] as { select: string[] };
+      expect([...options.select].sort()).toEqual(
+        [
+          'content_type',
+          'duration_seconds',
+          'id',
+          'is_free_preview',
+          'is_required_for_completion',
+          'position',
+          'section_id',
+          'title',
+          'title_ar',
+        ].sort(),
+      );
+      expect(options.select).not.toContain('content_html');
+      expect(options.select).not.toContain('video_id');
+    });
+
     it('propagates a lost-access refusal from AccessService rather than serving anything', async () => {
       const { service } = buildService({ enrollment: new Error('no access') });
       await expect(service.getPlayerData('learner-1', 'enrollment-1')).rejects.toThrow('no access');

@@ -881,6 +881,7 @@ describe('AuthService', () => {
         name: mockUser.name,
         role: UserRole.STUDENT,
         sessionId: 'session-1',
+        financePermissions: mockUser.finance_permissions ?? [],
       });
     });
 

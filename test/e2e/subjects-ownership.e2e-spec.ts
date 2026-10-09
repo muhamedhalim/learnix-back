@@ -174,6 +174,44 @@ describe('Subject ownership and approval (e2e)', () => {
     });
   });
 
+  describe('admin list status counts (T053)', () => {
+    it('meta.status_counts.pending_approval equals the pending queue total', async () => {
+      await createTeacherSubject(teacherA, 'Physics A');
+      await createTeacherSubject(teacherB, 'Chemistry B');
+
+      const queue = await admin.agent.get(`${API_PREFIX}/admin/subjects/pending`).expect(200);
+      const withCounts = await admin.agent
+        .get(`${API_PREFIX}/admin/subjects?include_status_counts=true&limit=1`)
+        .expect(200);
+      const meta = (withCounts.body as { meta: { status_counts: Record<string, number> } }).meta;
+
+      expect(meta.status_counts['pending_approval']).toBe(
+        (queue.body as { meta: { total: number } }).meta.total,
+      );
+      // Global: independent of the list's own filter and page size.
+      expect(meta.status_counts['pending_approval']).toBe(2);
+    });
+
+    it('absent flag leaves the body without status_counts; non-admins get 403', async () => {
+      const plain = await admin.agent.get(`${API_PREFIX}/admin/subjects`).expect(200);
+      expect((plain.body as { meta: object }).meta).not.toHaveProperty('status_counts');
+      await teacherA.agent
+        .get(`${API_PREFIX}/admin/subjects?include_status_counts=true`)
+        .expect(403);
+    });
+
+    it('exam list returns zero-filled status_counts only when asked', async () => {
+      const withCounts = await admin.agent
+        .get(`${API_PREFIX}/admin/exams?include_status_counts=true&status=draft`)
+        .expect(200);
+      expect(
+        (withCounts.body as { meta: { status_counts: object } }).meta.status_counts,
+      ).toEqual({ draft: 0, published: 0, scheduled: 0, archived: 0 });
+      const plain = await admin.agent.get(`${API_PREFIX}/admin/exams`).expect(200);
+      expect((plain.body as { meta: object }).meta).not.toHaveProperty('status_counts');
+    });
+  });
+
   describe('approval lifecycle', () => {
     it('publishes the subject to everyone once approved', async () => {
       const subject = await createTeacherSubject(teacherA, 'Physics A');

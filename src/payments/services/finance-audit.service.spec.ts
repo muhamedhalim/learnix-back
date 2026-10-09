@@ -136,5 +136,10 @@ describe('FinanceAuditService', () => {
       'settlement_paid',
     ]);
     expect(query.mock.calls[0][1]).toEqual(['teacher-1']);
+    // T080: it reads the same teacher-scoped branches as `list`, not the whole table behind LEFT JOINs.
+    const sql = String(query.mock.calls[0][0]);
+    expect(sql).toContain('SELECT DISTINCT scoped.action FROM (');
+    expect(sql.match(/UNION ALL/g)).toHaveLength(3);
+    expect(sql).not.toContain('LEFT JOIN');
   });
 });

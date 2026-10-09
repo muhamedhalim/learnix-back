@@ -38,6 +38,14 @@ interface StudentQuizAnalytics {
   attempts: StudentVisibleAttempt[];
 }
 
+/** `view=summary` of the student analytics: the two figures the dashboard shows (T062). */
+export interface StudentQuizSummary {
+  totalAttempts: number;
+  averageScore: number;
+}
+
+export type StudentAnalyticsView = 'full' | 'summary';
+
 /**
  * Deterministic cache-key input for `getStudentAnalytics` (T040): fixed key order,
  * every field present (absent -> `null`, never omitted, so two calls with the
@@ -194,11 +202,21 @@ export class QuizAnalyticsService {
 
   public async getStudentAnalytics(
     studentId: string,
+    filter?: StudentAnalyticsFilter,
+    view?: 'full',
+  ): Promise<StudentQuizAnalytics>;
+  public async getStudentAnalytics(
+    studentId: string,
+    filter: StudentAnalyticsFilter,
+    view: 'summary',
+  ): Promise<StudentQuizSummary>;
+  public async getStudentAnalytics(
+    studentId: string,
     filter: StudentAnalyticsFilter = {},
-    view: 'full' = 'full',
-  ): Promise<StudentQuizAnalytics> {
-    // T040: owner-scoped, 30 s TTL (= frontend `staleTime`, `useQuizAnalytics.ts`). `view` is present from the
-    // start (today always 'full') so a future response variant (T062, Wave 3) never collides with this key.
+    view: StudentAnalyticsView = 'full',
+  ): Promise<StudentQuizAnalytics | StudentQuizSummary> {
+    // T040: owner-scoped, 30 s TTL (= frontend `staleTime`, `useQuizAnalytics.ts`). `view` is part of the key
+    // parts, so a `summary` entry can never be served to a `full` request (T062) or the reverse.
     return await this.applicationCache.getOrCompute(
       {
         family: 'student_quiz_analytics',
@@ -207,40 +225,64 @@ export class QuizAnalyticsService {
         parts: ['student', normalizeStudentAnalyticsFilter(filter), view],
         ttlMs: 30_000,
       },
-      async () => await this.computeStudentAnalytics(studentId, filter),
+      async () =>
+        view === 'summary'
+          ? await this.computeStudentSummary(studentId, filter)
+          : await this.computeStudentAnalytics(studentId, filter),
     );
+  }
+
+  /**
+   * The dashboard summary: attempts that are student-visible under the same
+   * review-policy rule, aggregated exactly like the full response. It never
+   * loads answers, the four history sources or subjects (1 statement, not 7).
+   */
+  private async computeStudentSummary(
+    studentId: string,
+    filter: StudentAnalyticsFilter,
+  ): Promise<StudentQuizSummary> {
+    const visibleAttempts = await this.loadVisibleStudentAttempts(studentId, filter);
+    const percentages = visibleAttempts.map((attempt) =>
+      attempt.max_score > 0
+        ? Math.round((Number(attempt.score_total) / Number(attempt.max_score)) * 100)
+        : 0,
+    );
+    return {
+      totalAttempts: visibleAttempts.length,
+      averageScore: visibleAttempts.length
+        ? Math.round(percentages.reduce((sum, value) => sum + value, 0) / visibleAttempts.length)
+        : 0,
+    };
   }
 
   private async computeStudentAnalytics(
     studentId: string,
     filter: StudentAnalyticsFilter,
   ): Promise<StudentQuizAnalytics> {
-    const query = this.attemptsRepository
-      .createQueryBuilder('attempt')
-      .innerJoinAndSelect('attempt.exam', 'exam')
-      .leftJoinAndSelect('exam.teacher', 'teacher')
-      .leftJoinAndSelect('exam.subject', 'subject')
-      .leftJoinAndSelect('exam.package', 'course')
-      .where('attempt.student_id = :studentId', { studentId })
-      .andWhere('attempt.state = :state', { state: AttemptState.GRADED })
-      .andWhere('attempt.score_total IS NOT NULL')
-      .andWhere('exam.deleted_at IS NULL');
-    if (filter.subjectId)
-      query.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subjectId });
-    if (filter.teacherId)
-      query.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacherId });
-    if (filter.from) query.andWhere('attempt.submitted_at >= :from', { from: filter.from });
-    if (filter.to) query.andWhere('attempt.submitted_at <= :to', { to: filter.to });
-    const gradedAttempts = await query.orderBy('attempt.graded_at', 'DESC').getMany();
-    const visibleAttempts = gradedAttempts.filter((attempt) =>
-      this.isStudentResultVisible(attempt),
-    );
+    const visibleAttempts = await this.loadVisibleStudentAttempts(studentId, filter);
     const attemptIds = visibleAttempts.map((attempt) => attempt.id);
+    // Projected: only what feedback, mastery and question-type stats read.
+    // `question` is joined with its soft-delete predicate (a deleted question has
+    // no subject, so its answer is skipped exactly as before).
     const answers = attemptIds.length
-      ? await this.answersRepository.find({
-          where: { attempt_id: In(attemptIds) },
-          relations: ['exam_question', 'exam_question.question'],
-        })
+      ? await this.answersRepository
+          .createQueryBuilder('answer')
+          .leftJoin('answer.exam_question', 'exam_question')
+          .leftJoin('exam_question.question', 'question')
+          .select([
+            'answer.id',
+            'answer.attempt_id',
+            'answer.score',
+            'answer.max_score',
+            'answer.feedback',
+            'answer.updated_at',
+            'exam_question.id',
+            'exam_question.type_snapshot',
+            'question.id',
+            'question.subject_id',
+          ])
+          .where('answer.attempt_id = ANY(:attemptIds)', { attemptIds })
+          .getMany()
       : [];
     const answerByAttempt = new Map<string, ExamAttemptAnswer[]>();
     for (const answer of answers) {
@@ -322,6 +364,57 @@ export class QuizAnalyticsService {
     };
   }
 
+  /** Graded, student-visible attempts for the filter (projected; soft-delete joins kept). */
+  private async loadVisibleStudentAttempts(
+    studentId: string,
+    filter: StudentAnalyticsFilter,
+  ): Promise<ExamAttempt[]> {
+    // Only the columns the mapper and the visibility rule read. The left joins
+    // keep TypeORM's implicit `deleted_at IS NULL` (User/Subject/LessonPackage are
+    // soft-deletable), so a soft-deleted teacher/subject/course still yields null.
+    const query = this.attemptsRepository
+      .createQueryBuilder('attempt')
+      .innerJoin('attempt.exam', 'exam')
+      .leftJoin('exam.teacher', 'teacher')
+      .leftJoin('exam.subject', 'subject')
+      .leftJoin('exam.package', 'course')
+      .select([
+        'attempt.id',
+        'attempt.exam_id',
+        'attempt.state',
+        'attempt.started_at',
+        'attempt.submitted_at',
+        'attempt.graded_at',
+        'attempt.updated_at',
+        'attempt.score_auto',
+        'attempt.score_manual',
+        'attempt.score_total',
+        'attempt.max_score',
+        'attempt.passed',
+        'exam.id',
+        'exam.title',
+        'exam.config',
+        'teacher.id',
+        'teacher.name',
+        'subject.id',
+        'subject.name',
+        'course.id',
+        'course.title',
+      ])
+      .where('attempt.student_id = :studentId', { studentId })
+      .andWhere('attempt.state = :state', { state: AttemptState.GRADED })
+      .andWhere('attempt.score_total IS NOT NULL')
+      .andWhere('exam.deleted_at IS NULL');
+    if (filter.subjectId)
+      query.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subjectId });
+    if (filter.teacherId)
+      query.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacherId });
+    if (filter.from) query.andWhere('attempt.submitted_at >= :from', { from: filter.from });
+    if (filter.to) query.andWhere('attempt.submitted_at <= :to', { to: filter.to });
+    const gradedAttempts = await query.orderBy('attempt.graded_at', 'DESC').getMany();
+    return gradedAttempts.filter((attempt) => this.isStudentResultVisible(attempt));
+  }
+
   private isStudentResultVisible(attempt: ExamAttempt): boolean {
     if (attempt.state !== AttemptState.GRADED || attempt.score_total === null) return false;
     const policy = attempt.exam.config.review_policy;
@@ -349,21 +442,20 @@ export class QuizAnalyticsService {
     examAnswers: ExamAttemptAnswer[],
     filter: StudentAnalyticsFilter,
   ): Promise<StudentPerformanceInsight[]> {
-    const [practiceSolves, homeworkSubmissions, lessonProgress, attendance] = await Promise.all([
-      this.questionSolvesRepository.find({
-        where: { user_id: studentId, suspicious: false },
-        order: { created_at: 'ASC' },
-      }),
-      this.homeworkSubmissionsRepository.find({
-        where: { student_id: studentId, status: 'graded' },
-        relations: ['homework', 'homework.lesson'],
-      }),
-      this.lessonProgressRepository.find({
-        where: { student_id: studentId },
-        relations: ['lesson'],
-      }),
-      this.attendanceRepository.find({ where: { student_id: studentId }, relations: ['lesson'] }),
-    ]);
+    // Practice, homework, lesson progress and attendance only ever feed the
+    // student's general view: a teacher filter excludes all four (see below), so
+    // their statements are not issued at all in that case.
+    const generalView = !filter.teacherId;
+    const rangeFrom = filter.from ? new Date(filter.from) : undefined;
+    const rangeTo = filter.to ? new Date(filter.to) : undefined;
+    const [practiceSolves, homeworkSubmissions, progressBySubject, attendanceBySubject] = generalView
+      ? await Promise.all([
+          this.loadPracticeSolves(studentId, filter.subjectId, rangeFrom, rangeTo),
+          this.loadGradedHomework(studentId, filter.subjectId, rangeFrom, rangeTo),
+          this.loadLessonProgressBySubject(studentId, filter.subjectId, rangeFrom, rangeTo),
+          this.loadAttendanceBySubject(studentId, filter.subjectId, rangeFrom, rangeTo),
+        ])
+      : [[], [], [], []];
 
     const buckets = new Map<string, SubjectPerformanceBucket>();
     const ensureBucket = (subjectId: string): SubjectPerformanceBucket => {
@@ -382,14 +474,6 @@ export class QuizAnalyticsService {
     };
     const isSelectedSubject = (subjectId: string) =>
       !filter.subjectId || filter.subjectId === subjectId;
-    const inDateRange = (date: Date | null | undefined) => {
-      if (!date) return false;
-      return (
-        (!filter.from || date >= new Date(filter.from)) &&
-        (!filter.to || date <= new Date(filter.to))
-      );
-    };
-
     for (const answer of examAnswers) {
       const subjectId = answer.exam_question?.question?.subject_id;
       if (
@@ -410,9 +494,10 @@ export class QuizAnalyticsService {
     }
     // Practice cannot be attributed to one teacher, so do not mix it into a
     // teacher-filtered report. It remains part of the student's general view.
-    if (!filter.teacherId) {
+    // (Subject, date-range, graded, positive-max and non-suspicious predicates are
+    // applied in SQL by the loaders; rows arrive in the order the old loop saw.)
+    if (generalView) {
       for (const solve of practiceSolves) {
-        if (!isSelectedSubject(solve.subject_id) || !inDateRange(solve.created_at)) continue;
         ensureBucket(solve.subject_id).scores.push({
           score: solve.is_correct ? 1 : 0,
           max: 1,
@@ -421,51 +506,31 @@ export class QuizAnalyticsService {
         });
       }
       for (const submission of homeworkSubmissions) {
-        const subjectId = submission.homework?.lesson?.subject_id;
-        if (
-          !subjectId ||
-          submission.score === null ||
-          Number(submission.homework.max_score) <= 0 ||
-          !isSelectedSubject(subjectId) ||
-          !inDateRange(submission.graded_at)
-        )
-          continue;
-        ensureBucket(subjectId).scores.push({
+        ensureBucket(submission.homework.lesson.subject_id).scores.push({
           score: Number(submission.score),
           max: Number(submission.homework.max_score),
           completedAt: submission.graded_at!,
           source: 'homework',
         });
       }
-    }
-    if (!filter.teacherId) {
-      for (const progress of lessonProgress) {
-        const subjectId = progress.lesson?.subject_id;
-        if (!subjectId || !isSelectedSubject(subjectId) || !inDateRange(progress.last_watched_at))
-          continue;
-        const bucket = ensureBucket(subjectId);
-        bucket.lessonsWithProgress += 1;
-        bucket.completedLessons += progress.completed ? 1 : 0;
-        bucket.totalLessonProgress += Math.max(0, Math.min(100, progress.progress_percent));
+      for (const row of progressBySubject) {
+        const bucket = ensureBucket(row.subject_id);
+        bucket.lessonsWithProgress += row.lessons;
+        bucket.completedLessons += row.completed;
+        bucket.totalLessonProgress += row.progress;
       }
-      for (const record of attendance) {
-        const subjectId = record.lesson?.subject_id;
-        if (
-          !subjectId ||
-          !isSelectedSubject(subjectId) ||
-          record.status === 'excused' ||
-          !inDateRange(record.marked_at)
-        )
-          continue;
-        const bucket = ensureBucket(subjectId);
-        bucket.attendanceRecords += 1;
-        bucket.attended += record.status === 'present' || record.status === 'late' ? 1 : 0;
+      for (const row of attendanceBySubject) {
+        const bucket = ensureBucket(row.subject_id);
+        bucket.attendanceRecords += row.records;
+        bucket.attended += row.attended;
       }
     }
 
     const subjectIds = [...buckets.keys()];
-    const subjects = subjectIds.length
-      ? await this.subjectsRepository.find({ where: { id: In(subjectIds) } })
+    // Names are only needed for subjects that can actually be reported (>= 5 scores).
+    const reportable = subjectIds.filter((id) => (buckets.get(id)?.scores.length ?? 0) >= 5);
+    const subjects = reportable.length
+      ? await this.subjectsRepository.find({ select: { id: true, name: true }, where: { id: In(reportable) } })
       : [];
     const subjectNames = new Map(subjects.map((subject) => [subject.id, subject.name]));
 
@@ -502,6 +567,139 @@ export class QuizAnalyticsService {
         },
       ];
     });
+  }
+
+  /**
+   * Non-suspicious practice solves, projected to the three fields the mastery
+   * bucket reads. Subject and date-range predicates (formerly JS guards) run in
+   * SQL; `ORDER BY created_at ASC` is kept because equal-timestamp ties feed the
+   * trend calculation in arrival order.
+   */
+  private async loadPracticeSolves(
+    studentId: string,
+    subjectId: string | undefined,
+    from: Date | undefined,
+    to: Date | undefined,
+  ): Promise<Array<Pick<QuestionSolve, 'subject_id' | 'is_correct' | 'created_at'>>> {
+    const query = this.questionSolvesRepository
+      .createQueryBuilder('solve')
+      .select(['solve.id', 'solve.subject_id', 'solve.is_correct', 'solve.created_at'])
+      .where('solve.user_id = :studentId', { studentId })
+      .andWhere('solve.suspicious = false');
+    if (subjectId) query.andWhere('solve.subject_id = :subjectId', { subjectId });
+    if (from) query.andWhere('solve.created_at >= :from', { from });
+    if (to) query.andWhere('solve.created_at <= :to', { to });
+    return await query.orderBy('solve.created_at', 'ASC').getMany();
+  }
+
+  /**
+   * Graded homework attributable to a subject. The joins carry TypeORM's implicit
+   * soft-delete predicates (a soft-deleted homework or lesson drops the row, as
+   * the old `!subjectId` guard did); score/max/graded_at guards run in SQL. No
+   * ORDER BY, exactly as before.
+   */
+  private async loadGradedHomework(
+    studentId: string,
+    subjectId: string | undefined,
+    from: Date | undefined,
+    to: Date | undefined,
+  ): Promise<HomeworkSubmission[]> {
+    const query = this.homeworkSubmissionsRepository
+      .createQueryBuilder('submission')
+      .innerJoin('submission.homework', 'homework')
+      .innerJoin('homework.lesson', 'lesson')
+      .select([
+        'submission.id',
+        'submission.score',
+        'submission.graded_at',
+        'homework.id',
+        'homework.max_score',
+        'lesson.id',
+        'lesson.subject_id',
+      ])
+      .where('submission.student_id = :studentId', { studentId })
+      .andWhere("submission.status = 'graded'")
+      .andWhere('submission.score IS NOT NULL')
+      .andWhere('homework.max_score > 0')
+      .andWhere('lesson.subject_id IS NOT NULL')
+      .andWhere('submission.graded_at IS NOT NULL');
+    if (subjectId) query.andWhere('lesson.subject_id = :subjectId', { subjectId });
+    if (from) query.andWhere('submission.graded_at >= :from', { from });
+    if (to) query.andWhere('submission.graded_at <= :to', { to });
+    return await query.getMany();
+  }
+
+  /**
+   * Lesson progress folded to ONE row per subject (was: every progress row with
+   * its lesson hydrated, filtered in JS). Soft-deleted lessons are excluded by the
+   * join condition; per-row progress is clamped to 0..100 before summing.
+   */
+  private async loadLessonProgressBySubject(
+    studentId: string,
+    subjectId: string | undefined,
+    from: Date | undefined,
+    to: Date | undefined,
+  ): Promise<Array<{ subject_id: string; lessons: number; completed: number; progress: number }>> {
+    const params: unknown[] = [studentId];
+    const clauses = ['lp.student_id = $1', 'l.subject_id IS NOT NULL', 'lp.last_watched_at IS NOT NULL'];
+    if (subjectId) clauses.push(`l.subject_id = $${String(params.push(subjectId))}`);
+    if (from) clauses.push(`lp.last_watched_at >= $${String(params.push(from))}`);
+    if (to) clauses.push(`lp.last_watched_at <= $${String(params.push(to))}`);
+    const rows = await this.lessonProgressRepository.query<
+      Array<{ subject_id: string; lessons: string; completed: string; progress: string }>
+    >(
+      `SELECT l.subject_id,
+              COUNT(*)::text AS lessons,
+              (COUNT(*) FILTER (WHERE lp.completed))::text AS completed,
+              COALESCE(SUM(GREATEST(0, LEAST(100, lp.progress_percent))), 0)::text AS progress
+         FROM lesson_progress lp
+         INNER JOIN lessons l ON l.id = lp.lesson_id AND l.deleted_at IS NULL
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY l.subject_id`,
+      params,
+    );
+    return rows.map((row) => ({
+      subject_id: row.subject_id,
+      lessons: Number.parseInt(row.lessons, 10),
+      completed: Number.parseInt(row.completed, 10),
+      progress: Number.parseInt(row.progress, 10),
+    }));
+  }
+
+  /** Attendance folded to one row per subject; `excused` and undated rows never count. */
+  private async loadAttendanceBySubject(
+    studentId: string,
+    subjectId: string | undefined,
+    from: Date | undefined,
+    to: Date | undefined,
+  ): Promise<Array<{ subject_id: string; records: number; attended: number }>> {
+    const params: unknown[] = [studentId];
+    const clauses = [
+      'ar.student_id = $1',
+      'l.subject_id IS NOT NULL',
+      "ar.status <> 'excused'",
+      'ar.marked_at IS NOT NULL',
+    ];
+    if (subjectId) clauses.push(`l.subject_id = $${String(params.push(subjectId))}`);
+    if (from) clauses.push(`ar.marked_at >= $${String(params.push(from))}`);
+    if (to) clauses.push(`ar.marked_at <= $${String(params.push(to))}`);
+    const rows = await this.attendanceRepository.query<
+      Array<{ subject_id: string; records: string; attended: string }>
+    >(
+      `SELECT l.subject_id,
+              COUNT(*)::text AS records,
+              (COUNT(*) FILTER (WHERE ar.status IN ('present', 'late')))::text AS attended
+         FROM attendance_records ar
+         INNER JOIN lessons l ON l.id = ar.lesson_id AND l.deleted_at IS NULL
+        WHERE ${clauses.join(' AND ')}
+        GROUP BY l.subject_id`,
+      params,
+    );
+    return rows.map((row) => ({
+      subject_id: row.subject_id,
+      records: Number.parseInt(row.records, 10),
+      attended: Number.parseInt(row.attended, 10),
+    }));
   }
 
   private getPerformanceTrend(

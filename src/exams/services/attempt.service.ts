@@ -122,7 +122,8 @@ export class AttemptService {
       where: { exam_id: examId, student_id: studentId, state: AttemptState.IN_PROGRESS },
     });
     if (inProgress) {
-      return this.renderAttempt(await this.finalizeIfExpired(inProgress));
+      // The access-scoped exam loaded above also serves the expiry check and the render.
+      return this.renderAttempt(await this.finalizeIfExpired(inProgress, exam), exam);
     }
 
     const priorAttempts = await this.attempts.count({
@@ -206,7 +207,7 @@ export class AttemptService {
     await this.jobs.scheduleAutoSubmit(attempt.id, delayMs);
 
     this.logger.log(`Attempt ${attempt.id} started for student ${studentId} on exam ${examId}`);
-    return this.renderAttempt(attempt);
+    return this.renderAttempt(attempt, exam, examQuestions);
   }
 
   /**
@@ -304,8 +305,8 @@ export class AttemptService {
   /** Resume/get an attempt (lazily finalises if the deadline already passed). */
   public async getAttempt(studentId: string, attemptId: string): Promise<RenderedAttempt> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
-    await this.access.assertCanAccessExam(studentId, attempt.exam_id);
-    return this.renderAttempt(await this.finalizeIfExpired(attempt));
+    const exam = await this.access.findAccessibleExam(studentId, attempt.exam_id);
+    return this.renderAttempt(await this.finalizeIfExpired(attempt, exam), exam);
   }
 
   /**
@@ -330,7 +331,9 @@ export class AttemptService {
     dto: SaveAnswersDto,
   ): Promise<{ saved: number; state: AttemptState }> {
     const attempt = await this.loadOwnedAttempt(studentId, attemptId);
-    await this.access.assertCanAccessExam(studentId, attempt.exam_id);
+    // The audience-scoped read stays on EVERY autosave (a refund mid-exam must stop it); its
+    // result is the exam, so there is no second read of the same row.
+    const exam = await this.access.findAccessibleExam(studentId, attempt.exam_id);
     if (attempt.state !== AttemptState.IN_PROGRESS) {
       throw new ConflictException(
         biBody(
@@ -339,9 +342,8 @@ export class AttemptService {
         ),
       );
     }
-    const exam = await this.exams.findOneOrFail({ where: { id: attempt.exam_id } });
     if (this.isExpired(attempt, exam.config)) {
-      await this.finalizeIfExpired(attempt);
+      await this.finalizeIfExpired(attempt, exam);
       throw new ConflictException(
         biBody(
           'Time is up; the attempt has been submitted automatically',
@@ -350,11 +352,18 @@ export class AttemptService {
       );
     }
 
-    const rows = await this.answers.find({ where: { attempt_id: attemptId } });
-    const byExamQuestion = new Map(rows.map((r) => [r.exam_question_id, r]));
-    const questions = await this.examQuestions.find({
-      where: { id: In([...byExamQuestion.keys()]) },
+    // Only the rows this payload names are loaded (not the whole attempt). Items that are not part
+    // of this attempt find no row and are ignored, exactly as before.
+    const dirtyIds = [...new Set(dto.answers.map((item) => item.exam_question_id))];
+    if (dirtyIds.length === 0) return { saved: 0, state: attempt.state };
+    const rows = await this.answers.find({
+      where: { attempt_id: attemptId, exam_question_id: In(dirtyIds) },
     });
+    const byExamQuestion = new Map(rows.map((r) => [r.exam_question_id, r]));
+    const questions =
+      byExamQuestion.size === 0
+        ? []
+        : await this.examQuestions.find({ where: { id: In([...byExamQuestion.keys()]) } });
     const questionByExamQuestion = new Map(questions.map((question) => [question.id, question]));
 
     let saved = 0;
@@ -424,9 +433,14 @@ export class AttemptService {
     return { scanned: candidates.length, recovered };
   }
 
-  private async finalizeIfExpired(attempt: ExamAttempt): Promise<ExamAttempt> {
+  /**
+   * `knownExam` is an exam the caller already loaded through the audience-scoped access check.
+   * It is used ONLY for the expiry decision here; `finalize` re-reads the exam under the attempt
+   * lock and the finalised attempt is re-read below, so the race-safety reads are untouched.
+   */
+  private async finalizeIfExpired(attempt: ExamAttempt, knownExam?: Exam): Promise<ExamAttempt> {
     if (attempt.state !== AttemptState.IN_PROGRESS) return attempt;
-    const exam = await this.exams.findOneOrFail({ where: { id: attempt.exam_id } });
+    const exam = knownExam ?? (await this.exams.findOneOrFail({ where: { id: attempt.exam_id } }));
     if (!this.isExpired(attempt, exam.config)) return attempt;
     await this.finalize(attempt.id, { auto: true });
     return this.attempts.findOneOrFail({ where: { id: attempt.id } });
@@ -568,7 +582,7 @@ export class AttemptService {
   // ==================== RESULT ====================
 
   public async getResult(studentId: string, examId: string): Promise<unknown> {
-    await this.access.assertCanAccessExam(studentId, examId);
+    const exam = await this.access.findAccessibleExam(studentId, examId);
     const attempt = await this.attempts.findOne({
       where: { exam_id: examId, student_id: studentId },
       order: { attempt_number: 'DESC' },
@@ -578,7 +592,6 @@ export class AttemptService {
         biBody('You have not attempted this exam', 'لم تقم بأداء هذا الاختبار'),
       );
 
-    const exam = await this.exams.findOneOrFail({ where: { id: examId } });
     const visible = this.resultVisible(attempt, exam.config);
     if (!visible) {
       return {
@@ -686,9 +699,14 @@ export class AttemptService {
     return config.shuffle_questions ? seededShuffle(base, seed) : base;
   }
 
-  private async renderAttempt(attempt: ExamAttempt): Promise<RenderedAttempt> {
-    const exam = await this.exams.findOneOrFail({ where: { id: attempt.exam_id } });
-    const examQuestions = await this.examQuestions.find({ where: { exam_id: attempt.exam_id } });
+  private async renderAttempt(
+    attempt: ExamAttempt,
+    knownExam?: Exam,
+    knownExamQuestions?: ExamQuestion[],
+  ): Promise<RenderedAttempt> {
+    const exam = knownExam ?? (await this.exams.findOneOrFail({ where: { id: attempt.exam_id } }));
+    const examQuestions =
+      knownExamQuestions ?? (await this.examQuestions.find({ where: { exam_id: attempt.exam_id } }));
     const sections = await this.dataSource.getRepository(ExamSection).find({
       where: { exam_id: attempt.exam_id },
       order: { order_index: 'ASC' },

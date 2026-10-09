@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { BadRequestException, type INestApplication } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 
@@ -31,6 +33,7 @@ import { SubjectStatus } from '../../src/subjects/entities/subject-status.enum';
 import { User, UserRole } from '../../src/users/entities';
 import { UserStatus } from '../../src/users/entities/user-status.enum';
 import { createE2EApp, resetDatabase } from './fixtures';
+import { StatementCounter } from './helpers/statement-counter';
 
 /**
  * DEF-002 — Versioned Course + Snapshot lifecycle, against real PostgreSQL.
@@ -762,5 +765,122 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
 
     const refreshedCourse = await packagesRepo.findOneOrFail({ where: { id: legacyCourse.id } });
     expect(refreshedCourse.current_version_id).toBe(v3!.id);
+  });
+
+  it('T057: getMyCourseProgressBatch equals per-package getMyCourseProgress on every eligibility edge, in <= 5 statements', async () => {
+    const teacher = await makeUser(UserRole.TEACHER);
+    const student = await makeUser(UserRole.STUDENT);
+    const subject = await makeSubject();
+    const l1 = await makeLesson(teacher.id, subject.id, 'L1');
+    const l2 = await makeLesson(teacher.id, subject.id, 'L2');
+    const l3 = await makeLesson(teacher.id, subject.id, 'L3');
+    const l4 = await makeLesson(teacher.id, subject.id, 'L4');
+
+    const course = async (title: string, lessons: Lesson[]): Promise<LessonPackage> => {
+      const created = await packages.create(teacher.id, {
+        title,
+        subject_id: subject.id,
+        price: 100,
+        status: CourseStatus.PUBLISHED,
+      } as never);
+      await packages.addLessons(created.id, teacher.id, {
+        lessons: lessons.map((lesson, orderIndex) => ({ lessonId: lesson.id, orderIndex })),
+      } as never);
+      return created as LessonPackage;
+    };
+    /** A valid purchase that never went through finalization (no locked version). */
+    const looseUnversionedPurchase = async (pkg: LessonPackage): Promise<void> => {
+      const payments = dataSource.getRepository(Payment);
+      const payment = await payments.save(
+        payments.create({
+          order_id: null,
+          user_id: student.id,
+          item_type: ItemType.PACKAGE,
+          item_id: pkg.id,
+          amount: 100,
+          discount_amount: 0,
+          final_amount: 100,
+          amount_minor: 10_000,
+          currency: 'EGP',
+          channel: PaymentChannel.MANUAL,
+          provider: null,
+          provider_reference: `loose-${pkg.id}`,
+          status: PaymentStatus.COMPLETED,
+          payment_method: PaymentMethod.MANUAL,
+          idempotency_key: `loose-${pkg.id}`,
+        }),
+      );
+      await dataSource.getRepository(PackagePurchase).save(
+        dataSource.getRepository(PackagePurchase).create({
+          student_id: student.id,
+          package_id: pkg.id,
+          course_version_id: null,
+          payment_id: payment.id,
+          price_paid: 100,
+          purchased_at: new Date(),
+          revoked_at: null,
+          revocation_reason: null,
+        }),
+      );
+    };
+
+    // locked version, partially completed
+    const locked = await course('locked', [l1, l2, l3, l4]);
+    await purchasePackage(student.id, teacher.id, locked.id, 100, 'b-locked');
+    await progress.updateProgress(student.id, l1.id, 600, 600);
+    await progress.updateProgress(student.id, l2.id, 600, 600);
+    // purchase whose version was nulled: falls through to the package's current version
+    const nulled = await course('nulled', [l1, l2]);
+    await purchasePackage(student.id, teacher.id, nulled.id, 100, 'b-nulled');
+    await dataSource.query('UPDATE package_purchases SET course_version_id = NULL WHERE package_id = $1', [nulled.id]);
+    // unlocked draft: judged by lesson_package_items
+    const draft = await course('draft', [l1, l3]);
+    await looseUnversionedPurchase(draft);
+    // soft-deleted package with a null-version purchase
+    const gone = await course('gone', [l1, l2, l3]);
+    await looseUnversionedPurchase(gone);
+    await dataSource.getRepository(LessonPackage).softDelete({ id: gone.id });
+    // revoked purchase
+    const revoked = await course('revoked', [l1, l2]);
+    await purchasePackage(student.id, teacher.id, revoked.id, 100, 'b-revoked');
+    await dataSource.query('UPDATE package_purchases SET revoked_at = now() WHERE package_id = $1', [revoked.id]);
+    // never purchased
+    const unowned = await course('unowned', [l1, l2]);
+    // the same lesson listed twice in a locked version (no unique constraint): completed once must count once
+    const dup = await course('dup', [l1, l2]);
+    await purchasePackage(student.id, teacher.id, dup.id, 100, 'b-dup');
+    const dupVersion = (
+      await dataSource.getRepository(PackagePurchase).findOneOrFail({ where: { package_id: dup.id } })
+    ).course_version_id as string;
+    await dataSource.query('ALTER TABLE course_version_items DISABLE TRIGGER USER');
+    try {
+      await dataSource.query(
+        'INSERT INTO course_version_items (version_id, lesson_id, order_index) SELECT version_id, lesson_id, order_index + 10 FROM course_version_items WHERE version_id = $1 AND lesson_id = $2',
+        [dupVersion, l1.id],
+      );
+    } finally {
+      await dataSource.query('ALTER TABLE course_version_items ENABLE TRIGGER USER');
+    }
+
+    const requested = [locked.id, nulled.id, draft.id, gone.id, revoked.id, unowned.id, dup.id, randomUUID(), locked.id];
+    const distinct = [...new Set(requested)];
+
+    const counter = new StatementCounter(dataSource);
+    counter.start();
+    const batch = await certificates.getMyCourseProgressBatch(student.id, requested);
+    const statements = counter.stop().length;
+
+    expect(Object.keys(batch).sort()).toEqual([...distinct].sort());
+    for (const id of distinct) {
+      expect(batch[id]).toEqual(await certificates.getMyCourseProgress(student.id, id));
+    }
+    // Fixture sanity: the edges produced distinct, non-trivial answers.
+    expect(batch[locked.id]).toEqual({ total: 4, completed: 2, percentage: 50 });
+    expect(batch[dup.id]?.total).toBe(3); // duplicate row counts in the total, exactly as today
+    expect(batch[dup.id]?.completed).toBe(2); // L1 (listed twice) + L2, each completed once: 2 distinct, a COUNT(*) bug would give 3
+    expect(batch[revoked.id]).toEqual({ total: 0, completed: 0, percentage: 0 });
+    expect(batch[unowned.id]).toEqual({ total: 0, completed: 0, percentage: 0 });
+    expect(batch[draft.id]?.total).toBe(2);
+    expect(statements).toBeLessThanOrEqual(5);
   });
 });

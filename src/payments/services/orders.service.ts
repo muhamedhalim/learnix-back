@@ -718,18 +718,35 @@ export class OrdersService {
     studentId: string,
     filter: OrderFilterDto,
   ): Promise<{ data: Order[]; meta: PaginationMeta }> {
-    return this.findOrders({ ...filter, student_id: studentId });
+    // A student sees their own orders only: no user rows at all (the student is the caller, the teacher's
+    // account is not theirs to read). The student join exists only to serve a name/email search.
+    return this.listOrders({ ...filter, student_id: studentId }, false);
   }
 
+  /** Admin list: the order plus the two user columns the finance screens render (id/name/email, id/name). */
   public async findOrders(
     filter: OrderFilterDto,
   ): Promise<{ data: Order[]; meta: PaginationMeta }> {
+    return this.listOrders(filter, true);
+  }
+
+  private async listOrders(
+    filter: OrderFilterDto,
+    includeUsers: boolean,
+  ): Promise<{ data: Order[]; meta: PaginationMeta }> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
-    const query = this.orders
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.student', 'student')
-      .leftJoinAndSelect('order.teacher', 'teacher');
+    const search = filter.search?.trim();
+    const query = this.orders.createQueryBuilder('order').select('order');
+    // Both relations are ManyToOne, so `offset/limit` is safe and the DISTINCT-ids round trip is not needed.
+    if (includeUsers) {
+      query
+        .leftJoin('order.student', 'student')
+        .leftJoin('order.teacher', 'teacher')
+        .addSelect(['student.id', 'student.name', 'student.email', 'teacher.id', 'teacher.name']);
+    } else if (search) {
+      query.leftJoin('order.student', 'student');
+    }
     if (filter.student_id)
       query.andWhere('order.student_id = :studentId', { studentId: filter.student_id });
     if (filter.teacher_id)
@@ -743,16 +760,16 @@ export class OrdersService {
       query.andWhere('order.currency = :currency', { currency: filter.currency.toUpperCase() });
     if (filter.from) query.andWhere('order.created_at >= :from', { from: filter.from });
     if (filter.to) query.andWhere('order.created_at <= :to', { to: filter.to });
-    if (filter.search?.trim()) {
+    if (search) {
       query.andWhere(
         '(order.order_number ILIKE :search OR order.product_title_snapshot ILIKE :search OR student.name ILIKE :search OR student.email ILIKE :search)',
-        { search: `%${filter.search.trim()}%` },
+        { search: `%${search}%` },
       );
     }
     const [data, total] = await query
       .orderBy('order.created_at', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
+      .offset((page - 1) * limit)
+      .limit(limit)
       .getManyAndCount();
     const totalPages = Math.ceil(total / limit);
     return {

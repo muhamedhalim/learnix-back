@@ -8,6 +8,8 @@ export interface PaginationMeta {
   totalPages: number;
   hasNextPage: boolean;
   hasPrevPage: boolean;
+  /** Present only when a list endpoint was asked for per-status totals. */
+  status_counts?: Record<string, number>;
 }
 
 /**

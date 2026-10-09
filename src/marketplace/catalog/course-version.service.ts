@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
+import { loadLessonsBySection } from './curriculum.util';
 import { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection, MarketplaceCourseVersion } from './entities';
 
 export interface CourseSnapshot {
@@ -73,9 +74,8 @@ export class CourseVersionService {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
     const sections = await this.sections.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
-    const lessonsBySection = await Promise.all(
-      sections.map((section) => this.lessons.find({ where: { section_id: section.id }, order: { position: 'ASC' } })),
-    );
+    // One statement for every section's lessons, in section order (T071).
+    const lessonsBySection = await loadLessonsBySection(this.lessons, sections);
 
     const snapshot: CourseSnapshot = {
       title: course.title,

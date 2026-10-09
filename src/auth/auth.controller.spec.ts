@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 
 import type { INestApplication } from '@nestjs/common';
-import { ValidationPipe } from '@nestjs/common';
+import { UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import type { Request, Response } from 'express';
@@ -217,5 +217,56 @@ describe('POST /auth/register (user enumeration)', () => {
 
     expect(response.status).toBe(400);
     expect(register).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * T051 preparation: the credential-failure half of the refresh contract, which
+ * must survive the (gated) infrastructure-error classification unchanged.
+ * No assertion here covers infrastructure errors: that policy is not approved.
+ */
+describe('POST /auth/refresh credential failures (T051 contract that must not change)', () => {
+  const authService = { refresh: jest.fn() } as unknown as AuthService;
+  const controller = new AuthController(authService);
+  const response = () => ({ cookie: jest.fn(), clearCookie: jest.fn() }) as unknown as Response;
+  const req = (cookies: Record<string, unknown>) =>
+    ({ headers: {}, ip: '127.0.0.1', secure: false, signedCookies: cookies }) as unknown as Request;
+  const clearedNames = (res: Response) =>
+    (res.clearCookie as jest.Mock).mock.calls.map((call: unknown[]) => call[0]);
+
+  afterEach(() => jest.clearAllMocks());
+
+  it('missing refresh cookie -> 401 and both cookies cleared, service not called', async () => {
+    const res = response();
+    await expect(controller.refresh(req({}), res)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(clearedNames(res)).toEqual(
+      expect.arrayContaining([ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE]),
+    );
+    expect(authService.refresh).not.toHaveBeenCalled();
+  });
+
+  it('UnauthorizedException from rotation -> both cookies cleared and the 401 rethrown', async () => {
+    const error = new UnauthorizedException('Invalid refresh token');
+    (authService.refresh as jest.Mock).mockRejectedValue(error);
+    const res = response();
+    await expect(controller.refresh(req({ [REFRESH_TOKEN_COOKIE]: 'tok' }), res)).rejects.toBe(
+      error,
+    );
+    expect(clearedNames(res)).toEqual(
+      expect.arrayContaining([ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE]),
+    );
+  });
+
+  it('successful rotation does not clear any cookie', async () => {
+    (authService.refresh as jest.Mock).mockResolvedValue({
+      status: 'approved',
+      accessToken: 'a',
+      refreshToken: 'r',
+      role: 'student',
+      userId: 'u',
+    });
+    const res = response();
+    await controller.refresh(req({ [REFRESH_TOKEN_COOKIE]: 'tok' }), res);
+    expect(res.clearCookie).not.toHaveBeenCalled();
   });
 });

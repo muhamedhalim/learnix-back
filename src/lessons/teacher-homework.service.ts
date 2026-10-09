@@ -370,14 +370,32 @@ export class TeacherHomeworkService {
     if (filter.to)
       homeworkQuery.andWhere('homework.created_at <= :to', { to: new Date(filter.to) });
     const homework = await homeworkQuery.getMany();
-    const stats = await this.getHomeworkStats(homework.map((row) => row.id));
+    const homeworkIds = homework.map((row) => row.id);
+    const stats = await this.getHomeworkStats(homeworkIds);
     const statByHomework = new Map(stats.map((row) => [row.homework_id, row]));
-    const filteredStats = filter.student_id
-      ? await this.getHomeworkStatsForStudent(
-          homework.map((row) => row.id),
-          filter.student_id,
-        )
-      : stats;
+    // Everything below depends only on the homework id list (and the optional
+    // student), not on each other: run it as one wave instead of five sequential
+    // round trips. Every statement and its result are unchanged.
+    const [
+      filteredStats,
+      scoreDistribution,
+      { medianScore, belowPass },
+      studentPerformance,
+      performanceTrend,
+      packageNames,
+    ] = await Promise.all([
+      filter.student_id
+        ? this.getHomeworkStatsForStudent(homeworkIds, filter.student_id)
+        : Promise.resolve(stats),
+      this.scoreDistribution(homeworkIds, filter.student_id),
+      this.medianAndBelowPass(homeworkIds, filter.student_id, filter.pass_threshold),
+      this.studentPerformance(homeworkIds, filter.student_id),
+      this.performanceTrend(homeworkIds, filter.student_id),
+      this.getPackageNames(
+        homework.map((row) => row.lesson_id),
+        teacherId,
+      ),
+    ]);
     const resultStats = filter.student_id ? filteredStats : stats;
     const targeted = resultStats.reduce((sum, row) => sum + row.targeted_students, 0);
     const submitted = resultStats.reduce((sum, row) => sum + row.submission_count, 0);
@@ -389,31 +407,6 @@ export class TeacherHomeworkService {
       0,
     );
     const scoreCount = resultStats.reduce((sum, row) => sum + row.graded_submission_count, 0);
-    const scoreDistribution = await this.scoreDistribution(
-      homework.map((row) => row.id),
-      filter.student_id,
-    );
-    const belowPass = await this.countBelowPassThreshold(
-      homework.map((row) => row.id),
-      filter.student_id,
-      filter.pass_threshold,
-    );
-    const medianScore = await this.medianScore(
-      homework.map((row) => row.id),
-      filter.student_id,
-    );
-    const studentPerformance = await this.studentPerformance(
-      homework.map((row) => row.id),
-      filter.student_id,
-    );
-    const performanceTrend = await this.performanceTrend(
-      homework.map((row) => row.id),
-      filter.student_id,
-    );
-    const packageNames = await this.getPackageNames(
-      homework.map((row) => row.lesson_id),
-      teacherId,
-    );
 
     return {
       overview: {
@@ -847,42 +840,41 @@ export class TeacherHomeworkService {
     );
   }
 
-  private async countBelowPassThreshold(
+  /**
+   * Median graded percentage and the count of graded submissions below the pass
+   * threshold, from ONE statement over the same submission set (the former
+   * `medianScore` + `countBelowPassThreshold`). Both aggregates are scalars over
+   * graded submissions; submission:homework is N:1, so nothing is multiplied.
+   * Parameter numbering is re-derived: the student id (when present) is $2 and
+   * the threshold follows it.
+   */
+  private async medianAndBelowPass(
     homeworkIds: string[],
     studentId: string | undefined,
     threshold: number,
-  ): Promise<number> {
-    if (homeworkIds.length === 0) return 0;
+  ): Promise<{ medianScore: number | null; belowPass: number }> {
+    if (homeworkIds.length === 0) return { medianScore: null, belowPass: 0 };
     const rows = await this.submissionsRepository.query(
       `
-      SELECT COUNT(*)::int AS count
+      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
+               ORDER BY (submission.score / NULLIF(homework.max_score, 0)) * 100
+             ) FILTER (WHERE submission.status = 'graded') AS median_score,
+             (COUNT(*) FILTER (
+               WHERE submission.status = 'graded'
+                 AND ((submission.score / NULLIF(homework.max_score, 0)) * 100) < $${studentId ? '3' : '2'}
+             ))::int AS below_pass
       FROM homework_submissions submission
       INNER JOIN lesson_homework homework ON homework.id = submission.homework_id
       WHERE submission.homework_id = ANY($1::uuid[])
-        AND submission.status = 'graded'
-        AND ((submission.score / NULLIF(homework.max_score, 0)) * 100) < $${studentId ? '3' : '2'}
         ${studentId ? 'AND submission.student_id = $2::uuid' : ''}
       `,
       studentId ? [homeworkIds, studentId, threshold] : [homeworkIds, threshold],
     );
-    return Number((rows[0] as { count?: unknown } | undefined)?.count ?? 0);
-  }
-
-  private async medianScore(homeworkIds: string[], studentId?: string): Promise<number | null> {
-    if (homeworkIds.length === 0) return null;
-    const rows = await this.submissionsRepository.query(
-      `
-      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
-        ORDER BY (submission.score / NULLIF(homework.max_score, 0)) * 100
-      ) FILTER (WHERE submission.status = 'graded') AS median_score
-      FROM homework_submissions submission
-      INNER JOIN lesson_homework homework ON homework.id = submission.homework_id
-      WHERE submission.homework_id = ANY($1::uuid[])
-        ${studentId ? 'AND submission.student_id = $2::uuid' : ''}
-      `,
-      studentId ? [homeworkIds, studentId] : [homeworkIds],
-    );
-    return this.toNullableNumber((rows[0] as { median_score?: unknown } | undefined)?.median_score);
+    const row = rows[0] as { median_score?: unknown; below_pass?: unknown } | undefined;
+    return {
+      medianScore: this.toNullableNumber(row?.median_score),
+      belowPass: Number(row?.below_pass ?? 0),
+    };
   }
 
   private toHomeworkResponse(

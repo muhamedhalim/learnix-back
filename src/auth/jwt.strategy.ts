@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 
@@ -7,6 +7,7 @@ import type { Request } from 'express';
 
 import { AuthService } from './auth.service';
 import { ACCESS_TOKEN_COOKIE } from './auth-cookie.constants';
+import { isInfrastructureError } from './infrastructure-error.util';
 
 function accessTokenFromSignedCookie(request: Request): string | null {
   const token = request.signedCookies?.[ACCESS_TOKEN_COOKIE];
@@ -41,7 +42,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   public async validate(payload: { sub: string; email: string; sid: string }): Promise<unknown> {
-    const user = await this.authService.validateUser(payload);
+    let user: Awaited<ReturnType<AuthService['validateUser']>>;
+    try {
+      user = await this.authService.validateUser(payload);
+    } catch (error) {
+      if (isInfrastructureError(error)) {
+        throw new ServiceUnavailableException('Authentication service temporarily unavailable');
+      }
+      // Data/unknown errors keep today's status (500); conversion is not approved.
+      throw error;
+    }
     if (!user) {
       throw new UnauthorizedException();
     }

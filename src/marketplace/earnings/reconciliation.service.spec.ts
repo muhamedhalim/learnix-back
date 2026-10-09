@@ -21,24 +21,24 @@ function buildQb(rows: unknown[] = []) {
 describe('ReconciliationService (T165)', () => {
   let earningsRepo: { createQueryBuilder: jest.Mock };
   let ledgerRepo: { createQueryBuilder: jest.Mock };
-  let balance: { getBalance: jest.Mock };
+  let balance: { getBalancesGrouped: jest.Mock };
   let service: ReconciliationService;
 
   beforeEach(() => {
     earningsRepo = { createQueryBuilder: jest.fn() };
     ledgerRepo = { createQueryBuilder: jest.fn().mockReturnValue(buildQb([])) };
-    balance = { getBalance: jest.fn() };
+    balance = { getBalancesGrouped: jest.fn().mockResolvedValue([]) };
     service = new ReconciliationService(earningsRepo as never, ledgerRepo as never, balance as never);
   });
 
   it('flags a negative derived available balance as critical (FR-173)', async () => {
-    const pairsQb = buildQb([{ instructor_id: 'instructor-1', currency: 'EGP' }]);
     const emptyQb = buildQb([]);
-    earningsRepo.createQueryBuilder
-      .mockReturnValueOnce(pairsQb)
-      .mockReturnValueOnce(emptyQb)
-      .mockReturnValueOnce(emptyQb);
-    balance.getBalance.mockResolvedValue({ availableMinor: -500 });
+    earningsRepo.createQueryBuilder.mockReturnValueOnce(emptyQb).mockReturnValueOnce(emptyQb);
+    balance.getBalancesGrouped.mockResolvedValue([
+      { instructorId: 'instructor-1', currency: 'EGP', availableMinor: -500 },
+      { instructorId: 'instructor-2', currency: 'EGP', availableMinor: 0 },
+      { instructorId: 'instructor-3', currency: 'KWD', availableMinor: 40 },
+    ]);
 
     const report = await service.getDivergenceReport();
 
@@ -47,13 +47,29 @@ describe('ReconciliationService (T165)', () => {
     ]);
 
     const warnings = await (async () => {
-      earningsRepo.createQueryBuilder
-        .mockReturnValueOnce(pairsQb)
-        .mockReturnValueOnce(emptyQb)
-        .mockReturnValueOnce(emptyQb);
+      earningsRepo.createQueryBuilder.mockReturnValueOnce(emptyQb).mockReturnValueOnce(emptyQb);
       return service.getDivergenceWarnings();
     })();
     expect(warnings).toEqual([expect.objectContaining({ type: 'negative_available_balances', severity: 'critical', affected_count: 1 })]);
+  });
+
+  it('T067: derives every pair in one grouped call, never one balance per pair', async () => {
+    const emptyQb = buildQb([]);
+    earningsRepo.createQueryBuilder.mockReturnValue(emptyQb);
+    balance.getBalancesGrouped.mockResolvedValue([
+      { instructorId: 'i-1', currency: 'EGP', availableMinor: -1 },
+      { instructorId: 'i-1', currency: 'KWD', availableMinor: -2 },
+      { instructorId: 'i-2', currency: 'EGP', availableMinor: 10 },
+    ]);
+
+    const report = await service.getDivergenceReport();
+
+    expect(balance.getBalancesGrouped).toHaveBeenCalledTimes(1);
+    expect(balance.getBalancesGrouped).toHaveBeenCalledWith();
+    expect(report.negative_available_balances).toEqual([
+      { instructor_id: 'i-1', currency: 'EGP', available_minor: -1 },
+      { instructor_id: 'i-1', currency: 'KWD', available_minor: -2 },
+    ]);
   });
 
   it('reports clean when nothing diverges', async () => {
@@ -66,13 +82,9 @@ describe('ReconciliationService (T165)', () => {
   });
 
   it('flags an earning missing its COURSE_SALE ledger entry', async () => {
-    const pairsQb = buildQb([]);
     const missingQb = buildQb([{ earning_id: 'earning-1', order_id: 'order-1' }]);
     const emptyQb = buildQb([]);
-    earningsRepo.createQueryBuilder
-      .mockReturnValueOnce(pairsQb)
-      .mockReturnValueOnce(missingQb)
-      .mockReturnValueOnce(emptyQb);
+    earningsRepo.createQueryBuilder.mockReturnValueOnce(missingQb).mockReturnValueOnce(emptyQb);
 
     const report = await service.getDivergenceReport();
 

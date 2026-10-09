@@ -60,7 +60,7 @@ export class AdminDashboardService {
 
   public async getDashboard(user: JwtPayload, requestedDays: number): Promise<AdminDashboardDto> {
     const days = requestedDays === 7 ? 7 : 30;
-    const permissions = await this.loadPermissions(user.userId);
+    const permissions = await this.loadPermissions(user);
     const permissionFingerprint = [...permissions].sort().join(',') || 'none';
 
     return await this.cache.getOrCompute(
@@ -237,7 +237,11 @@ export class AdminDashboardService {
     };
   }
 
-  private async loadPermissions(userId: string): Promise<FinancePermission[]> {
+  private async loadPermissions(principal: JwtPayload): Promise<FinancePermission[]> {
+    // Cookie-authenticated principals already carry the live permissions from
+    // the single session/user statement; only other principals need a read.
+    if (Array.isArray(principal.financePermissions)) return principal.financePermissions;
+    const userId = principal.userId;
     const user = await this.users
       .createQueryBuilder('user')
       .select(['user.id', 'user.finance_permissions'])
@@ -249,6 +253,13 @@ export class AdminDashboardService {
   private async loadPlatform(start: Date, end: Date): Promise<PlatformRow> {
     const rows = (await this.dataSource.query(
       `
+      WITH session_window AS (
+        SELECT COUNT(DISTINCT student_id) AS active_learners,
+               COUNT(*) AS lesson_views,
+               AVG(duration_seconds) AS average_duration,
+               COUNT(*) FILTER (WHERE video_progress_percent >= 90) AS completed_views
+        FROM lesson_sessions WHERE entered_at >= $1 AND entered_at < $2
+      )
       SELECT
         (SELECT COUNT(*) FROM users WHERE role = 'student' AND deleted_at IS NULL)::text AS student_accounts,
         (SELECT COUNT(*) FROM users WHERE role = 'teacher' AND deleted_at IS NULL)::text AS teacher_accounts,
@@ -256,15 +267,15 @@ export class AdminDashboardService {
         (SELECT COUNT(*) FROM users WHERE role = 'teacher' AND status = 'pending' AND deleted_at IS NULL)::text AS pending_teachers,
         (SELECT COUNT(*) FROM subjects WHERE status = 'pending_approval' AND deleted_at IS NULL)::text AS pending_subjects,
         (SELECT COUNT(*) FROM users WHERE created_at >= $1 AND created_at < $2 AND deleted_at IS NULL)::text AS new_accounts,
-        (SELECT COUNT(DISTINCT student_id) FROM lesson_sessions WHERE entered_at >= $1 AND entered_at < $2)::text AS active_learners,
+        (SELECT active_learners FROM session_window)::text AS active_learners,
         (SELECT COUNT(*) FROM lessons WHERE deleted_at IS NULL)::text AS lessons,
         (SELECT COUNT(*) FROM lesson_packages WHERE deleted_at IS NULL)::text AS packages,
         (SELECT COUNT(*) FROM exams WHERE deleted_at IS NULL)::text AS exams,
         (SELECT COUNT(*) FROM books WHERE deleted_at IS NULL)::text AS books,
-        (SELECT COUNT(*) FROM lesson_sessions WHERE entered_at >= $1 AND entered_at < $2)::text AS lesson_views,
+        (SELECT lesson_views FROM session_window)::text AS lesson_views,
         (SELECT COUNT(*) FROM exam_attempts WHERE created_at >= $1 AND created_at < $2)::text AS exam_attempts,
-        (SELECT COALESCE(ROUND(AVG(duration_seconds)), 0) FROM lesson_sessions WHERE entered_at >= $1 AND entered_at < $2)::text AS average_session_duration_seconds,
-        (SELECT COALESCE(ROUND(COUNT(*) FILTER (WHERE video_progress_percent >= 90)::numeric * 100 / NULLIF(COUNT(*), 0), 1), 0) FROM lesson_sessions WHERE entered_at >= $1 AND entered_at < $2)::text AS lesson_completion_rate
+        (SELECT COALESCE(ROUND(average_duration), 0) FROM session_window)::text AS average_session_duration_seconds,
+        (SELECT COALESCE(ROUND(completed_views::numeric * 100 / NULLIF(lesson_views, 0), 1), 0) FROM session_window)::text AS lesson_completion_rate
     `,
       [start, end],
     )) as PlatformRow[];

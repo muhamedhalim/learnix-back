@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 import { StrictIntegerQuery } from '../../common/decorators/strict-integer-query.decorator';
 import { ExamStatus } from '../entities';
@@ -46,6 +47,19 @@ export class AdminExamFilterDto {
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
   public sort_order?: 'ASC' | 'DESC';
+
+  @ApiPropertyOptional({
+    description:
+      'Add meta.status_counts (per-status totals under every other filter, status excluded)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }): boolean | undefined => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value as boolean | undefined;
+  })
+  public include_status_counts?: boolean;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

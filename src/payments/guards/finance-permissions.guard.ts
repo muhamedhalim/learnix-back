@@ -25,13 +25,24 @@ export class FinancePermissionsGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<UserRequest>();
     const userId = request.user?.userId;
     if (!userId) throw new ForbiddenException('Finance permission is required');
-    const user = await this.users.findOne({
-      where: { id: userId },
-      select: ['id', 'role', 'finance_permissions'],
-    });
-    if (!user || user.role !== 'admin')
-      throw new ForbiddenException('Finance permission is required');
-    const granted = new Set(user.finance_permissions ?? []);
+    const principalPermissions = request.user?.financePermissions;
+    // Cookie principals carry role and permissions from the live statement that
+    // authenticated this request; any other principal falls back to a DB read.
+    let role: string | null | undefined;
+    let permissions: readonly string[];
+    if (Array.isArray(principalPermissions)) {
+      role = request.user?.role;
+      permissions = principalPermissions;
+    } else {
+      const user = await this.users.findOne({
+        where: { id: userId },
+        select: ['id', 'role', 'finance_permissions'],
+      });
+      role = user?.role;
+      permissions = user?.finance_permissions ?? [];
+    }
+    if (role !== 'admin') throw new ForbiddenException('Finance permission is required');
+    const granted = new Set(permissions);
     if (!required.every((permission) => granted.has(permission))) {
       throw new ForbiddenException('Finance permission is required');
     }

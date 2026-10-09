@@ -195,6 +195,34 @@ describe('CertificatesService', () => {
     });
   });
 
+  describe('eligibility is read once (T057 / E-003)', () => {
+    it('getMyCourseProgress issues exactly one eligibility read', async () => {
+      eligibility.findActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: 'v1' });
+      courseVersionItems.count.mockResolvedValue(2);
+      progress.createQueryBuilder.mockReturnValue(qb(1));
+
+      const result = await service.getMyCourseProgress('S1', 'P1');
+
+      expect(result).toEqual({ total: 2, completed: 1, percentage: 50 });
+      expect(eligibility.findActivePurchase).toHaveBeenCalledTimes(1);
+    });
+
+    it('issuance-style callers (no resolved purchase) still resolve it under their manager', async () => {
+      eligibility.findActivePurchase.mockResolvedValue({ id: 'pp1', course_version_id: 'v1' });
+      courseVersionItems.count.mockResolvedValue(1);
+      progress.createQueryBuilder.mockReturnValue(qb(1));
+      const manager = {
+        getRepository: jest.fn((entity: unknown) =>
+          entity === CourseVersionItem ? courseVersionItems : progress,
+        ),
+      };
+
+      await service.getCourseProgress('S1', 'P1', manager as never);
+
+      expect(eligibility.findActivePurchase).toHaveBeenCalledWith('S1', 'P1', manager);
+    });
+  });
+
   describe('getMyCourseProgress', () => {
     it('never reveals real numbers for a course the student has not validly purchased', async () => {
       eligibility.findActivePurchase.mockResolvedValue(null);
@@ -209,7 +237,8 @@ describe('CertificatesService', () => {
         .spyOn(service, 'getCourseProgress')
         .mockResolvedValue({ total: 3, completed: 3, percentage: 100 });
       const result = await service.getMyCourseProgress('S1', 'P1');
-      expect(spy).toHaveBeenCalledWith('S1', 'P1');
+      // The already-resolved purchase is handed down so eligibility is read once (E-003).
+      expect(spy).toHaveBeenCalledWith('S1', 'P1', undefined, { id: 'pp1' });
       expect(result).toEqual({ total: 3, completed: 3, percentage: 100 });
     });
   });

@@ -335,83 +335,63 @@ export class AnalyticsService {
         ttlMs: 30_000,
       },
       async () => {
-        // Count teacher's content
-        const totalLessons = await this.lessonsRepository.count({
-          where: { teacher_id: teacherId, deleted_at: IsNull() },
-        });
-
-        const totalBooks = await this.booksRepository.count({
-          where: { teacher_id: teacherId, deleted_at: IsNull() },
-        });
-
-        const totalExams = await this.examsRepository.count({
-          where: { teacher_id: teacherId, deleted_at: IsNull() },
-        });
-
-        // Financial dashboard facts are sourced only from confirmed paid orders.
-        const paidStudentsQuery = this.canonicalPaidOrderQuery(teacherId);
-        if (from) paidStudentsQuery.andWhere('order.paid_at >= :from', { from });
-        if (to) paidStudentsQuery.andWhere('order.paid_at <= :to', { to });
-        const paidStudents = await paidStudentsQuery
-          .select('COUNT(DISTINCT order.student_id)', 'count')
-          .getRawOne<CountResult>();
-
-        const totalStudents = Number.parseInt(paidStudents?.count ?? '0', 10);
-
-        const paidRevenueQuery = this.canonicalPaidOrderQuery(teacherId);
-        if (from) paidRevenueQuery.andWhere('order.paid_at >= :from', { from });
-        if (to) paidRevenueQuery.andWhere('order.paid_at <= :to', { to });
-        const paidRevenue = await paidRevenueQuery
-          .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
-          .getRawOne<SumResult>();
-
-        const revenue = Number.parseFloat(paidRevenue?.total ?? '0');
-
-        // Calculate revenue this month
+        // Three independent statements, run together. Each aggregates ONE child
+        // family, so nothing is joined across families (no multiplication):
+        // content (single-table scalars), paid orders (orders:payments is 1:1),
+        // engagement (reviews and sessions are separate scalar subqueries).
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const paidRevenueThisMonthQuery = this.canonicalPaidOrderQuery(teacherId).andWhere(
-          'order.paid_at >= :start',
-          { start: startOfMonth },
-        );
-        if (from) paidRevenueThisMonthQuery.andWhere('order.paid_at >= :from', { from });
-        if (to) paidRevenueThisMonthQuery.andWhere('order.paid_at <= :to', { to });
-        const paidRevenueThisMonth = await paidRevenueThisMonthQuery
-          .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
-          .getRawOne<SumResult>();
+        const ordersQuery = this.canonicalPaidOrderQuery(teacherId);
+        if (from) ordersQuery.andWhere('order.paid_at >= :from', { from });
+        if (to) ordersQuery.andWhere('order.paid_at <= :to', { to });
 
-        const revenueThisMonth = Number.parseFloat(paidRevenueThisMonth?.total ?? '0');
+        const [content, orders, engagement] = await Promise.all([
+          this.booksRepository.manager.query<
+            Array<{ lessons: string; books: string; exams: string }>
+          >(
+            `SELECT
+               (SELECT COUNT(*) FROM lessons WHERE teacher_id = $1 AND deleted_at IS NULL)::text AS lessons,
+               (SELECT COUNT(*) FROM books WHERE teacher_id = $1 AND deleted_at IS NULL)::text AS books,
+               (SELECT COUNT(*) FROM exams WHERE teacher_id = $1 AND deleted_at IS NULL)::text AS exams`,
+            [teacherId],
+          ),
+          ordersQuery
+            .select('COUNT(DISTINCT order.student_id)', 'students')
+            .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
+            .addSelect(
+              'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :start), 0) / 100.0',
+              'month',
+            )
+            .setParameter('start', startOfMonth)
+            .getRawOne<{ students: string; total: string; month: string }>(),
+          // Reviews and sessions join `lessons` with its soft-delete predicate, exactly
+          // as the former QueryBuilder joins did (TypeORM adds it for @DeleteDateColumn).
+          // Range clauses are only appended when set so each parameter keeps the type
+          // of the column it is compared with (no casts that could change semantics).
+          this.lessonReviewsRepository.manager.query<
+            Array<{ average: string | null; reviews: string; views: string }>
+          >(this.teacherEngagementSql(from !== undefined, to !== undefined), [
+            teacherId,
+            ReviewStatus.APPROVED,
+            ...(from ? [from] : []),
+            ...(to ? [to] : []),
+          ]),
+        ]);
 
-        const ratingsQuery = this.lessonReviewsRepository
-          .createQueryBuilder('lr')
-          .innerJoin('lr.lesson', 'lesson')
-          .where('lesson.teacher_id = :teacherId', { teacherId })
-          .andWhere('lr.status = :status', { status: ReviewStatus.APPROVED });
-        if (from) ratingsQuery.andWhere('lr.created_at >= :ratingsFrom', { ratingsFrom: from });
-        if (to) ratingsQuery.andWhere('lr.created_at <= :ratingsTo', { ratingsTo: to });
-        const ratings = await ratingsQuery
-          .select('AVG(lr.rating)', 'average')
-          .addSelect('COUNT(*)', 'count')
-          .getRawOne<{ average: string | null; count: string }>();
+        const totalLessons = Number.parseInt(content[0]?.lessons ?? '0', 10);
+        const totalBooks = Number.parseInt(content[0]?.books ?? '0', 10);
+        const totalExams = Number.parseInt(content[0]?.exams ?? '0', 10);
+        const totalStudents = Number.parseInt(orders?.students ?? '0', 10);
+        const revenue = Number.parseFloat(orders?.total ?? '0');
+        const revenueThisMonth = Number.parseFloat(orders?.month ?? '0');
         const averageRating =
-          ratings?.average == null
+          engagement[0]?.average == null
             ? null
-            : Math.round(Number.parseFloat(ratings.average) * 100) / 100;
-        const totalReviews = Number.parseInt(ratings?.count ?? '0', 10);
-
-        const engagementQuery = this.lessonSessionsRepository
-          .createQueryBuilder('session')
-          .innerJoin('session.lesson', 'engagementLesson')
-          .where('engagementLesson.teacher_id = :teacherId', { teacherId });
-        if (from)
-          engagementQuery.andWhere('session.entered_at >= :engagementFrom', {
-            engagementFrom: from,
-          });
-        if (to)
-          engagementQuery.andWhere('session.entered_at <= :engagementTo', { engagementTo: to });
-        const engagementViews = await engagementQuery.getCount();
+            : Math.round(Number.parseFloat(engagement[0].average) * 100) / 100;
+        const totalReviews = Number.parseInt(engagement[0]?.reviews ?? '0', 10);
+        const engagementViews = Number.parseInt(engagement[0]?.views ?? '0', 10);
 
         const stats: TeacherDashboardDto = {
           totalLessons,
@@ -635,6 +615,134 @@ export class AnalyticsService {
   /**
    * Helper to calculate direct and package revenue for a lesson
    */
+  /**
+   * Analytics for several lessons in one request (package Analytics tab).
+   *
+   * Fail closed: every id must exist (404 otherwise) and the principal must be
+   * allowed to read every one (403 otherwise) BEFORE any metric is read or any
+   * cache entry is populated. Each metric family is aggregated alone and
+   * grouped by lesson, then assembled per requested position, with the exact
+   * filters and rounding of {@link getLessonAnalytics}.
+   */
+  public async getLessonAnalyticsBatch(
+    principal: JwtPayload,
+    lessonIds: readonly string[],
+  ): Promise<LessonAnalyticsDto[]> {
+    // De-duplicate and sort BEFORE the key and the queries are built.
+    const unique = [...new Set(lessonIds)].sort();
+    if (unique.length === 0) return [];
+
+    const found = await this.lessonsRepository.manager.query<
+      Array<{ id: string; teacher_id: string }>
+    >('SELECT id, teacher_id FROM lessons WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL', [
+      unique,
+    ]);
+    const owners = new Map(found.map((row) => [row.id, row.teacher_id]));
+    const missing = unique.find((id) => !owners.has(id));
+    if (missing !== undefined) {
+      throw new NotFoundException(
+        biBody(`Lesson with ID ${missing} not found`, `الدرس بالمعرف ${missing} غير موجود`),
+      );
+    }
+    for (const ownerId of owners.values()) this.assertAnalyticsAccess(principal, ownerId);
+
+    const distinctOwners = new Set(owners.values());
+    const scope =
+      distinctOwners.size === 1 ? `owner:${[...distinctOwners][0] ?? ''}` : 'role:admin';
+
+    const byLesson = await this.applicationCache.getOrCompute(
+      {
+        family: 'lesson_analytics',
+        endpoint: 'analytics.lesson-batch',
+        tenant: principal.tenantId,
+        scope,
+        // 'batch' keeps a one-id batch from colliding with the single-lesson
+        // entry (buildKey ignores `endpoint`; same family/scope, other shape).
+        parts: ['batch', ...unique],
+        ttlMs: 30_000,
+      },
+      async () => {
+        const manager = this.lessonsRepository.manager;
+        const [direct, packages, sessions, revenue, reviews] = await Promise.all([
+          manager.query<Array<{ lesson_id: string; count: string }>>(
+            'SELECT lesson_id, COUNT(*)::text AS count FROM lesson_purchases WHERE lesson_id = ANY($1::uuid[]) GROUP BY lesson_id',
+            [unique],
+          ),
+          manager.query<Array<{ lesson_id: string; count: string }>>(
+            `SELECT lpi.lesson_id, COUNT(DISTINCT pp.id)::text AS count
+               FROM package_purchases pp
+               JOIN lesson_packages lp ON lp.id = pp.package_id AND lp.deleted_at IS NULL
+               JOIN lesson_package_items lpi ON lpi.package_id = lp.id
+              WHERE lpi.lesson_id = ANY($1::uuid[])
+              GROUP BY lpi.lesson_id`,
+            [unique],
+          ),
+          manager.query<
+            Array<{ lesson_id: string; views: string; avg: string | null; completed: string }>
+          >(
+            `SELECT lesson_id, COUNT(*)::text AS views, AVG(duration_seconds) AS avg,
+                    (COUNT(*) FILTER (WHERE video_progress_percent >= 90))::text AS completed
+               FROM lesson_sessions WHERE lesson_id = ANY($1::uuid[]) GROUP BY lesson_id`,
+            [unique],
+          ),
+          this.canonicalPaidOrderQuery()
+            .andWhere('order.item_type = :lessonType', { lessonType: ItemType.LESSON })
+            .andWhere('order.item_id = ANY(:lessonIds)', { lessonIds: unique })
+            .select('order.item_id', 'lesson_id')
+            .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
+            .groupBy('order.item_id')
+            .getRawMany<{ lesson_id: string; total: string }>(),
+          manager.query<Array<{ lesson_id: string; avg: string | null; count: string }>>(
+            'SELECT lesson_id, AVG(rating) AS avg, COUNT(*)::text AS count FROM lesson_reviews WHERE lesson_id = ANY($1::uuid[]) GROUP BY lesson_id',
+            [unique],
+          ),
+        ]);
+
+        const index = <T extends { lesson_id: string }>(rows: T[]): Map<string, T> =>
+          new Map(rows.map((row) => [row.lesson_id, row]));
+        const directBy = index(direct);
+        const packagesBy = index(packages);
+        const sessionsBy = index(sessions);
+        const revenueBy = index(revenue);
+        const reviewsBy = index(reviews);
+        const calculatedAt = new Date();
+
+        const result = new Map<string, LessonAnalyticsDto>();
+        for (const lessonId of unique) {
+          const totalViews = Number.parseInt(sessionsBy.get(lessonId)?.views ?? '0', 10);
+          const completed = Number.parseInt(sessionsBy.get(lessonId)?.completed ?? '0', 10);
+          const directRevenue = Number.parseFloat(revenueBy.get(lessonId)?.total ?? '0');
+          const avgRating = reviewsBy.get(lessonId)?.avg;
+          result.set(lessonId, {
+            lesson_id: lessonId,
+            total_purchases:
+              Number.parseInt(directBy.get(lessonId)?.count ?? '0', 10) +
+              Number.parseInt(packagesBy.get(lessonId)?.count ?? '0', 10),
+            total_views: totalViews,
+            average_watch_time_seconds: Math.round(
+              Number.parseFloat(sessionsBy.get(lessonId)?.avg ?? '0'),
+            ),
+            completion_rate:
+              totalViews > 0 ? Math.round((completed / totalViews) * 100 * 100) / 100 : 0,
+            revenue: directRevenue,
+            average_rating:
+              avgRating === null || avgRating === undefined
+                ? null
+                : Math.round(Number.parseFloat(avgRating) * 100) / 100,
+            total_reviews: Number.parseInt(reviewsBy.get(lessonId)?.count ?? '0', 10),
+            // Package orders are package-level sales: no per-lesson allocation exists.
+            revenue_breakdown: { direct_purchases: directRevenue, package_purchases: 0 },
+            calculated_at: calculatedAt,
+          });
+        }
+        return Object.fromEntries(result);
+      },
+    );
+
+    // One result per requested position, in request order (duplicates repeat).
+    return lessonIds.map((id) => byLesson[id] as LessonAnalyticsDto);
+  }
+
   private async calculateLessonRevenue(lessonId: string): Promise<{
     directRevenue: number;
     packageRevenue: number;
@@ -653,6 +761,27 @@ export class AnalyticsService {
     const packageRevenue = 0;
 
     return { directRevenue, packageRevenue };
+  }
+
+  /** Reviews (avg + count) and session views for one teacher, as scalar subqueries of one statement. */
+  private teacherEngagementSql(hasFrom: boolean, hasTo: boolean): string {
+    let next = 3;
+    const fromIdx = hasFrom ? next++ : 0;
+    const toIdx = hasTo ? next : 0;
+    const range = (column: string): string =>
+      [
+        hasFrom ? ` AND ${column} >= $${fromIdx}` : '',
+        hasTo ? ` AND ${column} <= $${toIdx}` : '',
+      ].join('');
+    const reviews = `FROM lesson_reviews lr
+                  INNER JOIN lessons l ON l.id = lr.lesson_id AND l.deleted_at IS NULL
+                 WHERE l.teacher_id = $1 AND lr.status = $2${range('lr.created_at')}`;
+    return `SELECT
+               (SELECT AVG(lr.rating) ${reviews}) AS average,
+               (SELECT COUNT(*) ${reviews})::text AS reviews,
+               (SELECT COUNT(*) FROM lesson_sessions s
+                  INNER JOIN lessons l ON l.id = s.lesson_id AND l.deleted_at IS NULL
+                 WHERE l.teacher_id = $1${range('s.entered_at')})::text AS views`;
   }
 
   /** Confirmed paid order + completed payment + paid_at is the only revenue source. */

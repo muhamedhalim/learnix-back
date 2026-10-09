@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 
 import { MarketplaceLedgerDirection, MarketplaceLedgerEntryType } from '../common/enums';
-import { InstructorEarning } from './entities/instructor-earning.entity';
 import { MarketplaceLedgerEntry } from './entities/marketplace-ledger-entry.entity';
 import { LedgerService, MarketplaceBalance } from './ledger.service';
 
@@ -28,8 +27,6 @@ export class BalanceService {
     private readonly ledger: LedgerService,
     @InjectRepository(MarketplaceLedgerEntry)
     private readonly ledgerEntries: Repository<MarketplaceLedgerEntry>,
-    @InjectRepository(InstructorEarning)
-    private readonly earnings: Repository<InstructorEarning>,
   ) {}
 
   public async getBalance(
@@ -50,13 +47,25 @@ export class BalanceService {
    * render them as separate cards.
    */
   public async getAllBalances(instructorId: string): Promise<MarketplaceBalanceWithShortfall[]> {
-    const rows = await this.earnings
-      .createQueryBuilder('e')
-      .select('DISTINCT e.currency', 'currency')
-      .where('e.instructor_id = :instructorId', { instructorId })
-      .getRawMany<{ currency: string }>();
+    const grouped = await this.getBalancesGrouped({ instructorId });
+    return grouped.map(({ instructorId: _instructorId, ...balance }) => balance);
+  }
 
-    return Promise.all(rows.map((row) => this.getBalance(instructorId, row.currency)));
+  /**
+   * T067: every (instructor, currency) pair's balance in 2 statements — the
+   * grouped equivalent of calling {@link getBalance} once per pair. Same pair
+   * universe (the earnings table's), same figures; see
+   * `LedgerService.deriveBalancesGrouped` for the no-join rule.
+   */
+  public async getBalancesGrouped(
+    filter: { instructorId?: string } = {},
+  ): Promise<Array<MarketplaceBalanceWithShortfall & { instructorId: string }>> {
+    const grouped = await this.ledger.deriveBalancesGrouped(filter);
+    return grouped.map(({ instructorId, balance, shortfallMinor }) => ({
+      instructorId,
+      ...balance,
+      shortfallMinor,
+    }));
   }
 
   /** The full outstanding shortfall — every `REFUND_SHORTFALL` entry is DEBIT and none is ever reduced, so this is a plain sum. */

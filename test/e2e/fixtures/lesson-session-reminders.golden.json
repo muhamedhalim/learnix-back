@@ -1,0 +1,1392 @@
+{
+  "run1": {
+    "notifications": [
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:student:plus30m",
+        "user": "student:plus30m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:student:plus30m",
+        "user": "student:plus30m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:student:started-1h-ago",
+        "user": "student:started-1h-ago",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:student:plus24h-1ms",
+        "user": "student:plus24h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:student:c-plus30h",
+        "user": "student:c-plus30h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:student:c-plus24h-1ms",
+        "user": "student:c-plus24h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تم تأكيد الموعد الفردي"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تذكير بالموعد"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:student:plus30h",
+        "user": "student:plus30h",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:student:c-student-confirmed-missing-far",
+        "user": "student:c-student-confirmed-missing-far",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:student:c-teacher-confirmed-missing-far",
+        "user": "student:c-teacher-confirmed-missing-far",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:student:plus59m",
+        "user": "student:plus59m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:student:plus59m",
+        "user": "student:plus59m",
+        "title": "Appointment reminder"
+      }
+    ],
+    "emails": [
+      "student:1h-already-sent :: Appointment reminder :: 1h-already-sent",
+      "student:1h-already-sent :: One-to-one appointment confirmed :: 1h-already-sent",
+      "student:24h-already-sent :: Appointment reminder :: 24h-already-sent",
+      "student:24h-already-sent :: One-to-one appointment confirmed :: 24h-already-sent",
+      "student:c-1h-teacher-missing :: Appointment reminder :: c-1h-teacher-missing",
+      "student:c-1h-teacher-missing :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "student:c-24h-student-missing :: Appointment reminder :: c-24h-student-missing",
+      "student:c-24h-student-missing :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "student:c-plus1h-1ms :: Appointment reminder :: c-plus1h-1ms",
+      "student:c-plus1h-1ms :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "student:c-plus1h-exact :: Appointment reminder :: c-plus1h-exact",
+      "student:c-plus1h-exact :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "student:c-plus23h :: Appointment reminder :: c-plus23h",
+      "student:c-plus23h :: One-to-one appointment confirmed :: c-plus23h",
+      "student:c-plus24h-exact :: Appointment reminder :: c-plus24h-exact",
+      "student:c-plus24h-exact :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "student:c-plus59m :: Appointment reminder :: c-plus59m",
+      "student:c-plus59m :: One-to-one appointment confirmed :: c-plus59m",
+      "student:c-student-confirmed-missing-far :: One-to-one appointment confirmed :: c-student-confirmed-missing-far",
+      "student:c-teacher-confirmed-missing-far :: One-to-one appointment confirmed :: c-teacher-confirmed-missing-far",
+      "student:plus1h-1ms :: Appointment reminder :: plus1h-1ms",
+      "student:plus1h-1ms :: One-to-one appointment confirmed :: plus1h-1ms",
+      "student:plus1h-exact :: Appointment reminder :: plus1h-exact",
+      "student:plus1h-exact :: One-to-one appointment confirmed :: plus1h-exact",
+      "student:plus23h :: تذكير بالموعد :: plus23h",
+      "student:plus23h :: تم تأكيد الموعد الفردي :: plus23h",
+      "student:plus24h-1ms :: One-to-one appointment confirmed :: plus24h-1ms",
+      "student:plus24h-exact :: Appointment reminder :: plus24h-exact",
+      "student:plus24h-exact :: One-to-one appointment confirmed :: plus24h-exact",
+      "student:plus30h :: One-to-one appointment confirmed :: plus30h",
+      "student:plus30m :: Appointment reminder :: plus30m",
+      "student:plus30m :: One-to-one appointment confirmed :: plus30m",
+      "student:plus59m :: Appointment reminder :: plus59m",
+      "student:plus59m :: One-to-one appointment confirmed :: plus59m",
+      "student:started-1h-ago :: One-to-one appointment confirmed :: started-1h-ago",
+      "student:teacher-key-only :: Appointment reminder :: teacher-key-only",
+      "student:teacher-key-only :: One-to-one appointment confirmed :: teacher-key-only",
+      "teacher :: Appointment reminder :: 1h-already-sent",
+      "teacher :: Appointment reminder :: 24h-already-sent",
+      "teacher :: Appointment reminder :: c-1h-teacher-missing",
+      "teacher :: Appointment reminder :: c-24h-student-missing",
+      "teacher :: Appointment reminder :: c-plus1h-1ms",
+      "teacher :: Appointment reminder :: c-plus1h-exact",
+      "teacher :: Appointment reminder :: c-plus23h",
+      "teacher :: Appointment reminder :: c-plus24h-exact",
+      "teacher :: Appointment reminder :: c-plus59m",
+      "teacher :: Appointment reminder :: plus1h-1ms",
+      "teacher :: Appointment reminder :: plus1h-exact",
+      "teacher :: Appointment reminder :: plus23h",
+      "teacher :: Appointment reminder :: plus24h-exact",
+      "teacher :: Appointment reminder :: plus30m",
+      "teacher :: Appointment reminder :: plus59m",
+      "teacher :: Appointment reminder :: teacher-key-only",
+      "teacher :: One-to-one appointment confirmed :: 1h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: 24h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "teacher :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus23h",
+      "teacher :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus59m",
+      "teacher :: One-to-one appointment confirmed :: c-student-confirmed-missing-far",
+      "teacher :: One-to-one appointment confirmed :: c-teacher-confirmed-missing-far",
+      "teacher :: One-to-one appointment confirmed :: plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus23h",
+      "teacher :: One-to-one appointment confirmed :: plus24h-1ms",
+      "teacher :: One-to-one appointment confirmed :: plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus30h",
+      "teacher :: One-to-one appointment confirmed :: plus30m",
+      "teacher :: One-to-one appointment confirmed :: plus59m",
+      "teacher :: One-to-one appointment confirmed :: started-1h-ago",
+      "teacher :: One-to-one appointment confirmed :: teacher-key-only"
+    ]
+  },
+  "run2": {
+    "notifications": [
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:student:plus30m",
+        "user": "student:plus30m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:student:plus30m",
+        "user": "student:plus30m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:student:started-1h-ago",
+        "user": "student:started-1h-ago",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:student:plus24h-1ms",
+        "user": "student:plus24h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:student:c-plus30h",
+        "user": "student:c-plus30h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:student:c-plus24h-1ms",
+        "user": "student:c-plus24h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تم تأكيد الموعد الفردي"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تذكير بالموعد"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:student:plus30h",
+        "user": "student:plus30h",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:student:c-student-confirmed-missing-far",
+        "user": "student:c-student-confirmed-missing-far",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:student:c-teacher-confirmed-missing-far",
+        "user": "student:c-teacher-confirmed-missing-far",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:student:plus59m",
+        "user": "student:plus59m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:student:plus59m",
+        "user": "student:plus59m",
+        "title": "Appointment reminder"
+      }
+    ],
+    "emails": [
+      "student:1h-already-sent :: Appointment reminder :: 1h-already-sent",
+      "student:1h-already-sent :: One-to-one appointment confirmed :: 1h-already-sent",
+      "student:24h-already-sent :: Appointment reminder :: 24h-already-sent",
+      "student:24h-already-sent :: One-to-one appointment confirmed :: 24h-already-sent",
+      "student:c-1h-teacher-missing :: Appointment reminder :: c-1h-teacher-missing",
+      "student:c-1h-teacher-missing :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "student:c-24h-student-missing :: Appointment reminder :: c-24h-student-missing",
+      "student:c-24h-student-missing :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "student:c-plus1h-1ms :: Appointment reminder :: c-plus1h-1ms",
+      "student:c-plus1h-1ms :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "student:c-plus1h-exact :: Appointment reminder :: c-plus1h-exact",
+      "student:c-plus1h-exact :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "student:c-plus23h :: Appointment reminder :: c-plus23h",
+      "student:c-plus23h :: One-to-one appointment confirmed :: c-plus23h",
+      "student:c-plus24h-exact :: Appointment reminder :: c-plus24h-exact",
+      "student:c-plus24h-exact :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "student:c-plus59m :: Appointment reminder :: c-plus59m",
+      "student:c-plus59m :: One-to-one appointment confirmed :: c-plus59m",
+      "student:plus1h-1ms :: Appointment reminder :: plus1h-1ms",
+      "student:plus1h-1ms :: One-to-one appointment confirmed :: plus1h-1ms",
+      "student:plus1h-exact :: Appointment reminder :: plus1h-exact",
+      "student:plus1h-exact :: One-to-one appointment confirmed :: plus1h-exact",
+      "student:plus23h :: تذكير بالموعد :: plus23h",
+      "student:plus23h :: تم تأكيد الموعد الفردي :: plus23h",
+      "student:plus24h-exact :: Appointment reminder :: plus24h-exact",
+      "student:plus24h-exact :: One-to-one appointment confirmed :: plus24h-exact",
+      "student:plus30m :: Appointment reminder :: plus30m",
+      "student:plus30m :: One-to-one appointment confirmed :: plus30m",
+      "student:plus59m :: Appointment reminder :: plus59m",
+      "student:plus59m :: One-to-one appointment confirmed :: plus59m",
+      "student:teacher-key-only :: Appointment reminder :: teacher-key-only",
+      "student:teacher-key-only :: One-to-one appointment confirmed :: teacher-key-only",
+      "teacher :: Appointment reminder :: 1h-already-sent",
+      "teacher :: Appointment reminder :: 24h-already-sent",
+      "teacher :: Appointment reminder :: c-1h-teacher-missing",
+      "teacher :: Appointment reminder :: c-24h-student-missing",
+      "teacher :: Appointment reminder :: c-plus1h-1ms",
+      "teacher :: Appointment reminder :: c-plus1h-exact",
+      "teacher :: Appointment reminder :: c-plus23h",
+      "teacher :: Appointment reminder :: c-plus24h-exact",
+      "teacher :: Appointment reminder :: c-plus59m",
+      "teacher :: Appointment reminder :: plus1h-1ms",
+      "teacher :: Appointment reminder :: plus1h-exact",
+      "teacher :: Appointment reminder :: plus23h",
+      "teacher :: Appointment reminder :: plus24h-exact",
+      "teacher :: Appointment reminder :: plus30m",
+      "teacher :: Appointment reminder :: plus59m",
+      "teacher :: Appointment reminder :: teacher-key-only",
+      "teacher :: One-to-one appointment confirmed :: 1h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: 24h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "teacher :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus23h",
+      "teacher :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus59m",
+      "teacher :: One-to-one appointment confirmed :: plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus23h",
+      "teacher :: One-to-one appointment confirmed :: plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus30m",
+      "teacher :: One-to-one appointment confirmed :: plus59m",
+      "teacher :: One-to-one appointment confirmed :: teacher-key-only"
+    ]
+  },
+  "run3": {
+    "notifications": [
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:student:c-plus1h-exact",
+        "user": "student:c-plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-exact:booking:booking:c-plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:student:plus1h-exact",
+        "user": "student:plus1h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-exact:booking:booking:plus1h-exact:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:student:c-1h-teacher-missing",
+        "user": "student:c-1h-teacher-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-1h-teacher-missing:booking:booking:c-1h-teacher-missing:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:confirmed:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus59m:booking:booking:c-plus59m:reminder_1h:student:c-plus59m",
+        "user": "student:c-plus59m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:confirmed:student:plus30m",
+        "user": "student:plus30m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus30m:booking:booking:plus30m:reminder_1h:student:plus30m",
+        "user": "student:plus30m",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:started-1h-ago:booking:booking:started-1h-ago:confirmed:student:started-1h-ago",
+        "user": "student:started-1h-ago",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:confirmed:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-exact:booking:booking:c-plus24h-exact:reminder_24h:student:c-plus24h-exact",
+        "user": "student:c-plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-1ms:booking:booking:plus24h-1ms:confirmed:student:plus24h-1ms",
+        "user": "student:plus24h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus30h:booking:booking:c-plus30h:confirmed:student:c-plus30h",
+        "user": "student:c-plus30h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:confirmed:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus23h:booking:booking:c-plus23h:reminder_24h:student:c-plus23h",
+        "user": "student:c-plus23h",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:confirmed:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-24h-student-missing:booking:booking:c-24h-student-missing:reminder_24h:student:c-24h-student-missing",
+        "user": "student:c-24h-student-missing",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:confirmed:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus1h-1ms:booking:booking:plus1h-1ms:reminder_24h:student:plus1h-1ms",
+        "user": "student:plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:confirmed:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:teacher-key-only:booking:booking:teacher-key-only:reminder_24h:student:teacher-key-only",
+        "user": "student:teacher-key-only",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:student:24h-already-sent",
+        "user": "student:24h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:24h-already-sent:booking:booking:24h-already-sent:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus24h-1ms:booking:booking:c-plus24h-1ms:confirmed:student:c-plus24h-1ms",
+        "user": "student:c-plus24h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:student:plus24h-exact",
+        "user": "student:plus24h-exact",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus24h-exact:booking:booking:plus24h-exact:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:confirmed:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تم تأكيد الموعد الفردي"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus23h:booking:booking:plus23h:reminder_24h:student:plus23h",
+        "user": "student:plus23h",
+        "title": "تذكير بالموعد"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus30h:booking:booking:plus30h:confirmed:student:plus30h",
+        "user": "student:plus30h",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:confirmed:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:c-plus1h-1ms:booking:booking:c-plus1h-1ms:reminder_24h:student:c-plus1h-1ms",
+        "user": "student:c-plus1h-1ms",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:student:1h-already-sent",
+        "user": "student:1h-already-sent",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:1h-already-sent:booking:booking:1h-already-sent:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:student:c-student-confirmed-missing-far",
+        "user": "student:c-student-confirmed-missing-far",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:c-student-confirmed-missing-far:booking:booking:c-student-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:student:c-teacher-confirmed-missing-far",
+        "user": "student:c-teacher-confirmed-missing-far",
+        "title": "seeded"
+      },
+      {
+        "key": "lesson-session:session:c-teacher-confirmed-missing-far:booking:booking:c-teacher-confirmed-missing-far:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:teacher",
+        "user": "teacher",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:confirmed:student:plus59m",
+        "user": "student:plus59m",
+        "title": "One-to-one appointment confirmed"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:teacher",
+        "user": "teacher",
+        "title": "Appointment reminder"
+      },
+      {
+        "key": "lesson-session:session:plus59m:booking:booking:plus59m:reminder_1h:student:plus59m",
+        "user": "student:plus59m",
+        "title": "Appointment reminder"
+      }
+    ],
+    "emails": [
+      "student:1h-already-sent :: Appointment reminder :: 1h-already-sent",
+      "student:1h-already-sent :: One-to-one appointment confirmed :: 1h-already-sent",
+      "student:24h-already-sent :: Appointment reminder :: 24h-already-sent",
+      "student:24h-already-sent :: One-to-one appointment confirmed :: 24h-already-sent",
+      "student:c-1h-teacher-missing :: Appointment reminder :: c-1h-teacher-missing",
+      "student:c-1h-teacher-missing :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "student:c-24h-student-missing :: Appointment reminder :: c-24h-student-missing",
+      "student:c-24h-student-missing :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "student:c-plus1h-1ms :: Appointment reminder :: c-plus1h-1ms",
+      "student:c-plus1h-1ms :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "student:c-plus1h-exact :: Appointment reminder :: c-plus1h-exact",
+      "student:c-plus1h-exact :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "student:c-plus23h :: Appointment reminder :: c-plus23h",
+      "student:c-plus23h :: One-to-one appointment confirmed :: c-plus23h",
+      "student:c-plus24h-exact :: Appointment reminder :: c-plus24h-exact",
+      "student:c-plus24h-exact :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "student:c-plus59m :: Appointment reminder :: c-plus59m",
+      "student:c-plus59m :: One-to-one appointment confirmed :: c-plus59m",
+      "student:plus1h-1ms :: Appointment reminder :: plus1h-1ms",
+      "student:plus1h-1ms :: One-to-one appointment confirmed :: plus1h-1ms",
+      "student:plus1h-exact :: Appointment reminder :: plus1h-exact",
+      "student:plus1h-exact :: One-to-one appointment confirmed :: plus1h-exact",
+      "student:plus23h :: تذكير بالموعد :: plus23h",
+      "student:plus23h :: تم تأكيد الموعد الفردي :: plus23h",
+      "student:plus24h-exact :: Appointment reminder :: plus24h-exact",
+      "student:plus24h-exact :: One-to-one appointment confirmed :: plus24h-exact",
+      "student:plus30m :: Appointment reminder :: plus30m",
+      "student:plus30m :: One-to-one appointment confirmed :: plus30m",
+      "student:plus59m :: Appointment reminder :: plus59m",
+      "student:plus59m :: One-to-one appointment confirmed :: plus59m",
+      "student:teacher-key-only :: Appointment reminder :: teacher-key-only",
+      "student:teacher-key-only :: One-to-one appointment confirmed :: teacher-key-only",
+      "teacher :: Appointment reminder :: 1h-already-sent",
+      "teacher :: Appointment reminder :: 24h-already-sent",
+      "teacher :: Appointment reminder :: c-1h-teacher-missing",
+      "teacher :: Appointment reminder :: c-24h-student-missing",
+      "teacher :: Appointment reminder :: c-plus1h-1ms",
+      "teacher :: Appointment reminder :: c-plus1h-exact",
+      "teacher :: Appointment reminder :: c-plus23h",
+      "teacher :: Appointment reminder :: c-plus24h-exact",
+      "teacher :: Appointment reminder :: c-plus59m",
+      "teacher :: Appointment reminder :: plus1h-1ms",
+      "teacher :: Appointment reminder :: plus1h-exact",
+      "teacher :: Appointment reminder :: plus23h",
+      "teacher :: Appointment reminder :: plus24h-exact",
+      "teacher :: Appointment reminder :: plus30m",
+      "teacher :: Appointment reminder :: plus59m",
+      "teacher :: Appointment reminder :: teacher-key-only",
+      "teacher :: One-to-one appointment confirmed :: 1h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: 24h-already-sent",
+      "teacher :: One-to-one appointment confirmed :: c-1h-teacher-missing",
+      "teacher :: One-to-one appointment confirmed :: c-24h-student-missing",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: c-plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus23h",
+      "teacher :: One-to-one appointment confirmed :: c-plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: c-plus59m",
+      "teacher :: One-to-one appointment confirmed :: plus1h-1ms",
+      "teacher :: One-to-one appointment confirmed :: plus1h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus23h",
+      "teacher :: One-to-one appointment confirmed :: plus24h-exact",
+      "teacher :: One-to-one appointment confirmed :: plus30m",
+      "teacher :: One-to-one appointment confirmed :: plus59m",
+      "teacher :: One-to-one appointment confirmed :: teacher-key-only"
+    ]
+  }
+}

@@ -323,49 +323,53 @@ export class CallCenterSupportService {
 
   /** Aggregate-only support report; no complaint, finance, or user entity is serialized. */
   public async supportReport(): Promise<Record<string, unknown>> {
-    const statusRows = await this.complaintsRepository
-      .createQueryBuilder('complaint')
-      .select('complaint.status', 'status')
-      .addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL')
-      .groupBy('complaint.status')
-      .getRawMany<{ status: string; count: string }>();
-    const roleRows = await this.complaintsRepository
-      .createQueryBuilder('complaint')
-      .select('complaint.complainant_role', 'role')
-      .addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL')
-      .groupBy('complaint.complainant_role')
-      .getRawMany<{ role: string; count: string }>();
-    const typeRows = await this.complaintsRepository
-      .createQueryBuilder('complaint')
-      .select('complaint.type', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .where('complaint.deleted_at IS NULL')
-      .groupBy('complaint.type')
-      .getRawMany<{ type: string; count: string }>();
-    const times = await this.complaintsRepository
-      .createQueryBuilder('complaint')
-      .select(
-        'AVG(EXTRACT(EPOCH FROM (complaint.first_response_at - complaint.created_at)))',
-        'first',
-      )
-      .addSelect(
-        'AVG(EXTRACT(EPOCH FROM (complaint.resolved_at - complaint.created_at)))',
-        'resolution',
-      )
-      .where('complaint.deleted_at IS NULL')
-      .getRawOne<{ first: string | null; resolution: string | null }>();
-    const delayed = await this.complaintsRepository
-      .createQueryBuilder('complaint')
-      .where('complaint.deleted_at IS NULL')
-      .andWhere('complaint.status NOT IN (:...terminal)', {
-        terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
-      })
-      .andWhere(
-        '(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())',
-      )
-      .getCount();
+    // Five independent aggregates, each its own statement (no GROUPING SETS, no
+    // shared join): issued together so the response waits for the slowest, not the sum.
+    const [statusRows, roleRows, typeRows, times, delayed] = await Promise.all([
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .select('complaint.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .where('complaint.deleted_at IS NULL')
+        .groupBy('complaint.status')
+        .getRawMany<{ status: string; count: string }>(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .select('complaint.complainant_role', 'role')
+        .addSelect('COUNT(*)', 'count')
+        .where('complaint.deleted_at IS NULL')
+        .groupBy('complaint.complainant_role')
+        .getRawMany<{ role: string; count: string }>(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .select('complaint.type', 'type')
+        .addSelect('COUNT(*)', 'count')
+        .where('complaint.deleted_at IS NULL')
+        .groupBy('complaint.type')
+        .getRawMany<{ type: string; count: string }>(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .select(
+          'AVG(EXTRACT(EPOCH FROM (complaint.first_response_at - complaint.created_at)))',
+          'first',
+        )
+        .addSelect(
+          'AVG(EXTRACT(EPOCH FROM (complaint.resolved_at - complaint.created_at)))',
+          'resolution',
+        )
+        .where('complaint.deleted_at IS NULL')
+        .getRawOne<{ first: string | null; resolution: string | null }>(),
+      this.complaintsRepository
+        .createQueryBuilder('complaint')
+        .where('complaint.deleted_at IS NULL')
+        .andWhere('complaint.status NOT IN (:...terminal)', {
+          terminal: [ComplaintStatus.RESOLVED, ComplaintStatus.CLOSED],
+        })
+        .andWhere(
+          '(complaint.first_response_due_at <= NOW() OR complaint.resolution_due_at <= NOW())',
+        )
+        .getCount(),
+    ]);
     return {
       by_status: statusRows.map((row) => ({ status: row.status, count: Number(row.count) })),
       by_complainant_role: roleRows.map((row) => ({ role: row.role, count: Number(row.count) })),
@@ -418,21 +422,26 @@ export class CallCenterSupportService {
         .where('complaint.deleted_at IS NULL')
         .andWhere('complaint.status NOT IN (:...terminal)', { terminal });
 
-    const [openTickets, assignedToMe, unassignedTickets, firstResponseApproaching, resolutionApproaching] =
-      await Promise.all([
-        openBase().getCount(),
-        openBase().andWhere('complaint.assigned_agent_id = :agentId', { agentId }).getCount(),
-        openBase().andWhere('complaint.assigned_agent_id IS NULL').getCount(),
-        openBase()
-          .andWhere('complaint.first_response_at IS NULL')
-          .andWhere('complaint.first_response_due_at > :now', { now })
-          .andWhere('complaint.first_response_due_at <= :horizon', { horizon: warningHorizon })
-          .getCount(),
-        openBase()
-          .andWhere('complaint.resolution_due_at > :now', { now })
-          .andWhere('complaint.resolution_due_at <= :horizon', { horizon: warningHorizon })
-          .getCount(),
-      ]);
+    const [
+      openTickets,
+      assignedToMe,
+      unassignedTickets,
+      firstResponseApproaching,
+      resolutionApproaching,
+    ] = await Promise.all([
+      openBase().getCount(),
+      openBase().andWhere('complaint.assigned_agent_id = :agentId', { agentId }).getCount(),
+      openBase().andWhere('complaint.assigned_agent_id IS NULL').getCount(),
+      openBase()
+        .andWhere('complaint.first_response_at IS NULL')
+        .andWhere('complaint.first_response_due_at > :now', { now })
+        .andWhere('complaint.first_response_due_at <= :horizon', { horizon: warningHorizon })
+        .getCount(),
+      openBase()
+        .andWhere('complaint.resolution_due_at > :now', { now })
+        .andWhere('complaint.resolution_due_at <= :horizon', { horizon: warningHorizon })
+        .getCount(),
+    ]);
 
     return {
       open_tickets: openTickets,

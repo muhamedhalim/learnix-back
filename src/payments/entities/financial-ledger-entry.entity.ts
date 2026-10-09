@@ -11,6 +11,7 @@ import { PaymentChannel } from './payment-channel.enum';
 @Index('IDX_ledger_teacher_created', ['teacher_id', 'created_at'])
 @Index('IDX_ledger_account_currency', ['account', 'currency'])
 @Index('IDX_ledger_available', ['entry_type', 'available_at'])
+@Index('IDX_ledger_settlement_id', ['settlement_id'], { where: '"settlement_id" IS NOT NULL' })
 export class FinancialLedgerEntry {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

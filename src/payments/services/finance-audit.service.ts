@@ -72,33 +72,7 @@ export class FinanceAuditService {
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // Each branch resolves `resource_id` to a teacher through the owning record.
-    // Orders carry `teacher_id` directly; refunds and manual submissions reach
-    // it through their order.
-    const scoped = `
-      SELECT log.*
-        FROM payment_audit_logs log
-        JOIN teacher_settlements settlement ON settlement.id = log.resource_id
-       WHERE log.resource_type = 'settlement' AND settlement.teacher_id = $1
-      UNION ALL
-      SELECT log.*
-        FROM payment_audit_logs log
-        JOIN refunds refund ON refund.id = log.resource_id
-        JOIN orders refund_order ON refund_order.id = refund.order_id
-       WHERE log.resource_type = 'refund' AND refund_order.teacher_id = $1
-      UNION ALL
-      SELECT log.*
-        FROM payment_audit_logs log
-        JOIN orders sale ON sale.id = log.resource_id
-       WHERE log.resource_type = 'order' AND sale.teacher_id = $1
-      UNION ALL
-      SELECT log.*
-        FROM payment_audit_logs log
-        JOIN manual_payment_submissions submission ON submission.id = log.resource_id
-        JOIN orders submission_order ON submission_order.id = submission.order_id
-       WHERE log.resource_type = 'manual_payment_submission'
-         AND submission_order.teacher_id = $1
-    `;
+    const scoped = this.scopedSql();
 
     const countRows = await this.dataSource.query<Array<{ count: number }>>(
       `SELECT COUNT(*)::int AS count FROM (${scoped}) scoped ${where}`,
@@ -133,25 +107,43 @@ export class FinanceAuditService {
     };
   }
 
+  /**
+   * The rows one teacher may see, as a subquery over `$1` = teacher id. Each branch resolves
+   * `resource_id` to a teacher through the owning record: orders carry `teacher_id` directly;
+   * refunds and manual submissions reach it through their order. Shared by `list` and `actions`
+   * so the dropdown can never offer an action the list would not show.
+   */
+  private scopedSql(): string {
+    return `
+      SELECT log.*
+        FROM payment_audit_logs log
+        JOIN teacher_settlements settlement ON settlement.id = log.resource_id
+       WHERE log.resource_type = 'settlement' AND settlement.teacher_id = $1
+      UNION ALL
+      SELECT log.*
+        FROM payment_audit_logs log
+        JOIN refunds refund ON refund.id = log.resource_id
+        JOIN orders refund_order ON refund_order.id = refund.order_id
+       WHERE log.resource_type = 'refund' AND refund_order.teacher_id = $1
+      UNION ALL
+      SELECT log.*
+        FROM payment_audit_logs log
+        JOIN orders sale ON sale.id = log.resource_id
+       WHERE log.resource_type = 'order' AND sale.teacher_id = $1
+      UNION ALL
+      SELECT log.*
+        FROM payment_audit_logs log
+        JOIN manual_payment_submissions submission ON submission.id = log.resource_id
+        JOIN orders submission_order ON submission_order.id = submission.order_id
+       WHERE log.resource_type = 'manual_payment_submission'
+         AND submission_order.teacher_id = $1
+    `;
+  }
+
   /** Distinct actions present for this teacher, for the filter dropdown. */
   public async actions(teacherId: string): Promise<string[]> {
     const rows = await this.dataSource.query<Array<{ action: string }>>(
-      `SELECT DISTINCT log.action
-         FROM payment_audit_logs log
-         LEFT JOIN teacher_settlements settlement
-           ON settlement.id = log.resource_id AND log.resource_type = 'settlement'
-         LEFT JOIN refunds refund
-           ON refund.id = log.resource_id AND log.resource_type = 'refund'
-         LEFT JOIN orders refund_order ON refund_order.id = refund.order_id
-         LEFT JOIN orders sale
-           ON sale.id = log.resource_id AND log.resource_type = 'order'
-         LEFT JOIN manual_payment_submissions submission
-           ON submission.id = log.resource_id
-          AND log.resource_type = 'manual_payment_submission'
-         LEFT JOIN orders submission_order ON submission_order.id = submission.order_id
-        WHERE $1 IN (settlement.teacher_id, refund_order.teacher_id, sale.teacher_id,
-                     submission_order.teacher_id)
-        ORDER BY log.action ASC`,
+      `SELECT DISTINCT scoped.action FROM (${this.scopedSql()}) scoped ORDER BY scoped.action ASC`,
       [teacherId],
     );
     return rows.map((row) => row.action);

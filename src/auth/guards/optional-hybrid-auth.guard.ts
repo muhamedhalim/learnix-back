@@ -5,6 +5,7 @@ import { Request } from 'express';
 import type { JwtPayload } from 'jsonwebtoken';
 import * as jwt from 'jsonwebtoken';
 
+import type { JwtPayload as AppJwtPayload } from '../../common/interfaces/user-request.interface';
 import { FirebaseService } from '../../firebase/firebase.service';
 import { UserStatus } from '../../users/entities/user-status.enum';
 import { UsersService } from '../../users/users.service';
@@ -133,7 +134,13 @@ export class OptionalHybridAuthGuard implements CanActivate {
         this.logger.debug('Optional auth: Firebase account is inactive or not approved');
         return true;
       }
-      request.user = user;
+      // Same principal shape as HybridAuthGuard: never attach the raw entity.
+      request.user = {
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      } satisfies AppJwtPayload;
       this.logger.debug(`Optional auth: Firebase user ${user.id} authenticated`);
       return true;
     } catch {

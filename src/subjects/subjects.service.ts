@@ -196,11 +196,32 @@ export class SubjectsService {
   public async findAllForAdmin(
     filter: AdminSubjectFilterDto,
   ): Promise<PaginatedResponse<SubjectAdminView>> {
-    return await this.listManaged(filter, {
-      kind: 'admin',
-      status: filter.status,
-      ownerId: filter.ownerId,
-    });
+    const [page, statusCounts] = await Promise.all([
+      this.listManaged(filter, {
+        kind: 'admin',
+        status: filter.status,
+        ownerId: filter.ownerId,
+      }),
+      filter.include_status_counts === true ? this.countSubjectsByStatus() : undefined,
+    ]);
+    return statusCounts === undefined
+      ? page
+      : { ...page, meta: { ...page.meta, status_counts: statusCounts } };
+  }
+
+  /**
+   * Global per-status totals of live subjects (one grouped statement). The
+   * cards show the whole catalogue regardless of the list's filters, which is
+   * what the former `/admin/subjects/pending?limit=1` probe returned.
+   */
+  private async countSubjectsByStatus(): Promise<Record<string, number>> {
+    const rows = await this.dataSource.query<Array<{ status: string; count: string }>>(
+      'SELECT status, COUNT(*)::text AS count FROM subjects WHERE deleted_at IS NULL GROUP BY status',
+    );
+    const counts: Record<string, number> = {};
+    for (const status of Object.values(SubjectStatus)) counts[status] = 0;
+    for (const row of rows) counts[row.status] = Number.parseInt(row.count, 10);
+    return counts;
   }
 
   /** Admin approval queue. */

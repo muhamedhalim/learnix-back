@@ -101,6 +101,41 @@ describe('pending teacher registrations (e2e)', () => {
     ).toContain(teacher.email);
   });
 
+  it('counts a teacher with several subjects once and still lists every subject (T086)', async () => {
+    const many = registerTeacher({ name: 'Multi Subject Registrant' });
+    const few = registerTeacher({ name: 'Single Registrant Example' });
+    await request(server).post(`${API_PREFIX}/auth/register`).send(many).expect(202);
+    await request(server).post(`${API_PREFIX}/auth/register`).send(few).expect(202);
+    const stored = await storedTeacher(many.email);
+    const subjectIds: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const row = (await ctx.dataSource.query(
+        `INSERT INTO subjects (name, status) VALUES ($1, 'approved') RETURNING id`,
+        [`T086 subject ${String(i)}`],
+      )) as { id: string }[];
+      subjectIds.push(row[0]!.id);
+      await ctx.dataSource.query(
+        'INSERT INTO teacher_subjects (teacher_profile_id, subject_id) VALUES ($1, $2)',
+        [stored!.profile_id, row[0]!.id],
+      );
+    }
+
+    const list = await admin.agent.get(`${API_PREFIX}/admin/teachers`).expect(200);
+    expect(list.body.meta.total).toBe(2);
+    expect(list.body.data).toHaveLength(2);
+    const multi = (list.body.data as { id: string; subjects?: { id: string }[] }[]).find(
+      (row) => row.id === stored!.profile_id,
+    );
+    expect(multi?.subjects?.map((subject) => subject.id).sort()).toEqual([...subjectIds].sort());
+
+    const searched = await admin.agent
+      .get(`${API_PREFIX}/admin/teachers`)
+      .query({ search: 'Multi Subject' })
+      .expect(200);
+    expect(searched.body.meta.total).toBe(1);
+    expect(searched.body.data).toHaveLength(1);
+  });
+
   it('rejects a non-admin caller from every approval endpoint', async () => {
     const teacher = registerTeacher();
     await request(server).post(`${API_PREFIX}/auth/register`).send(teacher).expect(202);

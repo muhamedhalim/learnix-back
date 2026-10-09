@@ -280,6 +280,132 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
     expect(future.body.data).toHaveLength(0);
   });
 
+  describe('GET /admin/finance/audit/actions (T080)', () => {
+    /** A refund and a manual submission both owned by `order`'s teacher, through the order. */
+    async function refundAndSubmission(
+      order: Order,
+      studentId: string,
+      adminId: string,
+    ): Promise<{ refundId: string; submissionId: string }> {
+      const refunds = dataSource.getRepository(Refund);
+      const refund = await refunds.save(
+        refunds.create({
+          order_id: order.id,
+          payment_id: null,
+          channel: PaymentChannel.GATEWAY,
+          amount_minor: 10_000,
+          currency: 'EGP',
+          status: RefundStatus.REQUESTED,
+          reason_code: 'duplicate',
+          reason: null,
+          internal_note: null,
+          external_method: null,
+          external_reference: null,
+          proof_file_key: null,
+          requested_by: adminId,
+          approved_by: null,
+          completed_by: null,
+          completed_at: null,
+          metadata: null,
+        }),
+      );
+      const method: Array<{ id: string }> = await dataSource.query(
+        `INSERT INTO manual_payment_methods (name, type, recipient_name, destination_details, instructions, created_by, updated_by)
+         VALUES ('Wallet', 'wallet', 'Recipient', '{}'::jsonb, 'pay', $1, $1) RETURNING id`,
+        [adminId],
+      );
+      const submission: Array<{ id: string }> = await dataSource.query(
+        `INSERT INTO manual_payment_submissions
+           (order_id, student_id, manual_payment_method_id, claimed_amount_minor, currency, payer_name, status, submitted_at)
+         VALUES ($1, $2, $3, 10000, 'EGP', 'Payer', 'submitted', NOW()) RETURNING id`,
+        [order.id, studentId, method[0]!.id],
+      );
+      return { refundId: refund.id, submissionId: submission[0]!.id };
+    }
+
+    it('offers exactly the actions the teacher-scoped list shows, across all four resource types', async () => {
+      const admin = await financeAdmin();
+      const [teacherA, teacherB, student] = await Promise.all([
+        makeTeacher('a1'),
+        makeTeacher('b1'),
+        makeStudent(),
+      ]);
+      const orderA = await makePaidOrder(teacherA, student, 'ACT-A');
+      const orderB = await makePaidOrder(teacherB, student, 'ACT-B');
+      const settlementA = await makeSettlement(teacherA, 'act-a', admin.userId);
+      const settlementB = await makeSettlement(teacherB, 'act-b', admin.userId);
+      const a = await refundAndSubmission(orderA, student.id, admin.userId);
+      const b = await refundAndSubmission(orderB, student.id, admin.userId);
+
+      await audit('order', orderA.id, 'a_order_action');
+      await audit('order', orderA.id, 'a_order_action'); // duplicates collapse
+      await audit('settlement', settlementA.id, 'a_settlement_action');
+      await audit('refund', a.refundId, 'a_refund_action');
+      await audit('manual_payment_submission', a.submissionId, 'a_manual_action');
+      await audit('order', orderB.id, 'b_order_action');
+      await audit('settlement', settlementB.id, 'b_settlement_action');
+      await audit('refund', b.refundId, 'b_refund_action');
+      await audit('manual_payment_submission', b.submissionId, 'b_manual_action');
+      // A resource id that resolves to nobody, and a mismatched type for A's order id: both belong to no teacher.
+      await audit('order', '00000000-0000-4000-8000-000000000000', 'orphan_action');
+      await audit('refund', orderA.id, 'wrong_type_action');
+
+      const forA = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/audit/actions`)
+        .query({ teacher_id: teacherA.id })
+        .expect(200);
+      expect(forA.body.data).toEqual([
+        'a_manual_action',
+        'a_order_action',
+        'a_refund_action',
+        'a_settlement_action',
+      ]);
+
+      const forB = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/audit/actions`)
+        .query({ teacher_id: teacherB.id })
+        .expect(200);
+      expect(forB.body.data).toEqual([
+        'b_manual_action',
+        'b_order_action',
+        'b_refund_action',
+        'b_settlement_action',
+      ]);
+
+      // The dropdown equals the distinct actions of the list for the same teacher.
+      const list = await admin.agent
+        .get(`${API_PREFIX}/admin/finance/audit`)
+        .query({ teacher_id: teacherA.id, limit: 100 })
+        .expect(200);
+      const listed = [...new Set((list.body.data as Array<{ action: string }>).map((row) => row.action))].sort();
+      expect(forA.body.data).toEqual(listed);
+    });
+
+    it('keeps the guards: 400 without a teacher id, 403 without permission or as a teacher, 401 anonymous', async () => {
+      const teacher = await makeTeacher('a2');
+      const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
+      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+      await admin.agent
+        .get(`${API_PREFIX}/admin/finance/audit/actions`)
+        .query({ teacher_id: teacher.id })
+        .expect(403);
+
+      const finance = await financeAdmin();
+      await finance.agent.get(`${API_PREFIX}/admin/finance/audit/actions`).expect(400);
+
+      const impostor = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
+      await impostor.agent
+        .get(`${API_PREFIX}/admin/finance/audit/actions`)
+        .query({ teacher_id: teacher.id })
+        .expect(403);
+
+      await request(server)
+        .get(`${API_PREFIX}/admin/finance/audit/actions`)
+        .query({ teacher_id: teacher.id })
+        .expect(401);
+    });
+  });
+
   it('rejects an unknown resource type instead of widening the scope', async () => {
     const teacher = await makeTeacher('6');
     const admin = await financeAdmin();

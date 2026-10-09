@@ -206,7 +206,9 @@ describe('PaymentsService — canonical compatibility routes', () => {
   });
 
   it('uses the canonical entitlement policy for package and lesson access', async () => {
-    entitlements.hasItemAccess.mockResolvedValue(true);
+    // T074: one entitlement probe. An active entitlement is found by `getActive` itself (it applies
+    // the same predicate the removed second probe did), so the answer is unchanged.
+    entitlements.getActive.mockResolvedValue({ expires_at: null });
 
     await expect(
       service.checkItemAccess('student-1', ItemType.PACKAGE, 'package-1'),
@@ -215,11 +217,89 @@ describe('PaymentsService — canonical compatibility routes', () => {
       has_access: true,
     });
 
-    expect(entitlements.hasItemAccess).toHaveBeenCalledWith(
-      'student-1',
-      ItemType.PACKAGE,
-      'package-1',
-    );
+    expect(entitlements.getActive).toHaveBeenCalledWith('student-1', ItemType.PACKAGE, 'package-1');
+    expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+  });
+
+  describe('checkItemAccess single entitlement probe (T074 / W4-C9)', () => {
+    const daysFromNow = (days: number): Date => new Date(Date.now() + days * 86_400_000);
+
+    it('active entitlement without expiry: one probe, no purchase reads', async () => {
+      entitlements.getActive.mockResolvedValue({ expires_at: null });
+
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({ has_access: true });
+
+      expect(entitlements.getActive).toHaveBeenCalledTimes(1);
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+      expect(lessonPurchases.findOne).not.toHaveBeenCalled();
+    });
+
+    it('active entitlement with an expiry reports the remaining days', async () => {
+      const expiresAt = daysFromNow(3);
+      entitlements.getActive.mockResolvedValue({ expires_at: expiresAt });
+
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({
+        has_access: true,
+        expires_at: expiresAt,
+        days_remaining: 3,
+      });
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+    });
+
+    it('expired or revoked entitlement (getActive finds nothing) falls back to exactly one purchase read, never a second entitlement read', async () => {
+      entitlements.getActive.mockResolvedValue(null);
+      lessonPurchases.findOne.mockResolvedValue(null);
+
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({ has_access: false });
+
+      expect(entitlements.getActive).toHaveBeenCalledTimes(1);
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+      expect(lessonPurchases.findOne).toHaveBeenCalledTimes(1);
+    });
+
+    it('package fallback: a live, unrevoked package purchase grants access; none does not', async () => {
+      entitlements.getActive.mockResolvedValue(null);
+      packagePurchases.findOne.mockResolvedValueOnce({ id: 'pp' }).mockResolvedValueOnce(null);
+
+      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({ has_access: true });
+      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({ has_access: false });
+
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+      expect(lessonPurchases.findOne).not.toHaveBeenCalled();
+    });
+
+    it('book fallback: a live book purchase grants access; none does not', async () => {
+      const bookPurchases = { findOne: jest.fn().mockResolvedValueOnce({ id: 'bp' }).mockResolvedValueOnce(null) };
+      (service as unknown as { bookPurchasesRepository: unknown }).bookPurchasesRepository = bookPurchases;
+      entitlements.getActive.mockResolvedValue(null);
+
+      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({ has_access: true });
+      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({ has_access: false });
+
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+      expect(bookPurchases.findOne).toHaveBeenCalledTimes(2);
+    });
+
+    it('lesson legacy fallback: an unexpired purchase grants access with its expiry and remaining days', async () => {
+      const expiresAt = daysFromNow(10);
+      entitlements.getActive.mockResolvedValue(null);
+      lessonPurchases.findOne.mockResolvedValue({ access_expires_at: expiresAt });
+
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({
+        has_access: true,
+        expires_at: expiresAt,
+        days_remaining: 10,
+      });
+      expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
+    });
+
+    it('a single-lesson playback gate still consults the entitlement predicate itself (unchanged)', async () => {
+      entitlements.hasItemAccess.mockResolvedValue(true);
+
+      await expect(service.hasLessonPlaybackAccess('s', 'l')).resolves.toBe(true);
+
+      expect(entitlements.hasItemAccess).toHaveBeenCalledWith('s', ItemType.LESSON, 'l');
+    });
   });
 
   it('does not let permanent package ownership bypass an expired package lesson', async () => {
@@ -244,6 +324,50 @@ describe('PaymentsService — canonical compatibility routes', () => {
       expect.objectContaining({ has_access: true, expires_at: expiresAt }),
     );
     await expect(service.hasLessonPlaybackAccess('student-1', 'active-lesson')).resolves.toBe(true);
+  });
+
+  describe('getPlaybackAccessibleLessonIds (T065 batched playback filter)', () => {
+    const queryMock = (): jest.Mock => {
+      const mock = jest.fn();
+      (service as unknown as { dataSource: { query: jest.Mock } }).dataSource.query = mock;
+      return mock;
+    };
+
+    it('returns an empty set without querying when there are no lesson ids', async () => {
+      const query = queryMock();
+
+      await expect(service.getPlaybackAccessibleLessonIds('student-1', [])).resolves.toEqual(new Set());
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('runs one statement with one array bind and returns the accessible ids', async () => {
+      const query = queryMock().mockResolvedValue([{ lesson_id: 'l-2' }, { lesson_id: 'l-3' }]);
+
+      const result = await service.getPlaybackAccessibleLessonIds('student-1', ['l-1', 'l-2', 'l-2', 'l-3']);
+
+      expect(result).toEqual(new Set(['l-2', 'l-3']));
+      expect(query).toHaveBeenCalledTimes(1);
+      const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+      expect(params).toEqual(['student-1', ['l-1', 'l-2', 'l-3'], ItemType.LESSON, 'active']);
+      expect(sql).toContain('ANY($2::uuid[])');
+    });
+
+    it('keeps the access rules narrow: UNION of two live branches, database clock, no preview or package branch', async () => {
+      const query = queryMock().mockResolvedValue([]);
+
+      await service.getPlaybackAccessibleLessonIds('student-1', ['l-1']);
+
+      const sql = (query.mock.calls[0] as [string])[0];
+      expect(sql.split('UNION')).toHaveLength(2);
+      expect(sql).not.toContain('UNION ALL');
+      expect(sql).toContain('e.status = $4');
+      expect(sql).toContain('(e.expires_at IS NULL OR e.expires_at > NOW())');
+      expect(sql).toContain('p.revoked_at IS NULL');
+      expect(sql).toContain('p.access_expires_at > NOW()');
+      for (const forbidden of ['is_free_preview', 'package_purchases', 'e.revoked_at']) {
+        expect(sql).not.toContain(forbidden);
+      }
+    });
   });
 
   it('closes the active order and releases discounts after a verified failure', async () => {
@@ -329,5 +453,38 @@ describe('PaymentsService — canonical compatibility routes', () => {
     expect(baseQuery).toHaveBeenNthCalledWith(1, 'teacher-a', '2026-01-01', '2026-01-31');
     expect(baseQuery).toHaveBeenNthCalledWith(2, 'teacher-a', '2026-01-01', '2026-01-31');
     expect(query.addGroupBy).toHaveBeenCalledWith('order.currency');
+  });
+  describe('getMyPackages projection (T082)', () => {
+    it('narrows the teacher and lesson relations and keeps scoping, order and paging', async () => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const name of [
+        'leftJoinAndSelect',
+        'leftJoin',
+        'addSelect',
+        'where',
+        'andWhere',
+        'orderBy',
+        'skip',
+        'take',
+      ]) {
+        qb[name] = jest.fn().mockReturnValue(qb);
+      }
+      qb['getManyAndCount'] = jest.fn().mockResolvedValue([[{ id: 'pp' }], 41]);
+      (packagePurchases as unknown as { createQueryBuilder: jest.Mock }).createQueryBuilder = jest
+        .fn()
+        .mockReturnValue(qb);
+
+      const result = await service.getMyPackages('student-1', 2, 20);
+
+      expect(result.meta).toMatchObject({ total: 41, page: 2, limit: 20, totalPages: 3 });
+      expect(qb['addSelect']).toHaveBeenCalledWith(['teacher.id', 'teacher.name', 'teacher.profile_picture_url']);
+      // `title_ar` is not a lesson column; selecting it would make TypeORM throw.
+      expect(qb['addSelect']).toHaveBeenCalledWith(['lesson.id', 'lesson.title', 'lesson.duration']);
+      expect(qb['where']).toHaveBeenCalledWith('purchase.student_id = :userId', { userId: 'student-1' });
+      expect(qb['andWhere']).toHaveBeenCalledWith('purchase.revoked_at IS NULL');
+      expect(qb['orderBy']).toHaveBeenCalledWith('purchase.purchased_at', 'DESC');
+      expect(qb['skip']).toHaveBeenCalledWith(20);
+      expect(qb['take']).toHaveBeenCalledWith(20);
+    });
   });
 });

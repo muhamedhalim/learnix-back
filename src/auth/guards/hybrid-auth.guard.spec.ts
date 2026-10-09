@@ -1,5 +1,8 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 
+import * as jwt from 'jsonwebtoken';
+
+import { ACCESS_TOKEN_COOKIE } from '../auth-cookie.constants';
 import { UserStatus } from '../../users/entities/user-status.enum';
 import { HybridAuthGuard } from './hybrid-auth.guard';
 
@@ -132,5 +135,131 @@ describe('HybridAuthGuard — Firebase bearer branch', () => {
     await expect(
       guard.canActivate(contextFor({ headers: {}, signedCookies: {} })),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('HybridAuthGuard — cookie branch error classification', () => {
+  const SECRET = 'test-secret';
+  const sign = (claims: Record<string, unknown>, options: jwt.SignOptions = {}) =>
+    jwt.sign(claims, SECRET, options);
+  const valid = { sub: 'u1', email: 'a@b.c', sid: 's1' };
+
+  async function outcome(token: string, validateUser: jest.Mock) {
+    const guard = new HybridAuthGuard(
+      {} as never,
+      {} as never,
+      { validateUser } as never,
+      { get: () => SECRET } as never,
+    );
+    const request = { headers: {}, signedCookies: { [ACCESS_TOKEN_COOKIE]: token } };
+    return await guard
+      .canActivate({ switchToHttp: () => ({ getRequest: () => request }) } as never)
+      .then(
+        () => 'ok' as const,
+        (error: unknown) => error,
+      );
+  }
+
+  it('pg connection error -> 503', async () => {
+    const error = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    expect(await outcome(sign(valid), jest.fn().mockRejectedValue(error))).toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('pool acquire timeout -> 503', async () => {
+    const error = new Error('timeout exceeded when trying to connect');
+    expect(await outcome(sign(valid), jest.fn().mockRejectedValue(error))).toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('QueryFailedError 22P02 -> 401', async () => {
+    const error = Object.assign(new Error('invalid input syntax'), {
+      driverError: { code: '22P02' },
+    });
+    expect(await outcome(sign(valid), jest.fn().mockRejectedValue(error))).toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('unknown Error -> 401', async () => {
+    expect(
+      await outcome(sign(valid), jest.fn().mockRejectedValue(new Error('boom'))),
+    ).toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('validateUser null -> 401', async () => {
+    expect(await outcome(sign(valid), jest.fn().mockResolvedValue(null))).toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it('bad signature -> 401 without touching the database', async () => {
+    const validateUser = jest.fn();
+    const bad = jwt.sign(valid, 'another-secret');
+    expect(await outcome(bad, validateUser)).toBeInstanceOf(UnauthorizedException);
+    expect(validateUser).not.toHaveBeenCalled();
+  });
+
+  it('expired token -> 401 without touching the database', async () => {
+    const validateUser = jest.fn();
+    const expired = sign(valid, { expiresIn: -10 });
+    expect(await outcome(expired, validateUser)).toBeInstanceOf(UnauthorizedException);
+    expect(validateUser).not.toHaveBeenCalled();
+  });
+
+  it('missing sid -> 401 without touching the database', async () => {
+    const validateUser = jest.fn();
+    expect(await outcome(sign({ sub: 'u1', email: 'a@b.c' }), validateUser)).toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(validateUser).not.toHaveBeenCalled();
+  });
+
+  it('valid principal -> true and publishes the user', async () => {
+    const principal = { userId: 'u1' };
+    expect(await outcome(sign(valid), jest.fn().mockResolvedValue(principal))).toBe('ok');
+  });
+
+  describe('Firebase bearer', () => {
+    const FIREBASE_TOKEN = [
+      Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'k' })).toString('base64url'),
+      Buffer.from('{}').toString('base64url'),
+      'sig',
+    ].join('.');
+    const ctx = () =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            headers: { authorization: `Bearer ${FIREBASE_TOKEN}` },
+            signedCookies: {},
+          }),
+        }),
+      }) as never;
+
+    it('syncFirebaseUser connection error -> 503', async () => {
+      const guard = new HybridAuthGuard(
+        { verifyToken: jest.fn().mockResolvedValue({}) } as never,
+        {
+          syncFirebaseUser: jest
+            .fn()
+            .mockRejectedValue(Object.assign(new Error('x'), { code: '57P01' })),
+        } as never,
+        {} as never,
+        { get: () => SECRET } as never,
+      );
+      await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(ServiceUnavailableException);
+    });
+
+    it('verifyToken failure -> 401', async () => {
+      const guard = new HybridAuthGuard(
+        { verifyToken: jest.fn().mockRejectedValue(new Error('bad token')) } as never,
+        {} as never,
+        {} as never,
+        { get: () => SECRET } as never,
+      );
+      await expect(guard.canActivate(ctx())).rejects.toBeInstanceOf(UnauthorizedException);
+    });
   });
 });

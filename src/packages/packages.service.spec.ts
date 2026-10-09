@@ -20,6 +20,10 @@ function buildQueryBuilder(
   packages: LessonPackage[],
 ): jest.Mocked<Partial<SelectQueryBuilder<LessonPackage>>> {
   const builder: jest.Mocked<Partial<SelectQueryBuilder<LessonPackage>>> = {
+    select: jest.fn(),
+    addSelect: jest.fn(),
+    offset: jest.fn(),
+    limit: jest.fn(),
     leftJoinAndSelect: jest.fn(),
     where: jest.fn(),
     andWhere: jest.fn(),
@@ -28,11 +32,24 @@ function buildQueryBuilder(
     skip: jest.fn(),
     take: jest.fn(),
     getCount: jest.fn().mockResolvedValue(packages.length),
+    // T085: findAll pages ids first (clone/select/offset/limit/getRawMany), then hydrates them with getMany.
+    // The page statement also returns each package's LIVE lesson count (items whose lesson was not soft-deleted).
+    getRawMany: jest.fn().mockResolvedValue(
+      packages.map((pkg) => ({
+        id: pkg.id,
+        lessons_count: String(pkg.items.filter((item) => item.lesson !== null).length),
+      })),
+    ),
     getMany: jest.fn().mockResolvedValue(packages),
     getOne: jest.fn().mockResolvedValue(packages[0] ?? null),
   };
 
+  builder['clone'] = jest.fn().mockReturnValue(builder);
   for (const method of [
+    'select',
+    'addSelect',
+    'offset',
+    'limit',
     'leftJoinAndSelect',
     'where',
     'andWhere',
@@ -156,7 +173,8 @@ describe('PackagesService.findAll', () => {
       profile_picture_url: null,
     });
     expect(JSON.stringify(result.data[0])).not.toContain('sara@example.com');
-    expect(result.data[0]!.lessons).toHaveLength(1);
+    // T087: list rows carry the count only; `lessons[]` belongs to the detail response.
+    expect(result.data[0]).not.toHaveProperty('lessons');
     expect(result.data[0]!.lessons_count).toBe(1);
   });
 
@@ -190,11 +208,38 @@ describe('PackagesService.findAll', () => {
     const result = await service.findAll({ page: 1, limit: 20 });
 
     expect(result.data).toHaveLength(1);
-    // Only the valid item should surface; the orphaned one is dropped from
-    // both the list and the count so they stay consistent with each other.
-    expect(result.data[0]!.lessons).toHaveLength(1);
+    // The orphaned (soft-deleted lesson) item is not counted.
+    expect(result.data[0]).not.toHaveProperty('lessons');
     expect(result.data[0]!.lessons_count).toBe(1);
-    expect(result.data[0]!.lessons[0]!.id).toBe('lesson-1');
+  });
+
+  it('lessons_count sort: orders by an aliased live-lesson subquery with an id tie-breaker, then hydrates the page by ids (T085)', async () => {
+    const builder = buildQueryBuilder([makePackage(), makePackage({ id: 'pkg-2' })]);
+    const repository = { createQueryBuilder: jest.fn().mockReturnValue(builder) };
+    const service = new PackagesService(
+      repository as never,
+      ...Array.from({ length: 5 }, () => ({}) as never),
+      {} as never,
+      { resolveThumbnailUrl: jest.fn() } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { getOrCompute: jest.fn() } as never,
+    );
+
+    await service.findAll({ page: 2, limit: 5, sortBy: 'lessons_count' as never, order: 'asc' });
+
+    const [expression, alias] = builder.addSelect!.mock.calls[0] as [string, string];
+    expect(alias).toBe('lessons_count');
+    expect(expression).toContain('item_lesson.deleted_at IS NULL');
+    expect(builder.orderBy).toHaveBeenCalledWith('lessons_count', 'ASC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('package.id', 'ASC');
+    expect(builder.offset).toHaveBeenCalledWith(5);
+    expect(builder.limit).toHaveBeenCalledWith(5);
+    // Pagination is no longer skip/take over the to-many joins.
+    expect(builder.skip).not.toHaveBeenCalled();
+    expect(builder.take).not.toHaveBeenCalled();
   });
 
   it('computes pagination meta correctly', async () => {

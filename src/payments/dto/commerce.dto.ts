@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsBoolean,
   IsArray,
   IsDateString,
@@ -515,6 +516,18 @@ export class FinanceAuditFilterDto extends Pagination20Dto {
   public to?: string;
 }
 
+export const FINANCIAL_REPORT_WIDGETS = [
+  'summary',
+  'teacher_receivables',
+  'revenue_trends',
+  'product_breakdown',
+  'top_products',
+  'settlement_analytics',
+  'ledger_movements',
+  'settlement_history',
+] as const;
+export type FinancialReportWidget = (typeof FINANCIAL_REPORT_WIDGETS)[number];
+
 /** Canonical paid-order reporting filter. Dates always apply to orders.paid_at. */
 export class FinancialReportFilterDto extends Pagination20Dto {
   @IsOptional()
@@ -555,4 +568,27 @@ export class FinancialReportFilterDto extends Pagination20Dto {
   @IsOptional()
   @IsIn(['day', 'week', 'month', 'quarter'])
   public group_by?: 'day' | 'week' | 'month' | 'quarter';
+
+  /**
+   * Opt-in widget selection (comma-separated). Absent = every widget, so the
+   * default body is unchanged. Unselected widgets are returned empty and are
+   * never reported in `widget_errors`. The CSV export always uses the full set.
+   */
+  @IsOptional()
+  @Transform(({ value }): unknown =>
+    typeof value === 'string'
+      ? [
+          ...new Set(
+            value
+              .split(',')
+              .map((item) => item.trim())
+              .filter((item) => item !== ''),
+          ),
+        ]
+      : value,
+  )
+  @IsArray()
+  @ArrayMaxSize(FINANCIAL_REPORT_WIDGETS.length)
+  @IsIn(FINANCIAL_REPORT_WIDGETS, { each: true })
+  public widgets?: FinancialReportWidget[];
 }

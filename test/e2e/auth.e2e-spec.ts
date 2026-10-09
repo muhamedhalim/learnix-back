@@ -96,6 +96,29 @@ describe('HttpOnly cookie authentication (e2e)', () => {
     await request(server).post(`${API_PREFIX}/auth/refresh`).set('Cookie', oldRefresh).expect(401);
   });
 
+  it('two concurrent refreshes with the same cookie: exactly one 200, one rotated refresh_token_id', async () => {
+    const authenticated = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const cookie = cookiePair(authenticated.cookies, 'refresh_token');
+    const idBefore = (
+      (await ctx.dataSource.query('SELECT refresh_token_id FROM user_sessions WHERE user_id = $1', [
+        authenticated.userId,
+      ])) as Array<{ refresh_token_id: string }>
+    )[0]?.refresh_token_id;
+
+    const results = await Promise.all([
+      request(server).post(`${API_PREFIX}/auth/refresh`).set('Cookie', cookie),
+      request(server).post(`${API_PREFIX}/auth/refresh`).set('Cookie', cookie),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
+    const rows = (await ctx.dataSource.query(
+      'SELECT refresh_token_id FROM user_sessions WHERE user_id = $1',
+      [authenticated.userId],
+    )) as Array<{ refresh_token_id: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.refresh_token_id).not.toBe(idBefore);
+  });
+
   it('rejects missing and malformed refresh cookies and clears credentials', async () => {
     await request(server).post(`${API_PREFIX}/auth/refresh`).expect(401);
     const malformed = await request(server)
@@ -126,6 +149,40 @@ describe('HttpOnly cookie authentication (e2e)', () => {
 
     await authenticated.agent.get(`${API_PREFIX}/users/me`).expect(401);
     await request(server).post(`${API_PREFIX}/auth/refresh`).set('Cookie', oldRefresh).expect(401);
+  });
+
+  it('revoked session: a session deleted from another device is rejected on its next request', async () => {
+    const first = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const secondAgent = request.agent(server);
+    await secondAgent
+      .post(`${API_PREFIX}/auth/login`)
+      .send({ email: first.credentials.email, password: first.credentials.password })
+      .expect(200);
+    await first.agent.get(`${API_PREFIX}/users/me`).expect(200);
+
+    const sessions = (await secondAgent.get(`${API_PREFIX}/users/me/sessions`).expect(200)).body
+      .data as Array<{ id: string; is_current?: boolean; isCurrent?: boolean }>;
+    expect(sessions.length).toBe(2);
+    const firstSessionId = (
+      (await ctx.dataSource.query(
+        'SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1',
+        [first.userId],
+      )) as Array<{ id: string }>
+    )[0]?.id;
+    await secondAgent.delete(`${API_PREFIX}/users/me/sessions/${firstSessionId}`).expect(200);
+
+    await first.agent.get(`${API_PREFIX}/users/me`).expect(401);
+    await secondAgent.get(`${API_PREFIX}/users/me`).expect(200);
+  });
+
+  it('expired session row is rejected even though the access cookie is still unexpired', async () => {
+    const { agent, userId } = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    await agent.get(`${API_PREFIX}/users/me`).expect(200);
+    await ctx.dataSource.query(
+      `UPDATE user_sessions SET expires_at = now() - interval '1 minute' WHERE user_id = $1`,
+      [userId],
+    );
+    await agent.get(`${API_PREFIX}/users/me`).expect(401);
   });
 
   it('rejects invalid credentials', async () => {

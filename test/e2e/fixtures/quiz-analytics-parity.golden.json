@@ -1,0 +1,708 @@
+{
+  "none": {
+    "totalAttempts": 6,
+    "averageScore": 52,
+    "passRate": 50,
+    "totalTimeMinutes": 120,
+    "bestQuiz": {
+      "title": "E7 deleted teacher",
+      "percent": 100
+    },
+    "worstQuiz": {
+      "title": "E1 after graded",
+      "percent": 0
+    },
+    "progress": [
+      {
+        "date": "2026-01-06",
+        "percent": 80
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 60
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 30
+      },
+      {
+        "date": "2026-01-11",
+        "percent": 40
+      },
+      {
+        "date": "2026-01-13",
+        "percent": 100
+      },
+      {
+        "date": "2026-01-16",
+        "percent": 0
+      }
+    ],
+    "strongTopics": [
+      {
+        "topic": "Algebra",
+        "scope": "subject",
+        "percent": 76,
+        "answers": 11,
+        "sources": {
+          "exams": 8,
+          "practice": 1,
+          "homework": 2
+        },
+        "trend": "stable",
+        "lessonProgressPercent": 70,
+        "lessonCompletionPercent": 50,
+        "attendancePercent": 67
+      }
+    ],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [
+      {
+        "type": "single_choice",
+        "answers": 7,
+        "percent": 83
+      },
+      {
+        "type": "essay",
+        "answers": 1,
+        "percent": 40
+      },
+      {
+        "type": "true_false",
+        "answers": 1,
+        "percent": 40
+      }
+    ],
+    "attempts": [
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-15T10:00:00.000Z",
+        "reviewedAt": "2026-01-16T10:00:00.000Z",
+        "scoreAuto": 0,
+        "scoreManual": 0,
+        "scoreTotal": 0,
+        "maxScore": 0,
+        "percentage": 0,
+        "passed": null,
+        "feedback": []
+      },
+      {
+        "examName": "E7 deleted teacher",
+        "teacher": null,
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-12T10:00:00.000Z",
+        "reviewedAt": "2026-01-13T10:00:00.000Z",
+        "scoreAuto": 10,
+        "scoreManual": 0,
+        "scoreTotal": 10,
+        "maxScore": 10,
+        "percentage": 100,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E6 deleted subject",
+        "teacher": "QA t1",
+        "subject": null,
+        "course": null,
+        "attemptedAt": "2026-01-09T10:00:00.000Z",
+        "reviewedAt": "2026-01-11T10:00:00.000Z",
+        "scoreAuto": 4,
+        "scoreManual": 0,
+        "scoreTotal": 4,
+        "maxScore": 10,
+        "percentage": 40,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-08T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 3,
+        "scoreManual": 0,
+        "scoreTotal": 3,
+        "maxScore": 10,
+        "percentage": 30,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E3 after close (closed)",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-04T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 6,
+        "scoreManual": 0,
+        "scoreTotal": 6,
+        "maxScore": 10,
+        "percentage": 60,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-05T10:00:00.000Z",
+        "reviewedAt": "2026-01-06T10:00:00.000Z",
+        "scoreAuto": 8,
+        "scoreManual": 0,
+        "scoreTotal": 8,
+        "maxScore": 10,
+        "percentage": 80,
+        "passed": true,
+        "feedback": [
+          "well done",
+          "needs detail"
+        ]
+      }
+    ]
+  },
+  "subjectA": {
+    "totalAttempts": 5,
+    "averageScore": 54,
+    "passRate": 60,
+    "totalTimeMinutes": 100,
+    "bestQuiz": {
+      "title": "E7 deleted teacher",
+      "percent": 100
+    },
+    "worstQuiz": {
+      "title": "E1 after graded",
+      "percent": 0
+    },
+    "progress": [
+      {
+        "date": "2026-01-06",
+        "percent": 80
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 60
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 30
+      },
+      {
+        "date": "2026-01-13",
+        "percent": 100
+      },
+      {
+        "date": "2026-01-16",
+        "percent": 0
+      }
+    ],
+    "strongTopics": [
+      {
+        "topic": "Algebra",
+        "scope": "subject",
+        "percent": 75,
+        "answers": 10,
+        "sources": {
+          "exams": 7,
+          "practice": 1,
+          "homework": 2
+        },
+        "trend": "stable",
+        "lessonProgressPercent": 70,
+        "lessonCompletionPercent": 50,
+        "attendancePercent": 67
+      }
+    ],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [
+      {
+        "type": "single_choice",
+        "answers": 6,
+        "percent": 80
+      },
+      {
+        "type": "essay",
+        "answers": 1,
+        "percent": 40
+      },
+      {
+        "type": "true_false",
+        "answers": 1,
+        "percent": 40
+      }
+    ],
+    "attempts": [
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-15T10:00:00.000Z",
+        "reviewedAt": "2026-01-16T10:00:00.000Z",
+        "scoreAuto": 0,
+        "scoreManual": 0,
+        "scoreTotal": 0,
+        "maxScore": 0,
+        "percentage": 0,
+        "passed": null,
+        "feedback": []
+      },
+      {
+        "examName": "E7 deleted teacher",
+        "teacher": null,
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-12T10:00:00.000Z",
+        "reviewedAt": "2026-01-13T10:00:00.000Z",
+        "scoreAuto": 10,
+        "scoreManual": 0,
+        "scoreTotal": 10,
+        "maxScore": 10,
+        "percentage": 100,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-08T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 3,
+        "scoreManual": 0,
+        "scoreTotal": 3,
+        "maxScore": 10,
+        "percentage": 30,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E3 after close (closed)",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-04T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 6,
+        "scoreManual": 0,
+        "scoreTotal": 6,
+        "maxScore": 10,
+        "percentage": 60,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-05T10:00:00.000Z",
+        "reviewedAt": "2026-01-06T10:00:00.000Z",
+        "scoreAuto": 8,
+        "scoreManual": 0,
+        "scoreTotal": 8,
+        "maxScore": 10,
+        "percentage": 80,
+        "passed": true,
+        "feedback": [
+          "well done",
+          "needs detail"
+        ]
+      }
+    ]
+  },
+  "subjectB": {
+    "totalAttempts": 0,
+    "averageScore": 0,
+    "passRate": 0,
+    "totalTimeMinutes": 0,
+    "bestQuiz": null,
+    "worstQuiz": null,
+    "progress": [],
+    "strongTopics": [],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [],
+    "attempts": []
+  },
+  "teacherT1": {
+    "totalAttempts": 5,
+    "averageScore": 42,
+    "passRate": 40,
+    "totalTimeMinutes": 100,
+    "bestQuiz": {
+      "title": "E1 after graded",
+      "percent": 80
+    },
+    "worstQuiz": {
+      "title": "E1 after graded",
+      "percent": 0
+    },
+    "progress": [
+      {
+        "date": "2026-01-06",
+        "percent": 80
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 60
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 30
+      },
+      {
+        "date": "2026-01-11",
+        "percent": 40
+      },
+      {
+        "date": "2026-01-16",
+        "percent": 0
+      }
+    ],
+    "strongTopics": [],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [
+      {
+        "type": "single_choice",
+        "answers": 6,
+        "percent": 80
+      },
+      {
+        "type": "essay",
+        "answers": 1,
+        "percent": 40
+      },
+      {
+        "type": "true_false",
+        "answers": 1,
+        "percent": 40
+      }
+    ],
+    "attempts": [
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-15T10:00:00.000Z",
+        "reviewedAt": "2026-01-16T10:00:00.000Z",
+        "scoreAuto": 0,
+        "scoreManual": 0,
+        "scoreTotal": 0,
+        "maxScore": 0,
+        "percentage": 0,
+        "passed": null,
+        "feedback": []
+      },
+      {
+        "examName": "E6 deleted subject",
+        "teacher": "QA t1",
+        "subject": null,
+        "course": null,
+        "attemptedAt": "2026-01-09T10:00:00.000Z",
+        "reviewedAt": "2026-01-11T10:00:00.000Z",
+        "scoreAuto": 4,
+        "scoreManual": 0,
+        "scoreTotal": 4,
+        "maxScore": 10,
+        "percentage": 40,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-08T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 3,
+        "scoreManual": 0,
+        "scoreTotal": 3,
+        "maxScore": 10,
+        "percentage": 30,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E3 after close (closed)",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-04T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 6,
+        "scoreManual": 0,
+        "scoreTotal": 6,
+        "maxScore": 10,
+        "percentage": 60,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-05T10:00:00.000Z",
+        "reviewedAt": "2026-01-06T10:00:00.000Z",
+        "scoreAuto": 8,
+        "scoreManual": 0,
+        "scoreTotal": 8,
+        "maxScore": 10,
+        "percentage": 80,
+        "passed": true,
+        "feedback": [
+          "well done",
+          "needs detail"
+        ]
+      }
+    ]
+  },
+  "range": {
+    "totalAttempts": 4,
+    "averageScore": 53,
+    "passRate": 50,
+    "totalTimeMinutes": 80,
+    "bestQuiz": {
+      "title": "E1 after graded",
+      "percent": 80
+    },
+    "worstQuiz": {
+      "title": "E1 after graded",
+      "percent": 30
+    },
+    "progress": [
+      {
+        "date": "2026-01-06",
+        "percent": 80
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 60
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 30
+      },
+      {
+        "date": "2026-01-11",
+        "percent": 40
+      }
+    ],
+    "strongTopics": [],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [
+      {
+        "type": "single_choice",
+        "answers": 6,
+        "percent": 80
+      },
+      {
+        "type": "essay",
+        "answers": 1,
+        "percent": 40
+      },
+      {
+        "type": "true_false",
+        "answers": 1,
+        "percent": 40
+      }
+    ],
+    "attempts": [
+      {
+        "examName": "E6 deleted subject",
+        "teacher": "QA t1",
+        "subject": null,
+        "course": null,
+        "attemptedAt": "2026-01-09T10:00:00.000Z",
+        "reviewedAt": "2026-01-11T10:00:00.000Z",
+        "scoreAuto": 4,
+        "scoreManual": 0,
+        "scoreTotal": 4,
+        "maxScore": 10,
+        "percentage": 40,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-08T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 3,
+        "scoreManual": 0,
+        "scoreTotal": 3,
+        "maxScore": 10,
+        "percentage": 30,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E3 after close (closed)",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-04T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 6,
+        "scoreManual": 0,
+        "scoreTotal": 6,
+        "maxScore": 10,
+        "percentage": 60,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-05T10:00:00.000Z",
+        "reviewedAt": "2026-01-06T10:00:00.000Z",
+        "scoreAuto": 8,
+        "scoreManual": 0,
+        "scoreTotal": 8,
+        "maxScore": 10,
+        "percentage": 80,
+        "passed": true,
+        "feedback": [
+          "well done",
+          "needs detail"
+        ]
+      }
+    ]
+  },
+  "rangeAndSubject": {
+    "totalAttempts": 3,
+    "averageScore": 70,
+    "passRate": 67,
+    "totalTimeMinutes": 60,
+    "bestQuiz": {
+      "title": "E7 deleted teacher",
+      "percent": 100
+    },
+    "worstQuiz": {
+      "title": "E1 after graded",
+      "percent": 30
+    },
+    "progress": [
+      {
+        "date": "2026-01-06",
+        "percent": 80
+      },
+      {
+        "date": "2026-01-10",
+        "percent": 30
+      },
+      {
+        "date": "2026-01-13",
+        "percent": 100
+      }
+    ],
+    "strongTopics": [],
+    "weakTopics": [],
+    "performanceInsights": {
+      "minimumAssessments": 5,
+      "hasEnoughData": true
+    },
+    "performanceByQuestionType": [
+      {
+        "type": "single_choice",
+        "answers": 4,
+        "percent": 74
+      },
+      {
+        "type": "essay",
+        "answers": 1,
+        "percent": 40
+      },
+      {
+        "type": "true_false",
+        "answers": 1,
+        "percent": 40
+      }
+    ],
+    "attempts": [
+      {
+        "examName": "E7 deleted teacher",
+        "teacher": null,
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-12T10:00:00.000Z",
+        "reviewedAt": "2026-01-13T10:00:00.000Z",
+        "scoreAuto": 10,
+        "scoreManual": 0,
+        "scoreTotal": 10,
+        "maxScore": 10,
+        "percentage": 100,
+        "passed": true,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-08T10:00:00.000Z",
+        "reviewedAt": "2026-01-10T09:00:00.000Z",
+        "scoreAuto": 3,
+        "scoreManual": 0,
+        "scoreTotal": 3,
+        "maxScore": 10,
+        "percentage": 30,
+        "passed": false,
+        "feedback": []
+      },
+      {
+        "examName": "E1 after graded",
+        "teacher": "QA t1",
+        "subject": "Algebra",
+        "course": null,
+        "attemptedAt": "2026-01-05T10:00:00.000Z",
+        "reviewedAt": "2026-01-06T10:00:00.000Z",
+        "scoreAuto": 8,
+        "scoreManual": 0,
+        "scoreTotal": 8,
+        "maxScore": 10,
+        "percentage": 80,
+        "passed": true,
+        "feedback": [
+          "well done",
+          "needs detail"
+        ]
+      }
+    ]
+  }
+}

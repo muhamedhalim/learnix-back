@@ -254,13 +254,26 @@ describe('TeacherGradingService cache invalidation', () => {
     const exams = {
       findOne: jest.fn().mockResolvedValue({ id: 'exam-1', teacher_id: TEACHER, passing_marks: 5 }),
     };
-    const answers = {
-      findOne: jest.fn().mockResolvedValue({
-        id: 'answer-1',
-        attempt_id: 'attempt-1',
-        exam_question_id: 'eq-1',
-        max_score: 10,
+    // T072: the answer, its attempt (this exam only) and its question come from ONE query.
+    const answerRow = {
+      id: 'answer-1',
+      attempt_id: 'attempt-1',
+      exam_question_id: 'eq-1',
+      max_score: 10,
+    };
+    const answerQuery = {
+      innerJoinAndMapOne: jest.fn().mockReturnThis(),
+      leftJoinAndMapOne: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue({
+        ...answerRow,
+        joinedAttempt: attempt,
+        joinedQuestion: { id: 'eq-1', type_snapshot: 'essay' },
       }),
+    };
+    const answers = {
+      findOne: jest.fn().mockResolvedValue(answerRow),
+      createQueryBuilder: jest.fn().mockReturnValue(answerQuery),
     };
     const attempts = { findOne: jest.fn().mockResolvedValue(attempt) };
     const examQuestions = {

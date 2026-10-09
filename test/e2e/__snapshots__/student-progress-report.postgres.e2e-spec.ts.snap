@@ -1,0 +1,8 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Student progress report characterization (postgres) without soft-deleted lessons (parity fixtures for T061) returns the full report JSON pinned as-is, subjects in repository order 1`] = `
+[
+  "Mathematics",
+  "Physics",
+]
+`;

@@ -3,7 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Queue } from 'bullmq';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { biBody } from '../../i18n/error-translator.util';
@@ -21,6 +21,13 @@ export interface QueueHealth {
   delayed: number;
   paused: boolean;
 }
+
+/**
+ * Which students a caller may see messages about. An id list, or a SQL subquery
+ * selecting student ids (with its named binds) so a large scope never becomes a
+ * large bind list. Plain data: notifications does not import teacher-follow-up.
+ */
+export type StudentScope = string[] | { sql: string; params: Record<string, unknown> };
 
 export interface ParentMessageStats {
   total: number;
@@ -47,16 +54,17 @@ export class ParentMessageAdminService {
    * `scopeStudentIds`, when passed, restricts the result to those students —
    * used by the teacher-facing controller so a teacher can only ever see
    * messages about their own students. An empty array means "owns nothing",
-   * not "no filter", and must return zero rows rather than everyone's.
+   * not "no filter", and must return zero rows rather than everyone's. A
+   * subquery scope that selects nothing behaves the same way.
    */
   public async list(
     filter: ParentMessageFilterDto,
-    scopeStudentIds?: string[],
+    scopeStudentIds?: StudentScope,
   ): Promise<PaginatedResponse<ParentMessage>> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
 
-    if (scopeStudentIds?.length === 0) {
+    if (Array.isArray(scopeStudentIds) && scopeStudentIds.length === 0) {
       return { data: [], meta: this.meta(0, page, limit) };
     }
 
@@ -65,7 +73,7 @@ export class ParentMessageAdminService {
       .leftJoinAndSelect('m.guardian', 'guardian')
       .leftJoinAndSelect('m.student', 'student');
 
-    if (scopeStudentIds) qb.andWhere('m.student_id IN (:...scopeStudentIds)', { scopeStudentIds });
+    if (scopeStudentIds) this.applyScope(qb, scopeStudentIds, 'andWhere');
     if (filter.status) qb.andWhere('m.status = :status', { status: filter.status });
     if (filter.event_type)
       qb.andWhere('m.event_type = :eventType', { eventType: filter.event_type });
@@ -86,13 +94,13 @@ export class ParentMessageAdminService {
     return { data, meta: this.meta(total, page, limit) };
   }
 
-  public async stats(scopeStudentIds?: string[]): Promise<ParentMessageStats> {
-    if (scopeStudentIds?.length === 0) {
+  public async stats(scopeStudentIds?: StudentScope): Promise<ParentMessageStats> {
+    if (Array.isArray(scopeStudentIds) && scopeStudentIds.length === 0) {
       return { total: 0, by_status: {}, delivery_rate: 0, read_rate: 0 };
     }
 
     const qb = this.messages.createQueryBuilder('m');
-    if (scopeStudentIds) qb.where('m.student_id IN (:...scopeStudentIds)', { scopeStudentIds });
+    if (scopeStudentIds) this.applyScope(qb, scopeStudentIds, 'where');
 
     const rows = await qb
       .select('m.status', 'status')
@@ -152,12 +160,12 @@ export class ParentMessageAdminService {
    * to one of those students — a 404 (not 403) so a teacher probing ids can't
    * distinguish "not yours" from "doesn't exist".
    */
-  public async retry(id: string, scopeStudentIds?: string[]): Promise<{ queued: boolean }> {
+  public async retry(id: string, scopeStudentIds?: StudentScope): Promise<{ queued: boolean }> {
     const message = await this.messages.findOne({ where: { id } });
     if (!message) {
       throw new NotFoundException(biBody('Parent message not found', 'رسالة ولي الأمر غير موجودة'));
     }
-    if (scopeStudentIds && !scopeStudentIds.includes(message.student_id)) {
+    if (scopeStudentIds && !(await this.isInScope(message, scopeStudentIds))) {
       throw new NotFoundException(biBody('Parent message not found', 'رسالة ولي الأمر غير موجودة'));
     }
 
@@ -170,6 +178,29 @@ export class ParentMessageAdminService {
 
     await this.jobs.enqueueRedelivery(id);
     return { queued: true };
+  }
+
+  /** Restricts `qb` to the scope. The array form keeps its original spread-bind semantics. */
+  private applyScope(
+    qb: SelectQueryBuilder<ParentMessage>,
+    scope: StudentScope,
+    method: 'where' | 'andWhere',
+  ): void {
+    if (Array.isArray(scope)) {
+      qb[method]('m.student_id IN (:...scopeStudentIds)', { scopeStudentIds: scope });
+    } else {
+      qb[method](`m.student_id IN (${scope.sql})`, scope.params);
+    }
+  }
+
+  private async isInScope(message: ParentMessage, scope: StudentScope): Promise<boolean> {
+    if (Array.isArray(scope)) return scope.includes(message.student_id);
+    // One EXISTS keyed by the message id: the student is read from the row itself.
+    return this.messages
+      .createQueryBuilder('m')
+      .where('m.id = :scopedMessageId', { scopedMessageId: message.id })
+      .andWhere(`m.student_id IN (${scope.sql})`, scope.params)
+      .getExists();
   }
 
   private meta(total: number, page: number, limit: number): PaginationMeta {

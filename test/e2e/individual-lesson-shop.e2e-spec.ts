@@ -91,10 +91,14 @@ describe('individual lesson shop surface (PostgreSQL)', () => {
     return repository.save(lesson);
   }
 
-  async function createReadyAppointment(lessonId: string, teacherId: string): Promise<ScheduledLessonSession> {
+  async function createReadyAppointment(
+    lessonId: string,
+    teacherId: string,
+    hoursAhead = 3,
+  ): Promise<ScheduledLessonSession> {
     const [created] = await sessions.createMany(lessonId, teacherId, [
       {
-        start_at: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
+        start_at: new Date(Date.now() + hoursAhead * 60 * 60_000).toISOString(),
         meeting_url: 'https://meet.example.test/shop-listed',
       },
     ]);
@@ -158,6 +162,54 @@ describe('individual lesson shop surface (PostgreSQL)', () => {
       .get(`${API_PREFIX}/lessons/${lesson.id}`)
       .expect(200);
     expect(singleLesson.body).toMatchObject({ available_sessions_count: 0, next_session_at: null });
+  });
+
+  it('GET /student/lesson-sessions narrows to one lesson with lesson_id and never returns another student booking (T088)', async () => {
+    const teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
+    const student = await createAuthenticatedUser(app, dataSource, { role: 'student' });
+    const other = await createAuthenticatedUser(app, dataSource, { role: 'student' });
+    const subject = await makeSubject();
+    const lessonA = await makePublishedIndividualLesson(teacher.userId, subject.id);
+    const lessonB = await makePublishedIndividualLesson(teacher.userId, subject.id);
+    const slotA = await createReadyAppointment(lessonA.id, teacher.userId);
+    const slotB = await createReadyAppointment(lessonB.id, teacher.userId, 6);
+    const slotOther = await createReadyAppointment(lessonA.id, teacher.userId, 9);
+    await sessions.reserve(slotA.id, student.userId);
+    await sessions.reserve(slotB.id, student.userId);
+    await sessions.reserve(slotOther.id, other.userId);
+
+    const all = await student.agent.get(`${API_PREFIX}/student/lesson-sessions`).expect(200);
+    expect(all.body).toHaveLength(2);
+
+    const onlyA = await student.agent
+      .get(`${API_PREFIX}/student/lesson-sessions`)
+      .query({ lesson_id: lessonA.id })
+      .expect(200);
+    expect(onlyA.body).toHaveLength(1);
+    expect(onlyA.body[0]).toMatchObject({ session: { id: slotA.id }, lesson: { id: lessonA.id } });
+    const onlyB = await student.agent
+      .get(`${API_PREFIX}/student/lesson-sessions`)
+      .query({ lesson_id: lessonB.id })
+      .expect(200);
+    expect(onlyB.body.map((row: { session: { id: string } }) => row.session.id)).toEqual([slotB.id]);
+
+    // The other student's booking on the same lesson is never visible to the caller.
+    const otherOnA = await other.agent
+      .get(`${API_PREFIX}/student/lesson-sessions`)
+      .query({ lesson_id: lessonA.id })
+      .expect(200);
+    expect(otherOnA.body.map((row: { session: { id: string } }) => row.session.id)).toEqual([slotOther.id]);
+
+    // A lesson the caller never booked yields an empty list, a malformed id is a 400.
+    const unbooked = await other.agent
+      .get(`${API_PREFIX}/student/lesson-sessions`)
+      .query({ lesson_id: lessonB.id })
+      .expect(200);
+    expect(unbooked.body).toEqual([]);
+    await student.agent
+      .get(`${API_PREFIX}/student/lesson-sessions`)
+      .query({ lesson_id: 'not-a-uuid' })
+      .expect(400);
   });
 
   it('a guest browsing the shop never sees a group lesson mixed into is_group=false results', async () => {

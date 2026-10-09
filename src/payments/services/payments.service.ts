@@ -16,6 +16,7 @@ import { PurchaseBookPaymentDto } from '../dto/purchase-book.dto';
 import { PurchaseLessonDto } from '../dto/purchase-lesson.dto';
 import { PurchasePackageDto } from '../dto/purchase-package.dto';
 import {
+  EntitlementStatus,
   ItemType,
   LessonPurchase,
   Order,
@@ -417,13 +418,14 @@ export class PaymentsService {
       };
     }
 
+    // No second entitlement probe here (T074 / W4-C9): `getActive` above applies the very
+    // predicate `hasItemAccess` would, so a repeat could only differ when the application
+    // clock lags the database clock, and the owner chose the database clock as the
+    // authority for expiry (gates/W4-C9.md). Access can only narrow inside that skew window.
+    //
     // Package ownership remains valid for the package itself, but a lesson
     // inside that package is governed by its own compatibility purchase and
     // access expiry below.
-    if (await this.entitlementsService.hasItemAccess(userId, itemType, itemId)) {
-      return { has_access: true };
-    }
-
     if (itemType === ItemType.PACKAGE) {
       const purchase = await this.packagePurchasesRepository.findOne({
         where: { student_id: userId, package_id: itemId, revoked_at: IsNull() },
@@ -547,13 +549,23 @@ export class PaymentsService {
     page = 1,
     limit = 20,
   ): Promise<{ data: PackagePurchase[]; meta: PaginationMeta }> {
-    const [data, total] = await this.packagePurchasesRepository.findAndCount({
-      where: { student_id: userId, revoked_at: IsNull() },
-      relations: ['package', 'package.teacher', 'package.items', 'package.items.lesson'],
-      order: { purchased_at: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    // Purchase, package and item columns stay whole; only the two relations that used to hydrate entire
+    // rows are narrowed: the teacher to what the study cards show, the lesson to {id, title, duration}
+    // (`title_ar` is not a lesson column any more, so it must never be selected).
+    const [data, total] = await this.packagePurchasesRepository
+      .createQueryBuilder('purchase')
+      .leftJoinAndSelect('purchase.package', 'package')
+      .leftJoin('package.teacher', 'teacher')
+      .addSelect(['teacher.id', 'teacher.name', 'teacher.profile_picture_url'])
+      .leftJoinAndSelect('package.items', 'items')
+      .leftJoin('items.lesson', 'lesson')
+      .addSelect(['lesson.id', 'lesson.title', 'lesson.duration'])
+      .where('purchase.student_id = :userId', { userId })
+      .andWhere('purchase.revoked_at IS NULL')
+      .orderBy('purchase.purchased_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
     const totalPages = Math.ceil(total / limit);
     return {
       data,
@@ -589,6 +601,45 @@ export class PaymentsService {
     });
     if (lessonPurchase) return true;
     return false;
+  }
+
+  /**
+   * The subset of `lessonIds` a student may play, in ONE statement: the set-based
+   * form of {@link hasLessonPlaybackAccess} (T065 / W4-C1). A lesson is included
+   * when the student holds an active, unexpired lesson entitlement OR a live,
+   * unexpired `lesson_purchases` row. `UNION` (not JOIN) so several purchases
+   * of one lesson never repeat an id; package ownership alone adds nothing
+   * (package access exists only as materialised per-lesson purchase rows) and a
+   * free-preview flag is deliberately not consulted.
+   *
+   * Expiry uses the database clock (`NOW()`) per the W4-C9 decision (T015,
+   * `gates/W4-C9.md`): playback filtering is unified onto it. The entitlement
+   * branch keys on `status`, not `entitlements.revoked_at`, exactly as
+   * {@link hasLessonPlaybackAccess} does through `EntitlementsService`.
+   */
+  public async getPlaybackAccessibleLessonIds(
+    userId: string,
+    lessonIds: readonly string[],
+  ): Promise<Set<string>> {
+    if (lessonIds.length === 0) return new Set();
+    const rows: { lesson_id: string }[] = await this.dataSource.query(
+      `SELECT e.item_id AS lesson_id
+         FROM entitlements e
+        WHERE e.student_id = $1
+          AND e.item_type = $3
+          AND e.item_id = ANY($2::uuid[])
+          AND e.status = $4
+          AND (e.expires_at IS NULL OR e.expires_at > NOW())
+       UNION
+       SELECT p.lesson_id
+         FROM lesson_purchases p
+        WHERE p.student_id = $1
+          AND p.lesson_id = ANY($2::uuid[])
+          AND p.revoked_at IS NULL
+          AND p.access_expires_at > NOW()`,
+      [userId, [...new Set(lessonIds)], ItemType.LESSON, EntitlementStatus.ACTIVE],
+    );
+    return new Set(rows.map((row) => row.lesson_id));
   }
 
   /**

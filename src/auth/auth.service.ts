@@ -17,6 +17,7 @@ import { GuardianRelationship } from '../guardians/entities';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
+import type { FinancePermission } from '../payments/finance-permissions';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';
@@ -430,6 +431,7 @@ export class AuthService {
     name: string;
     role: UserRole | null;
     sessionId: string;
+    financePermissions: FinancePermission[];
   } | null> {
     if (payload.sid === '') return null;
     const session = await this.sessionsService.getActiveSession(payload.sub, payload.sid);
@@ -447,6 +449,7 @@ export class AuthService {
         name: user.name,
         role: user.role,
         sessionId: session.id,
+        financePermissions: user.finance_permissions ?? [],
       };
     }
     return null;

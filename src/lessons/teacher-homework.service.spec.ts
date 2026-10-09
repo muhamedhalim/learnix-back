@@ -167,6 +167,55 @@ describe('TeacherHomeworkService', () => {
     });
   });
 
+  describe('medianAndBelowPass (T059)', () => {
+    const call = (ids: string[], student: string | undefined, threshold: number) =>
+      (
+        service as unknown as {
+          medianAndBelowPass: (
+            ids: string[],
+            student: string | undefined,
+            threshold: number,
+          ) => Promise<{ medianScore: number | null; belowPass: number }>;
+        }
+      ).medianAndBelowPass(ids, student, threshold);
+
+    it('is one statement; with no student the threshold is $2', async () => {
+      submissionsRepository.query.mockResolvedValue([{ median_score: '62.5', below_pass: 2 }]);
+
+      await expect(call([homeworkId], undefined, 60)).resolves.toEqual({
+        medianScore: 62.5,
+        belowPass: 2,
+      });
+
+      expect(submissionsRepository.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = submissionsRepository.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('< $2');
+      expect(sql).not.toContain('student_id');
+      expect(params).toEqual([[homeworkId], 60]);
+    });
+
+    it('with a student: student is $2, threshold is $3, both aggregates keep the graded-only rule', async () => {
+      submissionsRepository.query.mockResolvedValue([{ median_score: null, below_pass: 0 }]);
+
+      await expect(call([homeworkId], 'student-1', 50)).resolves.toEqual({
+        medianScore: null,
+        belowPass: 0,
+      });
+
+      const [sql, params] = submissionsRepository.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('submission.student_id = $2::uuid');
+      expect(sql).toContain('< $3');
+      expect(sql.match(/submission\.status = 'graded'/g)).toHaveLength(2);
+      expect(params).toEqual([[homeworkId], 'student-1', 50]);
+    });
+
+    it('an empty homework list issues no statement', async () => {
+      submissionsRepository.query.mockClear();
+      await expect(call([], undefined, 60)).resolves.toEqual({ medianScore: null, belowPass: 0 });
+      expect(submissionsRepository.query).not.toHaveBeenCalled();
+    });
+  });
+
   it('aggregates dashboard values on the backend from one stats query', async () => {
     const homeworkQuery = chain(['innerJoinAndSelect', 'where', 'andWhere']);
     homeworkQuery.getMany = jest.fn().mockResolvedValue([ownedHomework()]);

@@ -34,6 +34,7 @@ import {
 import { HomeworkSubmission } from './entities/homework-submission.entity';
 import { Lesson } from './entities/lesson.entity';
 import { LessonAttachment } from './entities/lesson-attachment.entity';
+import { homeworkAudienceStudentIds } from '../payments/lesson-audience';
 import { LessonHomework } from './entities/lesson-homework.entity';
 import { LessonNote } from './entities/lesson-note.entity';
 
@@ -762,16 +763,9 @@ export class LessonContentService {
     }
   }
 
+  /** Homework audience (decision (e) in gates/W4-C10.md): live direct lesson purchases only. */
   private async getLessonStudentIds(lessonId: string): Promise<string[]> {
-    const purchases = await this.lessonPurchases
-      .createQueryBuilder('purchase')
-      .where('purchase.lesson_id = :lessonId', { lessonId })
-      .andWhere('purchase.revoked_at IS NULL')
-      .andWhere('purchase.access_expires_at > :now', { now: new Date() })
-      .select('purchase.student_id', 'student_id')
-      .distinct(true)
-      .getRawMany<{ student_id: string }>();
-    return purchases.map((row) => row.student_id);
+    return homeworkAudienceStudentIds(this.lessonPurchases.manager, lessonId, new Date());
   }
 
   private async dispatchHomeworkNotifications(
@@ -782,55 +776,61 @@ export class LessonContentService {
     if (!lesson) return;
     const studentIds = await this.getLessonStudentIds(homework.lesson_id);
     if (studentIds.length === 0) return;
-    const students = await this.users.find({ where: { id: In(studentIds) } });
+    // id, name and language only; the id list is one array bind.
+    const students = await this.users
+      .createQueryBuilder('u')
+      .select(['u.id', 'u.name', 'u.preferred_language'])
+      .where('u.id = ANY(:studentIds)', { studentIds })
+      .getMany();
 
-    const outcomes = await Promise.allSettled(
-      students.map(async (student) => {
-        const arabic = student.preferred_language === PreferredLanguage.AR;
-        const title = arabic
-          ? action === 'assigned'
-            ? 'واجب جديد'
-            : 'تم تحديث الواجب'
-          : action === 'assigned'
-            ? 'New homework'
-            : 'Homework updated';
-        const due = homework.due_at?.toISOString() ?? null;
-        const requirements = arabic
-          ? (homework.description_ar ?? homework.description)
-          : homework.description;
-        const message = arabic
-          ? `${homework.title_ar ?? homework.title}${requirements ? ` — ${requirements}` : ''}${due ? ` — موعد التسليم ${homework.due_at?.toLocaleString('ar-EG') ?? due}` : ''}`
-          : `${homework.title}${requirements ? ` — ${requirements}` : ''}${due ? ` — due ${homework.due_at?.toLocaleString('en-US') ?? due}` : ''}`;
-        await this.notifications.create(
-          {
-            user_id: student.id,
-            type: NotificationType.HOMEWORK,
-            title,
-            message,
-            data: {
-              homework_id: homework.id,
-              lesson_id: lesson.id,
-              due_at: due,
-              href: '/student/homework',
-            },
-            send_sms: false,
-          },
-          false,
+    const rows = students.map((student) => {
+      const arabic = student.preferred_language === PreferredLanguage.AR;
+      const title = arabic
+        ? action === 'assigned'
+          ? 'واجب جديد'
+          : 'تم تحديث الواجب'
+        : action === 'assigned'
+          ? 'New homework'
+          : 'Homework updated';
+      const due = homework.due_at?.toISOString() ?? null;
+      const requirements = arabic
+        ? (homework.description_ar ?? homework.description)
+        : homework.description;
+      const message = arabic
+        ? `${homework.title_ar ?? homework.title}${requirements ? ` — ${requirements}` : ''}${due ? ` — موعد التسليم ${homework.due_at?.toLocaleString('ar-EG') ?? due}` : ''}`
+        : `${homework.title}${requirements ? ` — ${requirements}` : ''}${due ? ` — due ${homework.due_at?.toLocaleString('en-US') ?? due}` : ''}`;
+      return {
+        user_id: student.id,
+        type: NotificationType.HOMEWORK,
+        title,
+        message,
+        data: {
+          homework_id: homework.id,
+          lesson_id: lesson.id,
+          due_at: due,
+          href: '/student/homework',
+        },
+        send_sms: false,
+      };
+    });
+    // One multi-row INSERT per 500 recipients (per-chunk autocommit, per-row fallback).
+    const outcomes = await this.notifications.createMany(rows);
+    if (action === 'assigned') {
+      // Only for rows that were inserted, in the same order, after their insert returned.
+      students.forEach((student, index) => {
+        if (!outcomes[index]?.ok) return;
+        this.events.emit(
+          PARENT_EVENT_CHANNEL,
+          new HomeworkAssignedEvent(student.id, homework.id, {
+            studentName: student.name,
+            lessonName: lesson.title,
+            homeworkTitle: homework.title,
+            dueAt: homework.due_at?.toISOString() ?? null,
+          }),
         );
-        if (action === 'assigned') {
-          this.events.emit(
-            PARENT_EVENT_CHANNEL,
-            new HomeworkAssignedEvent(student.id, homework.id, {
-              studentName: student.name,
-              lessonName: lesson.title,
-              homeworkTitle: homework.title,
-              dueAt: due,
-            }),
-          );
-        }
-      }),
-    );
-    const failed = outcomes.filter((outcome) => outcome.status === 'rejected').length;
+      });
+    }
+    const failed = outcomes.filter((outcome) => !outcome.ok).length;
     if (failed > 0) {
       this.logger.warn(
         `Homework ${homework.id}: failed to create ${String(failed)}/${String(outcomes.length)} notification(s)`,

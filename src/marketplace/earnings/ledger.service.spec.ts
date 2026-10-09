@@ -251,4 +251,171 @@ describe('LedgerService', () => {
       expect(result.meta.total).toBe(1);
     });
   });
+
+  describe('deriveBalancesGrouped (T067)', () => {
+    function groupedQb(rows: unknown[]): Record<string, jest.Mock> {
+      return {
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
+        setParameters: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        groupBy: jest.fn().mockReturnThis(),
+        addGroupBy: jest.fn().mockReturnThis(),
+        getRawMany: jest.fn().mockResolvedValue(rows),
+      };
+    }
+
+    function build(earningRows: unknown[], entryRows: unknown[]) {
+      const earningsQb = groupedQb(earningRows);
+      const entriesQb = groupedQb(entryRows);
+      const entries = { createQueryBuilder: jest.fn().mockReturnValue(entriesQb) };
+      const earnings = { createQueryBuilder: jest.fn().mockReturnValue(earningsQb) };
+      const money = new MarketplaceMoneyService({ resolve: jest.fn() } as never);
+      const service = new LedgerService(entries as never, earnings as never, money);
+      return { service, earningsQb, entriesQb, entries, earnings };
+    }
+
+    const earningRow = (over: Record<string, string> = {}): Record<string, string> => ({
+      instructor_id: 'i-1',
+      currency: 'EGP',
+      pending: '3000',
+      clearing: '500',
+      requested: '1000',
+      available: '1000',
+      ...over,
+    });
+
+    it('issues exactly one statement per table and never joins them', async () => {
+      const { service, earningsQb, entriesQb, entries, earnings } = build([earningRow()], []);
+
+      await service.deriveBalancesGrouped();
+
+      expect(earnings.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(entries.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(earningsQb['getRawMany']).toHaveBeenCalledTimes(1);
+      expect(entriesQb['getRawMany']).toHaveBeenCalledTimes(1);
+      // The mocks have no join methods: a join would throw. Currency is in every GROUP BY.
+      expect(earningsQb['groupBy']).toHaveBeenCalledWith('e.instructor_id');
+      expect(earningsQb['addGroupBy']).toHaveBeenCalledWith('e.currency');
+      expect(entriesQb['groupBy']).toHaveBeenCalledWith('l.instructor_id');
+      expect(entriesQb['addGroupBy']).toHaveBeenCalledWith('l.currency');
+    });
+
+    it('binds enum values rather than literals', async () => {
+      const { service, earningsQb, entriesQb } = build([], []);
+
+      await service.deriveBalancesGrouped();
+
+      expect(earningsQb['setParameters']).toHaveBeenCalledWith({
+        pending: 'pending_earnings',
+        clearance: 'refund_clearance',
+        requested: 'payout_requested',
+        processing: 'processing',
+        available: 'available_balance',
+      });
+      expect(entriesQb['setParameters']).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adjustment: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
+          credit: MarketplaceLedgerDirection.CREDIT,
+          debit: MarketplaceLedgerDirection.DEBIT,
+          payout: MarketplaceLedgerEntryType.PAYOUT,
+          payoutReversal: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
+          refund: MarketplaceLedgerEntryType.REFUND,
+          shortfall: MarketplaceLedgerEntryType.REFUND_SHORTFALL,
+        }),
+      );
+    });
+
+    it('combines each pair with its own ledger row; an absent ledger row means zeros', async () => {
+      const { service } = build(
+        [earningRow(), earningRow({ currency: 'KWD', pending: '50', clearing: '0', requested: '0', available: '0' })],
+        [
+          {
+            instructor_id: 'i-1',
+            currency: 'EGP',
+            adjustment_credit: '425',
+            adjustment_debit: '150',
+            payout: '5070',
+            payout_reversal: '1200',
+            refund: '833',
+            shortfall: '100',
+          },
+        ],
+      );
+
+      const rows = await service.deriveBalancesGrouped();
+
+      expect(rows).toEqual([
+        {
+          instructorId: 'i-1',
+          balance: {
+            currency: 'EGP',
+            pendingMinor: 3000,
+            clearingMinor: 500,
+            availableMinor: 1000 + 425 - 150,
+            requestedMinor: 1000,
+            paidOutMinor: 5070 - 1200,
+            reversedMinor: 833,
+          },
+          shortfallMinor: 100,
+        },
+        {
+          instructorId: 'i-1',
+          balance: {
+            currency: 'KWD',
+            pendingMinor: 50,
+            clearingMinor: 0,
+            availableMinor: 0,
+            requestedMinor: 0,
+            paidOutMinor: 0,
+            reversedMinor: 0,
+          },
+          shortfallMinor: 0,
+        },
+      ]);
+    });
+
+    it('never reports a ledger-only currency (the pair universe is the earnings table)', async () => {
+      const { service } = build(
+        [earningRow()],
+        [{ instructor_id: 'i-1', currency: 'GBP', adjustment_credit: '999', adjustment_debit: '0', payout: '0', payout_reversal: '0', refund: '0', shortfall: '11' }],
+      );
+
+      const rows = await service.deriveBalancesGrouped();
+
+      expect(rows.map((row) => row.balance.currency)).toEqual(['EGP']);
+      expect(rows[0]?.balance.availableMinor).toBe(1000);
+      expect(rows[0]?.shortfallMinor).toBe(0);
+    });
+
+    it('keeps a negative available balance negative', async () => {
+      const { service } = build(
+        [earningRow({ available: '100' })],
+        [{ instructor_id: 'i-1', currency: 'EGP', adjustment_credit: '0', adjustment_debit: '400', payout: '0', payout_reversal: '0', refund: '0', shortfall: '0' }],
+      );
+
+      const [row] = await service.deriveBalancesGrouped();
+
+      expect(row?.balance.availableMinor).toBe(-300);
+    });
+
+    it('narrows both statements to one instructor when asked', async () => {
+      const { service, earningsQb, entriesQb } = build([], []);
+
+      await service.deriveBalancesGrouped({ instructorId: 'i-9' });
+
+      expect(earningsQb['where']).toHaveBeenCalledWith('e.instructor_id = :instructorId', { instructorId: 'i-9' });
+      expect(entriesQb['where']).toHaveBeenCalledWith('l.instructor_id = :instructorId', { instructorId: 'i-9' });
+    });
+
+    it('does not filter when called without an instructor', async () => {
+      const { service, earningsQb, entriesQb } = build([], []);
+
+      await service.deriveBalancesGrouped();
+
+      expect(earningsQb['where']).not.toHaveBeenCalled();
+      expect(entriesQb['where']).not.toHaveBeenCalled();
+    });
+  });
+
 });

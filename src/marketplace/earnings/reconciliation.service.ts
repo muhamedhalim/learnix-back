@@ -73,21 +73,15 @@ export class ReconciliationService {
 
   /** FR-173: a genuine negative balance must be visible, never silently clamped or hidden. */
   private async negativeBalances(): Promise<Array<{ instructor_id: string; currency: string; available_minor: number }>> {
-    const pairs = await this.earnings
-      .createQueryBuilder('e')
-      .distinct(true)
-      .select('e.instructor_id', 'instructor_id')
-      .addSelect('e.currency', 'currency')
-      .getRawMany<{ instructor_id: string; currency: string }>();
-
-    const negative: Array<{ instructor_id: string; currency: string; available_minor: number }> = [];
-    for (const pair of pairs) {
-      const derived = await this.balance.getBalance(pair.instructor_id, pair.currency);
-      if (derived.availableMinor < 0) {
-        negative.push({ instructor_id: pair.instructor_id, currency: pair.currency, available_minor: derived.availableMinor });
-      }
-    }
-    return negative;
+    // T067: one grouped derivation for every (instructor, currency) pair instead of 9 statements each.
+    const balances = await this.balance.getBalancesGrouped();
+    return balances
+      .filter((derived) => derived.availableMinor < 0)
+      .map((derived) => ({
+        instructor_id: derived.instructorId,
+        currency: derived.currency,
+        available_minor: derived.availableMinor,
+      }));
   }
 
   /** FR-165: COURSE_SALE must be posted atomically with earning creation — this should never fire, and firing means that atomicity broke somewhere. */

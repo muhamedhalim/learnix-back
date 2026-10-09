@@ -54,19 +54,17 @@ describe('AdminDashboardService', () => {
     };
     const payments = { dashboardFinancialSnapshot: jest.fn() };
     const activityLogs = {
-      getAuditLogs: jest
-        .fn()
-        .mockResolvedValue({
-          data: [],
-          meta: {
-            total: 0,
-            page: 1,
-            limit: 6,
-            totalPages: 0,
-            hasNextPage: false,
-            hasPrevPage: false,
-          },
-        }),
+      getAuditLogs: jest.fn().mockResolvedValue({
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 6,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      }),
     };
     const legacyAnalytics = {
       getAdminDashboard: jest.fn().mockResolvedValue({
@@ -116,12 +114,10 @@ describe('AdminDashboardService', () => {
     const userBuilder = {
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
-      getOne: jest
-        .fn()
-        .mockResolvedValue({
-          id: 'admin-2',
-          finance_permissions: ['reports.view', 'settlements.view'],
-        }),
+      getOne: jest.fn().mockResolvedValue({
+        id: 'admin-2',
+        finance_permissions: ['reports.view', 'settlements.view'],
+      }),
     };
     const dataSource = {
       query: jest.fn().mockImplementation(async (sql: string) => {
@@ -183,40 +179,36 @@ describe('AdminDashboardService', () => {
       }),
     };
     const activityLogs = {
-      getAuditLogs: jest
-        .fn()
-        .mockResolvedValue({
-          data: [],
-          meta: {
-            total: 0,
-            page: 1,
-            limit: 6,
-            totalPages: 0,
-            hasNextPage: false,
-            hasPrevPage: false,
-          },
-        }),
+      getAuditLogs: jest.fn().mockResolvedValue({
+        data: [],
+        meta: {
+          total: 0,
+          page: 1,
+          limit: 6,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      }),
     };
     const legacyAnalytics = {
-      getAdminDashboard: jest
-        .fn()
-        .mockResolvedValue({
-          totalStudents: 10,
-          pendingStudents: 1,
-          approvedStudents: 9,
-          totalTeachers: 4,
-          pendingTeachers: 2,
-          approvedTeachers: 2,
-          totalLessons: 7,
-          totalBooks: 10,
-          totalExams: 9,
-          totalRevenue: 10,
-          revenueThisMonth: 10,
-          revenueLastMonth: 0,
-          revenueToday: 0,
-          revenueThisQuarter: 10,
-          revenueBySource: { lessons: 10, packages: 0, books: 0 },
-        }),
+      getAdminDashboard: jest.fn().mockResolvedValue({
+        totalStudents: 10,
+        pendingStudents: 1,
+        approvedStudents: 9,
+        totalTeachers: 4,
+        pendingTeachers: 2,
+        approvedTeachers: 2,
+        totalLessons: 7,
+        totalBooks: 10,
+        totalExams: 9,
+        totalRevenue: 10,
+        revenueThisMonth: 10,
+        revenueLastMonth: 0,
+        revenueToday: 0,
+        revenueThisQuarter: 10,
+        revenueBySource: { lessons: 10, packages: 0, books: 0 },
+      }),
     };
     const service = new AdminDashboardService(
       {
@@ -242,6 +234,41 @@ describe('AdminDashboardService', () => {
     expect(payments.dashboardFinancialSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ start: expect.any(Date), end: expect.any(Date) }),
       true,
+    );
+  });
+
+  it('reads permissions from the principal without querying users', async () => {
+    const users = { createQueryBuilder: jest.fn() };
+    const dataSource = { query: jest.fn().mockResolvedValue([{}]) };
+    const cache = {
+      getOrCompute: jest.fn().mockResolvedValue({ cached: true }),
+    };
+    const service = new AdminDashboardService(
+      users as unknown as Repository<never>,
+      dataSource as unknown as DataSource,
+      cache as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await service.getDashboard(
+      {
+        userId: 'admin-3',
+        email: 'a@test',
+        name: 'A',
+        role: 'admin',
+        financePermissions: ['settlements.view', 'reports.view'],
+      },
+      30,
+    );
+
+    expect(users.createQueryBuilder).not.toHaveBeenCalled();
+    expect(cache.getOrCompute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: 'principal:admin-3:permissions:reports.view,settlements.view',
+      }),
+      expect.any(Function),
     );
   });
 });

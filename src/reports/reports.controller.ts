@@ -16,6 +16,7 @@ import {
   DateRangeQueryDto,
   PlatformReportDto,
   StudentProgressReportDto,
+  TeacherFollowUpSummaryDto,
   TeacherReportDto,
 } from './dto';
 import { ReportsService } from './reports.service';
@@ -87,6 +88,32 @@ export class ReportsController {
       ReportsController.parseBound(query.to),
     );
     return { data: report };
+  }
+
+  /**
+   * Teacher follow-up figures only (guardians, notifications, at-risk students). Not range-bound:
+   * the dashboard used to fetch the whole teacher report for these three numbers.
+   */
+  @Get('teacher/follow-up')
+  @Roles('teacher')
+  @ApiOperation({
+    summary: 'Get teacher follow-up summary',
+    description:
+      'Returns guardian, parent-notification and at-risk-student counts for the authenticated teacher. The teacher is taken from the token only.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Teacher follow-up summary',
+    type: TeacherFollowUpSummaryDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Forbidden - Teacher role required',
+  })
+  public async getTeacherFollowUp(
+    @GetUser() user: JwtPayload,
+  ): Promise<{ data: TeacherFollowUpSummaryDto }> {
+    return { data: await this.reportsService.getTeacherFollowUpSummary(user.userId) };
   }
 
   /**

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { IsNull, Repository } from 'typeorm';
+import { IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { ExamAnalyticsDto } from '../../analytics/dto';
@@ -44,6 +44,8 @@ export interface AdminExamListItem {
   created_at: Date;
 }
 
+export type ExamStatusCounts = Record<ExamStatus, number>;
+
 export type AdminExamDetail = AdminExamListItem & ExamAnalyticsDto;
 
 /**
@@ -70,26 +72,24 @@ export class AdminExamsService {
       .leftJoinAndSelect('exam.subject', 'subject')
       .where('exam.deleted_at IS NULL');
 
-    if (filter.subject_id)
-      qb.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subject_id });
-    if (filter.teacher_id)
-      qb.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacher_id });
-    if (filter.status) qb.andWhere('exam.status = :status', { status: filter.status });
-    if (filter.search !== undefined && filter.search !== '') {
-      qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
-    }
-    if (filter.date_from)
-      qb.andWhere('exam.created_at >= :dateFrom', { dateFrom: filter.date_from });
-    if (filter.date_to) qb.andWhere('exam.created_at <= :dateTo', { dateTo: filter.date_to });
+    this.applyExamFilters(qb, filter, { includeStatus: true });
 
     qb.orderBy(`exam.${filter.sort_by ?? 'created_at'}`, filter.sort_order ?? 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
-    const [exams, total] = await qb.getManyAndCount();
+    const withCounts = filter.include_status_counts === true;
+    const [[exams, total], statusCounts] = await Promise.all([
+      qb.getManyAndCount(),
+      withCounts ? this.countByStatus(filter) : Promise.resolve(undefined),
+    ]);
     const stats = await this.getAttemptStats(exams.map((e) => e.id));
     const data = exams.map((exam) => this.toListItem(exam, stats.get(exam.id)));
-    return { data, meta: this.meta(total, page, limit) };
+    const meta = this.meta(total, page, limit);
+    return {
+      data,
+      meta: statusCounts === undefined ? meta : { ...meta, status_counts: statusCounts },
+    };
   }
 
   public async getOne(examId: string): Promise<AdminExamDetail> {
@@ -106,6 +106,50 @@ export class AdminExamsService {
   }
 
   // ---- helpers ----
+
+  /**
+   * The ONE place list predicates are defined: the page query and the status
+   * count both call it, so they cannot drift. `includeStatus: false` is how the
+   * count ignores the status filter (the cards show totals for every status).
+   */
+  private applyExamFilters<T extends object>(
+    qb: SelectQueryBuilder<T>,
+    filter: AdminExamFilterDto,
+    options: { includeStatus: boolean },
+  ): void {
+    if (filter.subject_id)
+      qb.andWhere('exam.subject_id = :subjectId', { subjectId: filter.subject_id });
+    if (filter.teacher_id)
+      qb.andWhere('exam.teacher_id = :teacherId', { teacherId: filter.teacher_id });
+    if (options.includeStatus && filter.status)
+      qb.andWhere('exam.status = :status', { status: filter.status });
+    if (filter.search !== undefined && filter.search !== '') {
+      qb.andWhere('(exam.title ILIKE :q OR exam.title_ar ILIKE :q)', { q: `%${filter.search}%` });
+    }
+    if (filter.date_from)
+      qb.andWhere('exam.created_at >= :dateFrom', { dateFrom: filter.date_from });
+    if (filter.date_to) qb.andWhere('exam.created_at <= :dateTo', { dateTo: filter.date_to });
+  }
+
+  /** One grouped statement; zero-filled so every status key is always present. */
+  private async countByStatus(filter: AdminExamFilterDto): Promise<ExamStatusCounts> {
+    const qb = this.exams
+      .createQueryBuilder('exam')
+      .select('exam.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .where('exam.deleted_at IS NULL')
+      .groupBy('exam.status');
+    this.applyExamFilters(qb, filter, { includeStatus: false });
+    const rows = await qb.getRawMany<{ status: ExamStatus; count: string }>();
+    const counts: ExamStatusCounts = {
+      [ExamStatus.DRAFT]: 0,
+      [ExamStatus.PUBLISHED]: 0,
+      [ExamStatus.SCHEDULED]: 0,
+      [ExamStatus.ARCHIVED]: 0,
+    };
+    for (const row of rows) counts[row.status] = Number.parseInt(row.count, 10);
+    return counts;
+  }
 
   /** One grouped query for every exam id on the current page — avoids N+1. */
   private async getAttemptStats(examIds: string[]): Promise<Map<string, ExamAttemptStats>> {

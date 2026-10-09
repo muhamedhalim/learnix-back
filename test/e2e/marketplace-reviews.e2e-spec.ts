@@ -144,6 +144,38 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
     expect(detailAfterDelete.body.average_rating).toBe(0);
   });
 
+  it('aggregates the rating histogram in SQL: withdrawn and non-approved reviews are excluded (T079)', async () => {
+    const { learner, course } = await actors();
+    const others = [] as Awaited<ReturnType<typeof createAuthenticatedUser>>[];
+    for (let i = 0; i < 4; i += 1) {
+      const next = await createAuthenticatedUser(app, dataSource);
+      await next.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+      others.push(next);
+    }
+    const ratings = [5, 4, 4, 1, 3];
+    const all = [learner, ...others];
+    for (let i = 0; i < all.length; i += 1) {
+      await all[i]!.agent
+        .post(`${API_PREFIX}/marketplace/me/reviews`)
+        .send({ courseId: course.id, rating: ratings[i] })
+        .expect(201);
+    }
+    // The 4th review's purchase is refunded (withdrawn); the 5th is flagged by moderation.
+    await dataSource.query(
+      `UPDATE marketplace_course_reviews SET withdrawn_at = NOW() WHERE learner_id = $1`,
+      [others[2]!.userId],
+    );
+    await dataSource.query(
+      `UPDATE marketplace_course_reviews SET status = 'flagged' WHERE learner_id = $1`,
+      [others[3]!.userId],
+    );
+
+    const detail = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    expect(detail.body.review_count).toBe(3);
+    expect(detail.body.average_rating).toBe(4.33);
+    expect(detail.body.rating_distribution).toEqual({ 1: 0, 2: 0, 3: 0, 4: 2, 5: 1 });
+  });
+
   it('refuses a second review for the same course from the same learner (FR-255)', async () => {
     const { learner, course } = await actors();
     await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);

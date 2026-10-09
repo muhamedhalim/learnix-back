@@ -21,13 +21,24 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
   const answers = { createQueryBuilder: jest.fn(), query: jest.fn() };
   const exams = { findOne: jest.fn() };
   const questions = { count: jest.fn() };
-  const questionSolves = { find: jest.fn() };
-  const homeworkSubmissions = { find: jest.fn() };
-  const lessonProgress = { find: jest.fn() };
-  const attendance = { find: jest.fn() };
+  // T058: history loaders use query builders / grouped SQL, not `find` over whole tables.
+  const questionSolves = { createQueryBuilder: jest.fn() };
+  const homeworkSubmissions = { createQueryBuilder: jest.fn() };
+  const lessonProgress = { query: jest.fn() };
+  const attendance = { query: jest.fn() };
   const subjects = { find: jest.fn() };
   // Pass-through by default so every pre-existing assertion still exercises the real queries.
   const applicationCache = { getOrCompute: jest.fn() };
+
+  /** Chainable query builder whose `getMany` resolves the given entities. */
+  function manyBuilder(rows: unknown[]) {
+    const builder: Record<string, jest.Mock> = {};
+    for (const method of ['innerJoin', 'leftJoin', 'select', 'where', 'andWhere', 'orderBy']) {
+      builder[method] = jest.fn(() => builder);
+    }
+    builder.getMany = jest.fn().mockResolvedValue(rows);
+    return builder;
+  }
 
   function rawBuilder(one: unknown = null, many: unknown[] = []) {
     const builder: Record<string, jest.Mock> = {};
@@ -78,10 +89,10 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    questionSolves.find.mockResolvedValue([]);
-    homeworkSubmissions.find.mockResolvedValue([]);
-    lessonProgress.find.mockResolvedValue([]);
-    attendance.find.mockResolvedValue([]);
+    questionSolves.createQueryBuilder.mockReturnValue(manyBuilder([]));
+    homeworkSubmissions.createQueryBuilder.mockReturnValue(manyBuilder([]));
+    lessonProgress.query.mockResolvedValue([]);
+    attendance.query.mockResolvedValue([]);
     subjects.find.mockResolvedValue([]);
     applicationCache.getOrCompute.mockImplementation(
       async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
@@ -142,13 +153,7 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
 
   it('returns only finalized, student-visible attempts and includes manual marks and feedback', async () => {
     const summaryBuilder: Record<string, jest.Mock> = {};
-    for (const method of [
-      'innerJoinAndSelect',
-      'leftJoinAndSelect',
-      'where',
-      'andWhere',
-      'orderBy',
-    ]) {
+    for (const method of ['innerJoin', 'leftJoin', 'select', 'where', 'andWhere', 'orderBy']) {
       summaryBuilder[method] = jest.fn(() => summaryBuilder);
     }
     summaryBuilder.getMany = jest.fn().mockResolvedValue([
@@ -194,15 +199,17 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
       },
     ]);
     attempts.createQueryBuilder.mockReturnValue(summaryBuilder);
-    answers.find = jest.fn().mockResolvedValue([
-      {
-        attempt_id: 'attempt-1',
-        score: 3,
-        max_score: 4,
-        feedback: 'Strong explanation',
-        exam_question: { type_snapshot: 'essay', question: { topic: 'Algebra' } },
-      },
-    ]);
+    answers.createQueryBuilder.mockReturnValue(
+      manyBuilder([
+        {
+          attempt_id: 'attempt-1',
+          score: 3,
+          max_score: 4,
+          feedback: 'Strong explanation',
+          exam_question: { type_snapshot: 'essay', question: { topic: 'Algebra' } },
+        },
+      ]),
+    );
 
     const result = await service.getStudentAnalytics('student-1');
 
@@ -223,36 +230,28 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
   });
 
   it('derives a subject strength from reviewed marks, public practice, and engagement evidence', async () => {
-    questionSolves.find.mockResolvedValue([
-      { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-01') },
-      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-02') },
-      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
+    questionSolves.createQueryBuilder.mockReturnValue(
+      manyBuilder([
+        { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-01') },
+        { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-02') },
+        { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
+      ]),
+    );
+    homeworkSubmissions.createQueryBuilder.mockReturnValue(
+      manyBuilder([
+        {
+          score: 9,
+          graded_at: new Date('2026-07-04'),
+          homework: { max_score: 10, lesson: { subject_id: 'math' } },
+        },
+      ]),
+    );
+    // Two progress rows (100 % completed, 50 % not) and two present/late attendance
+    // records, as the grouped per-subject statements return them.
+    lessonProgress.query.mockResolvedValue([
+      { subject_id: 'math', lessons: '2', completed: '1', progress: '150' },
     ]);
-    homeworkSubmissions.find.mockResolvedValue([
-      {
-        score: 9,
-        graded_at: new Date('2026-07-04'),
-        homework: { max_score: 10, lesson: { subject_id: 'math' } },
-      },
-    ]);
-    lessonProgress.find.mockResolvedValue([
-      {
-        completed: true,
-        progress_percent: 100,
-        last_watched_at: new Date('2026-07-04'),
-        lesson: { subject_id: 'math' },
-      },
-      {
-        completed: false,
-        progress_percent: 50,
-        last_watched_at: new Date('2026-07-05'),
-        lesson: { subject_id: 'math' },
-      },
-    ]);
-    attendance.find.mockResolvedValue([
-      { status: 'present', marked_at: new Date('2026-07-04'), lesson: { subject_id: 'math' } },
-      { status: 'late', marked_at: new Date('2026-07-05'), lesson: { subject_id: 'math' } },
-    ]);
+    attendance.query.mockResolvedValue([{ subject_id: 'math', records: '2', attended: '2' }]);
     subjects.find.mockResolvedValue([{ id: 'math', name: 'Mathematics' }]);
 
     const insights = await (
@@ -290,13 +289,42 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
     ]);
   });
 
+  it('T058: a teacher filter issues none of the four history statements', async () => {
+    const insights = await (
+      service as unknown as {
+        getStudentPerformanceInsights: (id: string, answers: unknown[], filter: object) => Promise<unknown[]>;
+      }
+    ).getStudentPerformanceInsights('student-1', [], { teacherId: 'teacher-1' });
+
+    expect(insights).toEqual([]);
+    expect(questionSolves.createQueryBuilder).not.toHaveBeenCalled();
+    expect(homeworkSubmissions.createQueryBuilder).not.toHaveBeenCalled();
+    expect(lessonProgress.query).not.toHaveBeenCalled();
+    expect(attendance.query).not.toHaveBeenCalled();
+  });
+
+  it('T058: without a teacher filter all four history statements run once', async () => {
+    await (
+      service as unknown as {
+        getStudentPerformanceInsights: (id: string, answers: unknown[], filter: object) => Promise<unknown[]>;
+      }
+    ).getStudentPerformanceInsights('student-1', [], {});
+
+    expect(questionSolves.createQueryBuilder).toHaveBeenCalledTimes(1);
+    expect(homeworkSubmissions.createQueryBuilder).toHaveBeenCalledTimes(1);
+    expect(lessonProgress.query).toHaveBeenCalledTimes(1);
+    expect(attendance.query).toHaveBeenCalledTimes(1);
+  });
+
   it('does not classify a subject with fewer than five valid scored observations', async () => {
-    questionSolves.find.mockResolvedValue([
-      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-01') },
-      { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-02') },
-      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
-      { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-04') },
-    ]);
+    questionSolves.createQueryBuilder.mockReturnValue(
+      manyBuilder([
+        { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-01') },
+        { subject_id: 'math', is_correct: false, created_at: new Date('2026-07-02') },
+        { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-03') },
+        { subject_id: 'math', is_correct: true, created_at: new Date('2026-07-04') },
+      ]),
+    );
     subjects.find.mockResolvedValue([{ id: 'math', name: 'Mathematics' }]);
 
     const insights = await (
@@ -532,12 +560,11 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
   describe('caching (T040)', () => {
     beforeEach(() => {
       const emptyBuilder: Record<string, jest.Mock> = {};
-      for (const method of ['innerJoinAndSelect', 'leftJoinAndSelect', 'where', 'andWhere', 'orderBy']) {
+      for (const method of ['innerJoin', 'leftJoin', 'select', 'where', 'andWhere', 'orderBy']) {
         emptyBuilder[method] = jest.fn(() => emptyBuilder);
       }
       emptyBuilder.getMany = jest.fn().mockResolvedValue([]);
       attempts.createQueryBuilder.mockReturnValue(emptyBuilder);
-      answers.find = jest.fn().mockResolvedValue([]);
     });
 
     it('caches student analytics under the owner scope with a 30 s TTL, keyed by normalized filter and view', async () => {
@@ -553,6 +580,31 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
         },
         expect.any(Function),
       );
+    });
+
+    it('T062: a summary request never shares a cache key with a full request for the same filters', async () => {
+      const keys = new ApplicationCacheService({} as never, {} as never);
+      await service.getStudentAnalytics('student-1', { subjectId: 'math' });
+      await service.getStudentAnalytics('student-1', { subjectId: 'math' }, 'summary');
+
+      const [full, summary] = applicationCache.getOrCompute.mock.calls.map(
+        (call) => call[0] as Parameters<ApplicationCacheService['buildKey']>[0],
+      );
+      expect((summary as { parts: unknown[] }).parts.at(-1)).toBe('summary');
+      expect((full as { parts: unknown[] }).parts.at(-1)).toBe('full');
+      expect(keys.buildKey(full as never)).not.toEqual(keys.buildKey(summary as never));
+    });
+
+    it('T062: the summary view runs the attempts statement only (no answers, histories or subjects)', async () => {
+      await service.getStudentAnalytics('student-1', {}, 'summary');
+
+      expect(attempts.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(answers.createQueryBuilder).not.toHaveBeenCalled();
+      expect(questionSolves.createQueryBuilder).not.toHaveBeenCalled();
+      expect(homeworkSubmissions.createQueryBuilder).not.toHaveBeenCalled();
+      expect(lessonProgress.query).not.toHaveBeenCalled();
+      expect(attendance.query).not.toHaveBeenCalled();
+      expect(subjects.find).not.toHaveBeenCalled();
     });
 
     it('never mixes two students: different students get different scopes', async () => {

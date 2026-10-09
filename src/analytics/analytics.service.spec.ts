@@ -1,5 +1,9 @@
 import type { Repository, SelectQueryBuilder } from 'typeorm';
 
+import {
+  ApplicationCacheService,
+  type ApplicationCacheDescriptor,
+} from '../common/cache/application-cache.service';
 import { AnalyticsService } from './analytics.service';
 
 interface Deferred<T> {
@@ -334,5 +338,203 @@ describe('AnalyticsService.recomputeExam', () => {
       'teacher_quiz_analytics',
     ]);
     expect(applicationCache.invalidateScopes).not.toHaveBeenCalled();
+  });
+});
+
+describe('AnalyticsService.getTeacherDashboard (T055)', () => {
+  it('starts exactly three statements together and maps the same DTO', async () => {
+    const content = deferred<Array<Record<string, string>>>();
+    const orders = deferred<Record<string, string>>();
+    const engagement = deferred<Array<Record<string, string | null>>>();
+
+    const orderBuilder = queryBuilder(orders.promise) as unknown as Record<string, jest.Mock>;
+    orderBuilder['setParameter'] = jest.fn().mockReturnValue(orderBuilder);
+    const orderRepository = { createQueryBuilder: jest.fn().mockReturnValue(orderBuilder) };
+    const paymentsRepository = {
+      manager: { getRepository: jest.fn().mockReturnValue(orderRepository) },
+    };
+    const booksQuery = jest.fn().mockReturnValue(content.promise);
+    const reviewsQuery = jest.fn().mockReturnValue(engagement.promise);
+    const applicationCache = {
+      getOrCompute: jest
+        .fn()
+        .mockImplementation(
+          async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+        ),
+    };
+
+    const service = new AnalyticsService(
+      {} as Repository<never>,
+      {} as Repository<never>,
+      { manager: { query: booksQuery } } as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      paymentsRepository as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      { manager: { query: reviewsQuery } } as unknown as Repository<never>,
+      applicationCache as never,
+    );
+
+    const resultPromise = service.getTeacherDashboard('teacher-1');
+    await Promise.resolve();
+
+    // All three were issued before any of them resolved.
+    expect(booksQuery).toHaveBeenCalledTimes(1);
+    expect(orderBuilder['getRawOne']).toHaveBeenCalledTimes(1);
+    expect(reviewsQuery).toHaveBeenCalledTimes(1);
+    // Every statement is scoped by the teacher id from the caller.
+    expect((booksQuery.mock.calls[0] as unknown[])[1]).toEqual(['teacher-1']);
+    expect(((reviewsQuery.mock.calls[0] as unknown[])[1] as unknown[])[0]).toBe('teacher-1');
+
+    content.resolve([{ lessons: '3', books: '2', exams: '1' }]);
+    orders.resolve({ students: '4', total: '150.50', month: '20.00' });
+    engagement.resolve([{ average: '4.3333', reviews: '3', views: '9' }]);
+
+    await expect(resultPromise).resolves.toEqual({
+      totalLessons: 3,
+      totalBooks: 2,
+      totalExams: 1,
+      totalStudents: 4,
+      revenue: 150.5,
+      revenueThisMonth: 20,
+      averageRating: 4.33,
+      totalReviews: 3,
+      engagementViews: 9,
+    });
+  });
+});
+
+describe('AnalyticsService.getLessonAnalyticsBatch (T056)', () => {
+  const L1 = '11111111-1111-4111-8111-111111111111';
+  const L2 = '22222222-2222-4222-8222-222222222222';
+  const L3 = '33333333-3333-4333-8333-333333333333';
+
+  function build(lessonRows: Array<{ id: string; teacher_id: string }>) {
+    // 1st manager.query = lesson lookup; the next four = direct, packages, sessions, reviews.
+    const query = jest
+      .fn()
+      .mockResolvedValueOnce(lessonRows)
+      .mockResolvedValue([]);
+    const revenueBuilder = {
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      groupBy: jest.fn().mockReturnThis(),
+      getRawMany: jest.fn().mockResolvedValue([]),
+    };
+    const paymentsRepository = {
+      manager: {
+        getRepository: jest.fn().mockReturnValue({
+          createQueryBuilder: jest.fn().mockReturnValue(revenueBuilder),
+        }),
+      },
+    };
+    const applicationCache = {
+      getOrCompute: jest
+        .fn()
+        .mockImplementation(
+          async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+        ),
+    };
+    const service = new AnalyticsService(
+      {} as Repository<never>,
+      { manager: { query }, findOne: jest.fn() } as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      paymentsRepository as unknown as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      {} as Repository<never>,
+      applicationCache as never,
+    );
+    return { service, query, applicationCache, revenueBuilder };
+  }
+
+  const teacher = (userId: string) => ({ userId, email: '', name: '', role: 'teacher' });
+  const admin = { userId: 'admin-1', email: '', name: '', role: 'admin' };
+
+  it('403 for the whole request when one id belongs to another teacher (nothing cached or read)', async () => {
+    const { service, query, applicationCache } = build([
+      { id: L1, teacher_id: 'teacher-1' },
+      { id: L2, teacher_id: 'teacher-2' },
+    ]);
+    await expect(service.getLessonAnalyticsBatch(teacher('teacher-1'), [L1, L2])).rejects.toThrow(
+      'do not have access',
+    );
+    expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalledTimes(1); // the lookup only
+  });
+
+  it('404 when any id is missing or soft-deleted (absent from the lookup)', async () => {
+    const { service, applicationCache } = build([{ id: L1, teacher_id: 'teacher-1' }]);
+    await expect(service.getLessonAnalyticsBatch(teacher('teacher-1'), [L1, L2])).rejects.toThrow(
+      'not found',
+    );
+    expect(applicationCache.getOrCompute).not.toHaveBeenCalled();
+  });
+
+  it('an admin may read lessons across owners; the cache scope is role-wide then', async () => {
+    const { service, applicationCache } = build([
+      { id: L1, teacher_id: 'teacher-1' },
+      { id: L2, teacher_id: 'teacher-2' },
+    ]);
+    const result = await service.getLessonAnalyticsBatch(admin, [L2, L1]);
+    expect(result.map((r) => r.lesson_id)).toEqual([L2, L1]);
+    const descriptor = (applicationCache.getOrCompute.mock.calls[0] as [Record<string, unknown>])[0];
+    expect(descriptor['scope']).toBe('role:admin');
+  });
+
+  it('duplicate ids: one lookup parameter per unique id, one result per requested position', async () => {
+    const { service, query, revenueBuilder } = build([
+      { id: L1, teacher_id: 'teacher-1' },
+      { id: L3, teacher_id: 'teacher-1' },
+    ]);
+    const result = await service.getLessonAnalyticsBatch(teacher('teacher-1'), [L3, L1, L3]);
+
+    expect((query.mock.calls[0] as unknown[])[1]).toEqual([[L1, L3]]);
+    expect(result.map((r) => r.lesson_id)).toEqual([L3, L1, L3]);
+    // Every metric family is a single statement regardless of N (4 raw + 1 builder + 1 lookup = 6).
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(revenueBuilder.getRawMany).toHaveBeenCalledTimes(1);
+    // Zero-filled ids keep the single-lesson defaults.
+    expect(result[0]).toMatchObject({
+      total_purchases: 0,
+      total_views: 0,
+      completion_rate: 0,
+      average_rating: null,
+      total_reviews: 0,
+      revenue: 0,
+      revenue_breakdown: { direct_purchases: 0, package_purchases: 0 },
+    });
+  });
+
+  it('the batch cache key never equals the single-lesson key for the same id', async () => {
+    const { service, applicationCache } = build([{ id: L1, teacher_id: 'teacher-1' }]);
+    await service.getLessonAnalyticsBatch(teacher('teacher-1'), [L1]);
+    const batch = (applicationCache.getOrCompute.mock.calls[0] as [ApplicationCacheDescriptor])[0];
+
+    const single: ApplicationCacheDescriptor = {
+      family: 'lesson_analytics',
+      endpoint: 'analytics.lesson',
+      scope: 'owner:teacher-1',
+      parts: [L1],
+      ttlMs: 30_000,
+    };
+    const keys = new ApplicationCacheService({} as never, {} as never);
+    expect(batch.family).toBe(single.family);
+    expect(batch.scope).toBe(single.scope);
+    expect(keys.buildKey(batch)).not.toEqual(keys.buildKey(single));
+    // Even with the endpoint equalised, the 'batch' discriminator alone separates them.
+    expect(keys.buildKey({ ...batch, endpoint: single.endpoint })).not.toEqual(keys.buildKey(single));
   });
 });

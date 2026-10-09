@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
 import { SanitizationService } from '../../common/sanitization/sanitization.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
@@ -11,7 +11,20 @@ import { courseFreePreviewBoundExceeded, courseHasEnrollments, courseNotEditable
 import { slugify } from '../common/utils/slugify.util';
 import type { CreateCourseDto, CreateSectionDto, UpdateCourseDto, UpdateSectionDto } from './dto/course.dto';
 import type { CreateLessonDto, UpdateLessonDto } from './dto/lesson.dto';
-import { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection } from './entities';
+import { loadLessonsBySection } from './curriculum.util';
+import {
+  MarketplaceCourse,
+  MarketplaceCourseLesson,
+  MarketplaceCourseReviewDecision,
+  MarketplaceCourseSection,
+} from './entities';
+
+/**
+ * An instructor's own course in the list view (T073). Rejected courses carry the reasons of their
+ * latest review decision (`null` when there is no decision row), so the list page does not have to
+ * fetch each rejected course's decisions separately. Other statuses omit the field.
+ */
+export type OwnCourseListItem = MarketplaceCourse & { latest_review_reasons?: string[] | null };
 
 /**
  * FR-041 – FR-050, FR-054. Course, section and lesson authoring for the
@@ -35,15 +48,38 @@ export class CourseAuthoringService {
     @InjectRepository(MarketplaceEnrollment)
     private readonly enrollments: Repository<MarketplaceEnrollment>,
     private readonly sanitization: SanitizationService,
+    @InjectRepository(MarketplaceCourseReviewDecision)
+    private readonly decisions: Repository<MarketplaceCourseReviewDecision>,
   ) {}
 
   // -------------------------------------------------------------- course
 
-  public async listOwnCourses(instructorId: string, status?: MarketplaceCourseStatus): Promise<MarketplaceCourse[]> {
-    return this.courses.find({
+  public async listOwnCourses(instructorId: string, status?: MarketplaceCourseStatus): Promise<OwnCourseListItem[]> {
+    const rows: OwnCourseListItem[] = await this.courses.find({
       where: status ? { instructor_id: instructorId, status } : { instructor_id: instructorId },
       order: { created_at: 'DESC' },
     });
+    // The ids come from this instructor's own rows only, so no other tenant's decisions can be read.
+    const rejectedIds = rows.filter((course) => course.status === MarketplaceCourseStatus.REJECTED).map((course) => course.id);
+    if (rejectedIds.length === 0) return rows;
+
+    // One row per rejected course: the latest decision, whatever its `decision` value (what the
+    // per-course `review-decisions` endpoint's first row has always been). Merged by course id, never
+    // joined into the course query.
+    const latest: { course_id: string; reasons: string[] }[] = await this.decisions.query(
+      `SELECT DISTINCT ON (course_id) course_id, reasons
+         FROM marketplace_course_review_decisions
+        WHERE course_id = ANY($1::uuid[])
+        ORDER BY course_id, reviewed_at DESC`,
+      [rejectedIds],
+    );
+    const reasonsByCourse = new Map(latest.map((row) => [row.course_id, row.reasons]));
+    for (const course of rows) {
+      if (course.status === MarketplaceCourseStatus.REJECTED) {
+        course.latest_review_reasons = reasonsByCourse.get(course.id) ?? null;
+      }
+    }
+    return rows;
   }
 
   public async getOwnCourse(instructorId: string, courseId: string): Promise<MarketplaceCourse> {
@@ -69,9 +105,8 @@ export class CourseAuthoringService {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
     const sections = await this.sections.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
-    const lessonsBySection = await Promise.all(
-      sections.map((section) => this.lessons.find({ where: { section_id: section.id }, order: { position: 'ASC' } })),
-    );
+    // One statement for every section's lessons, grouped back into section order (T071).
+    const lessonsBySection = await loadLessonsBySection(this.lessons, sections);
     return {
       course,
       sections: sections.map((section, index) => ({ ...section, lessons: lessonsBySection[index]! })),
@@ -182,8 +217,11 @@ export class CourseAuthoringService {
     this.assertEditable(course);
     const section = await this.getOwnedSectionOrThrow(course.id, sectionId);
 
-    await this.sections.remove(section);
-    await this.recompactSectionPositions(course.id);
+    // Delete and renumber together: a failed renumber must not leave a gap behind.
+    await this.sections.manager.transaction(async (manager) => {
+      await manager.remove(section);
+      await this.recompactSectionPositions(manager, course.id);
+    });
     await this.recomputeDerivedTotals(course.id);
   }
 
@@ -193,8 +231,8 @@ export class CourseAuthoringService {
     const existing = await this.sections.find({ where: { course_id: course.id } });
     this.assertSameIdSet(existing.map((s) => s.id), orderedIds, 'section');
 
-    await Promise.all(
-      orderedIds.map((id, index) => this.sections.update({ id, course_id: course.id }, { position: index })),
+    await this.sections.manager.transaction(async (manager) =>
+      this.renumberPositions(manager, 'marketplace_course_sections', 'course_id', course.id, orderedIds),
     );
   }
 
@@ -271,8 +309,10 @@ export class CourseAuthoringService {
     this.assertEditable(course);
     const lesson = await this.getOwnedLessonInCourseOrThrow(course.id, lessonId);
 
-    await this.lessons.remove(lesson);
-    await this.recompactLessonPositions(lesson.section_id);
+    await this.lessons.manager.transaction(async (manager) => {
+      await manager.remove(lesson);
+      await this.recompactLessonPositions(manager, lesson.section_id);
+    });
     await this.recomputeDerivedTotals(course.id);
   }
 
@@ -288,8 +328,8 @@ export class CourseAuthoringService {
     const existing = await this.lessons.find({ where: { section_id: section.id } });
     this.assertSameIdSet(existing.map((l) => l.id), orderedIds, 'lesson');
 
-    await Promise.all(
-      orderedIds.map((id, index) => this.lessons.update({ id, section_id: section.id }, { position: index })),
+    await this.lessons.manager.transaction(async (manager) =>
+      this.renumberPositions(manager, 'marketplace_course_lessons', 'section_id', section.id, orderedIds),
     );
   }
 
@@ -379,14 +419,65 @@ export class CourseAuthoringService {
     }
   }
 
-  private async recompactSectionPositions(courseId: string): Promise<void> {
-    const remaining = await this.sections.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
-    await Promise.all(remaining.map((s, index) => this.sections.update({ id: s.id }, { position: index })));
+  private async recompactSectionPositions(manager: EntityManager, courseId: string): Promise<void> {
+    const remaining = await manager.find(MarketplaceCourseSection, {
+      where: { course_id: courseId },
+      order: { position: 'ASC' },
+    });
+    await this.renumberPositions(
+      manager,
+      'marketplace_course_sections',
+      'course_id',
+      courseId,
+      remaining.map((section) => section.id),
+    );
   }
 
-  private async recompactLessonPositions(sectionId: string): Promise<void> {
-    const remaining = await this.lessons.find({ where: { section_id: sectionId }, order: { position: 'ASC' } });
-    await Promise.all(remaining.map((l, index) => this.lessons.update({ id: l.id }, { position: index })));
+  private async recompactLessonPositions(manager: EntityManager, sectionId: string): Promise<void> {
+    const remaining = await manager.find(MarketplaceCourseLesson, {
+      where: { section_id: sectionId },
+      order: { position: 'ASC' },
+    });
+    await this.renumberPositions(
+      manager,
+      'marketplace_course_lessons',
+      'section_id',
+      sectionId,
+      remaining.map((lesson) => lesson.id),
+    );
+  }
+
+  /**
+   * Give `orderedIds` the positions 0..n-1, in that order, in two statements and
+   * without a unique-position collision (`UQ_mp_sections_course_position` /
+   * `UQ_mp_lessons_section_position` are not deferrable, so row-by-row updates
+   * collide on any swap or shift). Must run inside the caller's transaction.
+   *
+   * Phase 1 parks the rows on disjoint negative positions; phase 2 writes the final
+   * ones. Both statements are scoped by the owning course/section, so an id from
+   * another course changes nothing. A duplicated id counts once, at the place of its
+   * last occurrence (the old row-by-row update also let the last one win).
+   */
+  private async renumberPositions(
+    manager: EntityManager,
+    table: 'marketplace_course_sections' | 'marketplace_course_lessons',
+    scopeColumn: 'course_id' | 'section_id',
+    scopeId: string,
+    orderedIds: string[],
+  ): Promise<void> {
+    const lastIndex = new Map(orderedIds.map((id, index) => [id, index] as const));
+    const ids = orderedIds.filter((id, index) => lastIndex.get(id) === index);
+    if (ids.length === 0) return;
+    await manager.query(
+      `UPDATE ${table} SET position = -(position + 1) WHERE ${scopeColumn} = $1 AND id = ANY($2::uuid[])`,
+      [scopeId, ids],
+    );
+    await manager.query(
+      `UPDATE ${table} AS t SET position = (v.ord - 1)::int
+         FROM unnest($2::uuid[]) WITH ORDINALITY AS v(id, ord)
+        WHERE t.id = v.id AND t.${scopeColumn} = $1`,
+      [scopeId, ids],
+    );
   }
 
   private assertSameIdSet(existingIds: string[], orderedIds: string[], kind: 'section' | 'lesson'): void {

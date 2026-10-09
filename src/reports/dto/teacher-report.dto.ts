@@ -108,3 +108,15 @@ export class TeacherReportDto {
   @ApiProperty({ description: 'Students currently flagged at any risk level (low/medium/high/critical, excluding none)' })
   public riskStudentCount!: number;
 }
+
+/** `GET /reports/teacher/follow-up`: the three follow-up figures of `TeacherReportDto`, without the range-bound reads. */
+export class TeacherFollowUpSummaryDto {
+  @ApiProperty({ type: TeacherGuardianStatsDto, description: 'Guardian verification statistics' })
+  public guardians!: TeacherGuardianStatsDto;
+
+  @ApiProperty({ type: TeacherNotificationStatsDto, description: 'Parent notification statistics' })
+  public notifications!: TeacherNotificationStatsDto;
+
+  @ApiProperty({ description: 'Students currently flagged at any risk level (low/medium/high/critical, excluding none)' })
+  public riskStudentCount!: number;
+}

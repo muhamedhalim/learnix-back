@@ -17,20 +17,30 @@ export class QuizAnalyticsController {
 
   @Get('student')
   @Roles('student')
-  @ApiOperation({ summary: 'My quiz performance analytics (student)' })
+  @ApiOperation({
+    summary: 'My quiz performance analytics (student)',
+    description: 'Pass view=summary for just { totalAttempts, averageScore }.',
+  })
   public async student(
     @GetUser() user: JwtPayload,
     @Query('subject_id') subjectId?: string,
     @Query('teacher_id') teacherId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('view') view?: string,
   ): Promise<{ data: unknown }> {
-    const data = await this.quizAnalyticsService.getStudentAnalytics(user.userId, {
+    const filter = {
       ...(subjectId ? { subjectId } : {}),
       ...(teacherId ? { teacherId } : {}),
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
-    });
+    };
+    // Additive and opt-in: `view=summary` returns only { totalAttempts, averageScore }
+    // (the dashboard's two figures). Absent or any other value keeps the full response.
+    const data =
+      view === 'summary'
+        ? await this.quizAnalyticsService.getStudentAnalytics(user.userId, filter, 'summary')
+        : await this.quizAnalyticsService.getStudentAnalytics(user.userId, filter);
     return { data };
   }
 

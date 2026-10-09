@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { In, Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { ParentEventType } from '../common/events/parent-event-type.enum';
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
@@ -14,11 +14,15 @@ import { GuardianVerificationStatus, StudentGuardian } from '../guardians/entiti
 import { NotificationOrigin, ParentMessage } from '../notifications/entities';
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { NotificationsService } from '../notifications/services/notifications.service';
-import { ParentMessageAdminService } from '../notifications/services/parent-message-admin.service';
+import {
+  ParentMessageAdminService,
+  type StudentScope,
+} from '../notifications/services/parent-message-admin.service';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { biBody } from '../i18n/error-translator.util';
 import { User } from '../users/entities/user.entity';
+import { homeworkStatsAudienceSql } from '../payments/lesson-audience';
 import { UserRole } from '../users/entities/user-role.enum';
 import type {
   AttendanceSummary,
@@ -35,6 +39,31 @@ const LOW_SCORE_THRESHOLD = 60;
 const LOW_ATTENDANCE_THRESHOLD = 70;
 /** Guardian must have had at least this many delivered messages before "never reads" is meaningful. */
 const UNREAD_SAMPLE_SIZE = 3;
+
+/** The owned-students subquery and its named binds (see `ownedStudentIdsSubQuery`). */
+export type OwnedStudentsScope = Extract<StudentScope, { sql: string }>;
+
+/** One row per owned student from `countRiskStudents`; bigint counts arrive as strings, absent CTE rows as null. */
+interface RiskAggregateRow {
+  student_id: string;
+  n: string | null;
+  pct_sum: number | null;
+  total: string | null;
+  present_like: string | null;
+  last_active: Date | string | null;
+  guardian_id: string | null;
+  full_name: string | null;
+  phone_e164: string | null;
+  verification_status: string | null;
+  whatsapp_capable: boolean | null;
+  opted_out_at: Date | string | null;
+  is_primary: boolean | null;
+  delivered_count: string | null;
+  read_count: string | null;
+  assigned: string | null;
+  submitted: string | null;
+  late: string | null;
+}
 
 export interface AttemptRow {
   id: string;
@@ -100,53 +129,54 @@ export class TeacherFollowUpService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Every student who has purchased at least one of this teacher's lessons or packages. */
-  public async getOwnedStudentIds(teacherId: string): Promise<string[]> {
-    const [viaLessons, viaPackages] = await Promise.all([
-      this.lessonPurchases
-        .createQueryBuilder('lp')
-        .innerJoin('lp.lesson', 'lesson')
-        .where('lesson.teacher_id = :teacherId', { teacherId })
-        .distinct(true)
-        .select('lp.student_id', 'student_id')
-        .getRawMany<{ student_id: string }>(),
-      this.packagePurchases
-        .createQueryBuilder('pp')
-        .innerJoin('pp.package', 'package')
-        .innerJoin('package.items', 'items')
-        .innerJoin('items.lesson', 'lesson')
-        .where('lesson.teacher_id = :teacherId', { teacherId })
-        .distinct(true)
-        .select('pp.student_id', 'student_id')
-        .getRawMany<{ student_id: string }>(),
-    ]);
+  /** Purchases of a lesson this teacher owns (soft-deleted lessons excluded by the relation join). */
+  private ownedViaLessonsQuery(): SelectQueryBuilder<LessonPurchase> {
+    return this.lessonPurchases
+      .createQueryBuilder('lp')
+      .innerJoin('lp.lesson', 'lesson')
+      .where('lesson.teacher_id = :ownerTeacherId')
+      .select('lp.student_id', 'student_id');
+  }
 
-    const ids = new Set<string>();
-    for (const row of viaLessons) ids.add(row.student_id);
-    for (const row of viaPackages) ids.add(row.student_id);
-    return [...ids];
+  /** Purchases of a package that contains one of this teacher's lessons (same soft-delete semantics). */
+  private ownedViaPackagesQuery(): SelectQueryBuilder<PackagePurchase> {
+    return this.packagePurchases
+      .createQueryBuilder('pp')
+      .innerJoin('pp.package', 'package')
+      .innerJoin('package.items', 'items')
+      .innerJoin('items.lesson', 'lesson')
+      .where('lesson.teacher_id = :ownerTeacherId')
+      .select('pp.student_id', 'student_id');
+  }
+
+  /**
+   * "Students who have ever purchased one of this teacher's lessons or packages"
+   * as a SQL subquery (T066), generated from the very query builders the id-array
+   * form used, so the soft-delete join conditions are identical. Revoked and
+   * expired purchases still count. The only bind is `:ownerTeacherId`, a name no
+   * caller filter uses; callers embed `sql` in `... IN (${sql})` and pass
+   * `params`. Never expose an id-taking variant: ownership is derived from the
+   * authenticated teacher only.
+   */
+  public ownedStudentIdsSubQuery(teacherId: string): OwnedStudentsScope {
+    return {
+      sql: `${this.ownedViaLessonsQuery().getQuery()} UNION ${this.ownedViaPackagesQuery().getQuery()}`,
+      params: { ownerTeacherId: teacherId },
+    };
   }
 
   /** Throws 403 unless `studentId` has ever purchased something from `teacherId`. */
   public async assertOwnsStudent(teacherId: string, studentId: string): Promise<void> {
-    const [lessonCount, packageCount] = await Promise.all([
-      this.lessonPurchases
-        .createQueryBuilder('lp')
-        .innerJoin('lp.lesson', 'lesson')
-        .where('lesson.teacher_id = :teacherId', { teacherId })
-        .andWhere('lp.student_id = :studentId', { studentId })
-        .getCount(),
-      this.packagePurchases
-        .createQueryBuilder('pp')
-        .innerJoin('pp.package', 'package')
-        .innerJoin('package.items', 'items')
-        .innerJoin('items.lesson', 'lesson')
-        .where('lesson.teacher_id = :teacherId', { teacherId })
-        .andWhere('pp.student_id = :studentId', { studentId })
-        .getCount(),
-    ]);
+    const viaLessons = this.ownedViaLessonsQuery().andWhere('lp.student_id = :studentId').getQuery();
+    const viaPackages = this.ownedViaPackagesQuery().andWhere('pp.student_id = :studentId').getQuery();
+    const [sql, values] = this.users.manager.connection.driver.escapeQueryWithParameters(
+      `SELECT (EXISTS(${viaLessons}) OR EXISTS(${viaPackages})) AS owned`,
+      { ownerTeacherId: teacherId, studentId },
+      {},
+    );
+    const rows: { owned: boolean }[] = await this.users.manager.query(sql, values);
 
-    if (lessonCount === 0 && packageCount === 0) {
+    if (rows[0]?.owned !== true) {
       throw new ForbiddenException(
         biBody('You can only access your own students', 'يمكنك الوصول إلى طلابك الخاصين فقط'),
       );
@@ -193,14 +223,10 @@ export class TeacherFollowUpService {
     const page = options.page ?? 1;
     const limit = options.limit ?? 20;
 
-    const ownedIds = await this.getOwnedStudentIds(teacherId);
-    if (ownedIds.length === 0) {
-      return { data: [], total: 0, page, limit };
-    }
-
+    const owned = this.ownedStudentIdsSubQuery(teacherId);
     const qb = this.users
       .createQueryBuilder('u')
-      .where('u.id IN (:...ownedIds)', { ownedIds })
+      .where(`u.id IN (${owned.sql})`, owned.params)
       .andWhere('u.role = :role', { role: UserRole.STUDENT });
 
     if (options.search !== undefined && options.search !== '') {
@@ -214,8 +240,7 @@ export class TeacherFollowUpService {
       .take(limit);
 
     const [students, total] = await qb.getManyAndCount();
-    const pageIds = students.map((s) => s.id);
-    const summaries = await this.buildSummaries(teacherId, pageIds);
+    const summaries = await this.buildSummaries(teacherId, students);
 
     return {
       data: students.map((s) => summaries.get(s.id) ?? this.emptySummary(s)),
@@ -231,38 +256,32 @@ export class TeacherFollowUpService {
   ): Promise<TeacherStudentSummary> {
     await this.assertOwnsStudent(teacherId, studentId);
     const student = await this.users.findOneOrFail({ where: { id: studentId } });
-    const summaries = await this.buildSummaries(teacherId, [studentId]);
+    const summaries = await this.buildSummaries(teacherId, [student]);
     return summaries.get(studentId) ?? this.emptySummary(student);
   }
 
   /**
    * Guardian/notification/risk figures for the teacher analytics extension.
    * Reuses `ParentMessageAdminService.stats` (the same delivery/read-rate
-   * math the admin dashboard uses) and `buildSummaries` (the same risk
-   * assessment the roster uses) rather than recomputing either.
+   * math the admin dashboard uses). The risk count comes from one per-student
+   * aggregate statement (`countRiskStudents`) that feeds the same `assessRisk`
+   * the roster uses; rules and equality checklist: gates/W4-C2-risk-sql.md.
    */
   public async getAnalyticsSummary(teacherId: string): Promise<{
     guardians: { total: number; verified: number; pending: number };
     notifications: { today: number; deliveryRate: number; readRate: number };
     riskStudentCount: number;
   }> {
-    const ownedIds = await this.getOwnedStudentIds(teacherId);
-    if (ownedIds.length === 0) {
-      return {
-        guardians: { total: 0, verified: 0, pending: 0 },
-        notifications: { today: 0, deliveryRate: 0, readRate: 0 },
-        riskStudentCount: 0,
-      };
-    }
+    const owned = this.ownedStudentIdsSubQuery(teacherId);
 
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [guardianRows, todayCount, messageStats, summaries] = await Promise.all([
+    const [guardianRows, todayCount, messageStats, riskStudentCount] = await Promise.all([
       this.studentGuardians
         .createQueryBuilder('sg')
         .innerJoin('sg.guardian', 'g')
-        .where('sg.student_id IN (:...ownedIds)', { ownedIds })
+        .where(`sg.student_id IN (${owned.sql})`, owned.params)
         .andWhere('g.deleted_at IS NULL')
         .distinct(true)
         .select('g.id', 'id')
@@ -270,18 +289,16 @@ export class TeacherFollowUpService {
         .getRawMany<{ id: string; status: GuardianVerificationStatus }>(),
       this.parentMessages
         .createQueryBuilder('m')
-        .where('m.student_id IN (:...ownedIds)', { ownedIds })
+        .where(`m.student_id IN (${owned.sql})`, owned.params)
         .andWhere('m.created_at >= :startOfToday', { startOfToday })
         .getCount(),
-      this.parentMessageAdmin.stats(ownedIds),
-      this.buildSummaries(teacherId, ownedIds),
+      this.parentMessageAdmin.stats(owned),
+      this.countRiskStudents(teacherId, owned),
     ]);
 
     const verified = guardianRows.filter(
       (r) => r.status === GuardianVerificationStatus.VERIFIED,
     ).length;
-    const riskStudentCount = [...summaries.values()].filter((s) => s.risk.level !== 'low').length;
-
     return {
       guardians: { total: guardianRows.length, verified, pending: guardianRows.length - verified },
       notifications: {
@@ -291,6 +308,138 @@ export class TeacherFollowUpService {
       },
       riskStudentCount,
     };
+  }
+
+  /**
+   * How many owned students have at least one risk factor, from ONE statement of per-student
+   * aggregates (rows transferred are O(students), not O(students x history)). It returns raw
+   * figures only; every threshold, rounding step and factor rule is the unchanged JS
+   * (`roundAverage`, `assessRisk`), so the rules have one source of truth. Each CTE carries
+   * the hidden predicates of the TypeORM reads it replaces (soft-deleted exams/lessons/guardians/
+   * users); the item-by-item equality checklist is gates/W4-C2-risk-sql.md (E1-E20).
+   */
+  private async countRiskStudents(teacherId: string, owned: OwnedStudentsScope): Promise<number> {
+    const [sql, values] = this.users.manager.connection.driver.escapeQueryWithParameters(
+      `
+        WITH live AS (
+          SELECT u.id FROM users u
+          WHERE u.deleted_at IS NULL AND u.id IN (${owned.sql})
+        ),
+        att AS (
+          SELECT a.student_id,
+                 COUNT(*) AS n,
+                 SUM(CASE WHEN a.max_score::float8 > 0
+                       THEN (COALESCE(a.score_total, 0)::float8 / a.max_score::float8) * 100
+                       ELSE 0::float8 END) AS pct_sum
+          FROM exam_attempts a
+          INNER JOIN exams e ON e.id = a.exam_id AND e.deleted_at IS NULL
+          WHERE e.teacher_id = :ownerTeacherId
+            AND a.student_id IN (SELECT id FROM live)
+            AND a.state = 'graded' AND a.graded_at IS NOT NULL
+          GROUP BY a.student_id
+        ),
+        rec AS (
+          SELECT r.student_id,
+                 COUNT(*) AS total,
+                 COUNT(*) FILTER (WHERE r.status IN ('present', 'late')) AS present_like
+          FROM attendance_records r
+          INNER JOIN lessons l ON l.id = r.lesson_id AND l.deleted_at IS NULL
+          WHERE l.teacher_id = :ownerTeacherId AND r.student_id IN (SELECT id FROM live)
+          GROUP BY r.student_id
+        ),
+        act AS (
+          SELECT s.student_id, MAX(s.entered_at) AS last_active
+          FROM lesson_sessions s
+          INNER JOIN lessons l ON l.id = s.lesson_id AND l.deleted_at IS NULL
+          WHERE l.teacher_id = :ownerTeacherId AND s.student_id IN (SELECT id FROM live)
+          GROUP BY s.student_id
+        ),
+        grd AS (
+          SELECT DISTINCT ON (sg.student_id)
+                 sg.student_id, g.id AS guardian_id, g.full_name, g.phone_e164,
+                 g.verification_status, g.whatsapp_capable, g.opted_out_at, sg.is_primary
+          FROM student_guardians sg
+          INNER JOIN guardians g ON g.id = sg.guardian_id AND g.deleted_at IS NULL
+          WHERE sg.student_id IN (SELECT id FROM live)
+          ORDER BY sg.student_id, sg.is_primary DESC, sg.created_at ASC, sg.id ASC
+        ),
+        subj AS (
+          SELECT a.id::text AS subject_id
+          FROM exam_attempts a
+          INNER JOIN exams e ON e.id = a.exam_id AND e.deleted_at IS NULL
+          WHERE e.teacher_id = :ownerTeacherId AND a.student_id IN (SELECT id FROM live)
+          UNION ALL
+          SELECT r.id::text
+          FROM attendance_records r
+          INNER JOIN lessons l ON l.id = r.lesson_id AND l.deleted_at IS NULL
+          WHERE l.teacher_id = :ownerTeacherId AND r.student_id IN (SELECT id FROM live)
+        ),
+        msg AS (
+          SELECT m.student_id,
+                 COUNT(*) FILTER (WHERE m.status IN ('delivered', 'read')) AS delivered_count,
+                 COUNT(*) FILTER (WHERE m.status = 'read') AS read_count
+          FROM parent_messages m
+          WHERE m.student_id IN (SELECT id FROM live)
+            AND m.event_type IN ('exam_graded', 'attendance_marked')
+            AND split_part(m.idempotency_key, ':', 2) IN (SELECT subject_id FROM subj)
+          GROUP BY m.student_id
+        ),
+        hw AS (
+          ${homeworkStatsSql(':ownerTeacherId', 'student.id IN (SELECT id FROM live)')}
+        )
+        SELECT live.id AS student_id,
+               att.n, att.pct_sum, rec.total, rec.present_like, act.last_active,
+               grd.guardian_id, grd.full_name, grd.phone_e164, grd.verification_status,
+               grd.whatsapp_capable, grd.opted_out_at, grd.is_primary,
+               msg.delivered_count, msg.read_count,
+               hw.assigned, hw.submitted, hw.late
+        FROM live
+        LEFT JOIN att ON att.student_id = live.id
+        LEFT JOIN rec ON rec.student_id = live.id
+        LEFT JOIN act ON act.student_id = live.id
+        LEFT JOIN grd ON grd.student_id = live.id
+        LEFT JOIN msg ON msg.student_id = live.id
+        LEFT JOIN hw ON hw.student_id = live.id
+      `,
+      { ownerTeacherId: teacherId },
+      {},
+    );
+    const rows: RiskAggregateRow[] = await this.users.manager.query(sql, values);
+
+    let count = 0;
+    for (const row of rows) {
+      const attempts = Number(row.n ?? 0);
+      const attendanceTotal = Number(row.total ?? 0);
+      const assigned = Number(row.assigned ?? 0);
+      const submitted = Number(row.submitted ?? 0);
+      const guardian: StudentGuardianSummary | null =
+        row.guardian_id === null
+          ? null
+          : {
+              guardianId: row.guardian_id,
+              fullName: row.full_name,
+              phoneE164: row.phone_e164 ?? '',
+              verificationStatus: row.verification_status as GuardianVerificationStatus,
+              whatsappCapable: row.whatsapp_capable ?? false,
+              optedOut: row.opted_out_at !== null,
+              isPrimary: row.is_primary ?? false,
+            };
+      const risk = assessRisk({
+        averageExamScore: attempts > 0 ? roundAverage(Number(row.pct_sum), attempts) : null,
+        attendanceRate:
+          attendanceTotal > 0
+            ? Math.round((Number(row.present_like) / attendanceTotal) * 100)
+            : null,
+        homeworkCompletionRate: assigned > 0 ? Math.round((submitted / assigned) * 100) : null,
+        lateHomeworkCount: Number(row.late ?? 0),
+        lastActive: row.last_active === null ? null : new Date(row.last_active),
+        guardian,
+        deliveredCount: Number(row.delivered_count ?? 0),
+        readCount: Number(row.read_count ?? 0),
+      });
+      if (risk.level !== 'low') count += 1;
+    }
+    return count;
   }
 
   private emptySummary(student: User): TeacherStudentSummary {
@@ -313,9 +462,9 @@ export class TeacherFollowUpService {
   /** Shared aggregation used by both the roster page and the single-student detail view. */
   private async buildSummaries(
     teacherId: string,
-    studentIds: string[],
+    students: User[],
   ): Promise<Map<string, TeacherStudentSummary>> {
-    const students = await this.users.find({ where: { id: In(studentIds) } });
+    const studentIds = students.map((student) => student.id);
 
     const [attemptRows, attendanceRows, homeworkSummaries, lastActiveRows, guardianRows] =
       await Promise.all([
@@ -398,7 +547,7 @@ export class TeacherFollowUpService {
       .createQueryBuilder('a')
       .innerJoin('a.exam', 'exam')
       .where('exam.teacher_id = :teacherId', { teacherId })
-      .andWhere('a.student_id IN (:...studentIds)', { studentIds })
+      .andWhere('a.student_id = ANY(:studentIds)', { studentIds })
       .select([
         'a.id AS id',
         'a.student_id AS student_id',
@@ -423,7 +572,7 @@ export class TeacherFollowUpService {
       .createQueryBuilder('rec')
       .innerJoin('rec.lesson', 'lesson')
       .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('rec.student_id IN (:...studentIds)', { studentIds })
+      .andWhere('rec.student_id = ANY(:studentIds)', { studentIds })
       .select([
         'rec.id AS id',
         'rec.student_id AS student_id',
@@ -441,7 +590,7 @@ export class TeacherFollowUpService {
       .innerJoin('submission.homework', 'homework')
       .innerJoin('homework.lesson', 'lesson')
       .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('submission.student_id IN (:...studentIds)', { studentIds })
+      .andWhere('submission.student_id = ANY(:studentIds)', { studentIds })
       .select([
         'submission.id AS id',
         'submission.student_id AS student_id',
@@ -472,42 +621,7 @@ export class TeacherFollowUpService {
         last_submitted_at: Date | string | null;
       }>
     >(
-      `
-        SELECT
-          student.id AS student_id,
-          COUNT(DISTINCT homework.id) AS assigned,
-          COUNT(DISTINCT submission.id) AS submitted,
-          COUNT(DISTINCT submission.id) FILTER (WHERE submission.status = 'graded') AS graded,
-          COUNT(DISTINCT submission.id) FILTER (WHERE submission.is_late = true) AS late,
-          ROUND(AVG(
-            CASE WHEN submission.status = 'graded' AND homework.max_score > 0
-              THEN submission.score / homework.max_score * 100 ELSE NULL END
-          ), 2) AS average_score,
-          MAX(submission.submitted_at) AS last_submitted_at
-        FROM users student
-        INNER JOIN lesson_homework homework
-          ON homework.published_at IS NOT NULL AND homework.deleted_at IS NULL
-        INNER JOIN lessons lesson
-          ON lesson.id = homework.lesson_id AND lesson.teacher_id = $1 AND lesson.deleted_at IS NULL
-        LEFT JOIN homework_submissions submission
-          ON submission.homework_id = homework.id AND submission.student_id = student.id
-        WHERE student.id = ANY($2::uuid[])
-          AND (
-            EXISTS (
-              SELECT 1 FROM lesson_purchases lp
-              WHERE lp.student_id = student.id
-                AND lp.lesson_id = homework.lesson_id
-                AND lp.revoked_at IS NULL
-                AND lp.access_expires_at > NOW()
-            ) OR EXISTS (
-              SELECT 1 FROM package_purchases pp
-              INNER JOIN lesson_package_items item ON item.package_id = pp.package_id
-              WHERE pp.student_id = student.id AND item.lesson_id = homework.lesson_id
-                AND pp.revoked_at IS NULL
-            )
-          )
-        GROUP BY student.id
-      `,
+      homeworkStatsSql('$1', 'student.id = ANY($2::uuid[])'),
       [teacherId, studentIds],
     );
 
@@ -541,7 +655,7 @@ export class TeacherFollowUpService {
       .createQueryBuilder('s')
       .innerJoin('s.lesson', 'lesson')
       .where('lesson.teacher_id = :teacherId', { teacherId })
-      .andWhere('s.student_id IN (:...studentIds)', { studentIds })
+      .andWhere('s.student_id = ANY(:studentIds)', { studentIds })
       .select('s.student_id', 'student_id')
       .addSelect('MAX(s.entered_at)', 'last_active')
       .groupBy('s.student_id')
@@ -555,7 +669,7 @@ export class TeacherFollowUpService {
     const rows = await this.studentGuardians
       .createQueryBuilder('sg')
       .innerJoin('sg.guardian', 'g')
-      .where('sg.student_id IN (:...studentIds)', { studentIds })
+      .where('sg.student_id = ANY(:studentIds)', { studentIds })
       .andWhere('g.deleted_at IS NULL')
       .select([
         'sg.student_id AS student_id',
@@ -601,14 +715,14 @@ export class TeacherFollowUpService {
 
     const rows = await this.parentMessages
       .createQueryBuilder('m')
-      .where('m.student_id IN (:...studentIds)', { studentIds })
+      .where('m.student_id = ANY(:studentIds)', { studentIds })
       .andWhere('m.event_type IN (:...eventTypes)', {
         eventTypes: [ParentEventType.EXAM_GRADED, ParentEventType.ATTENDANCE_MARKED],
       })
       // idempotency_key is `<event_type>:<subjectId>:<guardianId>` — extracting
       // the subject id is how we prove this message is about *this teacher's*
       // exam/attendance record, not another teacher's, for a shared student.
-      .andWhere("split_part(m.idempotency_key, ':', 2) IN (:...subjectIds)", { subjectIds })
+      .andWhere("split_part(m.idempotency_key, ':', 2) = ANY(:subjectIds)", { subjectIds })
       .orderBy('m.created_at', 'DESC')
       .getMany();
 
@@ -635,13 +749,28 @@ export class TeacherFollowUpService {
     teacherId: string,
     studentId: string,
   ): Promise<ParentMessage[]> {
+    const { messages } = await this.fetchTimelineSourcesFor(teacherId, studentId);
+    return messages;
+  }
+
+  /**
+   * Attempts, attendance and the parent messages about exactly those records, with
+   * each of the first two fetched once (the timeline used to fetch them again
+   * inside `fetchScopedMessagesFor`). Inputs are only `(teacherId, studentId)`: the
+   * record ids that scope the messages are derived here and never accepted from a
+   * caller, so another teacher's attempt ids cannot be supplied.
+   */
+  public async fetchTimelineSourcesFor(
+    teacherId: string,
+    studentId: string,
+  ): Promise<{ attempts: AttemptRow[]; attendance: AttendanceRow[]; messages: ParentMessage[] }> {
     const [attempts, attendance] = await Promise.all([
       this.fetchAttemptRows(teacherId, [studentId]),
       this.fetchAttendanceRows(teacherId, [studentId]),
     ]);
     const subjectIds = [...attempts.map((r) => r.id), ...attendance.map((r) => r.id)];
     const byStudent = await this.fetchScopedMessages([studentId], subjectIds);
-    return byStudent.get(studentId) ?? [];
+    return { attempts, attendance, messages: byStudent.get(studentId) ?? [] };
   }
 
   private emptyHomeworkSummary(): HomeworkSummary {
@@ -655,6 +784,43 @@ export class TeacherFollowUpService {
       lastSubmittedAt: null,
     };
   }
+}
+
+/**
+ * The homework statistics statement body (one row per student with at least one assigned homework in their
+ * audience), parameterised only by how the teacher id and the student set are referenced so the roster fetch
+ * ($1/$2 binds) and the risk statement (named bind + CTE) run the very same SQL.
+ */
+function homeworkStatsSql(teacherRef: string, studentsPredicate: string): string {
+  return `
+        SELECT
+          student.id AS student_id,
+          COUNT(DISTINCT homework.id) AS assigned,
+          COUNT(DISTINCT submission.id) AS submitted,
+          COUNT(DISTINCT submission.id) FILTER (WHERE submission.status = 'graded') AS graded,
+          COUNT(DISTINCT submission.id) FILTER (WHERE submission.is_late = true) AS late,
+          ROUND(AVG(
+            CASE WHEN submission.status = 'graded' AND homework.max_score > 0
+              THEN submission.score / homework.max_score * 100 ELSE NULL END
+          ), 2) AS average_score,
+          MAX(submission.submitted_at) AS last_submitted_at
+        FROM users student
+        INNER JOIN lesson_homework homework
+          ON homework.published_at IS NOT NULL AND homework.deleted_at IS NULL
+        INNER JOIN lessons lesson
+          ON lesson.id = homework.lesson_id AND lesson.teacher_id = ${teacherRef} AND lesson.deleted_at IS NULL
+        LEFT JOIN homework_submissions submission
+          ON submission.homework_id = homework.id AND submission.student_id = student.id
+        WHERE ${studentsPredicate}
+          AND (${homeworkStatsAudienceSql('student', 'homework')}
+          )
+        GROUP BY student.id
+      `;
+}
+
+/** The exam-average rounding used by both the roster and the risk count: two decimals, half-up on the double. */
+function roundAverage(sum: number, count: number): number {
+  return Math.round((sum / count) * 100) / 100;
 }
 
 function groupBy<T, K>(rows: T[], key: (row: T) => K): Map<K, T[]> {
@@ -707,8 +873,10 @@ function summarizeExams(rows: AttemptRow[]): {
     const score = Number.parseFloat(r.score_total ?? '0');
     return max > 0 ? (score / max) * 100 : 0;
   });
-  const averageExamScore =
-    Math.round((percentages.reduce((sum, p) => sum + p, 0) / percentages.length) * 100) / 100;
+  const averageExamScore = roundAverage(
+    percentages.reduce((sum, p) => sum + p, 0),
+    percentages.length,
+  );
 
   const latest = graded.reduce((a, b) =>
     (b.graded_at ?? new Date(0)) > (a.graded_at ?? new Date(0)) ? b : a,

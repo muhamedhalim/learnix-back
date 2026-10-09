@@ -64,15 +64,25 @@ export class TeacherBroadcastService {
 
   public async preview(teacherId: string, dto: TeacherBroadcastDto): Promise<BroadcastPreview> {
     const studentIds = await this.resolveTargets(teacherId, dto);
-    const students = await this.users.find({ where: { id: In(studentIds) } });
+    // Only id + name are read; one array bind instead of one bind per student.
+    const students =
+      studentIds.length === 0
+        ? []
+        : await this.users
+            .createQueryBuilder('u')
+            .select(['u.id', 'u.name'])
+            .where('u.id = ANY(:studentIds)', { studentIds })
+            .getMany();
     const teacher = await this.users.findOneOrFail({ where: { id: teacherId } });
+    // One guardian query for the whole audience (was one per student, sequentially).
+    const targetsByStudent = await this.guardians.findNotificationTargetsForStudents(
+      students.map((student) => student.id),
+      ParentEventType.TEACHER_MESSAGE,
+    );
 
     const recipients: BroadcastRecipientPreview[] = [];
     for (const student of students) {
-      const targets = await this.guardians.findNotificationTargets(
-        student.id,
-        ParentEventType.TEACHER_MESSAGE,
-      );
+      const targets = targetsByStudent.get(student.id) ?? [];
       if (targets.length === 0) {
         recipients.push({
           studentId: student.id,

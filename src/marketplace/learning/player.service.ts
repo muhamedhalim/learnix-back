@@ -79,7 +79,22 @@ export class PlayerService {
     const sections = await this.sections.find({ where: { course_id: enrollment.course_id }, order: { position: 'ASC' } });
     const sectionIds = sections.map((s) => s.id);
     const lessons = sectionIds.length
-      ? await this.lessons.find({ where: { section_id: In(sectionIds) }, order: { position: 'ASC' } })
+      ? await this.lessons.find({
+          where: { section_id: In(sectionIds) },
+          // The curriculum map never needs the lesson body (`content_html`) or the video id.
+          select: [
+            'id',
+            'section_id',
+            'title',
+            'title_ar',
+            'position',
+            'content_type',
+            'duration_seconds',
+            'is_free_preview',
+            'is_required_for_completion',
+          ],
+          order: { position: 'ASC' },
+        })
       : [];
     const progressRows = await this.progress.find({ where: { enrollment_id: enrollment.id } });
     const progressByLesson = new Map(progressRows.map((p) => [p.lesson_id, p]));

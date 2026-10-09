@@ -381,4 +381,70 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
     }, 60_000);
   });
+
+  describe('own order history pagination (T095 / E-014)', () => {
+    /** Clones a real order into `count` older terminal rows (cancelled, so the open-order unique guard is untouched). */
+    async function cloneOlderOrders(sourceId: string, count: number): Promise<string[]> {
+      const columns = (await dataSource.query(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'marketplace_orders'
+            AND column_name NOT IN ('id', 'order_number', 'created_at', 'updated_at', 'status', 'payment_id')`,
+      )) as { column_name: string }[];
+      const list = columns.map((column) => `"${column.column_name}"`).join(', ');
+      const ids: string[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const rows = (await dataSource.query(
+          `INSERT INTO marketplace_orders (${list}, order_number, created_at, updated_at, status)
+           SELECT ${list}, $2, now() - ($3 || ' minutes')::interval, now(), 'cancelled'
+             FROM marketplace_orders WHERE id = $1
+           RETURNING id`,
+          [sourceId, `MP-HIST-${String(i).padStart(3, '0')}`, String(i + 1)],
+        )) as { id: string }[];
+        ids.push(rows[0]!.id);
+      }
+      return ids;
+    }
+
+    it('returns { data, meta } pages of at most limit rows (default 20, max 100), newest first, scoped to the caller', async () => {
+      const { instructorUser, admin, learner, category } = await actors();
+      const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+      const { order } = await createOrderAndPayment(learner, course.id);
+      const older = await cloneOlderOrders(order.id, 24); // 25 orders in total for this learner
+
+      const other = await createAuthenticatedUser(app, dataSource);
+      await createOrderAndPayment(other, course.id);
+
+      const first = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).expect(200);
+      expect(first.body.meta).toMatchObject({ total: 25, page: 1, limit: 20, totalPages: 2, hasNextPage: true, hasPrevPage: false });
+      expect(first.body.data).toHaveLength(20);
+      // Newest first: the real order is newer than every clone.
+      expect(first.body.data[0].id).toBe(order.id);
+
+      const second = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ page: 2 }).expect(200);
+      expect(second.body.data).toHaveLength(5);
+      expect(second.body.meta).toMatchObject({ page: 2, hasNextPage: false, hasPrevPage: true });
+
+      const seen = [...first.body.data, ...second.body.data].map((row: { id: string }) => row.id);
+      expect(new Set(seen).size).toBe(25);
+      expect([...seen].sort()).toEqual([order.id, ...older].sort());
+      expect(seen[seen.length - 1]).toBe(older[older.length - 1]);
+
+      const big = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ limit: 100 }).expect(200);
+      expect(big.body.data).toHaveLength(25);
+      await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ limit: 101 }).expect(400);
+      await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ page: 0 }).expect(400);
+
+      // The status filter composes with paging and the filtered total.
+      const cancelled = await learner.agent
+        .get(`${API_PREFIX}/marketplace/me/orders`)
+        .query({ status: 'cancelled', limit: 10 })
+        .expect(200);
+      expect(cancelled.body.meta).toMatchObject({ total: 24, limit: 10, totalPages: 3 });
+      expect(cancelled.body.data).toHaveLength(10);
+
+      // Another learner's orders never appear.
+      const theirs = await other.agent.get(`${API_PREFIX}/marketplace/me/orders`).expect(200);
+      expect(theirs.body.meta.total).toBe(1);
+    }, 120_000);
+  });
 });

@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -23,6 +24,7 @@ import {
   CreateLessonSessionsDto,
   GenerateSessionMeetingDto,
   ReserveLessonSessionDto,
+  StudentLessonSessionsQueryDto,
   UpdateLessonSessionDto,
 } from '../dto';
 import { LessonSessionsService } from '../lesson-sessions.service';
@@ -47,8 +49,12 @@ export class StudentLessonSessionsController {
   public constructor(private readonly sessions: LessonSessionsService) {}
 
   @Get()
-  public async list(@GetUser() user: JwtPayload): Promise<unknown> {
-    return await this.sessions.listForStudent(user.userId);
+  public async list(
+    @GetUser() user: JwtPayload,
+    @Query() query: StudentLessonSessionsQueryDto,
+  ): Promise<unknown> {
+    // `student_id` always comes from the token; `lesson_id` only narrows the caller's own bookings.
+    return await this.sessions.listForStudent(user.userId, query.lesson_id);
   }
 
   @Post('reservations')

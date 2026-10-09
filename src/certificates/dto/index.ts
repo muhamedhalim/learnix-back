@@ -10,3 +10,4 @@ export {
   PublicCertificatesFilterDto,
   RevokeCertificateDto,
 } from './issue-certificate.dto';
+export { CourseProgressBatchQueryDto } from './course-progress-batch-query.dto';

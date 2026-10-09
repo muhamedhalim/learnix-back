@@ -5,7 +5,8 @@ import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { biBody } from '../../../i18n/error-translator.util';
-import { OrderStatusQueryDto } from '../dto/order-status-query.dto';
+import type { PaginationMeta } from '../../../common/interfaces/pagination.interface';
+import { OrderListQueryDto } from '../dto/order-list-query.dto';
 import { MarketplaceOrder } from '../entities';
 import { MarketplaceOrderService } from '../order.service';
 
@@ -24,8 +25,11 @@ export class LearnerOrdersController {
 
   @Get()
   @ApiOperation({ summary: 'Own order history, filterable by status (FR-108)' })
-  public async list(@GetUser() user: JwtPayload, @Query() query: OrderStatusQueryDto): Promise<MarketplaceOrder[]> {
-    return this.orders.listOwnOrders(user.userId, query.status);
+  public async list(
+    @GetUser() user: JwtPayload,
+    @Query() query: OrderListQueryDto,
+  ): Promise<{ data: MarketplaceOrder[]; meta: PaginationMeta }> {
+    return this.orders.listOwnOrders(user.userId, query.status, query.page, query.limit);
   }
 
   @Get(':id')

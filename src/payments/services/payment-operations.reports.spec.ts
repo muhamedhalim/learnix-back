@@ -79,4 +79,71 @@ describe('PaymentOperationsService financial reporting', () => {
       widget_errors: [{ widget: 'revenue_trends' }],
     });
   });
+
+  describe('opt-in widget selection (T054)', () => {
+    const TEACHER = '11111111-1111-4111-8111-111111111111';
+
+    it('no selection: every widget query runs (6 without a teacher, 8 with one) — default unchanged', async () => {
+      await service.financialReport({ page: 1, limit: 20 });
+      expect(dataSource.query).toHaveBeenCalledTimes(6);
+      dataSource.query.mockClear();
+      await service.financialReport({ teacher_id: TEACHER, page: 1, limit: 20 });
+      expect(dataSource.query).toHaveBeenCalledTimes(8);
+    });
+
+    it('teacher drawer selection runs 3 queries; teacher tabs run 4', async () => {
+      await service.financialReport({
+        teacher_id: TEACHER,
+        page: 1,
+        limit: 20,
+        widgets: ['settlement_history', 'ledger_movements', 'product_breakdown'],
+      });
+      expect(dataSource.query).toHaveBeenCalledTimes(3);
+      dataSource.query.mockClear();
+      await service.financialReport({
+        teacher_id: TEACHER,
+        page: 1,
+        limit: 20,
+        widgets: ['teacher_receivables', 'revenue_trends', 'product_breakdown', 'top_products'],
+      });
+      expect(dataSource.query).toHaveBeenCalledTimes(4);
+    });
+
+    it('unselected widgets are empty, keep their keys, and never appear in widget_errors', async () => {
+      const report = await service.financialReport({
+        page: 1,
+        limit: 20,
+        widgets: ['product_breakdown'],
+      });
+      expect(dataSource.query).toHaveBeenCalledTimes(1);
+      expect(report).toMatchObject({
+        summary: [],
+        trends: [],
+        top_products: [],
+        settlement_analytics: [],
+        ledger_movements: [],
+        settlement_history: [],
+        widget_errors: [],
+        teachers: { data: [], meta: { total: 0 } },
+      });
+      expect(Object.keys(report)).toEqual(
+        Object.keys(await service.financialReport({ page: 1, limit: 20 })),
+      );
+    });
+
+    it('a failed SELECTED widget is still reported', async () => {
+      dataSource.query.mockRejectedValueOnce(new Error('boom'));
+      const report = await service.financialReport({
+        page: 1,
+        limit: 20,
+        widgets: ['product_breakdown'],
+      });
+      expect(report['widget_errors']).toEqual([{ widget: 'product_breakdown' }]);
+    });
+
+    it('the CSV export ignores the selection and runs the full report', async () => {
+      await service.financialReportCsv({ page: 1, limit: 20, widgets: ['top_products'] });
+      expect(dataSource.query).toHaveBeenCalledTimes(6);
+    });
+  });
 });

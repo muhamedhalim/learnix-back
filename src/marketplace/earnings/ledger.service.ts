@@ -49,6 +49,14 @@ export interface MarketplaceBalance {
   reversedMinor: number;
 }
 
+/** One (instructor, currency) pair's derived balance plus its outstanding refund shortfall. */
+export interface GroupedBalance {
+  instructorId: string;
+  balance: MarketplaceBalance;
+  /** `REFUND_SHORTFALL` DEBIT entries; the figure `BalanceService.getShortfall` returns. */
+  shortfallMinor: number;
+}
+
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
 /**
@@ -195,6 +203,125 @@ export class LedgerService {
       paidOutMinor: paidOut,
       reversedMinor: reversed,
     };
+  }
+
+  /**
+   * The set-based form of {@link deriveBalance} (T067 / W4-C5): every
+   * (instructor, currency) pair in 2 statements instead of 9 per pair.
+   *
+   * Earnings and ledger entries are aggregated **independently** per
+   * (instructor_id, currency) and combined here — never JOIN one table to the
+   * other before summing, that multiplies every figure. The pair universe is
+   * exactly the earnings table's (instructor, currency) pairs, as before: a
+   * currency that only has ledger entries is NOT reported. The direction-
+   * insensitive types (PAYOUT, PAYOUT_REVERSAL, REFUND) sum both directions;
+   * MANUAL_ADJUSTMENT and REFUND_SHORTFALL are direction-sensitive. Absent
+   * ledger rows mean zeros. Pass `instructorId` to narrow both statements.
+   */
+  public async deriveBalancesGrouped(filter: { instructorId?: string } = {}): Promise<GroupedBalance[]> {
+    const earningsQb = this.earnings
+      .createQueryBuilder('e')
+      .select('e.instructor_id', 'instructor_id')
+      .addSelect('e.currency', 'currency')
+      .addSelect('COALESCE(SUM(e.net_amount_minor) FILTER (WHERE e.status = :pending), 0)', 'pending')
+      .addSelect('COALESCE(SUM(e.net_amount_minor) FILTER (WHERE e.status = :clearance), 0)', 'clearing')
+      .addSelect(
+        'COALESCE(SUM(e.net_amount_minor) FILTER (WHERE e.status IN (:requested, :processing)), 0)',
+        'requested',
+      )
+      .addSelect('COALESCE(SUM(e.net_amount_minor) FILTER (WHERE e.status = :available), 0)', 'available')
+      .setParameters({
+        pending: InstructorEarningStatus.PENDING_EARNINGS,
+        clearance: InstructorEarningStatus.REFUND_CLEARANCE,
+        requested: InstructorEarningStatus.PAYOUT_REQUESTED,
+        processing: InstructorEarningStatus.PROCESSING,
+        available: InstructorEarningStatus.AVAILABLE_BALANCE,
+      });
+    const entriesQb = this.entries
+      .createQueryBuilder('l')
+      .select('l.instructor_id', 'instructor_id')
+      .addSelect('l.currency', 'currency')
+      .addSelect(
+        'COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :adjustment AND l.direction = :credit), 0)',
+        'adjustment_credit',
+      )
+      .addSelect(
+        'COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :adjustment AND l.direction = :debit), 0)',
+        'adjustment_debit',
+      )
+      .addSelect('COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :payout), 0)', 'payout')
+      .addSelect(
+        'COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :payoutReversal), 0)',
+        'payout_reversal',
+      )
+      .addSelect('COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :refund), 0)', 'refund')
+      .addSelect(
+        'COALESCE(SUM(l.amount_minor) FILTER (WHERE l.entry_type = :shortfall AND l.direction = :debit), 0)',
+        'shortfall',
+      )
+      .setParameters({
+        adjustment: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
+        credit: MarketplaceLedgerDirection.CREDIT,
+        debit: MarketplaceLedgerDirection.DEBIT,
+        payout: MarketplaceLedgerEntryType.PAYOUT,
+        payoutReversal: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
+        refund: MarketplaceLedgerEntryType.REFUND,
+        shortfall: MarketplaceLedgerEntryType.REFUND_SHORTFALL,
+      });
+    if (filter.instructorId !== undefined) {
+      earningsQb.where('e.instructor_id = :instructorId', { instructorId: filter.instructorId });
+      entriesQb.where('l.instructor_id = :instructorId', { instructorId: filter.instructorId });
+    }
+    earningsQb.groupBy('e.instructor_id').addGroupBy('e.currency');
+    entriesQb.groupBy('l.instructor_id').addGroupBy('l.currency');
+
+    const [earningRows, entryRows] = await Promise.all([
+      earningsQb.getRawMany<{
+        instructor_id: string;
+        currency: string;
+        pending: string;
+        clearing: string;
+        requested: string;
+        available: string;
+      }>(),
+      entriesQb.getRawMany<{
+        instructor_id: string;
+        currency: string;
+        adjustment_credit: string;
+        adjustment_debit: string;
+        payout: string;
+        payout_reversal: string;
+        refund: string;
+        shortfall: string;
+      }>(),
+    ]);
+
+    const pairKey = (instructorId: string, currency: string): string => `${instructorId}|${currency}`;
+    const entriesByPair = new Map(entryRows.map((row) => [pairKey(row.instructor_id, row.currency), row]));
+    const int = (value: string | undefined): number => Number.parseInt(value ?? '0', 10);
+
+    return earningRows.map((row) => {
+      const { currency } = row;
+      const entry = entriesByPair.get(pairKey(row.instructor_id, currency));
+      const minor = (amountMinor: number): { amountMinor: number; currency: string } => ({ amountMinor, currency });
+      const manualAdjustmentNet = this.money.subtract(
+        minor(int(entry?.adjustment_credit)),
+        minor(int(entry?.adjustment_debit)),
+      );
+      return {
+        instructorId: row.instructor_id,
+        balance: {
+          currency,
+          pendingMinor: int(row.pending),
+          clearingMinor: int(row.clearing),
+          availableMinor: this.money.add(minor(int(row.available)), minor(manualAdjustmentNet)),
+          requestedMinor: int(row.requested),
+          paidOutMinor: this.money.subtract(minor(int(entry?.payout)), minor(int(entry?.payout_reversal))),
+          reversedMinor: this.money.subtract(minor(int(entry?.refund)), minor(0)),
+        },
+        shortfallMinor: int(entry?.shortfall),
+      };
+    });
   }
 
   /** Contracts §3 — the instructor's own earnings, newest first, optionally narrowed by status/currency (T172). */

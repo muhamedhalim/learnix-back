@@ -23,7 +23,7 @@ import { Pagination20Dto } from '../../common/dto/pagination.dto';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificatesService } from '../certificates.service';
-import { CertificateVisibilityDto } from '../dto';
+import { CertificateVisibilityDto, CourseProgressBatchQueryDto } from '../dto';
 
 @ApiTags('Certificates')
 @Controller('student/certificates')
@@ -44,6 +44,20 @@ export class StudentCertificatesController {
       pagination.page,
       pagination.limit,
     );
+  }
+
+  @Get('course-progress')
+  @ApiOperation({
+    summary: 'My completion progress for several courses at once',
+    description:
+      'Same figures as the single-course route, keyed by package id. A course I do not currently ' +
+      'hold a valid purchase for is returned as zeros, never with lesson counts.',
+  })
+  public async courseProgressBatch(
+    @GetUser() user: JwtPayload,
+    @Query() query: CourseProgressBatchQueryDto,
+  ): Promise<unknown> {
+    return await this.certificatesService.getMyCourseProgressBatch(user.userId, query.package_ids);
   }
 
   @Get('course-progress/:packageId')

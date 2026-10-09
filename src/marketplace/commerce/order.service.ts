@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import type { PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { CatalogQueryService } from '../discovery/catalog-query.service';
 import { MarketplaceOrderStatus } from '../common/enums';
@@ -110,11 +111,25 @@ export class MarketplaceOrderService {
     return this.orders.findOne({ where: { id: orderId, learner_id: learnerId } });
   }
 
-  public async listOwnOrders(learnerId: string, status?: MarketplaceOrderStatus): Promise<MarketplaceOrder[]> {
-    return this.orders.find({
+  /** The learner's own orders, newest first, one bounded page (T095): `{ data, meta }` with the filtered total. */
+  public async listOwnOrders(
+    learnerId: string,
+    status?: MarketplaceOrderStatus,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: MarketplaceOrder[]; meta: PaginationMeta }> {
+    const [data, total] = await this.orders.findAndCount({
       where: status ? { learner_id: learnerId, status } : { learner_id: learnerId },
-      order: { created_at: 'DESC' },
+      // `id` breaks created_at ties so consecutive pages never overlap or skip a row.
+      order: { created_at: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    const totalPages = Math.ceil(total / limit);
+    return {
+      data,
+      meta: { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 },
+    };
   }
 
   private generateOrderNumber(): string {

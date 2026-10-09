@@ -7,6 +7,7 @@ import {
   createAuthenticatedUser,
   createE2EApp,
   resetDatabase,
+  setUserRole,
   type E2EContext,
 } from './fixtures';
 
@@ -52,6 +53,17 @@ describe('Access control (e2e)', () => {
 
   it('rejects an authenticated student from an admin-only route', async () => {
     const { agent } = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+
+    await agent.get(`${API_PREFIX}/admin/students`).expect(403);
+  });
+
+  it('role change is effective on the next request (admin -> student loses admin routes)', async () => {
+    const { agent, userId } = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
+      role: 'admin',
+    });
+    await agent.get(`${API_PREFIX}/admin/students`).expect(200);
+
+    await setUserRole(ctx.dataSource, userId, 'student');
 
     await agent.get(`${API_PREFIX}/admin/students`).expect(403);
   });

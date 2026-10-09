@@ -85,3 +85,62 @@ describe('CallCenterSupportService.dashboardCounts (DEF-012)', () => {
     expect(params.horizon.getTime()).toBeLessThanOrEqual(Date.now() + 2 * 60 * 60 * 1000 + 1000);
   });
 });
+
+describe('CallCenterSupportService.supportReport (T059)', () => {
+  it('issues all five aggregates before any of them resolves and maps them unchanged', async () => {
+    const resolvers: Array<(value: unknown) => void> = [];
+    const pending = () => new Promise((resolve) => resolvers.push(resolve));
+    const builder = () => {
+      const chain: Record<string, jest.Mock> = {};
+      for (const method of ['select', 'addSelect', 'where', 'andWhere', 'groupBy']) {
+        chain[method] = jest.fn(() => chain);
+      }
+      chain['getRawMany'] = jest.fn(pending);
+      chain['getRawOne'] = jest.fn(pending);
+      chain['getCount'] = jest.fn(pending);
+      return chain;
+    };
+    const builders: Array<Record<string, jest.Mock>> = [];
+    const complaintsRepository = {
+      createQueryBuilder: jest.fn(() => {
+        const next = builder();
+        builders.push(next);
+        return next;
+      }),
+    };
+    const service = new CallCenterSupportService(
+      {} as never,
+      {} as never,
+      {} as never,
+      complaintsRepository as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = service.supportReport();
+    await Promise.resolve();
+
+    // Five builders exist and each has already executed, none resolved yet.
+    expect(builders).toHaveLength(5);
+    expect(resolvers).toHaveLength(5);
+
+    resolvers[0]?.([{ status: 'open', count: '3' }]);
+    resolvers[1]?.([{ role: 'student', count: '2' }]);
+    resolvers[2]?.([{ type: 'billing', count: '5' }]);
+    resolvers[3]?.({ first: '90.4', resolution: '3600.6' });
+    resolvers[4]?.(7);
+
+    await expect(result).resolves.toEqual({
+      by_status: [{ status: 'open', count: 3 }],
+      by_complainant_role: [{ role: 'student', count: 2 }],
+      by_type: [{ type: 'billing', count: 5 }],
+      delayed: 7,
+      average_first_response_seconds: 90,
+      average_resolution_seconds: 3601,
+    });
+  });
+});

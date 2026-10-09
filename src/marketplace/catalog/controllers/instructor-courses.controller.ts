@@ -5,7 +5,7 @@ import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decor
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
 import { CurrentInstructor } from '../../common/decorators/current-instructor.decorator';
 import type { MarketplaceInstructor } from '../../instructors/entities/marketplace-instructor.entity';
-import { CourseAuthoringService } from '../course-authoring.service';
+import { CourseAuthoringService, type OwnCourseListItem } from '../course-authoring.service';
 import { CourseEditClassifierService } from '../course-edit-classifier.service';
 import { CourseLifecycleService } from '../course-lifecycle.service';
 import { CourseReadinessService, type ReadinessResult } from '../course-readiness.service';
@@ -31,7 +31,7 @@ export class InstructorCoursesController {
   public async list(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Query() query: CourseStatusQueryDto,
-  ): Promise<MarketplaceCourse[]> {
+  ): Promise<OwnCourseListItem[]> {
     return this.authoring.listOwnCourses(instructor.id, query.status);
   }
 

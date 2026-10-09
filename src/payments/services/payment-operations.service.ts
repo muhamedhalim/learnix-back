@@ -19,7 +19,7 @@ import { ScheduledJobMonitorService } from '../../observability/scheduled-job-mo
 import { AttendanceCode } from '../../attendance-codes/entities/attendance-code.entity';
 import { LessonSessionBookingStatus } from '../../lessons/entities/lesson-session-booking-status.enum';
 import { LessonSessionsService } from '../../lessons/lesson-sessions.service';
-import { FinancialReportFilterDto, OrderFilterDto } from '../dto';
+import { FinancialReportFilterDto, type FinancialReportWidget, OrderFilterDto } from '../dto';
 import {
   Entitlement,
   FinancialLedgerEntry,
@@ -1492,8 +1492,16 @@ export class PaymentOperationsService {
 
   public async financialReport(filter: FinancialReportFilterDto): Promise<Record<string, unknown>> {
     const bounds = this.financialReportBounds(filter);
+    // Absent/empty selection = every widget (default body unchanged). An
+    // unselected widget resolves to [] without running its query and is never
+    // reported in `widget_errors`.
+    const selected = filter.widgets;
+    const want = (widget: FinancialReportWidget): boolean =>
+      selected === undefined || selected.length === 0 || selected.includes(widget);
     const results = await Promise.allSettled([
-      this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
+      !want('summary')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
         const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
         return this.dataSource.query(
@@ -1567,7 +1575,9 @@ export class PaymentOperationsService {
           params,
         );
       }),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
+      !want('teacher_receivables')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
         const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
         const limitIndex = params.push(Math.min(filter.limit ?? 20, 100));
@@ -1631,7 +1641,9 @@ export class PaymentOperationsService {
           params,
         );
       }),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
+      !want('revenue_trends')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
         const bucket = filter.group_by ?? 'day';
         return this.dataSource.query(
           `
@@ -1645,7 +1657,9 @@ export class PaymentOperationsService {
           params,
         );
       }),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+      !want('product_breakdown')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
         this.dataSource.query(
           `
         WITH ${current}
@@ -1659,7 +1673,9 @@ export class PaymentOperationsService {
           params,
         ),
       ),
-      this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+      !want('top_products')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
         this.dataSource.query(
           `
         WITH ${current}
@@ -1671,7 +1687,9 @@ export class PaymentOperationsService {
           params,
         ),
       ),
-      this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+      !want('settlement_analytics')
+        ? Promise.resolve([])
+        : this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
         const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
         return this.dataSource.query(
           `
@@ -1685,7 +1703,9 @@ export class PaymentOperationsService {
           params,
         );
       }),
-      filter.teacher_id
+      !want('ledger_movements')
+        ? Promise.resolve([])
+        : filter.teacher_id
         ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
             const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
             return this.dataSource.query(
@@ -1699,7 +1719,9 @@ export class PaymentOperationsService {
             );
           })
         : Promise.resolve([]),
-      filter.teacher_id
+      !want('settlement_history')
+        ? Promise.resolve([])
+        : filter.teacher_id
         ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
             const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
             return this.dataSource.query(
@@ -1784,7 +1806,9 @@ export class PaymentOperationsService {
   }
 
   public async financialReportCsv(filter: FinancialReportFilterDto): Promise<string> {
-    const report = await this.financialReport({ ...filter, page: 1, limit: 100 });
+    // The export is always the full report, whatever widget selection was sent.
+    const { widgets: _ignoredWidgets, ...fullFilter } = filter;
+    const report = await this.financialReport({ ...fullFilter, page: 1, limit: 100 });
     const summary = report['summary'] as Array<Record<string, unknown>>;
     const teachers = (report['teachers'] as { data: Array<Record<string, unknown>> }).data;
     const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;

@@ -53,6 +53,22 @@ export class TeacherGradingService {
     const [rows, total] = await this.attempts.findAndCount({
       where: { exam_id: examId },
       relations: ['student'],
+      // Only what the response maps, plus the order/where/join columns the paged-ids path needs.
+      select: {
+        id: true,
+        exam_id: true,
+        student_id: true,
+        attempt_number: true,
+        state: true,
+        score_auto: true,
+        score_manual: true,
+        score_total: true,
+        max_score: true,
+        passed: true,
+        submitted_at: true,
+        created_at: true,
+        student: { id: true, name: true, email: true },
+      },
       order: { submitted_at: 'DESC', created_at: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -131,19 +147,38 @@ export class TeacherGradingService {
   ): Promise<{ attempt_id: string; state: string; score_total: number | null }> {
     const exam = await this.assertExamOwner(examId, teacherId);
 
-    const answer = await this.answers.findOne({ where: { id: answerId } });
-    if (!answer) throw new NotFoundException(biBody('Answer not found', 'الإجابة غير موجودة'));
-
-    const attempt = await this.attempts.findOne({ where: { id: answer.attempt_id } });
-    if (!attempt || attempt.exam_id !== examId) {
+    // One read for the answer, its attempt (constrained to THIS exam, so another exam's answer
+    // never matches) and its question, instead of three.
+    const found = (await this.answers
+      .createQueryBuilder('answer')
+      .innerJoinAndMapOne(
+        'answer.joinedAttempt',
+        ExamAttempt,
+        'attempt',
+        'attempt.id = answer.attempt_id AND attempt.exam_id = :examId',
+        { examId },
+      )
+      .leftJoinAndMapOne(
+        'answer.joinedQuestion',
+        ExamQuestion,
+        'eq',
+        'eq.id = answer.exam_question_id',
+      )
+      .where('answer.id = :answerId', { answerId })
+      .getOne()) as
+      | (ExamAttemptAnswer & { joinedAttempt: ExamAttempt; joinedQuestion: ExamQuestion | null })
+      | null;
+    if (!found) {
+      // Only now, to choose between the two distinct 404 bodies, look the answer up on its own.
+      const exists = await this.answers.findOne({ where: { id: answerId } });
+      if (!exists) throw new NotFoundException(biBody('Answer not found', 'الإجابة غير موجودة'));
       throw new NotFoundException(
         biBody('Answer does not belong to this exam', 'هذه الإجابة لا تنتمي إلى هذا الاختبار'),
       );
     }
-
-    const examQuestion = await this.examQuestions.findOne({
-      where: { id: answer.exam_question_id },
-    });
+    const answer = found;
+    const attempt = found.joinedAttempt;
+    const examQuestion = found.joinedQuestion;
     if (examQuestion && AUTO_GRADED_TYPES.has(examQuestion.type_snapshot)) {
       throw new BadRequestException(
         biBody(

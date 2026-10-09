@@ -3,19 +3,21 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { MarketplaceLedgerDirection, MarketplaceLedgerEntryType } from '../common/enums';
 import { BalanceService } from './balance.service';
-import { InstructorEarning } from './entities/instructor-earning.entity';
 import { MarketplaceLedgerEntry } from './entities/marketplace-ledger-entry.entity';
 import { LedgerService } from './ledger.service';
 
 describe('BalanceService (T139)', () => {
   let service: BalanceService;
-  let ledger: { deriveBalance: jest.Mock; post: jest.Mock };
+  let ledger: { deriveBalance: jest.Mock; deriveBalancesGrouped: jest.Mock; post: jest.Mock };
   let qb: { where: jest.Mock; andWhere: jest.Mock; select: jest.Mock; getRawOne: jest.Mock };
   let ledgerEntries: { createQueryBuilder: jest.Mock };
-  let earningsRepo: { createQueryBuilder: jest.Mock };
 
   beforeEach(async () => {
-    ledger = { deriveBalance: jest.fn(), post: jest.fn() };
+    ledger = {
+      deriveBalance: jest.fn(),
+      deriveBalancesGrouped: jest.fn().mockResolvedValue([]),
+      post: jest.fn(),
+    };
     qb = {
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -23,20 +25,12 @@ describe('BalanceService (T139)', () => {
       getRawOne: jest.fn(),
     } as never;
     ledgerEntries = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
-    earningsRepo = {
-      createQueryBuilder: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        getRawMany: jest.fn().mockResolvedValue([]),
-      }),
-    };
 
     const module = await Test.createTestingModule({
       providers: [
         BalanceService,
         { provide: LedgerService, useValue: ledger },
         { provide: getRepositoryToken(MarketplaceLedgerEntry), useValue: ledgerEntries },
-        { provide: getRepositoryToken(InstructorEarning), useValue: earningsRepo },
       ],
     }).compile();
     service = module.get(BalanceService);
@@ -97,21 +91,20 @@ describe('BalanceService (T139)', () => {
 
   describe('getAllBalances (T164)', () => {
     it('derives a balance independently for every currency the instructor has ever earned in — never merged', async () => {
-      earningsRepo.createQueryBuilder.mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        getRawMany: jest.fn().mockResolvedValue([{ currency: 'EGP' }, { currency: 'USD' }]),
+      const grouped = (currency: string, availableMinor: number) => ({
+        instructorId: 'instructor-1',
+        balance: {
+          currency,
+          pendingMinor: 0,
+          clearingMinor: 0,
+          availableMinor,
+          requestedMinor: 0,
+          paidOutMinor: 0,
+          reversedMinor: 0,
+        },
+        shortfallMinor: 0,
       });
-      ledger.deriveBalance.mockImplementation(async (_id: string, currency: string) => ({
-        currency,
-        pendingMinor: 0,
-        clearingMinor: 0,
-        availableMinor: currency === 'EGP' ? 1000 : 2000,
-        requestedMinor: 0,
-        paidOutMinor: 0,
-        reversedMinor: 0,
-      }));
-      qb.getRawOne.mockResolvedValue({ total: '0' });
+      ledger.deriveBalancesGrouped.mockResolvedValue([grouped('EGP', 1000), grouped('USD', 2000)]);
 
       const balances = await service.getAllBalances('instructor-1');
 
@@ -123,6 +116,70 @@ describe('BalanceService (T139)', () => {
     it('returns an empty array for an instructor with no earnings in any currency', async () => {
       const balances = await service.getAllBalances('instructor-1');
       expect(balances).toEqual([]);
+    });
+
+    it('T067: narrows the grouped derivation to the instructor and keeps the original row shape', async () => {
+      ledger.deriveBalancesGrouped.mockResolvedValue([
+        {
+          instructorId: 'instructor-1',
+          balance: {
+            currency: 'EGP',
+            pendingMinor: 1,
+            clearingMinor: 2,
+            availableMinor: 3,
+            requestedMinor: 4,
+            paidOutMinor: 5,
+            reversedMinor: 6,
+          },
+          shortfallMinor: 7,
+        },
+      ]);
+
+      const balances = await service.getAllBalances('instructor-1');
+
+      expect(ledger.deriveBalancesGrouped).toHaveBeenCalledTimes(1);
+      expect(ledger.deriveBalancesGrouped).toHaveBeenCalledWith({ instructorId: 'instructor-1' });
+      expect(ledger.deriveBalance).not.toHaveBeenCalled();
+      expect(balances).toEqual([
+        {
+          currency: 'EGP',
+          pendingMinor: 1,
+          clearingMinor: 2,
+          availableMinor: 3,
+          requestedMinor: 4,
+          paidOutMinor: 5,
+          reversedMinor: 6,
+          shortfallMinor: 7,
+        },
+      ]);
+      expect(Object.keys(balances[0] ?? {})).not.toContain('instructorId');
+    });
+  });
+
+  describe('getBalancesGrouped (T067)', () => {
+    it('is unfiltered by default and tags every row with its instructor', async () => {
+      ledger.deriveBalancesGrouped.mockResolvedValue([
+        {
+          instructorId: 'i-1',
+          balance: {
+            currency: 'EGP',
+            pendingMinor: 0,
+            clearingMinor: 0,
+            availableMinor: -5,
+            requestedMinor: 0,
+            paidOutMinor: 0,
+            reversedMinor: 0,
+          },
+          shortfallMinor: 9,
+        },
+      ]);
+
+      const rows = await service.getBalancesGrouped();
+
+      expect(ledger.deriveBalancesGrouped).toHaveBeenCalledWith({});
+      expect(rows).toEqual([
+        expect.objectContaining({ instructorId: 'i-1', currency: 'EGP', availableMinor: -5, shortfallMinor: 9 }),
+      ]);
     });
   });
 });

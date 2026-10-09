@@ -25,6 +25,7 @@ import {
   LessonFilterDto,
   LessonProgressNullableResponseDto,
   LessonProgressResponseDto,
+  MyProgressQueryDto,
   UpdateProgressDto,
 } from '../dto';
 import { LessonsService } from '../lessons.service';
@@ -204,20 +205,25 @@ export class StudentLessonsController {
     description: 'Array of progress records',
     type: AllProgressResponseDto,
   })
-  public async getAllProgress(@Request() req: UserRequest): Promise<AllProgressResponseDto> {
+  public async getAllProgress(
+    @Request() req: UserRequest,
+    @Query() query: MyProgressQueryDto,
+  ): Promise<AllProgressResponseDto> {
     const userId = req.user?.userId;
     if (userId === undefined || userId === '') {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
 
-    const progressRecords = await this.progressService.getAllProgress(userId);
-    const visibleRecords = await Promise.all(
-      progressRecords.map(async (record) =>
-        (await this.paymentsService.hasLessonPlaybackAccess(userId, record.lessonId)) ? record : null,
-      ),
+    // `packageId` only narrows the caller's own rows; the access filter below is unchanged.
+    const progressRecords = await this.progressService.getAllProgress(userId, query.packageId);
+    // One set-based access probe for the whole list; the already-ordered
+    // progress rows are filtered by membership, so order and shape are unchanged.
+    const accessible = await this.paymentsService.getPlaybackAccessibleLessonIds(
+      userId,
+      progressRecords.map((record) => record.lessonId),
     );
 
-    return { data: visibleRecords.filter((record) => record !== null) };
+    return { data: progressRecords.filter((record) => accessible.has(record.lessonId)) };
   }
 
   /**

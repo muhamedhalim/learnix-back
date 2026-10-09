@@ -1,0 +1,1786 @@
+{
+  "rosterDefault": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s1",
+          "name": "Student s1",
+          "email": "tfo-s1@example.test",
+          "phone": "01210000001",
+          "guardian": {
+            "guardianId": "g1",
+            "fullName": "Guardian g1-primary",
+            "phoneE164": "+201000000022",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": true
+          },
+          "lastNotification": {
+            "eventType": "attendance_marked",
+            "channel": "whatsapp",
+            "status": "read",
+            "createdAt": "t07"
+          },
+          "lastReadAt": "t07",
+          "attendance": {
+            "total": 2,
+            "rate": 50,
+            "lastStatus": "absent",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": {
+            "examName": "A exam",
+            "score": 4,
+            "maxScore": 10,
+            "percentage": 40,
+            "passed": false,
+            "gradedAt": "t05"
+          },
+          "averageExamScore": 40,
+          "homework": {
+            "assigned": 1,
+            "submitted": 1,
+            "graded": 1,
+            "late": 1,
+            "completionRate": 100,
+            "averageScore": 75,
+            "lastSubmittedAt": "t03"
+          },
+          "risk": {
+            "level": "critical",
+            "factors": [
+              "Average exam score below 60%",
+              "Attendance below 70%",
+              "Late homework submission",
+              "No lesson activity in the last 14 days"
+            ]
+          }
+        },
+        {
+          "id": "s2",
+          "name": "Student s2",
+          "email": "tfo-s2@example.test",
+          "phone": "01210000002",
+          "guardian": {
+            "guardianId": "g3",
+            "fullName": "Guardian g3",
+            "phoneE164": "+201000000024",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": false
+          },
+          "lastNotification": {
+            "eventType": "exam_graded",
+            "channel": "whatsapp",
+            "status": "sent",
+            "createdAt": "t24"
+          },
+          "lastReadAt": null,
+          "attendance": {
+            "total": 1,
+            "rate": 100,
+            "lastStatus": "late",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "low",
+            "factors": []
+          }
+        },
+        {
+          "id": "s3",
+          "name": "Student s3",
+          "email": "tfo-s3@example.test",
+          "phone": "01210000003",
+          "guardian": null,
+          "lastNotification": null,
+          "lastReadAt": null,
+          "attendance": {
+            "total": 0,
+            "rate": null,
+            "lastStatus": null,
+            "lastMarkedAt": null
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "medium",
+            "factors": [
+              "No guardian linked"
+            ]
+          }
+        },
+        {
+          "id": "s9",
+          "name": "Student s9",
+          "email": "tfo-s9@example.test",
+          "phone": "01210000009",
+          "guardian": null,
+          "lastNotification": null,
+          "lastReadAt": null,
+          "attendance": {
+            "total": 0,
+            "rate": null,
+            "lastStatus": null,
+            "lastMarkedAt": null
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 1,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": 0,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "high",
+            "factors": [
+              "Homework completion below 70%",
+              "No guardian linked"
+            ]
+          }
+        }
+      ],
+      "meta": {
+        "total": 4,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1
+      }
+    }
+  },
+  "rosterSearch": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s1",
+          "name": "Student s1",
+          "email": "tfo-s1@example.test",
+          "phone": "01210000001",
+          "guardian": {
+            "guardianId": "g1",
+            "fullName": "Guardian g1-primary",
+            "phoneE164": "+201000000022",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": true
+          },
+          "lastNotification": {
+            "eventType": "attendance_marked",
+            "channel": "whatsapp",
+            "status": "read",
+            "createdAt": "t07"
+          },
+          "lastReadAt": "t07",
+          "attendance": {
+            "total": 2,
+            "rate": 50,
+            "lastStatus": "absent",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": {
+            "examName": "A exam",
+            "score": 4,
+            "maxScore": 10,
+            "percentage": 40,
+            "passed": false,
+            "gradedAt": "t05"
+          },
+          "averageExamScore": 40,
+          "homework": {
+            "assigned": 1,
+            "submitted": 1,
+            "graded": 1,
+            "late": 1,
+            "completionRate": 100,
+            "averageScore": 75,
+            "lastSubmittedAt": "t03"
+          },
+          "risk": {
+            "level": "critical",
+            "factors": [
+              "Average exam score below 60%",
+              "Attendance below 70%",
+              "Late homework submission",
+              "No lesson activity in the last 14 days"
+            ]
+          }
+        }
+      ],
+      "meta": {
+        "total": 1,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1
+      }
+    }
+  },
+  "rosterSearchEmail": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s2",
+          "name": "Student s2",
+          "email": "tfo-s2@example.test",
+          "phone": "01210000002",
+          "guardian": {
+            "guardianId": "g3",
+            "fullName": "Guardian g3",
+            "phoneE164": "+201000000024",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": false
+          },
+          "lastNotification": {
+            "eventType": "exam_graded",
+            "channel": "whatsapp",
+            "status": "sent",
+            "createdAt": "t24"
+          },
+          "lastReadAt": null,
+          "attendance": {
+            "total": 1,
+            "rate": 100,
+            "lastStatus": "late",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "low",
+            "factors": []
+          }
+        }
+      ],
+      "meta": {
+        "total": 1,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1
+      }
+    }
+  },
+  "rosterPage1": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s1",
+          "name": "Student s1",
+          "email": "tfo-s1@example.test",
+          "phone": "01210000001",
+          "guardian": {
+            "guardianId": "g1",
+            "fullName": "Guardian g1-primary",
+            "phoneE164": "+201000000022",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": true
+          },
+          "lastNotification": {
+            "eventType": "attendance_marked",
+            "channel": "whatsapp",
+            "status": "read",
+            "createdAt": "t07"
+          },
+          "lastReadAt": "t07",
+          "attendance": {
+            "total": 2,
+            "rate": 50,
+            "lastStatus": "absent",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": {
+            "examName": "A exam",
+            "score": 4,
+            "maxScore": 10,
+            "percentage": 40,
+            "passed": false,
+            "gradedAt": "t05"
+          },
+          "averageExamScore": 40,
+          "homework": {
+            "assigned": 1,
+            "submitted": 1,
+            "graded": 1,
+            "late": 1,
+            "completionRate": 100,
+            "averageScore": 75,
+            "lastSubmittedAt": "t03"
+          },
+          "risk": {
+            "level": "critical",
+            "factors": [
+              "Average exam score below 60%",
+              "Attendance below 70%",
+              "Late homework submission",
+              "No lesson activity in the last 14 days"
+            ]
+          }
+        },
+        {
+          "id": "s2",
+          "name": "Student s2",
+          "email": "tfo-s2@example.test",
+          "phone": "01210000002",
+          "guardian": {
+            "guardianId": "g3",
+            "fullName": "Guardian g3",
+            "phoneE164": "+201000000024",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": false
+          },
+          "lastNotification": {
+            "eventType": "exam_graded",
+            "channel": "whatsapp",
+            "status": "sent",
+            "createdAt": "t24"
+          },
+          "lastReadAt": null,
+          "attendance": {
+            "total": 1,
+            "rate": 100,
+            "lastStatus": "late",
+            "lastMarkedAt": "t04"
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "low",
+            "factors": []
+          }
+        }
+      ],
+      "meta": {
+        "total": 4,
+        "page": 1,
+        "limit": 2,
+        "totalPages": 2
+      }
+    }
+  },
+  "rosterPage2": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s3",
+          "name": "Student s3",
+          "email": "tfo-s3@example.test",
+          "phone": "01210000003",
+          "guardian": null,
+          "lastNotification": null,
+          "lastReadAt": null,
+          "attendance": {
+            "total": 0,
+            "rate": null,
+            "lastStatus": null,
+            "lastMarkedAt": null
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "medium",
+            "factors": [
+              "No guardian linked"
+            ]
+          }
+        },
+        {
+          "id": "s9",
+          "name": "Student s9",
+          "email": "tfo-s9@example.test",
+          "phone": "01210000009",
+          "guardian": null,
+          "lastNotification": null,
+          "lastReadAt": null,
+          "attendance": {
+            "total": 0,
+            "rate": null,
+            "lastStatus": null,
+            "lastMarkedAt": null
+          },
+          "latestExam": null,
+          "averageExamScore": null,
+          "homework": {
+            "assigned": 1,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": 0,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "high",
+            "factors": [
+              "Homework completion below 70%",
+              "No guardian linked"
+            ]
+          }
+        }
+      ],
+      "meta": {
+        "total": 4,
+        "page": 2,
+        "limit": 2,
+        "totalPages": 2
+      }
+    }
+  },
+  "rosterPage9": {
+    "status": 200,
+    "body": {
+      "data": [],
+      "meta": {
+        "total": 4,
+        "page": 9,
+        "limit": 2,
+        "totalPages": 2
+      }
+    }
+  },
+  "detailS1": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "s1",
+        "name": "Student s1",
+        "email": "tfo-s1@example.test",
+        "phone": "01210000001",
+        "guardian": {
+          "guardianId": "g1",
+          "fullName": "Guardian g1-primary",
+          "phoneE164": "+201000000022",
+          "verificationStatus": "verified",
+          "whatsappCapable": true,
+          "optedOut": false,
+          "isPrimary": true
+        },
+        "lastNotification": {
+          "eventType": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "read",
+          "createdAt": "t07"
+        },
+        "lastReadAt": "t07",
+        "attendance": {
+          "total": 2,
+          "rate": 50,
+          "lastStatus": "absent",
+          "lastMarkedAt": "t04"
+        },
+        "latestExam": {
+          "examName": "A exam",
+          "score": 4,
+          "maxScore": 10,
+          "percentage": 40,
+          "passed": false,
+          "gradedAt": "t05"
+        },
+        "averageExamScore": 40,
+        "homework": {
+          "assigned": 1,
+          "submitted": 1,
+          "graded": 1,
+          "late": 1,
+          "completionRate": 100,
+          "averageScore": 75,
+          "lastSubmittedAt": "t03"
+        },
+        "risk": {
+          "level": "critical",
+          "factors": [
+            "Average exam score below 60%",
+            "Attendance below 70%",
+            "Late homework submission",
+            "No lesson activity in the last 14 days"
+          ]
+        }
+      }
+    }
+  },
+  "detailS2": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "s2",
+        "name": "Student s2",
+        "email": "tfo-s2@example.test",
+        "phone": "01210000002",
+        "guardian": {
+          "guardianId": "g3",
+          "fullName": "Guardian g3",
+          "phoneE164": "+201000000024",
+          "verificationStatus": "verified",
+          "whatsappCapable": true,
+          "optedOut": false,
+          "isPrimary": false
+        },
+        "lastNotification": {
+          "eventType": "exam_graded",
+          "channel": "whatsapp",
+          "status": "sent",
+          "createdAt": "t24"
+        },
+        "lastReadAt": null,
+        "attendance": {
+          "total": 1,
+          "rate": 100,
+          "lastStatus": "late",
+          "lastMarkedAt": "t04"
+        },
+        "latestExam": null,
+        "averageExamScore": null,
+        "homework": {
+          "assigned": 0,
+          "submitted": 0,
+          "graded": 0,
+          "late": 0,
+          "completionRate": null,
+          "averageScore": null,
+          "lastSubmittedAt": null
+        },
+        "risk": {
+          "level": "low",
+          "factors": []
+        }
+      }
+    }
+  },
+  "detailS3Revoked": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "s3",
+        "name": "Student s3",
+        "email": "tfo-s3@example.test",
+        "phone": "01210000003",
+        "guardian": null,
+        "lastNotification": null,
+        "lastReadAt": null,
+        "attendance": {
+          "total": 0,
+          "rate": null,
+          "lastStatus": null,
+          "lastMarkedAt": null
+        },
+        "latestExam": null,
+        "averageExamScore": null,
+        "homework": {
+          "assigned": 0,
+          "submitted": 0,
+          "graded": 0,
+          "late": 0,
+          "completionRate": null,
+          "averageScore": null,
+          "lastSubmittedAt": null
+        },
+        "risk": {
+          "level": "medium",
+          "factors": [
+            "No guardian linked"
+          ]
+        }
+      }
+    }
+  },
+  "detailS9Both": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "s9",
+        "name": "Student s9",
+        "email": "tfo-s9@example.test",
+        "phone": "01210000009",
+        "guardian": null,
+        "lastNotification": null,
+        "lastReadAt": null,
+        "attendance": {
+          "total": 0,
+          "rate": null,
+          "lastStatus": null,
+          "lastMarkedAt": null
+        },
+        "latestExam": null,
+        "averageExamScore": null,
+        "homework": {
+          "assigned": 1,
+          "submitted": 0,
+          "graded": 0,
+          "late": 0,
+          "completionRate": 0,
+          "averageScore": null,
+          "lastSubmittedAt": null
+        },
+        "risk": {
+          "level": "high",
+          "factors": [
+            "Homework completion below 70%",
+            "No guardian linked"
+          ]
+        }
+      }
+    }
+  },
+  "detailS4Foreign": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s4",
+      "timestamp": "t25",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s4",
+      "method": "GET"
+    }
+  },
+  "detailS6DeletedLesson": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s6",
+      "timestamp": "t26",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s6",
+      "method": "GET"
+    }
+  },
+  "detailS7": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s7",
+      "timestamp": "t27",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s7",
+      "method": "GET"
+    }
+  },
+  "detailS8": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s8",
+      "timestamp": "t28",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s8",
+      "method": "GET"
+    }
+  },
+  "detailUnknown": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/<uuid>",
+      "timestamp": "t29",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/<uuid>",
+      "method": "GET"
+    }
+  },
+  "timelineS1": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "type": "notification_read",
+          "label": "Read by guardian",
+          "at": "t07",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "attendance_marked"
+          }
+        },
+        {
+          "type": "notification_delivered",
+          "label": "Delivered",
+          "at": "t07",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "attendance_marked"
+          }
+        },
+        {
+          "type": "notification_sent",
+          "label": "WhatsApp/SMS sent",
+          "at": "t07",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "attendance_marked"
+          }
+        },
+        {
+          "type": "notification_queued",
+          "label": "Notification queued (attendance_marked)",
+          "at": "t07",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "attendance_marked"
+          }
+        },
+        {
+          "type": "notification_delivered",
+          "label": "Delivered",
+          "at": "t06",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "exam_graded"
+          }
+        },
+        {
+          "type": "notification_sent",
+          "label": "WhatsApp/SMS sent",
+          "at": "t06",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "exam_graded"
+          }
+        },
+        {
+          "type": "notification_queued",
+          "label": "Notification queued (exam_graded)",
+          "at": "t06",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "exam_graded"
+          }
+        },
+        {
+          "type": "homework_graded",
+          "label": "Graded \"A homework\" - 15.00/20.00",
+          "at": "t05"
+        },
+        {
+          "type": "exam_graded",
+          "label": "Graded \"A exam\" — 4/10",
+          "at": "t05",
+          "meta": {
+            "passed": false
+          }
+        },
+        {
+          "type": "attendance_recorded",
+          "label": "Attendance: absent — \"A lesson 2\"",
+          "at": "t04"
+        },
+        {
+          "type": "homework_submitted",
+          "label": "Submitted \"A homework\" (late)",
+          "at": "t03"
+        },
+        {
+          "type": "exam_submitted",
+          "label": "Submitted \"A exam\"",
+          "at": "t03"
+        },
+        {
+          "type": "exam_started",
+          "label": "Started \"A exam\"",
+          "at": "t02"
+        },
+        {
+          "type": "attendance_recorded",
+          "label": "Attendance: present — \"A lesson 1\"",
+          "at": "t01"
+        }
+      ]
+    }
+  },
+  "timelineS2": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "type": "notification_queued",
+          "label": "Notification queued (exam_graded)",
+          "at": "t24",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "exam_graded"
+          }
+        },
+        {
+          "type": "exam_started",
+          "label": "Started \"A exam\"",
+          "at": "t11"
+        },
+        {
+          "type": "notification_queued",
+          "label": "Notification queued (attendance_marked)",
+          "at": "t10",
+          "meta": {
+            "channel": "whatsapp",
+            "eventType": "attendance_marked"
+          }
+        },
+        {
+          "type": "attendance_recorded",
+          "label": "Attendance: late — \"A lesson 2\"",
+          "at": "t04"
+        }
+      ]
+    }
+  },
+  "timelineS4Foreign": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s4/timeline",
+      "timestamp": "t30",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s4/timeline",
+      "method": "GET"
+    }
+  },
+  "guardiansS1": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "<uuid>",
+          "student_id": "s1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "relationship": "father",
+          "is_primary": true,
+          "receives_notifications": true,
+          "notification_preferences": {},
+          "created_at": "t15",
+          "updated_at": "t15"
+        },
+        {
+          "id": "<uuid>",
+          "student_id": "s1",
+          "guardian_id": "g2",
+          "guardian": {
+            "id": "g2",
+            "phone_e164": "+201000000023",
+            "full_name": "Guardian g2-secondary",
+            "preferred_language": "ar",
+            "verification_status": "unverified",
+            "verified_at": null,
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t16",
+            "updated_at": "t16",
+            "deleted_at": null
+          },
+          "relationship": "father",
+          "is_primary": false,
+          "receives_notifications": true,
+          "notification_preferences": {},
+          "created_at": "t17",
+          "updated_at": "t17"
+        }
+      ]
+    }
+  },
+  "guardiansS4Foreign": {
+    "status": 403,
+    "body": {
+      "type": "https://httpstatuses.com/403",
+      "title": "ForbiddenException",
+      "status": 403,
+      "detail": "You can only access your own students",
+      "instance": "/api/v1/teacher/students/s4/guardians",
+      "timestamp": "t31",
+      "requestId": "<uuid>",
+      "path": "/api/v1/teacher/students/s4/guardians",
+      "method": "GET"
+    }
+  },
+  "messagesList": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "m6",
+          "idempotency_key": "exam_graded:attemptS2:g3",
+          "guardian_id": "g3",
+          "guardian": {
+            "id": "g3",
+            "phone_e164": "+201000000024",
+            "full_name": "Guardian g3",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t18",
+            "updated_at": "t18",
+            "deleted_at": null
+          },
+          "student_id": "s2",
+          "student": {
+            "id": "s2",
+            "username": "tfo-s2",
+            "name": "Student s2",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s2@example.test",
+            "phone": "01210000002",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t13",
+            "updated_at": "t13",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "sent",
+          "template_key": "tfo",
+          "body": "body sent",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": null,
+          "delivered_at": null,
+          "read_at": null,
+          "failed_at": null,
+          "created_at": "t24",
+          "updated_at": "t23"
+        },
+        {
+          "id": "m5",
+          "idempotency_key": "attendance_marked:recS2:g3",
+          "guardian_id": "g3",
+          "guardian": {
+            "id": "g3",
+            "phone_e164": "+201000000024",
+            "full_name": "Guardian g3",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t18",
+            "updated_at": "t18",
+            "deleted_at": null
+          },
+          "student_id": "s2",
+          "student": {
+            "id": "s2",
+            "username": "tfo-s2",
+            "name": "Student s2",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s2@example.test",
+            "phone": "01210000002",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t13",
+            "updated_at": "t13",
+            "deleted_at": null
+          },
+          "event_type": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "failed",
+          "template_key": "tfo",
+          "body": "body failed",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": null,
+          "delivered_at": null,
+          "read_at": null,
+          "failed_at": "t10",
+          "created_at": "t10",
+          "updated_at": "t22"
+        },
+        {
+          "id": "m3",
+          "idempotency_key": "exam_graded:attemptS1Foreign:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t08",
+          "delivered_at": "t08",
+          "read_at": "t08",
+          "failed_at": null,
+          "created_at": "t08",
+          "updated_at": "t21"
+        },
+        {
+          "id": "m2",
+          "idempotency_key": "attendance_marked:recS1:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t07",
+          "delivered_at": "t07",
+          "read_at": "t07",
+          "failed_at": null,
+          "created_at": "t07",
+          "updated_at": "t20"
+        },
+        {
+          "id": "m1",
+          "idempotency_key": "exam_graded:attemptS1:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "delivered",
+          "template_key": "tfo",
+          "body": "body delivered",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t06",
+          "delivered_at": "t06",
+          "read_at": null,
+          "failed_at": null,
+          "created_at": "t06",
+          "updated_at": "t19"
+        }
+      ],
+      "meta": {
+        "total": 5,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1,
+        "hasNextPage": false,
+        "hasPrevPage": false
+      }
+    }
+  },
+  "messagesListPaged": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "m3",
+          "idempotency_key": "exam_graded:attemptS1Foreign:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t08",
+          "delivered_at": "t08",
+          "read_at": "t08",
+          "failed_at": null,
+          "created_at": "t08",
+          "updated_at": "t21"
+        },
+        {
+          "id": "m2",
+          "idempotency_key": "attendance_marked:recS1:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t07",
+          "delivered_at": "t07",
+          "read_at": "t07",
+          "failed_at": null,
+          "created_at": "t07",
+          "updated_at": "t20"
+        }
+      ],
+      "meta": {
+        "total": 5,
+        "page": 2,
+        "limit": 2,
+        "totalPages": 3,
+        "hasNextPage": true,
+        "hasPrevPage": true
+      }
+    }
+  },
+  "messagesListFiltered": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "m3",
+          "idempotency_key": "exam_graded:attemptS1Foreign:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t08",
+          "delivered_at": "t08",
+          "read_at": "t08",
+          "failed_at": null,
+          "created_at": "t08",
+          "updated_at": "t21"
+        },
+        {
+          "id": "m2",
+          "idempotency_key": "attendance_marked:recS1:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "read",
+          "template_key": "tfo",
+          "body": "body read",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t07",
+          "delivered_at": "t07",
+          "read_at": "t07",
+          "failed_at": null,
+          "created_at": "t07",
+          "updated_at": "t20"
+        },
+        {
+          "id": "m1",
+          "idempotency_key": "exam_graded:attemptS1:g1",
+          "guardian_id": "g1",
+          "guardian": {
+            "id": "g1",
+            "phone_e164": "+201000000022",
+            "full_name": "Guardian g1-primary",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t14",
+            "updated_at": "t14",
+            "deleted_at": null
+          },
+          "student_id": "s1",
+          "student": {
+            "id": "s1",
+            "username": "tfo-s1",
+            "name": "Student s1",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s1@example.test",
+            "phone": "01210000001",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t12",
+            "updated_at": "t12",
+            "deleted_at": null
+          },
+          "event_type": "exam_graded",
+          "channel": "whatsapp",
+          "status": "delivered",
+          "template_key": "tfo",
+          "body": "body delivered",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": "t06",
+          "delivered_at": "t06",
+          "read_at": null,
+          "failed_at": null,
+          "created_at": "t06",
+          "updated_at": "t19"
+        }
+      ],
+      "meta": {
+        "total": 3,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1,
+        "hasNextPage": false,
+        "hasPrevPage": false
+      }
+    }
+  },
+  "messagesListForeignStudent": {
+    "status": 200,
+    "body": {
+      "data": [],
+      "meta": {
+        "total": 0,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 0,
+        "hasNextPage": false,
+        "hasPrevPage": false
+      }
+    }
+  },
+  "messagesListStatus": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "m5",
+          "idempotency_key": "attendance_marked:recS2:g3",
+          "guardian_id": "g3",
+          "guardian": {
+            "id": "g3",
+            "phone_e164": "+201000000024",
+            "full_name": "Guardian g3",
+            "preferred_language": "ar",
+            "verification_status": "verified",
+            "verified_at": "t00",
+            "whatsapp_capable": true,
+            "opted_out_at": null,
+            "created_at": "t18",
+            "updated_at": "t18",
+            "deleted_at": null
+          },
+          "student_id": "s2",
+          "student": {
+            "id": "s2",
+            "username": "tfo-s2",
+            "name": "Student s2",
+            "first_name": null,
+            "last_name": null,
+            "email": "tfo-s2@example.test",
+            "phone": "01210000002",
+            "role": "student",
+            "is_active": true,
+            "status": "approved",
+            "finance_permissions": [],
+            "rejection_reason": null,
+            "preferred_language": null,
+            "profile_picture_url": null,
+            "profile_picture_thumbnail_url": null,
+            "firebase_uid": null,
+            "last_login": null,
+            "password_reset_token_id": null,
+            "password_reset_expires_at": null,
+            "created_at": "t13",
+            "updated_at": "t13",
+            "deleted_at": null
+          },
+          "event_type": "attendance_marked",
+          "channel": "whatsapp",
+          "status": "failed",
+          "template_key": "tfo",
+          "body": "body failed",
+          "variables": null,
+          "provider_message_id": null,
+          "attempts": 0,
+          "error_message": null,
+          "sent_at": null,
+          "delivered_at": null,
+          "read_at": null,
+          "failed_at": "t10",
+          "created_at": "t10",
+          "updated_at": "t22"
+        }
+      ],
+      "meta": {
+        "total": 1,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1,
+        "hasNextPage": false,
+        "hasPrevPage": false
+      }
+    }
+  },
+  "messagesStats": {
+    "status": 200,
+    "body": {
+      "data": {
+        "total": 5,
+        "by_status": {
+          "sent": 1,
+          "delivered": 1,
+          "read": 2,
+          "failed": 1
+        },
+        "delivery_rate": 75,
+        "read_rate": 50
+      }
+    }
+  },
+  "analyticsSummary": {
+    "guardians": {
+      "total": 3,
+      "verified": 2,
+      "pending": 1
+    },
+    "notifications": {
+      "today": 1,
+      "deliveryRate": 75,
+      "readRate": 50
+    },
+    "riskStudentCount": 4
+  },
+  "teacherBRoster": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "s4",
+          "name": "Student s4",
+          "email": "tfo-s4@example.test",
+          "phone": "01210000004",
+          "guardian": {
+            "guardianId": "g4",
+            "fullName": "Guardian g4-other-teacher",
+            "phoneE164": "+201000000025",
+            "verificationStatus": "verified",
+            "whatsappCapable": true,
+            "optedOut": false,
+            "isPrimary": false
+          },
+          "lastNotification": {
+            "eventType": "exam_graded",
+            "channel": "whatsapp",
+            "status": "failed",
+            "createdAt": "t09"
+          },
+          "lastReadAt": null,
+          "attendance": {
+            "total": 0,
+            "rate": null,
+            "lastStatus": null,
+            "lastMarkedAt": null
+          },
+          "latestExam": {
+            "examName": "B exam",
+            "score": 8,
+            "maxScore": 10,
+            "percentage": 80,
+            "passed": true,
+            "gradedAt": "t05"
+          },
+          "averageExamScore": 80,
+          "homework": {
+            "assigned": 0,
+            "submitted": 0,
+            "graded": 0,
+            "late": 0,
+            "completionRate": null,
+            "averageScore": null,
+            "lastSubmittedAt": null
+          },
+          "risk": {
+            "level": "low",
+            "factors": []
+          }
+        }
+      ],
+      "meta": {
+        "total": 1,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1
+      }
+    }
+  }
+}

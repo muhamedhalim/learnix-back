@@ -183,14 +183,22 @@ export class ProgressService {
   /**
    * Get all progress records for a student
    */
-  public async getAllProgress(studentId: string): Promise<LessonProgressDto[]> {
-    const progressRecords = await this.progressRepository
+  public async getAllProgress(studentId: string, packageId?: string): Promise<LessonProgressDto[]> {
+    // Only the lesson title is consumed, so the lesson row is projected to id + title.
+    const query = this.progressRepository
       .createQueryBuilder('progress')
-      .innerJoinAndSelect('progress.lesson', 'lesson')
+      .innerJoin('progress.lesson', 'lesson')
+      .addSelect(['lesson.id', 'lesson.title'])
       .where('progress.student_id = :studentId', { studentId })
-      .andWhere('lesson.deleted_at IS NULL')
-      .orderBy('progress.last_watched_at', 'DESC')
-      .getMany();
+      .andWhere('lesson.deleted_at IS NULL');
+    if (packageId !== undefined) {
+      // One course's checkmarks, not the student's lifetime progress.
+      query.andWhere(
+        'progress.lesson_id IN (SELECT item.lesson_id FROM lesson_package_items item WHERE item.package_id = :packageId)',
+        { packageId },
+      );
+    }
+    const progressRecords = await query.orderBy('progress.last_watched_at', 'DESC').getMany();
 
     return progressRecords.map((progress) => ({
       id: progress.id,

@@ -17,6 +17,7 @@ describe('SessionsService', () => {
     delete: jest.fn(),
     update: jest.fn(),
     count: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 
   const mockUserId = 'user-uuid-123';
@@ -233,6 +234,48 @@ describe('SessionsService', () => {
       const result = await service.getSessionByTokenId('non-existent');
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('getActiveSession', () => {
+    const buildQuery = (result: unknown) => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const method of ['leftJoin', 'select', 'where', 'andWhere', 'take', 'skip', 'limit']) {
+        qb[method] = jest.fn().mockReturnValue(qb);
+      }
+      qb.getOne = jest.fn().mockResolvedValue(result);
+      mockSessionRepository.createQueryBuilder.mockReturnValue(qb);
+      return qb;
+    };
+
+    it('resolves session and user in a single builder query with three predicates', async () => {
+      const qb = buildQuery(mockSession);
+
+      const result = await service.getActiveSession(mockUserId, mockSessionId);
+
+      expect(result).toBe(mockSession);
+      expect(mockSessionRepository.findOne).not.toHaveBeenCalled();
+      expect(qb.leftJoin).toHaveBeenCalledWith('session.user', 'user');
+      expect(qb.where).toHaveBeenCalledWith('session.id = :sessionId', {
+        sessionId: mockSessionId,
+      });
+      expect(qb.andWhere).toHaveBeenCalledWith('session.user_id = :userId', {
+        userId: mockUserId,
+      });
+      expect(qb.andWhere).toHaveBeenCalledWith('session.expires_at > :now', {
+        now: expect.any(Date),
+      });
+      expect(qb.andWhere).toHaveBeenCalledTimes(2);
+    });
+
+    it('never paginates (take/skip/limit would re-trigger two statements)', async () => {
+      const qb = buildQuery(null);
+
+      await expect(service.getActiveSession(mockUserId, mockSessionId)).resolves.toBeNull();
+
+      expect(qb.take).not.toHaveBeenCalled();
+      expect(qb.skip).not.toHaveBeenCalled();
+      expect(qb.limit).not.toHaveBeenCalled();
     });
   });
 

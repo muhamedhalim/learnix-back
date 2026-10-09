@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
 import { PaginatedResponse, PaginationMeta } from '../../common/interfaces/pagination.interface';
 import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
@@ -17,9 +17,9 @@ import { NotificationType } from '../../notifications/entities';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { LessonPackage } from '../../packages/entities/lesson-package.entity';
 import { LessonPurchase } from '../../payments/entities/lesson-purchase.entity';
-import { PackagePurchase } from '../../payments/entities/package-purchase.entity';
 import { Subject } from '../../subjects/entities/subject.entity';
 import { usableSubjectByIdWhere } from '../../subjects/subject-visibility.util';
+import { examAudienceStudentIds } from '../../payments/lesson-audience';
 import { User } from '../../users/entities/user.entity';
 import {
   AttachQuestionDto,
@@ -60,8 +60,6 @@ export class ExamAuthoringService {
     @InjectRepository(LessonPackage) private readonly packages: Repository<LessonPackage>,
     @InjectRepository(LessonPurchase)
     private readonly lessonPurchases: Repository<LessonPurchase>,
-    @InjectRepository(PackagePurchase)
-    private readonly packagePurchases: Repository<PackagePurchase>,
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly notifications: NotificationsService,
     private readonly dataSource: DataSource,
@@ -288,11 +286,7 @@ export class ExamAuthoringService {
       'sections',
     );
     await this.dataSource.transaction(async (manager) => {
-      await Promise.all(
-        dto.ids.map((id, index) =>
-          manager.update(ExamSection, { id, exam_id: examId }, { order_index: index }),
-        ),
-      );
+      await this.applyOrder(manager, 'exam_sections', examId, dto.ids);
     });
   }
 
@@ -310,11 +304,7 @@ export class ExamAuthoringService {
       'questions',
     );
     await this.dataSource.transaction(async (manager) => {
-      await Promise.all(
-        dto.ids.map((id, index) =>
-          manager.update(ExamQuestion, { id, exam_id: examId }, { order_index: index }),
-        ),
-      );
+      await this.applyOrder(manager, 'exam_questions', examId, dto.ids);
     });
   }
 
@@ -476,6 +466,27 @@ export class ExamAuthoringService {
     }
   }
 
+  /**
+   * One statement for the whole ordering (T072) instead of one UPDATE per item. Scoped by the exam:
+   * an id that belongs to another exam matches nothing. A repeated id takes its LAST index, as the
+   * row-by-row updates did. `order_index` has no unique constraint, so no collision is possible.
+   */
+  private async applyOrder(
+    manager: EntityManager,
+    table: 'exam_sections' | 'exam_questions',
+    examId: string,
+    ids: string[],
+  ): Promise<void> {
+    const lastIndex = new Map(ids.map((id, index) => [id, index] as const));
+    const unique = [...lastIndex.keys()];
+    await manager.query(
+      `UPDATE ${table} AS t SET order_index = v.idx
+         FROM unnest($1::uuid[], $2::int[]) AS v(id, idx)
+        WHERE t.id = v.id AND t.exam_id = $3`,
+      [unique, unique.map((id) => lastIndex.get(id)), examId],
+    );
+  }
+
   private assertExactOrder(existingIds: string[], requestedIds: string[], label: string): void {
     if (
       existingIds.length !== requestedIds.length ||
@@ -590,85 +601,62 @@ export class ExamAuthoringService {
     }
   }
 
+  /**
+   * Who to notify about `exam`: the shared audience builder, so the answer is exactly the set of
+   * students who can open it (`src/payments/lesson-audience.ts`, decisions in gates/W4-C10.md).
+   */
   private async getExamAudienceIds(exam: Exam): Promise<string[]> {
-    if (exam.is_public) return [];
-    if (exam.package_id !== null) {
-      const rows = await this.packagePurchases
-        .createQueryBuilder('purchase')
-        .where('purchase.package_id = :packageId', { packageId: exam.package_id })
-        .select('purchase.student_id', 'student_id')
-        .distinct(true)
-        .getRawMany<{ student_id: string }>();
-      return rows.map((row) => row.student_id);
-    }
-    if (exam.lesson_id === null) return [];
-    const [direct, packaged] = await Promise.all([
-      this.lessonPurchases
-        .createQueryBuilder('purchase')
-        .where('purchase.lesson_id = :lessonId', { lessonId: exam.lesson_id })
-        .andWhere('purchase.access_expires_at > :now', { now: new Date() })
-        .select('purchase.student_id', 'student_id')
-        .distinct(true)
-        .getRawMany<{ student_id: string }>(),
-      this.packagePurchases
-        .createQueryBuilder('purchase')
-        .innerJoin('purchase.package', 'package')
-        .innerJoin('package.items', 'item', 'item.lesson_id = :lessonId', {
-          lessonId: exam.lesson_id,
-        })
-        .select('purchase.student_id', 'student_id')
-        .distinct(true)
-        .getRawMany<{ student_id: string }>(),
-    ]);
-    return [...new Set([...direct, ...packaged].map((row) => row.student_id))];
+    return examAudienceStudentIds(this.lessonPurchases.manager, exam, new Date());
   }
 
   private async notifyExamAudience(exam: Exam, action: 'assigned' | 'updated'): Promise<void> {
     const studentIds = await this.getExamAudienceIds(exam);
     if (studentIds.length === 0) return;
-    const students = await this.users.find({ where: { id: In(studentIds) } });
+    // Only id, name and language are read; the id list is one array bind.
+    const students = await this.users
+      .createQueryBuilder('u')
+      .select(['u.id', 'u.name', 'u.preferred_language'])
+      .where('u.id = ANY(:studentIds)', { studentIds })
+      .getMany();
     const start = exam.config.start_window_at ?? null;
     const end = exam.config.end_window_at ?? null;
-    const outcomes = await Promise.allSettled(
-      students.map(async (student) => {
-        const arabic = student.preferred_language === PreferredLanguage.AR;
-        const title = arabic
-          ? action === 'assigned'
-            ? 'امتحان جديد'
-            : 'تم تحديث موعد الامتحان'
-          : action === 'assigned'
-            ? 'New exam'
-            : 'Exam schedule updated';
-        const localizedName = arabic ? exam.title_ar : exam.title;
-        const schedule = start
-          ? arabic
-            ? ` — يبدأ ${new Date(start).toLocaleString('ar-EG')}`
-            : ` — opens ${new Date(start).toLocaleString('en-US')}`
-          : '';
-        const closes = end
-          ? arabic
-            ? ` — ينتهي ${new Date(end).toLocaleString('ar-EG')}`
-            : ` — closes ${new Date(end).toLocaleString('en-US')}`
-          : '';
-        await this.notifications.create(
-          {
-            user_id: student.id,
-            type: NotificationType.EXAM_ASSIGNED,
-            title,
-            message: `${localizedName}${schedule}${closes}`,
-            data: {
-              exam_id: exam.id,
-              start_window_at: start,
-              end_window_at: end,
-              href: `/student/exams/${exam.id}`,
-            },
-            send_sms: false,
-          },
-          false,
-        );
-      }),
-    );
-    const failed = outcomes.filter((outcome) => outcome.status === 'rejected').length;
+    const rows = students.map((student) => {
+      const arabic = student.preferred_language === PreferredLanguage.AR;
+      const title = arabic
+        ? action === 'assigned'
+          ? 'امتحان جديد'
+          : 'تم تحديث موعد الامتحان'
+        : action === 'assigned'
+          ? 'New exam'
+          : 'Exam schedule updated';
+      const localizedName = arabic ? exam.title_ar : exam.title;
+      const schedule = start
+        ? arabic
+          ? ` — يبدأ ${new Date(start).toLocaleString('ar-EG')}`
+          : ` — opens ${new Date(start).toLocaleString('en-US')}`
+        : '';
+      const closes = end
+        ? arabic
+          ? ` — ينتهي ${new Date(end).toLocaleString('ar-EG')}`
+          : ` — closes ${new Date(end).toLocaleString('en-US')}`
+        : '';
+      return {
+        user_id: student.id,
+        type: NotificationType.EXAM_ASSIGNED,
+        title,
+        message: `${localizedName}${schedule}${closes}`,
+        data: {
+          exam_id: exam.id,
+          start_window_at: start,
+          end_window_at: end,
+          href: `/student/exams/${exam.id}`,
+        },
+        send_sms: false,
+      };
+    });
+    // One multi-row INSERT per 500 recipients (per-chunk autocommit, per-row fallback).
+    const outcomes = await this.notifications.createMany(rows);
+    const failed = outcomes.filter((outcome) => !outcome.ok).length;
     if (failed > 0) {
       this.logger.warn(
         `Exam ${exam.id}: failed to create ${String(failed)}/${String(outcomes.length)} notification(s)`,

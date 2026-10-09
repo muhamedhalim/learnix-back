@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository, SelectQueryBuilder } from 'typeorm';
 
 import {
   DEFAULT_PARENT_NOTIFICATION_PREFERENCES,
@@ -76,22 +76,57 @@ export class GuardiansService {
     studentId: string,
     eventType: ParentEventType,
   ): Promise<GuardianTarget[]> {
-    const isTransactional = TRANSACTIONAL_PARENT_EVENTS.has(eventType);
+    const qb = this.links
+      .createQueryBuilder('link')
+      .innerJoin('link.guardian', 'g')
+      .where('link.student_id = :studentId', { studentId });
+    return this.eligibleTargets(qb, eventType);
+  }
+
+  /**
+   * {@link findNotificationTargets} for many students in ONE query (T068): the same
+   * eligibility rules and the same per-event preference check (both live in
+   * {@link eligibleTargets}, so there is a single definition), keyed by the link's
+   * `student_id`. A guardian linked to two of the students appears under both, exactly
+   * as two single calls would return; `UQ_student_guardians_pair` prevents a duplicate
+   * (student, guardian) link. Students with no eligible guardian are simply absent from
+   * the map. The id list travels as one array bind.
+   */
+  public async findNotificationTargetsForStudents(
+    studentIds: string[],
+    eventType: ParentEventType,
+  ): Promise<Map<string, GuardianTarget[]>> {
+    const byStudent = new Map<string, GuardianTarget[]>();
+    if (studentIds.length === 0) return byStudent;
 
     const qb = this.links
       .createQueryBuilder('link')
       .innerJoin('link.guardian', 'g')
-      .where('link.student_id = :studentId', { studentId })
-      .andWhere('g.deleted_at IS NULL')
-      .select([
-        'link.guardian_id AS guardian_id',
-        'link.student_id AS student_id',
-        'link.notification_preferences AS notification_preferences',
-        'g.phone_e164 AS phone_e164',
-        'g.full_name AS full_name',
-        'g.preferred_language AS preferred_language',
-        'g.whatsapp_capable AS whatsapp_capable',
-      ]);
+      .where('link.student_id = ANY(:studentIds)', { studentIds });
+    for (const target of await this.eligibleTargets(qb, eventType)) {
+      const bucket = byStudent.get(target.student_id);
+      if (bucket) bucket.push(target);
+      else byStudent.set(target.student_id, [target]);
+    }
+    return byStudent;
+  }
+
+  /** The shared eligibility rules; `qb` already carries the link->guardian join and the student restriction. */
+  private async eligibleTargets(
+    qb: SelectQueryBuilder<StudentGuardian>,
+    eventType: ParentEventType,
+  ): Promise<GuardianTarget[]> {
+    const isTransactional = TRANSACTIONAL_PARENT_EVENTS.has(eventType);
+
+    qb.andWhere('g.deleted_at IS NULL').select([
+      'link.guardian_id AS guardian_id',
+      'link.student_id AS student_id',
+      'link.notification_preferences AS notification_preferences',
+      'g.phone_e164 AS phone_e164',
+      'g.full_name AS full_name',
+      'g.preferred_language AS preferred_language',
+      'g.whatsapp_capable AS whatsapp_capable',
+    ]);
 
     if (!isTransactional) {
       qb.andWhere('link.receives_notifications = true')
@@ -348,7 +383,7 @@ export class GuardiansService {
     const rows = await this.links
       .createQueryBuilder('link')
       .innerJoin('link.guardian', 'g')
-      .where('link.student_id IN (:...studentIds)', { studentIds })
+      .where('link.student_id = ANY(:studentIds)', { studentIds })
       .andWhere('g.deleted_at IS NULL')
       .select(['link.student_id AS student_id', 'g.phone_e164 AS phone_e164'])
       .orderBy('link.is_primary', 'DESC')

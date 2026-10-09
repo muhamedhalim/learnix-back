@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { LessThan, MoreThan, Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 
 import { biBody } from '../i18n/error-translator.util';
 import type { UserSessionDto } from './dto/user-session.dto';
@@ -192,16 +192,38 @@ export class SessionsService {
     });
   }
 
-  /** Resolve an unexpired access-token session and its user in one query. */
+  /**
+   * Resolve an unexpired access-token session and its user in ONE statement.
+   *
+   * Do not return to `findOne({ relations })`: TypeORM runs that as two queries
+   * and silently drops `undefined` predicates (a token without `sid` would match
+   * any unexpired session of the subject). The builder binds every parameter, so
+   * a missing id matches nothing. Keep: the `deleted_at IS NULL` join condition
+   * (no `withDeleted`), a JS `Date` for `:now` (`expires_at` is timestamp without
+   * tz), no `take`/`skip`/`limit`, and never cache this result.
+   */
   public async getActiveSession(userId: string, sessionId: string): Promise<UserSession | null> {
-    return await this.sessionRepository.findOne({
-      where: {
-        id: sessionId,
-        user_id: userId,
-        expires_at: MoreThan(new Date()),
-      },
-      relations: { user: true },
-    });
+    // Fail closed if a signed token lacked `sub`/`sid`; never bind `undefined`.
+    if (!userId || !sessionId) return null;
+    return await this.sessionRepository
+      .createQueryBuilder('session')
+      .leftJoin('session.user', 'user')
+      .select([
+        'session.id',
+        'session.user_id',
+        'session.expires_at',
+        'user.id',
+        'user.email',
+        'user.name',
+        'user.role',
+        'user.is_active',
+        'user.status',
+        'user.finance_permissions',
+      ])
+      .where('session.id = :sessionId', { sessionId })
+      .andWhere('session.user_id = :userId', { userId })
+      .andWhere('session.expires_at > :now', { now: new Date() })
+      .getOne();
   }
 
   /**

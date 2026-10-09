@@ -155,11 +155,11 @@ export class CommentsService {
     limit = 20,
   ): Promise<PaginatedResponse<CommentWithReplies>> {
     // Validate lesson exists
-    const lesson = await this.lessonsRepository.findOne({
+    const lessonExists = await this.lessonsRepository.exists({
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if (!lessonExists) {
       throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
@@ -170,6 +170,22 @@ export class CommentsService {
         deleted_at: IsNull(),
       },
       relations: ['student', 'replies', 'replies.teacher'],
+      // Only the columns the response below maps: the commenter and each replier are `{id, name}`.
+      select: {
+        id: true,
+        lesson_id: true,
+        student_id: true,
+        comment_text: true,
+        created_at: true,
+        updated_at: true,
+        student: { id: true, name: true },
+        replies: {
+          id: true,
+          reply_text: true,
+          created_at: true,
+          teacher: { id: true, name: true },
+        },
+      },
       order: {
         created_at: 'DESC',
         id: 'DESC',

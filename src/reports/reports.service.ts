@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { Between, IsNull, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
@@ -29,6 +29,7 @@ import type {
   StudentProgressReportDto,
   SubjectProgressDto,
   TeacherExamsStatsDto,
+  TeacherFollowUpSummaryDto,
   TeacherLessonsStatsDto,
   TeacherReportDto,
   TeacherStudentsStatsDto,
@@ -135,6 +136,24 @@ export class ReportsService {
 
         return report;
       },
+    );
+  }
+
+  /**
+   * The follow-up slice of the teacher report on its own (T077). Not range-bound, so a date-range
+   * change on the dashboard never recomputes it. `teacher_report` family: the same invalidation
+   * as the full report applies.
+   */
+  public async getTeacherFollowUpSummary(teacherId: string): Promise<TeacherFollowUpSummaryDto> {
+    return await this.applicationCache.getOrCompute(
+      {
+        family: 'teacher_report',
+        endpoint: 'reports.teacher-follow-up',
+        scope: `owner:${teacherId}`,
+        parts: [teacherId],
+        ttlMs: 30_000,
+      },
+      async () => this.teacherFollowUp.getAnalyticsSummary(teacherId),
     );
   }
 
@@ -477,34 +496,47 @@ export class ReportsService {
   }> {
     const { startDate, endDate } = range;
 
-    const [totalUsers, students, teachers, admins, newUsers, activeUsersResult] = await Promise.all(
-      [
-        this.usersRepository.count({ where: { deleted_at: IsNull() } }),
-        this.usersRepository.count({
-          where: { role: UserRole.STUDENT, deleted_at: IsNull() },
-        }),
-        this.usersRepository.count({
-          where: { role: UserRole.TEACHER, deleted_at: IsNull() },
-        }),
-        this.usersRepository.count({
-          where: { role: UserRole.ADMIN, deleted_at: IsNull() },
-        }),
-        this.usersRepository.count({
-          where: {
-            created_at: Between(startDate, endDate),
-            deleted_at: IsNull(),
-          },
-        }),
-        this.lessonSessionsRepository
-          .createQueryBuilder('ls')
-          .where('ls.entered_at BETWEEN :start AND :end', {
-            start: startDate,
-            end: endDate,
-          })
-          .select('COUNT(DISTINCT ls.student_id)', 'count')
-          .getRawOne<CountResult>(),
-      ],
-    );
+    // One statement for the five user counts (single table, single row, no join) and
+    // the unchanged active-users aggregate beside it. Soft-deleted users are excluded
+    // everywhere; the new-user window keeps BETWEEN's inclusive bounds.
+    const [userCounts, activeUsersResult] = await Promise.all([
+      this.usersRepository
+        .createQueryBuilder('user')
+        .select('COUNT(*)', 'total')
+        .addSelect('COUNT(*) FILTER (WHERE user.role = :student)', 'students')
+        .addSelect('COUNT(*) FILTER (WHERE user.role = :teacher)', 'teachers')
+        .addSelect('COUNT(*) FILTER (WHERE user.role = :admin)', 'admins')
+        .addSelect('COUNT(*) FILTER (WHERE user.created_at BETWEEN :start AND :end)', 'new_users')
+        .where('user.deleted_at IS NULL')
+        .setParameters({
+          student: UserRole.STUDENT,
+          teacher: UserRole.TEACHER,
+          admin: UserRole.ADMIN,
+          start: startDate,
+          end: endDate,
+        })
+        .getRawOne<{
+          total: string;
+          students: string;
+          teachers: string;
+          admins: string;
+          new_users: string;
+        }>(),
+      this.lessonSessionsRepository
+        .createQueryBuilder('ls')
+        .where('ls.entered_at BETWEEN :start AND :end', {
+          start: startDate,
+          end: endDate,
+        })
+        .select('COUNT(DISTINCT ls.student_id)', 'count')
+        .getRawOne<CountResult>(),
+    ]);
+    const toCount = (value: string | undefined): number => Number.parseInt(value ?? '0', 10);
+    const totalUsers = toCount(userCounts?.total);
+    const students = toCount(userCounts?.students);
+    const teachers = toCount(userCounts?.teachers);
+    const admins = toCount(userCounts?.admins);
+    const newUsers = toCount(userCounts?.new_users);
 
     return {
       totalUsers,

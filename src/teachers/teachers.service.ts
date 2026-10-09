@@ -272,10 +272,11 @@ export class TeachersService {
       limit = 20,
     } = filter;
 
+    // Filters, count and ordering run over profiles joined only to their user (one-to-one): the many-to-many
+    // `subjects` join would multiply rows, and is hydrated for the page's ids afterwards.
     const queryBuilder = this.teacherProfilesRepository
       .createQueryBuilder('teacher')
-      .leftJoinAndSelect('teacher.user', 'user')
-      .leftJoinAndSelect('teacher.subjects', 'subjects')
+      .leftJoin('teacher.user', 'user')
       .where('teacher.deleted_at IS NULL')
       .andWhere('user.deleted_at IS NULL');
 
@@ -319,16 +320,29 @@ export class TeachersService {
             TEACHER_RATING_SORT_SQL
           : 'teacher.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
-    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
 
     // Get total count
     const total = await queryBuilder.getCount();
 
-    // Apply pagination
-    const skip = (page - 1) * limit;
-    queryBuilder.skip(skip).take(limit);
-
-    const teachers = await queryBuilder.getMany();
+    // Page of ids ordered by an aliased sort expression (a raw expression cannot be an `orderBy` key next to
+    // `skip/take`), then hydrate that page's relations and restore the id order.
+    const pageIds = (
+      await queryBuilder
+        .clone()
+        .select('teacher.id', 'id')
+        .addSelect(sortColumn, 'sort_value')
+        .orderBy('sort_value', sortOrder)
+        .addOrderBy('teacher.id', sortOrder)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<{ id: string }>()
+    ).map((row) => row.id);
+    const teachers = await this.hydrateTeachersInOrder(pageIds, () =>
+      this.teacherProfilesRepository
+        .createQueryBuilder('teacher')
+        .leftJoinAndSelect('teacher.user', 'user')
+        .leftJoinAndSelect('teacher.subjects', 'subjects'),
+    );
 
     // Calculate pagination meta
     const totalPages = Math.ceil(total / limit);
@@ -415,7 +429,7 @@ export class TeachersService {
       limit = 20,
     } = filter;
 
-    const query = this.publicTeacherQuery();
+    const query = this.publicTeacherFilterQuery();
     if (search !== undefined && search !== '') {
       query.andWhere(
         '(user.name ILIKE :search OR user.first_name ILIKE :search OR user.last_name ILIKE :search)',
@@ -438,13 +452,21 @@ export class TeachersService {
             TEACHER_RATING_SORT_SQL
           : 'teacher.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
-    query.orderBy(sortColumn, sortOrder).addOrderBy('teacher.id', sortOrder);
 
     const total = await query.getCount();
-    const profiles = await query
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const pageIds = (
+      await query
+        .clone()
+        .select('teacher.id', 'id')
+        .addSelect(sortColumn, 'sort_value')
+        .orderBy('sort_value', sortOrder)
+        .addOrderBy('teacher.id', sortOrder)
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany<{ id: string }>()
+    ).map((row) => row.id);
+    // Hydrate through the same public projection (private user columns are never selected).
+    const profiles = await this.hydrateTeachersInOrder(pageIds, () => this.publicTeacherQuery());
     const totalPages = Math.ceil(total / limit);
 
     return {
@@ -491,6 +513,30 @@ export class TeachersService {
     }
 
     return await this.mapToPublicProfile(profile);
+  }
+
+  /** The public visibility filter alone (approved, not deleted), with no select list and no to-many join. */
+  private publicTeacherFilterQuery(): SelectQueryBuilder<TeacherProfile> {
+    return this.teacherProfilesRepository
+      .createQueryBuilder('teacher')
+      .leftJoin('teacher.user', 'user')
+      .where('teacher.deleted_at IS NULL')
+      .andWhere('user.deleted_at IS NULL')
+      .andWhere('user.status = :publicStatus', { publicStatus: UserStatus.APPROVED });
+  }
+
+  /** Loads the profiles of one page of ids with `build()`'s projection and returns them in the ids' order. */
+  private async hydrateTeachersInOrder(
+    pageIds: string[],
+    build: () => SelectQueryBuilder<TeacherProfile>,
+  ): Promise<TeacherProfile[]> {
+    if (pageIds.length === 0) return [];
+    const rows = await build().andWhere('teacher.id = ANY(:pageIds)', { pageIds }).getMany();
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return pageIds.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [row] : [];
+    });
   }
 
   /** Query boundary for public teacher data: private User columns are never selected. */

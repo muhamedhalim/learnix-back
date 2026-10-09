@@ -1,6 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-import { IsInt, IsOptional, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+
+/** `GET /student/lessons/my/progress`: optionally narrow the caller's own progress to one course (T089). */
+export class MyProgressQueryDto {
+  @ApiPropertyOptional({
+    description: 'Only progress on lessons that belong to this package (course)',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsUUID()
+  public packageId?: string;
+}
 
 export class UpdateProgressDto {
   @ApiProperty({

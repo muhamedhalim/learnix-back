@@ -773,4 +773,51 @@ describe('DEF-005 · notification channel enforcement (PostgreSQL)', () => {
     const active = await devices.findActiveForUser(alice.userId, PushProviderName.FCM);
     expect(active).toHaveLength(1);
   });
+
+  describe('multi-row fan-out keeps per-recipient push enforcement (T069)', () => {
+    it('createMany persists one row per recipient and push still honours each recipient push_enabled', async () => {
+      const alice = await student();
+      const bob = await student();
+      for (const [user, token] of [
+        [alice, 'alice-many-token'],
+        [bob, 'bob-many-token'],
+      ] as const) {
+        await user.agent
+          .post(`${API_PREFIX}/notifications/push/devices`)
+          .send({ token: token.padEnd(40, 'x') })
+          .expect(200);
+      }
+      await setPreferences(alice, { push_enabled: true });
+      await setPreferences(bob, { push_enabled: false });
+
+      const outcomes = await notifications.createMany(
+        [alice, bob].map((user) => ({
+          user_id: user.userId,
+          type: NotificationType.EXAM_ASSIGNED,
+          title: 'New exam',
+          message: 'Midterm',
+          send_sms: false,
+        })),
+      );
+
+      expect(outcomes).toHaveLength(2);
+      expect(outcomes.every((outcome) => outcome.ok)).toBe(true);
+      const ids = outcomes.map((outcome) => (outcome.ok ? outcome.id : ''));
+      const rows = (await dataSource.query(
+        `SELECT id, user_id, title, status FROM notifications WHERE id = ANY($1::uuid[])`,
+        [ids],
+      )) as Array<{ id: string; user_id: string; title: string; status: string }>;
+      expect(rows.map((row) => row.user_id).sort()).toEqual([alice.userId, bob.userId].sort());
+
+      // Push is dispatched through the same policy chokepoint whichever transport queued it
+      // (dispatch is idempotent per notification, so this is safe if it already ran inline).
+      for (const id of ids) await dispatcher.dispatch(id);
+
+      expect(sent.map((message) => message.token)).toEqual(['alice-many-token'.padEnd(40, 'x')]);
+      const [aliceLegs, bobLegs] = await Promise.all(ids.map(async (id) => deliveryRows(id)));
+      expect(aliceLegs?.[0]).toMatchObject({ status: NotificationDeliveryStatus.SENT });
+      expect(bobLegs?.[0]).toMatchObject({ status: NotificationDeliveryStatus.SKIPPED_PREFERENCE });
+    });
+  });
+
 });

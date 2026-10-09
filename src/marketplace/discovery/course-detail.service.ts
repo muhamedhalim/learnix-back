@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
@@ -82,20 +82,31 @@ export class CourseDetailService {
 
     const [enrollmentCount, ratingRows, related] = await Promise.all([
       this.enrollments.count({ where: { course_id: course.id, status: MarketplaceEnrollmentStatus.ACTIVE } }),
-      this.reviews.find({
-        where: { course_id: course.id, status: CourseReviewStatus.APPROVED, withdrawn_at: IsNull() },
-        select: ['rating'],
-      }),
+      // At most five rows (one per rating) instead of every review row.
+      this.reviews
+        .createQueryBuilder('review')
+        .select('review.rating', 'rating')
+        .addSelect('COUNT(*)::int', 'count')
+        .addSelect('SUM(review.rating)::bigint', 'sum')
+        .where('review.course_id = :courseId', { courseId: course.id })
+        .andWhere('review.status = :status', { status: CourseReviewStatus.APPROVED })
+        .andWhere('review.withdrawn_at IS NULL')
+        .groupBy('review.rating')
+        .getRawMany<{ rating: number; count: number; sum: string }>(),
       this.getRelatedCourses(course.id, course.category_id, course.instructor_id),
     ]);
 
     const distribution: RatingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let reviewCount = 0;
+    let ratingSum = 0;
     for (const row of ratingRows) {
-      const bucket = Math.min(5, Math.max(1, Math.round(row.rating))) as 1 | 2 | 3 | 4 | 5;
-      distribution[bucket] += 1;
+      const count = Number(row.count);
+      const bucket = Math.min(5, Math.max(1, Math.round(Number(row.rating)))) as 1 | 2 | 3 | 4 | 5;
+      distribution[bucket] += count;
+      reviewCount += count;
+      ratingSum += Number(row.sum);
     }
-    const reviewCount = ratingRows.length;
-    const averageRating = reviewCount === 0 ? 0 : ratingRows.reduce((sum, r) => sum + r.rating, 0) / reviewCount;
+    const averageRating = reviewCount === 0 ? 0 : ratingSum / reviewCount;
 
     return {
       id: course.id,

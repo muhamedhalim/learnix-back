@@ -1,4 +1,4 @@
-import type { PackageWithDetails } from '../packages.service';
+import type { PackageListItem, PackageWithDetails } from '../packages.service';
 
 export interface PublicPackageResponseDto {
   id: string;
@@ -18,14 +18,15 @@ export interface PublicPackageResponseDto {
   published_at: Date | null;
   thumbnail_url: string | null;
   lessons_count: number;
-  lessons: PackageWithDetails['lessons'];
+  /** Present on the detail response only; list responses carry `lessons_count` instead (T087). */
+  lessons?: PackageWithDetails['lessons'];
   created_at: Date;
   updated_at: Date;
 }
 
 /** Explicit public package allowlist; raw media/storage references are absent. */
 export function toPublicPackageResponse(
-  pkg: PackageWithDetails,
+  pkg: PackageListItem & { lessons?: PackageWithDetails['lessons'] },
   resolvePublicMedia: (value: string | null) => string | null,
 ): PublicPackageResponseDto {
   return {
@@ -52,7 +53,7 @@ export function toPublicPackageResponse(
     published_at: pkg.published_at,
     thumbnail_url: resolvePublicMedia(pkg.thumbnail),
     lessons_count: pkg.lessons_count,
-    lessons: pkg.lessons,
+    ...(pkg.lessons === undefined ? {} : { lessons: pkg.lessons }),
     created_at: pkg.created_at,
     updated_at: pkg.updated_at,
   };

@@ -14,7 +14,10 @@ import { DataSource, EntityManager, IsNull, LessThanOrEqual, QueryFailedError, R
 
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
-import { CertificateEligibilityService } from './certificate-eligibility.service';
+import {
+  ACTIVE_PACKAGE_PURCHASE_SQL,
+  CertificateEligibilityService,
+} from './certificate-eligibility.service';
 import { CourseVersionItem } from '../packages/entities/course-version-item.entity';
 import { LessonPackage } from '../packages/entities/lesson-package.entity';
 import { LessonPackageItem } from '../packages/entities/lesson-package-item.entity';
@@ -143,7 +146,110 @@ export class CertificatesService {
     if (!purchase) {
       return { total: 0, completed: 0, percentage: 0 };
     }
-    return this.getCourseProgress(studentId, packageId);
+    // Hand the already-resolved purchase down so eligibility is read ONCE.
+    return this.getCourseProgress(studentId, packageId, undefined, purchase);
+  }
+
+  /**
+   * Course progress for many packages in one request (≤ 5 statements, whatever
+   * the number of packages). Same answer as {@link getMyCourseProgress} per
+   * package: a package without a currently valid purchase is `{0,0,0}` and never
+   * discloses lesson counts. Completions are counted with COUNT(DISTINCT lp.id)
+   * — `course_version_items (version_id, lesson_id)` has no unique constraint, so
+   * COUNT(*) would double a lesson listed twice. Duplicate ids collapse.
+   */
+  public async getMyCourseProgressBatch(
+    studentId: string,
+    packageIds: readonly string[],
+  ): Promise<Record<string, CourseProgress>> {
+    const ids = [...new Set(packageIds)];
+    const result: Record<string, CourseProgress> = {};
+    for (const id of ids) result[id] = { total: 0, completed: 0, percentage: 0 };
+    if (ids.length === 0) return result;
+
+    const manager = this.dataSource.manager;
+    // (1) the newest valid purchase per package (same rule and tie-break as findActivePurchase).
+    const purchases = await manager.query<
+      Array<{ package_id: string; course_version_id: string | null }>
+    >(
+      `SELECT DISTINCT ON (pp.package_id) pp.package_id, pp.course_version_id
+         FROM package_purchases pp
+        WHERE pp.student_id = $1 AND pp.package_id = ANY($2::uuid[])
+          AND (${ACTIVE_PACKAGE_PURCHASE_SQL('pp')})
+        ORDER BY pp.package_id, pp.purchased_at DESC, pp.id DESC`,
+      [studentId, ids],
+    );
+    if (purchases.length === 0) return result;
+
+    // (2) purchases with no version yet fall through to the package's current version
+    // (a soft-deleted package resolves to none, exactly like `findOne` did).
+    const unversioned = purchases.filter((p) => !p.course_version_id).map((p) => p.package_id);
+    const current =
+      unversioned.length > 0
+        ? await manager.query<Array<{ id: string; current_version_id: string | null }>>(
+            'SELECT id, current_version_id FROM lesson_packages WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL',
+            [unversioned],
+          )
+        : [];
+    const currentVersion = new Map(current.map((row) => [row.id, row.current_version_id]));
+    const versionOf = new Map<string, string | null>(
+      purchases.map((p) => [p.package_id, p.course_version_id ?? currentVersion.get(p.package_id) ?? null]),
+    );
+    const versionIds = [...new Set([...versionOf.values()].filter((v): v is string => v !== null))];
+
+    // (3) + (4) locked curriculum size and completions, grouped by version.
+    const [totals, done] =
+      versionIds.length > 0
+        ? await Promise.all([
+            manager.query<Array<{ version_id: string; total: string }>>(
+              'SELECT version_id, COUNT(*)::text AS total FROM course_version_items WHERE version_id = ANY($1::uuid[]) GROUP BY version_id',
+              [versionIds],
+            ),
+            manager.query<Array<{ version_id: string; completed: string }>>(
+              `SELECT cvi.version_id, COUNT(DISTINCT lp.id)::text AS completed
+                 FROM lesson_progress lp
+                 JOIN course_version_items cvi ON cvi.lesson_id = lp.lesson_id
+                WHERE lp.student_id = $1 AND lp.completed = true AND cvi.version_id = ANY($2::uuid[])
+                GROUP BY cvi.version_id`,
+              [studentId, versionIds],
+            ),
+          ])
+        : [[], []];
+    const lockedTotal = new Map(totals.map((row) => [row.version_id, Number.parseInt(row.total, 10)]));
+    const lockedDone = new Map(done.map((row) => [row.version_id, Number.parseInt(row.completed, 10)]));
+
+    const apply = (packageId: string, total: number, completed: number): void => {
+      result[packageId] =
+        total === 0
+          ? { total: 0, completed: 0, percentage: 0 }
+          : { total, completed, percentage: Math.round((completed / total) * 100) };
+    };
+
+    // A version with no locked items is a still-unlocked draft: judge it by the package items.
+    const draftPackages: string[] = [];
+    for (const { package_id: packageId } of purchases) {
+      const version = versionOf.get(packageId) ?? null;
+      const total = version === null ? 0 : (lockedTotal.get(version) ?? 0);
+      if (total > 0 && version !== null) apply(packageId, total, lockedDone.get(version) ?? 0);
+      else draftPackages.push(packageId);
+    }
+
+    // (5) only for those draft packages.
+    if (draftPackages.length > 0) {
+      const rows = await manager.query<Array<{ package_id: string; total: string; completed: string }>>(
+        `SELECT p.id AS package_id,
+                (SELECT COUNT(*) FROM lesson_package_items i WHERE i.package_id = p.id)::text AS total,
+                (SELECT COUNT(DISTINCT lp.id) FROM lesson_progress lp
+                   JOIN lesson_package_items lpi ON lpi.lesson_id = lp.lesson_id
+                  WHERE lpi.package_id = p.id AND lp.student_id = $1 AND lp.completed = true)::text AS completed
+           FROM unnest($2::uuid[]) AS p(id)`,
+        [studentId, draftPackages],
+      );
+      for (const row of rows) {
+        apply(row.package_id, Number.parseInt(row.total, 10), Number.parseInt(row.completed, 10));
+      }
+    }
+    return result;
   }
 
   /**
@@ -156,8 +262,14 @@ export class CertificatesService {
     studentId: string,
     packageId: string,
     manager?: EntityManager,
+    resolvedPurchase?: PackagePurchase | null,
   ): Promise<CourseProgress> {
-    const versionId = await this.resolveProgressVersionId(studentId, packageId, manager);
+    const versionId = await this.resolveProgressVersionId(
+      studentId,
+      packageId,
+      manager,
+      resolvedPurchase,
+    );
 
     // `versionId === null` covers a package with no version record at all —
     // e.g. a `lesson_packages` row inserted outside `PackagesService.create`
@@ -224,8 +336,13 @@ export class CertificatesService {
     studentId: string,
     packageId: string,
     manager?: EntityManager,
+    resolvedPurchase?: PackagePurchase | null,
   ): Promise<string | null> {
-    const purchase = await this.eligibility.findActivePurchase(studentId, packageId, manager);
+    // `undefined` = not resolved by the caller yet (issuance paths); `null` = resolved, none.
+    const purchase =
+      resolvedPurchase !== undefined
+        ? resolvedPurchase
+        : await this.eligibility.findActivePurchase(studentId, packageId, manager);
     if (purchase?.course_version_id) {
       return purchase.course_version_id;
     }

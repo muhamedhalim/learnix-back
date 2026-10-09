@@ -804,3 +804,43 @@ describe('LessonSessionsService meeting-URL exposure invariant (Phase 9)', () =>
     expect(result['meeting_provider']).toBe(MeetingProvider.GOOGLE_MEET);
   });
 });
+
+describe('LessonSessionsService.listForStudent (T088)', () => {
+  function build() {
+    const find = jest.fn().mockResolvedValue([]);
+    const deps = noopMeetingDeps();
+    const service = new LessonSessionsService(
+      { getRepository: jest.fn().mockReturnValue({ find }) } as unknown as DataSource,
+      { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService,
+      { send: jest.fn() } as unknown as MailService,
+      deps.registry,
+      deps.accounts,
+      deps.queue,
+    );
+    return { service, find };
+  }
+
+  it('without a lesson filter the query is exactly the caller bookings, same relations and order', async () => {
+    const { service, find } = build();
+
+    await service.listForStudent('student-1');
+
+    expect(find).toHaveBeenCalledWith({
+      where: { student_id: 'student-1' },
+      relations: ['session', 'session.lesson', 'session.teacher', 'order', 'payment'],
+      order: { created_at: 'DESC' },
+    });
+  });
+
+  it('with a lesson filter it only narrows the caller own bookings to that lesson', async () => {
+    const { service, find } = build();
+
+    await service.listForStudent('student-1', 'lesson-9');
+
+    expect(find).toHaveBeenCalledWith({
+      where: { student_id: 'student-1', session: { lesson_id: 'lesson-9' } },
+      relations: ['session', 'session.lesson', 'session.teacher', 'order', 'payment'],
+      order: { created_at: 'DESC' },
+    });
+  });
+});

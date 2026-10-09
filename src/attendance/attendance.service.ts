@@ -175,13 +175,15 @@ export class AttendanceService {
       );
     }
 
-    const existing = await this.attendanceRepository.findOne({
+    // Existence only (the real guard is UQ_attendance_student_scheduled_session). `attendance_records` has no
+    // `deleted_at`, so the where stays exactly the pair.
+    const alreadyMarked = await this.attendanceRepository.exists({
       where: {
         student_id: dto.student_id,
         scheduled_lesson_session_id: sessionId,
       },
     });
-    if (existing) {
+    if (alreadyMarked) {
       throw new ConflictException(
         biBody('Attendance already marked for this appointment', 'تم تسجيل الحضور لهذا الموعد بالفعل'),
       );
@@ -309,11 +311,11 @@ export class AttendanceService {
     deviceInfo?: string,
   ): Promise<LessonSession> {
     // Validate lesson exists
-    const lesson = await this.lessonsRepository.findOne({
+    const lessonExists = await this.lessonsRepository.exists({
       where: { id: lessonId, deleted_at: IsNull() },
     });
 
-    if (!lesson) {
+    if (!lessonExists) {
       throw new NotFoundException(
         biBody(`Lesson with ID ${lessonId} not found`, `الدرس ذو المعرف ${lessonId} غير موجود`),
       );

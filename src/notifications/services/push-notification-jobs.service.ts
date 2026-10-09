@@ -84,6 +84,29 @@ export class PushNotificationJobsService {
     this.logger.debug(`Enqueued push for notification ${notificationId}`);
   }
 
+  /**
+   * Push for many already-persisted notifications at once (T069). Queues enabled:
+   * one `addBulk` with the same deterministic `push:<id>` job ids as
+   * {@link enqueueDelivery}. Queues disabled: the same per-id inline dispatch,
+   * errors swallowed. The caller is responsible for never calling this before the
+   * rows are committed.
+   */
+  public async enqueueDeliveryMany(notificationIds: string[]): Promise<void> {
+    if (notificationIds.length === 0) return;
+    if (!areQueuesEnabled()) {
+      await Promise.all(notificationIds.map(async (id) => this.enqueueDelivery(id)));
+      return;
+    }
+    await this.queue.addBulk(
+      notificationIds.map((notificationId) => ({
+        name: JOB_TYPES.PUSH.DELIVER,
+        data: { notificationId } satisfies PushDeliveryJob,
+        opts: { jobId: `push:${notificationId}` },
+      })),
+    );
+    this.logger.debug(`Enqueued push for ${String(notificationIds.length)} notification(s)`);
+  }
+
   private statusForOutcome(status: Awaited<ReturnType<PushDispatchService['dispatch']>>['status']) {
     switch (status) {
       case 'sent':

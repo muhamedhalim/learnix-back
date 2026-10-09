@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { AttendanceService } from './attendance.service';
 import type { AttendanceRecord } from './entities/attendance-record.entity';
@@ -72,5 +72,55 @@ describe('AttendanceService record ownership scope', () => {
     expect(payments.hasLessonPlaybackAccess).toHaveBeenCalledWith('student-id', 'lesson-id');
     expect(attendanceRepository.create).not.toHaveBeenCalled();
     expect(attendanceRepository.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('AttendanceService existence checks (T083)', () => {
+  const attendanceRepository = { exists: jest.fn(), create: jest.fn(), save: jest.fn() };
+  const lessonsRepository = { exists: jest.fn() };
+  const scheduledSessions = { findOne: jest.fn() };
+  const bookings = { findOne: jest.fn() };
+
+  const service = new AttendanceService(
+    attendanceRepository as never,
+    {} as never,
+    lessonsRepository as never,
+    scheduledSessions as never,
+    bookings as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('answers 409 for an already-marked appointment using an existence probe on exactly the pair', async () => {
+    scheduledSessions.findOne.mockResolvedValue({ id: 'session-1', lesson: { title: 'L' } });
+    bookings.findOne.mockResolvedValue({ id: 'booking-1' });
+    attendanceRepository.exists.mockResolvedValue(true);
+
+    await expect(
+      service.markScheduledSessionAttendance('marker', 'lesson-1', 'session-1', {
+        student_id: 'student-1',
+        status: 'present',
+      } as never),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // attendance_records has no deleted_at: the where must stay exactly the pair.
+    expect(attendanceRepository.exists).toHaveBeenCalledWith({
+      where: { student_id: 'student-1', scheduled_lesson_session_id: 'session-1' },
+    });
+    expect(attendanceRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the lesson is missing or soft-deleted, probing only existence', async () => {
+    lessonsRepository.exists.mockResolvedValue(false);
+
+    await expect(service.enterLesson('student-1', 'lesson-9')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(lessonsRepository.exists).toHaveBeenCalledWith({
+      where: { id: 'lesson-9', deleted_at: expect.anything() },
+    });
   });
 });

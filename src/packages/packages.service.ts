@@ -45,6 +45,14 @@ import { CourseVersion } from './entities/course-version.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 
+/** T087: a package as it appears in LIST responses: no `lessons[]` (only `lessons_count`); detail endpoints keep it. */
+export type PackageListItem = Omit<PackageWithDetails, 'lessons'>;
+
+/** Live lessons of one package: a lesson that was soft-deleted no longer counts (same number the detail view reports). */
+const LIVE_LESSONS_COUNT_SQL = `(SELECT COUNT(*) FROM lesson_package_items item
+             INNER JOIN lessons item_lesson ON item_lesson.id = item.lesson_id AND item_lesson.deleted_at IS NULL
+             WHERE item.package_id = package.id)`;
+
 /** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
 const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
 
@@ -234,7 +242,7 @@ export class PackagesService {
   /**
    * Find all packages with filtering and pagination
    */
-  public async findAll(filter: PackageFilterDto): Promise<PaginatedResponse<PackageWithDetails>> {
+  public async findAll(filter: PackageFilterDto): Promise<PaginatedResponse<PackageListItem>> {
     const {
       search,
       teacher_id: teacherId,
@@ -248,12 +256,10 @@ export class PackagesService {
       limit = 20,
     } = filter;
 
+    // Step 1 filters, counts and orders PACKAGES only: no to-many join, so a package with many items can
+    // neither multiply rows nor starve a page. Step 2 hydrates the page's relations by id.
     const queryBuilder = this.packagesRepository
       .createQueryBuilder('package')
-      .leftJoinAndSelect('package.teacher', 'teacher')
-      .leftJoinAndSelect('package.subject', 'subject')
-      .leftJoinAndSelect('package.items', 'items')
-      .leftJoinAndSelect('items.lesson', 'lesson')
       .where('package.deleted_at IS NULL');
 
     if (search !== undefined && search !== '') {
@@ -282,20 +288,50 @@ export class PackagesService {
       queryBuilder.andWhere('package.status = :status', { status });
     }
 
-    const sortColumn =
-      sortBy === PackageSortBy.LESSONS_COUNT
-        ? '(SELECT COUNT(*) FROM lesson_package_items WHERE package_id = package.id)'
-        : `package.${sortBy}`;
-
+    // A raw expression cannot be an `orderBy` key next to `skip/take` (TypeORM parses it as alias.property
+    // and throws), so it is selected under an alias and ordered by that alias. `lessons_count` counts LIVE
+    // lessons only, the same number the response reports.
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
-    queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('package.id', sortOrder);
-
     const total = await queryBuilder.getCount();
-    const skip = (page - 1) * limit;
+    // The same statement carries each page row's live lesson count, so the list needs neither `items` nor
+    // `lessons` hydrated (T087).
+    const pageQuery = queryBuilder
+      .clone()
+      .select('package.id', 'id')
+      .addSelect(LIVE_LESSONS_COUNT_SQL, 'lessons_count');
+    if (sortBy === PackageSortBy.LESSONS_COUNT) {
+      pageQuery.orderBy('lessons_count', sortOrder);
+    } else {
+      pageQuery.addSelect(`package.${sortBy}`, 'sort_value').orderBy('sort_value', sortOrder);
+    }
+    const pageRows = await pageQuery
+      .addOrderBy('package.id', sortOrder)
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<{ id: string; lessons_count: string | number }>();
+    const pageIds = pageRows.map((row) => row.id);
+    const lessonCounts = new Map(pageRows.map((row) => [row.id, Number(row.lessons_count)]));
 
-    const packages = await queryBuilder.skip(skip).take(limit).getMany();
+    const hydrated =
+      pageIds.length === 0
+        ? []
+        : await this.packagesRepository
+            .createQueryBuilder('package')
+            .leftJoinAndSelect('package.teacher', 'teacher')
+            .leftJoinAndSelect('package.subject', 'subject')
+            .where('package.id = ANY(:pageIds)', { pageIds })
+            .getMany();
+    const byId = new Map(hydrated.map((pkg) => [pkg.id, pkg]));
+    const packages = pageIds.flatMap((id) => {
+      const pkg = byId.get(id);
+      return pkg ? [pkg] : [];
+    });
 
-    const data = packages.map((pkg) => this.mapToPackageWithDetails(pkg));
+    const data = packages.map((pkg) => {
+      // No `items` were loaded: map as an empty package, then drop `lessons[]` and use the counted figure.
+      const { lessons: _lessons, ...rest } = this.mapToPackageWithDetails({ ...pkg, items: [] });
+      return { ...rest, lessons_count: lessonCounts.get(pkg.id) ?? 0 };
+    });
 
     const totalPages = Math.ceil(total / limit);
     const meta: PaginationMeta = {
@@ -316,7 +352,7 @@ export class PackagesService {
   public async findByTeacher(
     teacherId: string,
     filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ): Promise<PaginatedResponse<PackageWithDetails>> {
+  ): Promise<PaginatedResponse<PackageListItem>> {
     return await this.findAll({ ...filter, teacher_id: teacherId });
   }
 
@@ -551,7 +587,7 @@ export class PackagesService {
   public async findMyPackages(
     teacherId: string,
     filter: Omit<PackageFilterDto, 'teacher_id'>,
-  ): Promise<PaginatedResponse<PackageWithDetails>> {
+  ): Promise<PaginatedResponse<PackageListItem>> {
     return await this.findAll({ ...filter, teacher_id: teacherId });
   }
 
