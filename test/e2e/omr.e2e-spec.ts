@@ -479,6 +479,35 @@ describe('Teacher OMR workflow (e2e)', () => {
       .expect(404);
   });
 
+  it('lists sheets as a paginated {data, meta} envelope with the student name embedded (owner-only)', async () => {
+    await grantInstructorRosterAccess(student.userId, teacher.userId);
+    const examId = await seedExam(teacher.userId);
+    const sectionId = await seedSection(examId);
+    await attachSingleChoice(teacher.userId, examId, sectionId, 0, 'opt_1');
+    const sheet = await generateSheet(examId, student.userId);
+
+    const res = await teacher.agent
+      .get(`${API_PREFIX}/teacher/exams/${examId}/omr-sheets?page=1&limit=100`)
+      .expect(200);
+    const body = res.body as {
+      data: Array<{ id: string; student_id: string; student: { id: string; name: string } | null }>;
+      meta: { total: number; page: number; limit: number };
+    };
+    expect(body.meta.total).toBe(1);
+    expect(body.meta.limit).toBe(100);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]!.id).toBe(sheet.id);
+    expect(body.data[0]!.student_id).toBe(student.userId);
+    expect(body.data[0]!.student?.id).toBe(student.userId);
+    expect(typeof body.data[0]!.student?.name).toBe('string');
+    // only id + name of the student are exposed
+    expect(Object.keys(body.data[0]!.student!).sort()).toEqual(['id', 'name']);
+
+    await otherTeacher.agent
+      .get(`${API_PREFIX}/teacher/exams/${examId}/omr-sheets`)
+      .expect(404);
+  });
+
   it('is idempotent under retry: confirming twice never creates a second Attempt', async () => {
     await grantInstructorRosterAccess(student.userId, teacher.userId);
     const examId = await seedExam(teacher.userId);

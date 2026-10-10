@@ -33,6 +33,10 @@ import {
   TeacherDashboardDto,
 } from './dto';
 import { getUtcRevenuePeriodBoundaries } from './revenue-periods';
+import {
+  netRevenueMinorSql,
+  settledOrderPredicateSql,
+} from '../common/metrics/settled-order.sql';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 
@@ -138,7 +142,7 @@ export class AnalyticsService {
     return await this.applicationCache.getOrCompute(
       {
         family: 'admin_dashboard',
-        endpoint: 'analytics.admin-dashboard',
+        endpoint: 'analytics.admin-dashboard.v2',
         tenant,
         scope: 'role:admin',
         ttlMs: 60_000,
@@ -237,44 +241,43 @@ export class AnalyticsService {
       new Date(),
     );
 
+    // Net settled revenue (charged minus refunded), same definition as the platform report.
+    const net = netRevenueMinorSql('order');
+
     const row = await this.paymentsRepository
       .createQueryBuilder('payment')
       .innerJoin(Order, 'order', 'order.id = payment.order_id')
-      .select('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total_revenue')
+      .select(`COALESCE(SUM(${net}), 0) / 100.0`, 'total_revenue')
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startToday), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.paid_at >= :startToday), 0) / 100.0`,
         'revenue_today',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startMonth), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.paid_at >= :startMonth), 0) / 100.0`,
         'revenue_this_month',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startLastMonth AND order.paid_at < :startMonth), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.paid_at >= :startLastMonth AND order.paid_at < :startMonth), 0) / 100.0`,
         'revenue_last_month',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :startQuarter), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.paid_at >= :startQuarter), 0) / 100.0`,
         'revenue_this_quarter',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type IN (:lessonType, :lessonSessionType)), 0) / 100.0`,
         'lesson_revenue',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :packageType), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type = :packageType), 0) / 100.0`,
         'package_revenue',
       )
       .addSelect(
-        'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.item_type = :bookType), 0) / 100.0',
+        `COALESCE(SUM(${net}) FILTER (WHERE order.item_type = :bookType), 0) / 100.0`,
         'book_revenue',
       )
-      .where('payment.status = :completedStatus')
-      .andWhere('order.status = :paidOrderStatus')
-      .andWhere('order.paid_at IS NOT NULL')
+      .where(`(${settledOrderPredicateSql('order', 'payment')})`)
       .setParameters({
-        completedStatus: PaymentStatus.COMPLETED,
-        paidOrderStatus: OrderStatus.PAID,
         lessonType: ItemType.LESSON,
         lessonSessionType: ItemType.LESSON_SESSION,
         packageType: ItemType.PACKAGE,
@@ -328,16 +331,17 @@ export class AnalyticsService {
     return await this.applicationCache.getOrCompute(
       {
         family: 'teacher_dashboard',
-        endpoint: 'analytics.teacher-dashboard',
+        endpoint: 'analytics.teacher-dashboard.v2',
         tenant,
         scope: `owner:${teacherId}`,
         parts: [teacherId, from?.toISOString() ?? 'all', to?.toISOString() ?? 'all'],
         ttlMs: 30_000,
       },
       async () => {
-        // Three independent statements, run together. Each aggregates ONE child
+        // Four independent statements, run together. Each aggregates ONE child
         // family, so nothing is joined across families (no multiplication):
-        // content (single-table scalars), paid orders (orders:payments is 1:1),
+        // content (single-table scalars), paid-order buyers (orders:payments is 1:1),
+        // settled net revenue per currency (`orders` only, no join), and
         // engagement (reviews and sessions are separate scalar subqueries).
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
@@ -347,7 +351,7 @@ export class AnalyticsService {
         if (from) ordersQuery.andWhere('order.paid_at >= :from', { from });
         if (to) ordersQuery.andWhere('order.paid_at <= :to', { to });
 
-        const [content, orders, engagement] = await Promise.all([
+        const [content, orders, revenueRows, engagement] = await Promise.all([
           this.booksRepository.manager.query<
             Array<{ lessons: string; books: string; exams: string }>
           >(
@@ -357,15 +361,11 @@ export class AnalyticsService {
                (SELECT COUNT(*) FROM exams WHERE teacher_id = $1 AND deleted_at IS NULL)::text AS exams`,
             [teacherId],
           ),
+          // Buyers stay on the paid-order helper (T014 (c): student count unchanged).
           ordersQuery
             .select('COUNT(DISTINCT order.student_id)', 'students')
-            .addSelect('COALESCE(SUM(order.final_amount_minor), 0) / 100.0', 'total')
-            .addSelect(
-              'COALESCE(SUM(order.final_amount_minor) FILTER (WHERE order.paid_at >= :start), 0) / 100.0',
-              'month',
-            )
-            .setParameter('start', startOfMonth)
-            .getRawOne<{ students: string; total: string; month: string }>(),
+            .getRawOne<{ students: string }>(),
+          this.settledTeacherRevenue(teacherId, startOfMonth, from, to),
           // Reviews and sessions join `lessons` with its soft-delete predicate, exactly
           // as the former QueryBuilder joins did (TypeORM adds it for @DeleteDateColumn).
           // Range clauses are only appended when set so each parameter keeps the type
@@ -384,8 +384,14 @@ export class AnalyticsService {
         const totalBooks = Number.parseInt(content[0]?.books ?? '0', 10);
         const totalExams = Number.parseInt(content[0]?.exams ?? '0', 10);
         const totalStudents = Number.parseInt(orders?.students ?? '0', 10);
-        const revenue = Number.parseFloat(orders?.total ?? '0');
-        const revenueThisMonth = Number.parseFloat(orders?.month ?? '0');
+        const revenueByCurrency = revenueRows.map((row) => ({
+          currency: row.currency,
+          amount: Number.parseInt(row.total_minor, 10) / 100,
+          amountThisMonth: Number.parseInt(row.month_minor, 10) / 100,
+        }));
+        // Scalars keep their meaning as the primary-currency total (largest net first).
+        const revenue = revenueByCurrency[0]?.amount ?? 0;
+        const revenueThisMonth = revenueByCurrency[0]?.amountThisMonth ?? 0;
         const averageRating =
           engagement[0]?.average == null
             ? null
@@ -400,6 +406,7 @@ export class AnalyticsService {
           totalStudents,
           revenue,
           revenueThisMonth,
+          revenueByCurrency,
           averageRating,
           totalReviews,
           engagementViews,
@@ -782,6 +789,45 @@ export class AnalyticsService {
                (SELECT COUNT(*) FROM lesson_sessions s
                   INNER JOIN lessons l ON l.id = s.lesson_id AND l.deleted_at IS NULL
                  WHERE l.teacher_id = $1${range('s.entered_at')})::text AS views`;
+  }
+
+  /**
+   * Net settled revenue (charged minus refunded) per currency for one teacher, largest first.
+   *
+   * A separate statement from {@link canonicalPaidOrderQuery}: that helper is `status = 'paid'`
+   * only (it also feeds the student count and lesson revenue), whereas "revenue" follows
+   * `settled-order.sql.ts`. Teacher scope is in the WHERE, never applied after aggregation.
+   */
+  private async settledTeacherRevenue(
+    teacherId: string,
+    startOfMonth: Date,
+    from?: Date,
+    to?: Date,
+  ): Promise<Array<{ currency: string; total_minor: string; month_minor: string }>> {
+    const net = netRevenueMinorSql('o');
+    const params: unknown[] = [teacherId, startOfMonth];
+    let range = '';
+    if (from) {
+      params.push(from);
+      range += ` AND o.paid_at >= $${String(params.length)}`;
+    }
+    if (to) {
+      params.push(to);
+      range += ` AND o.paid_at <= $${String(params.length)}`;
+    }
+    return await this.paymentsRepository.manager.query<
+      Array<{ currency: string; total_minor: string; month_minor: string }>
+    >(
+      `SELECT o.currency AS currency,
+              COALESCE(SUM(${net}), 0)::text AS total_minor,
+              COALESCE(SUM(${net}) FILTER (WHERE o.paid_at >= $2), 0)::text AS month_minor
+         FROM orders o
+        WHERE o.teacher_id = $1
+          AND (${settledOrderPredicateSql('o')})${range}
+        GROUP BY o.currency
+        ORDER BY SUM(${net}) DESC, o.currency ASC`,
+      params,
+    );
   }
 
   /** Confirmed paid order + completed payment + paid_at is the only revenue source. */

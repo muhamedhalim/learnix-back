@@ -342,16 +342,18 @@ describe('AnalyticsService.recomputeExam', () => {
 });
 
 describe('AnalyticsService.getTeacherDashboard (T055)', () => {
-  it('starts exactly three statements together and maps the same DTO', async () => {
+  it('starts exactly four statements together and maps the DTO (revenue from the settled-net statement)', async () => {
     const content = deferred<Array<Record<string, string>>>();
     const orders = deferred<Record<string, string>>();
+    const revenue = deferred<Array<Record<string, string>>>();
     const engagement = deferred<Array<Record<string, string | null>>>();
 
     const orderBuilder = queryBuilder(orders.promise) as unknown as Record<string, jest.Mock>;
     orderBuilder['setParameter'] = jest.fn().mockReturnValue(orderBuilder);
     const orderRepository = { createQueryBuilder: jest.fn().mockReturnValue(orderBuilder) };
+    const revenueQuery = jest.fn().mockReturnValue(revenue.promise);
     const paymentsRepository = {
-      manager: { getRepository: jest.fn().mockReturnValue(orderRepository) },
+      manager: { getRepository: jest.fn().mockReturnValue(orderRepository), query: revenueQuery },
     };
     const booksQuery = jest.fn().mockReturnValue(content.promise);
     const reviewsQuery = jest.fn().mockReturnValue(engagement.promise);
@@ -382,16 +384,31 @@ describe('AnalyticsService.getTeacherDashboard (T055)', () => {
     const resultPromise = service.getTeacherDashboard('teacher-1');
     await Promise.resolve();
 
-    // All three were issued before any of them resolved.
+    // All four were issued before any of them resolved.
     expect(booksQuery).toHaveBeenCalledTimes(1);
     expect(orderBuilder['getRawOne']).toHaveBeenCalledTimes(1);
     expect(reviewsQuery).toHaveBeenCalledTimes(1);
+    expect(revenueQuery).toHaveBeenCalledTimes(1);
+    // The new revenue statement is the settled-net definition, scoped to the teacher in its WHERE.
+    const revenueSql = (revenueQuery.mock.calls[0] as unknown[])[0] as string;
+    expect(revenueSql).toContain("'paid','partially_refunded','refunded'");
+    expect(revenueSql).toContain('(o.final_amount_minor - o.refunded_amount_minor)');
+    expect(revenueSql).toContain('o.teacher_id = $1');
+    expect(((revenueQuery.mock.calls[0] as unknown[])[1] as unknown[])[0]).toBe('teacher-1');
+    // The student count stays on the shared paid-order helper (T014 (c): unchanged).
+    expect(orderBuilder['andWhere']).toHaveBeenCalledWith('order.teacher_id = :teacherId', {
+      teacherId: 'teacher-1',
+    });
     // Every statement is scoped by the teacher id from the caller.
     expect((booksQuery.mock.calls[0] as unknown[])[1]).toEqual(['teacher-1']);
     expect(((reviewsQuery.mock.calls[0] as unknown[])[1] as unknown[])[0]).toBe('teacher-1');
 
     content.resolve([{ lessons: '3', books: '2', exams: '1' }]);
-    orders.resolve({ students: '4', total: '150.50', month: '20.00' });
+    orders.resolve({ students: '4' });
+    revenue.resolve([
+      { currency: 'EGP', total_minor: '15050', month_minor: '2000' },
+      { currency: 'USD', total_minor: '500', month_minor: '0' },
+    ]);
     engagement.resolve([{ average: '4.3333', reviews: '3', views: '9' }]);
 
     await expect(resultPromise).resolves.toEqual({
@@ -401,6 +418,10 @@ describe('AnalyticsService.getTeacherDashboard (T055)', () => {
       totalStudents: 4,
       revenue: 150.5,
       revenueThisMonth: 20,
+      revenueByCurrency: [
+        { currency: 'EGP', amount: 150.5, amountThisMonth: 20 },
+        { currency: 'USD', amount: 5, amountThisMonth: 0 },
+      ],
       averageRating: 4.33,
       totalReviews: 3,
       engagementViews: 9,

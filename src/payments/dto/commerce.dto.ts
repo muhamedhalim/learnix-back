@@ -285,6 +285,13 @@ export class ManualSubmissionFilterDto extends Pagination20Dto {
   @IsOptional()
   @IsUUID('4')
   public method_id?: string;
+
+  /** Matches order number, transaction reference, student name or student email. */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MaxLength(100)
+  public search?: string;
 }
 
 export class CreateRefundDto {

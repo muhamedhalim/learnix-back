@@ -29,16 +29,24 @@ export class TeacherDashboardDto {
   public totalStudents!: number;
 
   @ApiProperty({
-    description: 'Total revenue earned by this teacher',
+    description:
+      'Net settled revenue (charged minus refunded) in the primary currency — the currency with the largest net revenue. See `revenueByCurrency` for every currency.',
     example: 35_000,
   })
   public revenue!: number;
 
   @ApiProperty({
-    description: 'Revenue earned this month',
+    description: 'Net settled revenue this month in the primary currency',
     example: 5000,
   })
   public revenueThisMonth!: number;
+
+  @ApiProperty({
+    description:
+      'Net settled revenue per currency (largest first). Additive: `revenue`/`revenueThisMonth` equal the first entry.',
+    type: () => [TeacherRevenueByCurrencyDto],
+  })
+  public revenueByCurrency!: TeacherRevenueByCurrencyDto[];
 
   @ApiProperty({
     description: 'Average rating from all reviews',
@@ -55,4 +63,15 @@ export class TeacherDashboardDto {
 
   @ApiProperty({ description: 'Lesson viewing sessions in the selected period', example: 120 })
   public engagementViews!: number;
+}
+
+export class TeacherRevenueByCurrencyDto {
+  @ApiProperty({ description: 'ISO 4217 currency code', example: 'EGP' })
+  public currency!: string;
+
+  @ApiProperty({ description: 'Net settled revenue (major units)', example: 35_000 })
+  public amount!: number;
+
+  @ApiProperty({ description: 'Net settled revenue this month (major units)', example: 5000 })
+  public amountThisMonth!: number;
 }

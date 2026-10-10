@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -98,6 +99,14 @@ export class AuditLogFilterDto {
   @IsOptional()
   @IsString()
   public target_type?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter by the id of the target entity (e.g. a teacher user id)',
+    format: 'uuid',
+  })
+  @IsOptional()
+  @IsUUID()
+  public target_id?: string;
 
   @ApiPropertyOptional({
     description: 'Page number',

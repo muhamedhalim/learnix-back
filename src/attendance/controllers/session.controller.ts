@@ -95,6 +95,7 @@ export class SessionController {
       activeSession.id,
       dto.video_progress_percent ?? 0,
       dto.duration_seconds ?? 0,
+      activeSession,
     );
 
     return {

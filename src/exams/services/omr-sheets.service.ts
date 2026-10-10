@@ -67,6 +67,11 @@ export type OmrSheetResponse = Omit<
   | 'recognized_answers'
 > & { has_image: boolean };
 
+/** List-item shape: the sheet plus the student's id/name only (no other user columns). */
+export type OmrSheetListItem = OmrSheetResponse & {
+  student: { id: string; name: string } | null;
+};
+
 export interface OmrSheetReviewQuestion {
   exam_question_id: string;
   label: number;
@@ -453,17 +458,41 @@ export class OmrSheetsService {
     teacherId: string,
     page: number,
     limit: number,
-  ): Promise<{ data: OmrSheetResponse[]; meta: PaginationMeta }> {
+  ): Promise<{ data: OmrSheetListItem[]; meta: PaginationMeta }> {
     await this.assertOwned(examId, teacherId);
     const [rows, total] = await this.sheets.findAndCount({
       where: { exam_id: examId },
+      relations: { student: true },
+      select: {
+        id: true,
+        exam_id: true,
+        student_id: true,
+        teacher_id: true,
+        template_id: true,
+        image_key: true,
+        detected_answers: true,
+        resolved_question_ids: true,
+        recognition_provider: true,
+        status: true,
+        error_message: true,
+        attempt_id: true,
+        confirmed_at: true,
+        reviewed_by: true,
+        processed_at: true,
+        created_at: true,
+        updated_at: true,
+        student: { id: true, name: true },
+      },
       order: { created_at: 'DESC', id: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
     const totalPages = Math.ceil(total / limit);
     return {
-      data: rows.map((sheet) => this.toResponse(sheet)),
+      data: rows.map((sheet) => ({
+        ...this.toResponse(sheet),
+        student: sheet.student ? { id: sheet.student.id, name: sheet.student.name } : null,
+      })),
       meta: {
         page,
         limit,

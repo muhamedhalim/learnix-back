@@ -21,6 +21,7 @@ export interface AuditLogFilter {
   to?: string | undefined;
   action?: string | undefined;
   targetType?: string | undefined;
+  targetId?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
 }
@@ -146,7 +147,8 @@ export class ActivityLogsService {
 
     const queryBuilder = this.auditLogRepository
       .createQueryBuilder('log')
-      .leftJoinAndSelect('log.admin', 'admin');
+      .leftJoin('log.admin', 'admin')
+      .addSelect(['admin.id', 'admin.name', 'admin.email']);
 
     // Apply date range filter
     if (filter.from !== undefined && filter.from !== '') {
@@ -173,13 +175,18 @@ export class ActivityLogsService {
       });
     }
 
-    // Order by most recent first
-    queryBuilder.orderBy('log.created_at', 'DESC');
+    // Apply target id filter (parameter-bound)
+    if (filter.targetId !== undefined && filter.targetId !== '') {
+      queryBuilder.andWhere('log.target_id = :targetId', { targetId: filter.targetId });
+    }
 
-    // Get total count and paginated results
+    // Order by most recent first (id as a stable tie-breaker for paging)
+    queryBuilder.orderBy('log.created_at', 'DESC').addOrderBy('log.id', 'DESC');
+
+    // The admin join is ManyToOne, so offset/limit pages the log rows exactly.
     const [data, total] = await queryBuilder
-      .skip(skip)
-      .take(limit)
+      .offset(skip)
+      .limit(limit)
       .getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);

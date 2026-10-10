@@ -108,6 +108,11 @@ describe('settled-order accounting rule', () => {
       expect(sql).toContain(`payment.status IN (${FINALISED_PAYMENT_STATUS_SQL})`);
     });
 
+    it('is a single line so TypeORM rewrites and quotes every `alias.column` (reserved alias `order`)', () => {
+      expect(settledOrderPredicateSql('order')).not.toContain('\n');
+      expect(settledOrderPredicateSql('order', 'payment')).not.toContain('\n');
+    });
+
     it('restricts to the settled order states', () => {
       expect(settledOrderPredicateSql('o')).toContain(`o.status IN (${SETTLED_ORDER_STATUS_SQL})`);
     });

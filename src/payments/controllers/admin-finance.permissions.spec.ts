@@ -62,6 +62,7 @@ describe('admin finance route permissions', () => {
     it.each([
       ['listMethods', 'reports.view'],
       ['listSubmissions', 'reports.view'],
+      ['submissionStats', 'reports.view'],
       ['proof', 'reports.view'],
       ['createMethod', 'manual_payments.manage_methods'],
       ['updateMethod', 'manual_payments.manage_methods'],

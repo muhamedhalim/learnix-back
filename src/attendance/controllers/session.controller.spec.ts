@@ -20,6 +20,40 @@ describe('SessionController', () => {
     expect(attendance.updateSessionProgress).toHaveBeenCalledWith('session-1', 'student-1', 75);
   });
 
+  describe('exitLesson (T114 lean exit)', () => {
+    it('hands the owner-scoped active session to the service instead of re-loading it by id', async () => {
+      const active = { id: 'session-1', student_id: 'student-1', lesson_id: 'lesson-1' };
+      const attendance = {
+        findActiveSession: jest.fn().mockResolvedValue(active),
+        exitLesson: jest.fn().mockResolvedValue({ session: active, auto_attendance: false }),
+      };
+      const controller = new SessionController(attendance as never);
+
+      const result = await controller.exitLesson(
+        { userId: 'student-1' } as never,
+        'lesson-1',
+        { video_progress_percent: 10, duration_seconds: 30 },
+      );
+
+      expect(attendance.findActiveSession).toHaveBeenCalledWith('student-1', 'lesson-1');
+      expect(attendance.exitLesson).toHaveBeenCalledWith('session-1', 10, 30, active);
+      expect(result).toMatchObject({ message: 'Session ended', data: active });
+    });
+
+    it('returns the unchanged "no active session" body without calling exitLesson', async () => {
+      const attendance = {
+        findActiveSession: jest.fn().mockResolvedValue(null),
+        exitLesson: jest.fn(),
+      };
+      const controller = new SessionController(attendance as never);
+
+      await expect(
+        controller.exitLesson({ userId: 'student-1' } as never, 'lesson-1', {}),
+      ).resolves.toEqual({ message: 'No active session found', session: null });
+      expect(attendance.exitLesson).not.toHaveBeenCalled();
+    });
+  });
+
   describe('enterLesson client IP resolution (AUD-001)', () => {
     function build() {
       const attendance = { enterLesson: jest.fn().mockResolvedValue({ id: 'session-1' }) };

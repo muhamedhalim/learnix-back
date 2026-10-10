@@ -9,6 +9,8 @@ import { ExamStatus } from '../../src/exams/entities/exam-status.enum';
 import { Lesson } from '../../src/lessons/entities/lesson.entity';
 import { LessonProgress } from '../../src/lessons/entities/lesson-progress.entity';
 import { LessonStatus } from '../../src/lessons/entities/lesson-status.enum';
+import { AnalyticsService } from '../../src/analytics/analytics.service';
+import { ProductFinancialMetricsService } from '../../src/common/metrics/product-financial-metrics.service';
 import { LessonsService } from '../../src/lessons/lessons.service';
 import { CourseStatus } from '../../src/packages/entities/course-status.enum';
 import { LessonPackage } from '../../src/packages/entities/lesson-package.entity';
@@ -28,6 +30,7 @@ import {
 } from '../../src/payments/entities';
 import { PaymentFinalizationService } from '../../src/payments/services/payment-finalization.service';
 import { RefundsService } from '../../src/payments/services/refunds.service';
+import { ReportsService } from '../../src/reports/reports.service';
 import { LessonReview } from '../../src/reviews/entities/lesson-review.entity';
 import { ReviewStatus } from '../../src/reviews/entities/review-status.enum';
 import { TeacherReview } from '../../src/reviews/entities/teacher-review.entity';
@@ -63,6 +66,9 @@ describe('product & learning metrics (PostgreSQL)', () => {
   let teachers: TeachersService;
   let finalization: PaymentFinalizationService;
   let refunds: RefundsService;
+  let analytics: AnalyticsService;
+  let reports: ReportsService;
+  let financialMetrics: ProductFinancialMetricsService;
   let suffix = 0;
 
   beforeAll(async () => {
@@ -74,6 +80,9 @@ describe('product & learning metrics (PostgreSQL)', () => {
     teachers = app.get(TeachersService);
     finalization = app.get(PaymentFinalizationService);
     refunds = app.get(RefundsService);
+    analytics = app.get(AnalyticsService);
+    reports = app.get(ReportsService);
+    financialMetrics = app.get(ProductFinancialMetricsService);
   });
 
   beforeEach(async () => {
@@ -967,6 +976,121 @@ describe('product & learning metrics (PostgreSQL)', () => {
   });
 
   /* ──────────────────────────────── teachers ────────────────────────────── */
+
+  describe('dashboard revenue parity (T116 / W7-C4)', () => {
+    it('teacher dashboard revenue, teacher report revenue and product metrics agree on settled net', async () => {
+      const admin = await makeUser(UserRole.ADMIN);
+      const teacherUser = await makeUser(UserRole.TEACHER);
+      const otherTeacher = await makeUser(UserRole.TEACHER);
+      const subject = await makeSubject('Revenue parity');
+      const paidLesson = await makeLesson(teacherUser.id, subject.id, 'Paid', 1000);
+      const partialLesson = await makeLesson(teacherUser.id, subject.id, 'Partial', 1000);
+      const refundedLesson = await makeLesson(teacherUser.id, subject.id, 'Refunded', 1000);
+      const otherLesson = await makeLesson(otherTeacher.id, subject.id, 'Other', 999);
+
+      const paidBuyer = await makeStudent();
+      const partialBuyer = await makeStudent();
+      const refundedBuyer = await makeStudent();
+      const otherBuyer = await makeStudent();
+
+      await purchase({
+        studentId: paidBuyer.user.id,
+        teacherId: teacherUser.id,
+        itemType: ItemType.LESSON,
+        itemId: paidLesson.id,
+        listMajor: 1000,
+      });
+      const partial = await purchase({
+        studentId: partialBuyer.user.id,
+        teacherId: teacherUser.id,
+        itemType: ItemType.LESSON,
+        itemId: partialLesson.id,
+        listMajor: 1000,
+      });
+      const full = await purchase({
+        studentId: refundedBuyer.user.id,
+        teacherId: teacherUser.id,
+        itemType: ItemType.LESSON,
+        itemId: refundedLesson.id,
+        listMajor: 1000,
+      });
+      await purchase({
+        studentId: otherBuyer.user.id,
+        teacherId: otherTeacher.id,
+        itemType: ItemType.LESSON,
+        itemId: otherLesson.id,
+        listMajor: 999,
+      });
+      await refund(partial.order.id, 30_000, admin.id);
+      await refund(full.order.id, 100_000, admin.id);
+
+      const dashboard = await analytics.getTeacherDashboard(teacherUser.id);
+      const report = await reports.getTeacherReport(teacherUser.id);
+      const metrics = await financialMetrics.getTeacherFinancialMetrics(teacherUser.id);
+
+      // 1000 + (1000 - 300) + (1000 - 1000) = 1700 EGP net
+      expect(metrics.primary.net_revenue_minor).toBe(170_000);
+      expect(report.revenue.total).toBe(1700);
+      expect(dashboard.revenue).toBe(1700);
+      expect(dashboard.revenueThisMonth).toBe(1700);
+      expect(dashboard.revenueByCurrency).toEqual([
+        { currency: 'EGP', amount: 1700, amountThisMonth: 1700 },
+      ]);
+      // T014 (c): student count is unchanged — only fully `paid` orders count, so the
+      // partially and fully refunded buyers are not included.
+      expect(dashboard.totalStudents).toBe(1);
+
+      // another teacher's sale never leaks in
+      const other = await analytics.getTeacherDashboard(otherTeacher.id);
+      expect(other.revenue).toBe(999);
+      expect(other.revenueByCurrency).toEqual([
+        { currency: 'EGP', amount: 999, amountThisMonth: 999 },
+      ]);
+    });
+
+    it('a teacher with no settled orders reports zero and an empty breakdown', async () => {
+      const teacherUser = await makeUser(UserRole.TEACHER);
+
+      const dashboard = await analytics.getTeacherDashboard(teacherUser.id);
+
+      expect(dashboard.revenue).toBe(0);
+      expect(dashboard.revenueThisMonth).toBe(0);
+      expect(dashboard.revenueByCurrency).toEqual([]);
+    });
+
+    it('legacy admin dashboard totalRevenue equals the platform report (single currency)', async () => {
+      const admin = await makeUser(UserRole.ADMIN);
+      const teacherUser = await makeUser(UserRole.TEACHER);
+      const subject = await makeSubject('Admin parity');
+      const lessonA = await makeLesson(teacherUser.id, subject.id, 'A', 1000);
+      const lessonB = await makeLesson(teacherUser.id, subject.id, 'B', 500);
+      const buyerA = await makeStudent();
+      const buyerB = await makeStudent();
+
+      await purchase({
+        studentId: buyerA.user.id,
+        teacherId: teacherUser.id,
+        itemType: ItemType.LESSON,
+        itemId: lessonA.id,
+        listMajor: 1000,
+      });
+      const b = await purchase({
+        studentId: buyerB.user.id,
+        teacherId: teacherUser.id,
+        itemType: ItemType.LESSON,
+        itemId: lessonB.id,
+        listMajor: 500,
+      });
+      await refund(b.order.id, 20_000, admin.id);
+
+      const legacy = await analytics.getAdminDashboard();
+      const platform = await reports.getPlatformReport();
+
+      // 1000 + (500 - 200) net
+      expect(platform.revenue.totalRevenue).toBe(1300);
+      expect(legacy.totalRevenue).toBe(platform.revenue.totalRevenue);
+    });
+  });
 
   describe('teacher stats', () => {
     it('nets refunds out of teacher earnings and rates from approved reviews', async () => {

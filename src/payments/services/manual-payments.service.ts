@@ -657,9 +657,12 @@ export class ManualPaymentsService {
     });
   }
 
-  public async listReviewQueue(
-    filter: ManualSubmissionFilterDto,
-  ): Promise<{ data: ManualPaymentSubmission[]; meta: PaginationMeta }> {
+  public async listReviewQueue(filter: ManualSubmissionFilterDto): Promise<{
+    data: Array<
+      ManualPaymentSubmission & { student: { id: string; name: string; email: string } | null }
+    >;
+    meta: PaginationMeta;
+  }> {
     const page = filter.page ?? 1;
     const limit = filter.limit ?? 20;
     const query = this.submissions
@@ -670,20 +673,33 @@ export class ManualPaymentsService {
         ManualPaymentMethod,
         'method',
         'method.id = submission.manual_payment_method_id',
-      );
+      )
+      .leftJoinAndMapOne('submission.student', User, 'student', 'student.id = submission.student_id')
+      // Keep the student projection to id/name/email — the join must not hydrate the whole user row.
+      .select(['submission', 'order', 'method', 'student.id', 'student.name', 'student.email']);
     if (filter.status) query.where('submission.status = :status', { status: filter.status });
     if (filter.method_id)
       query.andWhere('submission.manual_payment_method_id = :methodId', {
         methodId: filter.method_id,
       });
+    const search = filter.search?.trim();
+    if (search) {
+      query.andWhere(
+        '(order.order_number ILIKE :search OR submission.transaction_reference ILIKE :search OR student.name ILIKE :search OR student.email ILIKE :search)',
+        { search: `%${search.replace(/[\\%_]/g, '\\$&')}%` },
+      );
+    }
     const [data, total] = await query
       .orderBy('submission.submitted_at', 'ASC')
+      .addOrderBy('submission.id', 'ASC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
     const totalPages = Math.ceil(total / limit);
     return {
-      data,
+      data: data as Array<
+        ManualPaymentSubmission & { student: { id: string; name: string; email: string } | null }
+      >,
       meta: {
         page,
         limit,
@@ -692,6 +708,34 @@ export class ManualPaymentsService {
         hasNextPage: page < totalPages,
         hasPrevPage: page > 1,
       },
+    };
+  }
+
+  /**
+   * Whole-backlog review KPIs. `pending` includes `under_review` (they overlap — never sum them);
+   * `risk_flagged` spans every status. No WHERE and no JOIN, so nothing is double counted.
+   */
+  public async reviewQueueStats(): Promise<{
+    pending: number;
+    under_review: number;
+    risk_flagged: number;
+  }> {
+    const [row] = await this.submissions.query<
+      Array<{ pending: string; under_review: string; risk_flagged: string }>
+    >(
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('submitted','under_review')) AS pending,
+         COUNT(*) FILTER (WHERE status = 'under_review') AS under_review,
+         COUNT(*) FILTER (
+           WHERE jsonb_typeof(metadata->'risk_flags') = 'array'
+             AND jsonb_array_length(metadata->'risk_flags') > 0
+         ) AS risk_flagged
+       FROM manual_payment_submissions`,
+    );
+    return {
+      pending: Number(row?.pending ?? 0),
+      under_review: Number(row?.under_review ?? 0),
+      risk_flagged: Number(row?.risk_flagged ?? 0),
     };
   }
 

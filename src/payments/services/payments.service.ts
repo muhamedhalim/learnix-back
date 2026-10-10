@@ -542,30 +542,63 @@ export class PaymentsService {
   }
 
   /**
-   * Get student's purchased packages
+   * Get student's purchased packages — one row per course (the newest live purchase), so a student
+   * with many purchases or repurchases still sees every course exactly once.
+   *
+   * Two steps keep LIMIT on purchase rows (never on joined item rows): step 1 pages the newest live
+   * purchase id per course and counts distinct courses; step 2 loads those purchases with their
+   * relations. Both steps are scoped by `student_id`, so no id list is ever trusted on its own.
    */
   public async getMyPackages(
     userId: string,
     page = 1,
     limit = 20,
   ): Promise<{ data: PackagePurchase[]; meta: PaginationMeta }> {
+    const manager = this.packagePurchasesRepository.manager;
+    const [pageRows, countRows] = await Promise.all([
+      manager.query<Array<{ id: string }>>(
+        `SELECT id FROM (
+           SELECT DISTINCT ON (package_id) id, package_id, purchased_at
+             FROM package_purchases
+            WHERE student_id = $1 AND revoked_at IS NULL
+            ORDER BY package_id, purchased_at DESC, id DESC
+         ) latest
+         ORDER BY purchased_at DESC, id DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, limit, (page - 1) * limit],
+      ),
+      manager.query<Array<{ count: string }>>(
+        `SELECT COUNT(DISTINCT package_id)::text AS count
+           FROM package_purchases
+          WHERE student_id = $1 AND revoked_at IS NULL`,
+        [userId],
+      ),
+    ]);
+    const total = Number.parseInt(countRows[0]?.count ?? '0', 10);
+    const ids = pageRows.map((row) => row.id);
+
     // Purchase, package and item columns stay whole; only the two relations that used to hydrate entire
     // rows are narrowed: the teacher to what the study cards show, the lesson to {id, title, duration}
     // (`title_ar` is not a lesson column any more, so it must never be selected).
-    const [data, total] = await this.packagePurchasesRepository
-      .createQueryBuilder('purchase')
-      .leftJoinAndSelect('purchase.package', 'package')
-      .leftJoin('package.teacher', 'teacher')
-      .addSelect(['teacher.id', 'teacher.name', 'teacher.profile_picture_url'])
-      .leftJoinAndSelect('package.items', 'items')
-      .leftJoin('items.lesson', 'lesson')
-      .addSelect(['lesson.id', 'lesson.title', 'lesson.duration'])
-      .where('purchase.student_id = :userId', { userId })
-      .andWhere('purchase.revoked_at IS NULL')
-      .orderBy('purchase.purchased_at', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    const data =
+      ids.length === 0
+        ? []
+        : await this.packagePurchasesRepository
+            .createQueryBuilder('purchase')
+            .leftJoinAndSelect('purchase.package', 'package')
+            .leftJoin('package.teacher', 'teacher')
+            .addSelect(['teacher.id', 'teacher.name', 'teacher.profile_picture_url'])
+            .leftJoinAndSelect('package.items', 'items')
+            .leftJoin('items.lesson', 'lesson')
+            .addSelect(['lesson.id', 'lesson.title', 'lesson.duration'])
+            .where('purchase.id IN (:...ids)', { ids })
+            .andWhere('purchase.student_id = :userId', { userId })
+            .andWhere('purchase.revoked_at IS NULL')
+            .orderBy('purchase.purchased_at', 'DESC')
+            .addOrderBy('purchase.id', 'DESC')
+            .addOrderBy('items.order_index', 'ASC')
+            .getMany();
+
     const totalPages = Math.ceil(total / limit);
     return {
       data,

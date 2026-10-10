@@ -213,24 +213,52 @@ describe('Student my-packages (postgres)', () => {
     expect(purchase['package'].teacher).not.toHaveProperty('phone');
   });
 
-  it('keeps the default page size of 20 and paginates', async () => {
+  it('returns every live course exactly once: repurchases collapse, revoked excluded, paging counts courses', async () => {
     const t = await teacher();
     const s = await subject();
     const student = await createAuthenticatedUser(ctx.app, ds(), { role: 'student' });
-    for (let i = 0; i < 22; i += 1) {
-      const created = await pkg(t, s, `Course ${String(i)}`, ['Only lesson']);
-      await buy(student.userId, created.pkg.id);
+    const created: Array<{ pkg: LessonPackage }> = [];
+    for (let i = 0; i < 25; i += 1) {
+      const c = await pkg(t, s, `Course ${String(i)}`, ['First', 'Second']);
+      created.push(c);
+      await buy(student.userId, c.pkg.id);
+    }
+    // two repurchases of one course and one revoked-only course
+    await buy(student.userId, created[0]!.pkg.id);
+    await buy(student.userId, created[0]!.pkg.id);
+    const revokedOnly = await pkg(t, s, 'Revoked only', ['X']);
+    await buy(student.userId, revokedOnly.pkg.id, true);
+
+    const all = await student.agent
+      .get(`${API_PREFIX}/payments/my-packages`)
+      .query({ limit: 100 })
+      .expect(200);
+    const rows = all.body.data as Array<Record<string, any>>;
+    expect(all.body.meta).toMatchObject({ total: 25, limit: 100, totalPages: 1 });
+    expect(rows).toHaveLength(25);
+    const packageIds = rows.map((r) => r['package_id'] as string);
+    expect(new Set(packageIds).size).toBe(25);
+    expect(packageIds).not.toContain(revokedOnly.pkg.id);
+    // items ordered by order_index, lesson projection unchanged
+    for (const row of rows) {
+      const items = row['package'].items as Array<Record<string, any>>;
+      expect(items.map((i) => i['order_index'])).toEqual([0, 1]);
+      expect(Object.keys(items[0]!['lesson']).sort()).toEqual(['duration', 'id', 'title']);
     }
 
-    const first = await student.agent.get(`${API_PREFIX}/payments/my-packages`).expect(200);
+    const first = await student.agent
+      .get(`${API_PREFIX}/payments/my-packages`)
+      .query({ page: 1, limit: 20 })
+      .expect(200);
     expect(first.body.data).toHaveLength(20);
-    expect(first.body.meta).toMatchObject({ total: 22, limit: 20, totalPages: 2, hasNextPage: true });
-
+    expect(first.body.meta).toMatchObject({ total: 25, limit: 20, totalPages: 2, hasNextPage: true });
     const second = await student.agent
       .get(`${API_PREFIX}/payments/my-packages`)
-      .query({ page: 2 })
+      .query({ page: 2, limit: 20 })
       .expect(200);
-    expect(second.body.data).toHaveLength(2);
+    expect(second.body.data).toHaveLength(5);
+    const paged = [...first.body.data, ...second.body.data].map((r: any) => r.package_id);
+    expect(new Set(paged).size).toBe(25);
   });
 
   it("never returns another student's purchases", async () => {

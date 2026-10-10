@@ -339,21 +339,38 @@ export class AttendanceService {
   }
 
   /**
-   * End a lesson session and check for auto-attendance
+   * End a lesson session and check for auto-attendance.
+   *
+   * When the caller already holds the owner-scoped active session (the exit route does,
+   * via `findActiveSession(studentId, lessonId)`), pass it as `activeSession`: the session
+   * is closed with a single UPDATE and no relation joins, and the result carries scalar
+   * `lesson_sessions` columns only. Without it the session is loaded by id as before.
    */
   public async exitLesson(
     sessionId: string,
     watchPercentage: number,
     durationSeconds: number,
+    activeSession?: LessonSession,
   ): Promise<{ session: LessonSession; auto_attendance: boolean }> {
-    const session = await this.findSessionById(sessionId);
+    const session = activeSession ?? (await this.findSessionById(sessionId));
 
     // Update session
     session.exited_at = new Date();
     session.video_progress_percent = watchPercentage;
     session.duration_seconds = durationSeconds;
 
-    await this.sessionsRepository.save(session);
+    if (activeSession) {
+      await this.sessionsRepository.update(
+        { id: session.id },
+        {
+          exited_at: session.exited_at,
+          video_progress_percent: watchPercentage,
+          duration_seconds: durationSeconds,
+        },
+      );
+    } else {
+      await this.sessionsRepository.save(session);
+    }
 
     const isCompleted = watchPercentage >= AUTO_ATTENDANCE_THRESHOLD;
     this.logger.log(

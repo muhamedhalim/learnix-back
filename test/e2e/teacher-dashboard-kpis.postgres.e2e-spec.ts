@@ -26,8 +26,8 @@ import { createE2EApp, resetDatabase, type E2EContext } from './fixtures';
 import { StatementCounter } from './helpers/statement-counter';
 
 /**
- * T055 parity: the three-statement teacher dashboard must return exactly what
- * the former eight sequential statements returned. The reference below is the
+ * T055 parity: the parallel teacher dashboard must return exactly what the former eight
+ * sequential statements returned — except revenue, which T116 moved from gross `paid` to settled net. The reference below is the
  * previous implementation, kept verbatim in this test (repositories + the same
  * QueryBuilder joins), so any predicate drift fails here.
  */
@@ -336,6 +336,57 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
     return { teacher, other, now, lastMonth };
   }
 
+  /**
+   * T116 (W7-C4): the one documented value change. Revenue is the settled net
+   * (charged minus refunded) per currency, computed here from raw SQL with the
+   * statuses spelled out so it cannot drift together with the implementation.
+   */
+  async function settledRevenue(teacherId: string, from?: Date, to?: Date) {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    const params: unknown[] = [teacherId, startOfMonth];
+    let range = '';
+    if (from) {
+      params.push(from);
+      range += ` AND o.paid_at >= $${String(params.length)}`;
+    }
+    if (to) {
+      params.push(to);
+      range += ` AND o.paid_at <= $${String(params.length)}`;
+    }
+    const rows = await ds().query<Array<{ currency: string; total: string; month: string }>>(
+      `SELECT o.currency,
+              (COALESCE(SUM(o.final_amount_minor - o.refunded_amount_minor), 0))::text AS total,
+              (COALESCE(SUM(o.final_amount_minor - o.refunded_amount_minor)
+                        FILTER (WHERE o.paid_at >= $2), 0))::text AS month
+         FROM orders o
+         JOIN payments p ON p.id = o.payment_id
+        WHERE o.teacher_id = $1
+          AND o.paid_at IS NOT NULL
+          AND o.status IN ('paid', 'partially_refunded', 'refunded')
+          AND p.status IN ('completed', 'refunded')${range}
+        GROUP BY o.currency
+        ORDER BY SUM(o.final_amount_minor - o.refunded_amount_minor) DESC, o.currency ASC`,
+      params,
+    );
+    const revenueByCurrency = rows.map((r) => ({
+      currency: r.currency,
+      amount: Number(r.total) / 100,
+      amountThisMonth: Number(r.month) / 100,
+    }));
+    return {
+      revenue: revenueByCurrency[0]?.amount ?? 0,
+      revenueThisMonth: revenueByCurrency[0]?.amountThisMonth ?? 0,
+      revenueByCurrency,
+    };
+  }
+
+  /** The previous implementation's output with only the revenue fields redefined (T116). */
+  async function expectedDashboard(teacherId: string, from?: Date, to?: Date) {
+    return { ...(await legacy(teacherId, from, to)), ...(await settledRevenue(teacherId, from, to)) };
+  }
+
   async function fresh(teacherId: string, from?: Date, to?: Date) {
     // A unique tenant gives a unique cache key, so every call is a cache miss.
     tenantSeq += 1;
@@ -344,9 +395,18 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
 
   it('equals the previous implementation: no range', async () => {
     const { teacher } = await seed();
-    const expected = await legacy(teacher.id);
+    const expected = await expectedDashboard(teacher.id);
     const actual = await fresh(teacher.id);
     expect(actual).toEqual(expected);
+    // The seeded "refunded but still paid" order (30.00 refunded) is now netted out of revenue,
+    // while every non-revenue field is exactly what the previous implementation returned.
+    const old = await legacy(teacher.id);
+    expect(actual.revenue).toBe(old.revenue - 30);
+    expect(actual.revenueThisMonth).toBe(old.revenueThisMonth - 30);
+    expect(actual.revenueByCurrency).toEqual([
+      { currency: 'EGP', amount: actual.revenue, amountThisMonth: actual.revenueThisMonth },
+    ]);
+    expect(actual.totalStudents).toBe(old.totalStudents);
     // Sanity: the fixture exercised every family (not an all-zero comparison).
     expect(actual.totalLessons).toBe(1);
     expect(actual.totalBooks).toBe(1);
@@ -360,22 +420,26 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
     const { teacher, now, lastMonth } = await seed();
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const to = new Date(now.getTime() + 60_000);
-    expect(await fresh(teacher.id, from, to)).toEqual(await legacy(teacher.id, from, to));
+    expect(await fresh(teacher.id, from, to)).toEqual(await expectedDashboard(teacher.id, from, to));
     const narrow = new Date(lastMonth.getTime() + 24 * 3_600_000);
-    expect(await fresh(teacher.id, narrow, to)).toEqual(await legacy(teacher.id, narrow, to));
-    expect(await fresh(teacher.id, undefined, narrow)).toEqual(await legacy(teacher.id, undefined, narrow));
+    expect(await fresh(teacher.id, narrow, to)).toEqual(
+      await expectedDashboard(teacher.id, narrow, to),
+    );
+    expect(await fresh(teacher.id, undefined, narrow)).toEqual(
+      await expectedDashboard(teacher.id, undefined, narrow),
+    );
   });
 
   it('a teacher with no data gets the zero/null shape', async () => {
     const empty = await user(UserRole.TEACHER, 'empty');
-    expect(await fresh(empty.id)).toEqual(await legacy(empty.id));
+    expect(await fresh(empty.id)).toEqual(await expectedDashboard(empty.id));
   });
 
-  it('a cache miss costs exactly three statements', async () => {
+  it('a cache miss costs exactly four statements (content, buyers, settled revenue, engagement)', async () => {
     const { teacher } = await seed();
     counter.start();
     await fresh(teacher.id);
     counter.stop();
-    expect(counter.count({})).toBe(3);
+    expect(counter.count({})).toBe(4);
   });
 });

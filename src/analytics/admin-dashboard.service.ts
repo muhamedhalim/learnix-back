@@ -66,7 +66,7 @@ export class AdminDashboardService {
     return await this.cache.getOrCompute(
       {
         family: 'admin_dashboard',
-        endpoint: 'analytics.admin.dashboard.v2',
+        endpoint: 'analytics.admin.dashboard.v3',
         tenant: user.tenantId,
         scope: `principal:${user.userId}:permissions:${permissionFingerprint}`,
         parts: [days],

@@ -84,13 +84,13 @@ export function netRevenueMinorSql(alias: string): string {
  *        omit to emit a self-contained `EXISTS` sub-select instead.
  */
 export function settledOrderPredicateSql(alias: string, paymentAlias?: string): string {
+  // Kept on ONE line: when this fragment is used inside a TypeORM query builder, `alias.column`
+  // property paths are only rewritten (and quoted) if followed by a space, `)`, `,` or `=`.
+  // A line break right after `order.payment_id` left it unquoted and `order` is a reserved word.
   const paymentCondition =
     paymentAlias === undefined
-      ? `EXISTS (SELECT 1 FROM payments p WHERE p.id = ${alias}.payment_id
-                  AND p.status IN (${FINALISED_PAYMENT_STATUS_SQL}))`
+      ? `EXISTS (SELECT 1 FROM payments p WHERE p.id = ${alias}.payment_id AND p.status IN (${FINALISED_PAYMENT_STATUS_SQL}))`
       : `${paymentAlias}.status IN (${FINALISED_PAYMENT_STATUS_SQL})`;
 
-  return `${alias}.paid_at IS NOT NULL
-    AND ${alias}.status IN (${SETTLED_ORDER_STATUS_SQL})
-    AND ${paymentCondition}`;
+  return `${alias}.paid_at IS NOT NULL AND ${alias}.status IN (${SETTLED_ORDER_STATUS_SQL}) AND ${paymentCondition}`;
 }

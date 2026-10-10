@@ -110,6 +110,7 @@ export class ActivityLogsController {
       to: filter.to,
       action: filter.action,
       targetType: filter.target_type,
+      targetId: filter.target_id,
       page: filter.page,
       limit: filter.limit,
     });
@@ -125,9 +126,9 @@ export class ActivityLogsController {
       ip_address: log.ip_address,
       created_at: log.created_at,
       admin: {
-        id: log.admin.id,
-        name: log.admin.name,
-        email: log.admin.email,
+        id: log.admin?.id ?? log.admin_id,
+        name: log.admin?.name ?? '',
+        email: log.admin?.email ?? '',
       },
     }));
 

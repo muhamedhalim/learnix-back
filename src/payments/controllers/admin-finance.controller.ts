@@ -113,6 +113,13 @@ export class AdminFinanceController {
     return this.manualPayments.listReviewQueue(filter);
   }
 
+  /** Declared before the `:id/<action>` routes; takes no query parameters (whole-backlog counts). */
+  @Get('manual-submissions/stats')
+  @FinancePermissions('reports.view')
+  public async submissionStats() {
+    return { data: await this.manualPayments.reviewQueueStats() };
+  }
+
   @Post('manual-submissions/:id/review')
   @FinancePermissions('manual_payments.review')
   public async startReview(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: JwtPayload) {

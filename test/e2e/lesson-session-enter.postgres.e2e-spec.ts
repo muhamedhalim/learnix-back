@@ -227,4 +227,78 @@ describe('lesson session enter — client IP handling (PostgreSQL)', () => {
 
     await teacherUser.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(403);
   });
+
+  describe('POST /lessons/:id/exit (T114 lean exit path)', () => {
+    it('closes the active session, records duration, and returns scalar session columns only', async () => {
+      const { student, lesson } = await enrolledStudentFixture();
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+
+      const res = await student.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 40, duration_seconds: 120 })
+        .expect(201);
+
+      const body = res.body as { message: string; data: Record<string, unknown> };
+      expect(body.message).toBe('Session ended');
+      expect(body.data.exited_at).toBeTruthy();
+      expect(body.data.duration_seconds).toBe(120);
+      // narrowed response: no joined relations
+      expect(body.data).not.toHaveProperty('student');
+      expect(body.data).not.toHaveProperty('lesson');
+
+      const row = await dataSource.getRepository(LessonSession).findOneOrFail({
+        where: { lesson_id: lesson.id },
+      });
+      expect(row.exited_at).not.toBeNull();
+      expect(row.duration_seconds).toBe(120);
+    });
+
+    it('reports "No active session found" when nothing is open', async () => {
+      const { student, lesson } = await enrolledStudentFixture();
+
+      const res = await student.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 0, duration_seconds: 1 })
+        .expect(201);
+
+      expect(res.body).toEqual({ message: 'No active session found', session: null });
+    });
+
+    it("never closes another student's session", async () => {
+      const { student, lesson } = await enrolledStudentFixture();
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+
+      const outsider = await createAuthenticatedUser(app, dataSource);
+      const res = await outsider.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 0, duration_seconds: 1 })
+        .expect(201);
+
+      expect((res.body as { message: string }).message).toBe('No active session found');
+      const row = await dataSource.getRepository(LessonSession).findOneOrFail({
+        where: { lesson_id: lesson.id },
+      });
+      expect(row.exited_at).toBeNull();
+    });
+
+    it('closes the newest session when two were opened (enter A, enter B, exit)', async () => {
+      const { student, lesson } = await enrolledStudentFixture();
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+
+      await student.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 0, duration_seconds: 5 })
+        .expect(201);
+
+      const rows = await dataSource.getRepository(LessonSession).find({
+        where: { lesson_id: lesson.id },
+        order: { entered_at: 'ASC' },
+      });
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.exited_at).toBeNull();
+      expect(rows[1]!.exited_at).not.toBeNull();
+    });
+  });
 });

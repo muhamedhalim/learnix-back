@@ -454,8 +454,8 @@ describe('PaymentsService — canonical compatibility routes', () => {
     expect(baseQuery).toHaveBeenNthCalledWith(2, 'teacher-a', '2026-01-01', '2026-01-31');
     expect(query.addGroupBy).toHaveBeenCalledWith('order.currency');
   });
-  describe('getMyPackages projection (T082)', () => {
-    it('narrows the teacher and lesson relations and keeps scoping, order and paging', async () => {
+  describe('getMyPackages projection (T082) and per-course cardinality (T117)', () => {
+    function mockQueryBuilder() {
       const qb: Record<string, jest.Mock> = {};
       for (const name of [
         'leftJoinAndSelect',
@@ -464,27 +464,64 @@ describe('PaymentsService — canonical compatibility routes', () => {
         'where',
         'andWhere',
         'orderBy',
-        'skip',
-        'take',
+        'addOrderBy',
       ]) {
         qb[name] = jest.fn().mockReturnValue(qb);
       }
-      qb['getManyAndCount'] = jest.fn().mockResolvedValue([[{ id: 'pp' }], 41]);
-      (packagePurchases as unknown as { createQueryBuilder: jest.Mock }).createQueryBuilder = jest
+      qb['getMany'] = jest.fn().mockResolvedValue([{ id: 'pp' }]);
+      return qb;
+    }
+
+    it('pages distinct courses, loads only that page by id (still student-scoped) and keeps the narrowed projection', async () => {
+      const qb = mockQueryBuilder();
+      const query = jest
         .fn()
-        .mockReturnValue(qb);
+        .mockResolvedValueOnce([{ id: 'pp' }])
+        .mockResolvedValueOnce([{ count: '41' }]);
+      Object.assign(packagePurchases as unknown as Record<string, unknown>, {
+        manager: { query },
+        createQueryBuilder: jest.fn().mockReturnValue(qb),
+      });
 
       const result = await service.getMyPackages('student-1', 2, 20);
 
       expect(result.meta).toMatchObject({ total: 41, page: 2, limit: 20, totalPages: 3 });
+      expect(result.data).toEqual([{ id: 'pp' }]);
+      // Step 1: newest live purchase per course, offset/limit on purchase rows, scoped by student.
+      const [pageSql, pageParams] = query.mock.calls[0] as [string, unknown[]];
+      expect(pageSql).toContain('DISTINCT ON (package_id)');
+      expect(pageSql).toContain('revoked_at IS NULL');
+      expect(pageParams).toEqual(['student-1', 20, 20]);
+      const [countSql, countParams] = query.mock.calls[1] as [string, unknown[]];
+      expect(countSql).toContain('COUNT(DISTINCT package_id)');
+      expect(countParams).toEqual(['student-1']);
+      // Step 2: ids re-checked against the student; projection unchanged.
+      expect(qb['where']).toHaveBeenCalledWith('purchase.id IN (:...ids)', { ids: ['pp'] });
+      expect(qb['andWhere']).toHaveBeenCalledWith('purchase.student_id = :userId', {
+        userId: 'student-1',
+      });
+      expect(qb['andWhere']).toHaveBeenCalledWith('purchase.revoked_at IS NULL');
       expect(qb['addSelect']).toHaveBeenCalledWith(['teacher.id', 'teacher.name', 'teacher.profile_picture_url']);
       // `title_ar` is not a lesson column; selecting it would make TypeORM throw.
       expect(qb['addSelect']).toHaveBeenCalledWith(['lesson.id', 'lesson.title', 'lesson.duration']);
-      expect(qb['where']).toHaveBeenCalledWith('purchase.student_id = :userId', { userId: 'student-1' });
-      expect(qb['andWhere']).toHaveBeenCalledWith('purchase.revoked_at IS NULL');
       expect(qb['orderBy']).toHaveBeenCalledWith('purchase.purchased_at', 'DESC');
-      expect(qb['skip']).toHaveBeenCalledWith(20);
-      expect(qb['take']).toHaveBeenCalledWith(20);
+      expect(qb['addOrderBy']).toHaveBeenCalledWith('items.order_index', 'ASC');
+    });
+
+    it('skips the detail query when the student has no live purchases', async () => {
+      const qb = mockQueryBuilder();
+      const query = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: '0' }]);
+      const createQueryBuilder = jest.fn().mockReturnValue(qb);
+      Object.assign(packagePurchases as unknown as Record<string, unknown>, {
+        manager: { query },
+        createQueryBuilder,
+      });
+
+      const result = await service.getMyPackages('student-1');
+
+      expect(result).toMatchObject({ data: [], meta: { total: 0, totalPages: 0 } });
+      expect(createQueryBuilder).not.toHaveBeenCalled();
     });
   });
+
 });
