@@ -20,8 +20,8 @@ provider-as-before behaviour, so none of this changes an existing deployment unt
 | Variable | Notes |
 |---|---|
 | `REQUIRE_TLS_BACKENDS=true` | Boot fails unless Redis is `rediss://`, certificate verification is on, and the DB host is not loopback. Set in staging/production. |
-| `REDIS_URL` | `rediss://:<auth token>@<elasticache endpoint>:6379` (**secret**). ElastiCache certificates chain to Amazon roots already trusted by Node. |
-| `DATABASE_URL` | **secret**. Remote hosts always use SSL with verification. |
+| `REDIS_URL` | `rediss://:<auth token>@<elasticache endpoint>:6379` (**secret**). On ECS it is composed by the entrypoint from `REDIS_HOST`, `REDIS_PORT` and the secret-injected `REDIS_AUTH_TOKEN`. ElastiCache certificates chain to Amazon roots already trusted by Node. |
+| `DATABASE_URL` | **secret**. Remote hosts always use SSL with verification. On ECS it is not set: the container entrypoint (`scripts/docker-entrypoint.sh`) composes it from `DB_HOST`, `DB_PORT`, `DB_NAME` and the secret-injected `DB_USER` / `DB_PASSWORD` (RDS-managed master secret). |
 | `DATABASE_SSL_CA_FILE` / `DATABASE_SSL_CA` | RDS CA bundle (file path or PEM). Build the image with `--build-arg RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem` and set `DATABASE_SSL_CA_FILE=/app/certs/rds-ca-bundle.pem`. |
 | ElastiCache parameter | `maxmemory-policy=noeviction` (BullMQ requirement). |
 
@@ -75,6 +75,7 @@ Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned
 | `SMS_AWS_CONFIGURATION_SET`, `SMS_AWS_PROTECT_CONFIGURATION_ID` | Event destination and the Egypt-only protect configuration. |
 | `SMS_ALLOWED_COUNTRY_PREFIXES` | Default `+20`; second line of defence against SMS pumping. |
 | `SMS_MODE=sandbox` | Staging: nothing is sent. |
+| `SMS_EVENTS_QUEUE_URL` | SQS queue of delivery events (configuration set -> SNS -> SQS). Worker logs them (warn on failure, destination masked). |
 
 ## Web Push
 

@@ -35,7 +35,9 @@ RUN if [ -n "$RDS_CA_BUNDLE_URL" ]; then \
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
+COPY --chown=node:node --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 USER node
 EXPOSE 3000
 # Run under ECS with initProcessEnabled=true so signals reach node and zombies are reaped.
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/src/main.js"]

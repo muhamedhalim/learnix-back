@@ -51,6 +51,7 @@ import {
   SmsSenderService,
 } from './services';
 import { ParentMessageAdminService } from './services/parent-message-admin.service';
+import { SmsEventsConsumer } from './services/sms-events.consumer';
 import { ParentMessageService } from './services/parent-message.service';
 import { ParentNotificationJobsService } from './services/parent-notification-jobs.service';
 import { TemplateRendererService } from './templates/template-renderer.service';
@@ -126,6 +127,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     AdminNotificationsService,
     AdminAlertsListener,
     SmsSenderService,
+    SmsEventsConsumer,
 
     // Preference policy + delivery ledger (shared by every channel)
     NotificationChannelPolicyService,

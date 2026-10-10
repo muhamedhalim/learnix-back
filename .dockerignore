@@ -17,3 +17,4 @@ scripts
 *.log
 *.tsbuildinfo
 docker-compose*.yml
+!scripts/docker-entrypoint.sh
