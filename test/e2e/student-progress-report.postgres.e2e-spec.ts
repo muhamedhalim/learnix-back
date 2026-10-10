@@ -174,21 +174,25 @@ describe('Student progress report characterization (postgres)', () => {
     });
   });
 
-  describe('soft-deleted lesson (records the CURRENT behaviour, whatever it is)', () => {
-    it('completed progress on a soft-deleted lesson', async () => {
-      const { student, owner, math } = await liveFixture();
+  describe('soft-deleted lesson (T061 regression: excluded, never a 500)', () => {
+    it('completed progress on a soft-deleted lesson is not counted and does not fail the report', async () => {
+      const { student, owner, math, physics } = await liveFixture();
       const doomed = await lesson(owner.id, math.id, 'M-deleted');
       await progress(student.userId, doomed, true);
       await ctx.dataSource.getRepository(Lesson).softDelete({ id: doomed.id });
 
-      const response = await student.agent.get(url);
+      const response = await student.agent.get(url).expect(200);
+      const report = (response.body.data ?? response.body) as {
+        overallProgress: number;
+        subjects: Array<Record<string, unknown>>;
+      };
 
-      // OBSERVED (2026-10-09, TypeORM 0.3.31): the THROW branch. `progress.find({ relations:
-      // ['lesson'] })` joins `lessons` with an implicit `deleted_at IS NULL`, leaving `p.lesson`
-      // null, and `calculateAllSubjectProgress` dereferences `p.lesson.subject_id` for a
-      // completed row -> TypeError -> HTTP 500. Not 'counted', not 'skipped'.
-      expect(response.status).toBe(500);
-      expect(JSON.stringify(response.body)).toContain("Cannot read properties of null (reading 'subject_id')");
+      // T060 recorded the pre-rewrite behaviour: HTTP 500 (TypeError on `p.lesson.subject_id`).
+      // After T061 the soft-deleted lesson is excluded and every figure equals the live-only fixture.
+      const bySubject = new Map(report.subjects.map((s) => [s['subjectId'], s]));
+      expect(bySubject.get(math.id)).toMatchObject({ lessonsCompleted: 2, lessonsTotal: 3, progressPercent: 67 });
+      expect(bySubject.get(physics.id)).toMatchObject({ lessonsCompleted: 1, lessonsTotal: 3, progressPercent: 33 });
+      expect(report.overallProgress).toBe(50);
     });
   });
 });

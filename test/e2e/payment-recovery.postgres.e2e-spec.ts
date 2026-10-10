@@ -36,7 +36,15 @@ describe('payment recovery PostgreSQL guarantees', () => {
 
   beforeEach(async () => resetDatabase(dataSource));
 
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    // The down/up round trip above re-creates `users.finance_permissions` through migration 2051, whose
+    // default is the full permission set. Migration 2058 (and the entity) define the default as `[]`;
+    // restore it so suites that run later on this shared database do not seed permissioned non-admins.
+    await dataSource.query(
+      `ALTER TABLE "users" ALTER COLUMN "finance_permissions" SET DEFAULT '[]'::jsonb`,
+    );
+    await app.close();
+  });
 
   it('has durable recovery columns and the active refund dispatch uniqueness index', async () => {
     const columns = (await dataSource.query(`

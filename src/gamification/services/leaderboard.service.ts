@@ -138,11 +138,10 @@ export class LeaderboardService {
   }
 
   private allTimeSubjectBoard(query: LeaderboardQueryDto): SelectQueryBuilder<ObjectLiteral> {
-    const subjectXp = `(
-      SELECT COALESCE(SUM(qs.xp_awarded), 0)
-      FROM question_solves qs
-      WHERE qs.user_id = sr.user_id AND qs.subject_id = sr.subject_id
-    )`;
+    // T097: subject XP is aggregated once for the whole subject (grouped derived table joined on
+    // user) instead of a correlated subquery that ran once per candidate row, and twice when
+    // `metric = xp` (score and `xp` both embedded it). A student with no solve rows gets 0.
+    const subjectXp = 'COALESCE(sx.xp, 0)';
     const score = query.metric === LeaderboardMetric.XP ? subjectXp : 'sr.rating';
     return this.subjectRatings
       .createQueryBuilder('sr')
@@ -150,6 +149,17 @@ export class LeaderboardService {
       .innerJoin('users', 'u', "u.id = sr.user_id AND u.deleted_at IS NULL AND u.role = 'student'")
       .innerJoin('student_profiles', 'sp', 'sp.user_id = sr.user_id AND sp.is_public_profile = true')
       .leftJoin('rank_tiers', 'rt', 'rt.id = gp.rank_tier_id')
+      .leftJoin(
+        (sub) =>
+          sub
+            .select('qs.user_id', 'user_id')
+            .addSelect('SUM(qs.xp_awarded)', 'xp')
+            .from('question_solves', 'qs')
+            .where('qs.subject_id = :subjectId', { subjectId: query.subject_id })
+            .groupBy('qs.user_id'),
+        'sx',
+        'sx.user_id = sr.user_id',
+      )
       .where('sr.subject_id = :subjectId', { subjectId: query.subject_id })
       .andWhere('sr.solved > 0')
       .select('sr.user_id', 'user_id')

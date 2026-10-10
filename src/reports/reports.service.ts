@@ -174,15 +174,13 @@ export class ReportsService {
           where: { deleted_at: IsNull() },
         });
 
-        const progressRecords = await this.lessonProgressRepository.find({
-          where: { student_id: studentId },
-          relations: ['lesson'],
-        });
-
+        // T061: completed lessons are counted per subject in SQL (one row per subject) instead of
+        // hydrating every progress row with its lesson. Soft-deleted lessons are excluded.
+        const completedBySubject = await this.buildCompletedBySubjectMap(studentId);
         const scoreBySubject = await this.buildScoreBySubjectMap(studentId);
         const subjectProgress = await this.calculateAllSubjectProgress(
           subjects,
-          progressRecords,
+          completedBySubject,
           scoreBySubject,
         );
 
@@ -374,6 +372,19 @@ export class ReportsService {
 
   // ====================== STUDENT REPORT HELPERS ======================
 
+  private async buildCompletedBySubjectMap(studentId: string): Promise<Map<string, number>> {
+    const rows = await this.lessonProgressRepository
+      .createQueryBuilder('progress')
+      .innerJoin('progress.lesson', 'lesson')
+      .select('lesson.subject_id', 'subject_id')
+      .addSelect('COUNT(*)', 'count')
+      .where('progress.student_id = :studentId', { studentId })
+      .andWhere('progress.completed = true')
+      .groupBy('lesson.subject_id')
+      .getRawMany<{ subject_id: string; count: string }>();
+    return new Map(rows.map((r) => [r.subject_id, Number.parseInt(r.count, 10)]));
+  }
+
   private async buildScoreBySubjectMap(studentId: string): Promise<Map<string, number>> {
     const examScores = await this.examAttemptsRepository
       .createQueryBuilder('ea')
@@ -395,7 +406,7 @@ export class ReportsService {
 
   private async calculateAllSubjectProgress(
     subjects: Subject[],
-    progressRecords: LessonProgress[],
+    completedBySubject: Map<string, number>,
     scoreBySubject: Map<string, number>,
   ): Promise<SubjectProgressDto[]> {
     if (subjects.length === 0) return [];
@@ -419,9 +430,7 @@ export class ReportsService {
 
     return subjects.map((subject) => {
       const subjectLessons = lessonCountBySubject.get(subject.id) ?? 0;
-      const completedLessons = progressRecords.filter(
-        (p) => p.completed && p.lesson.subject_id === subject.id,
-      ).length;
+      const completedLessons = completedBySubject.get(subject.id) ?? 0;
 
       const progressPercent =
         subjectLessons > 0 ? Math.round((completedLessons / subjectLessons) * 100) : 0;

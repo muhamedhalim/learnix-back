@@ -15,6 +15,7 @@ import { User } from '../../users/entities/user.entity';
 @Index('IDX_audit_logs_action', ['action'])
 @Index('IDX_audit_logs_target_type', ['target_type'])
 @Index('IDX_audit_logs_created_at', ['created_at'])
+@Index('IDX_audit_logs_target_created', ['target_type', 'target_id', 'created_at'])
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

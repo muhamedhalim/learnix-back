@@ -353,13 +353,15 @@ describe('QuizAnalyticsService.getExamQuestionAnalytics', () => {
 
     expect(result).toEqual({ eligibleStudents: 25, completedStudents: 10 });
     const sql = attempts.query.mock.calls[0]?.[0] as string;
-    expect(sql).toContain('exam.is_public = true');
+    // T098: public exams are counted arithmetically (no per-student rows); non-public stay paired.
+    expect(sql).toContain('is_public = true');
     expect(sql).toContain('exam.is_public = false');
     expect(sql).toContain('purchase.package_id = exam.package_id');
     expect(sql).toContain('purchase.lesson_id = exam.lesson_id');
     expect(sql).toContain('lesson_package_items');
     expect(sql).toContain('SELECT DISTINCT attempt.exam_id, attempt.student_id');
-    expect(sql).toContain('COUNT(completed.student_id)');
+    expect(sql).toContain('active_student');
+    expect(sql).toContain('completed.exam_id = eligible.exam_id');
     expect(sql).toContain('attempt.state = ANY($2)');
     expect(sql).toContain('exam.deleted_at IS NULL');
   });

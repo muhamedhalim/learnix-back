@@ -1171,13 +1171,9 @@ export class QuizAnalyticsService {
       { eligibleStudents: number | string; completedStudents: number | string }[]
     >(
       `
-        WITH eligible AS (
-          SELECT exam.id AS exam_id, student.id AS student_id
+        WITH open_exam AS (
+          SELECT exam.id, exam.is_public, exam.lesson_id, exam.package_id
           FROM exams exam
-          INNER JOIN users student
-            ON student.role = 'student'
-           AND student.is_active = true
-           AND student.deleted_at IS NULL
           WHERE exam.teacher_id = $1
             AND exam.deleted_at IS NULL
             AND exam.status IN ('published', 'scheduled', 'archived')
@@ -1185,11 +1181,16 @@ export class QuizAnalyticsService {
               NULLIF(exam.config ->> 'start_window_at', '') IS NULL
               OR (exam.config ->> 'start_window_at')::timestamptz <= NOW()
             )
-            AND exam.is_public = true
-
-          UNION
-
-          SELECT exam.id, student.id
+        ), active_student AS (
+          SELECT student.id
+          FROM users student
+          WHERE student.role = 'student'
+            AND student.is_active = true
+            AND student.deleted_at IS NULL
+        ), eligible AS (
+          -- Non-public audiences only. Public exams reach every active student, so they are counted
+          -- arithmetically below instead of materialising one row per (exam, student).
+          SELECT exam.id AS exam_id, student.id AS student_id
           FROM exams exam
           INNER JOIN package_purchases purchase
             ON purchase.package_id = exam.package_id
@@ -1308,12 +1309,25 @@ export class QuizAnalyticsService {
             AND attempt.score_total IS NOT NULL
         )
         SELECT
-          COUNT(*)::int AS "eligibleStudents",
-          COUNT(completed.student_id)::int AS "completedStudents"
-        FROM eligible
-        LEFT JOIN completed
-          ON completed.exam_id = eligible.exam_id
-         AND completed.student_id = eligible.student_id
+          (
+            (SELECT COUNT(*) FROM open_exam WHERE is_public = true) * (SELECT COUNT(*) FROM active_student)
+            + (SELECT COUNT(*) FROM eligible)
+          )::int AS "eligibleStudents",
+          (
+            (
+              SELECT COUNT(*)
+              FROM completed
+              INNER JOIN open_exam ON open_exam.id = completed.exam_id AND open_exam.is_public = true
+              INNER JOIN active_student ON active_student.id = completed.student_id
+            )
+            + (
+              SELECT COUNT(*)
+              FROM eligible
+              INNER JOIN completed
+                ON completed.exam_id = eligible.exam_id
+               AND completed.student_id = eligible.student_id
+            )
+          )::int AS "completedStudents"
       `,
       [teacherId, TEACHER_ANALYTICS_ATTEMPT_STATES],
     );
