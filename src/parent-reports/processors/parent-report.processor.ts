@@ -54,7 +54,7 @@ import {
  * job, so a student whose aggregation throws fails their own job and no one
  * else's. The sweep only enqueues.
  */
-@Processor(QUEUE_NAMES.PARENT_REPORTS, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.PARENT_REPORTS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class ParentReportProcessor extends WorkerHost {
   private readonly logger = new Logger(ParentReportProcessor.name);
 

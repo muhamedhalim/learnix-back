@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, ServiceUnavailableException, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
@@ -8,8 +8,9 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { biBody } from '../../../i18n/error-translator.util';
-import type { BunnyVideoMetadata } from '../../../lessons/bunny-stream.service';
 import { BunnyStreamService } from '../../../lessons/bunny-stream.service';
+import { AwsVideoService, awsAssetId, isAwsRef } from '../../../video/aws-video.service';
+import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { MarketplaceReasonDto } from '../../common/dto/reason.dto';
 import { CourseAuthoringService } from '../course-authoring.service';
 import { CourseLifecycleService } from '../course-lifecycle.service';
@@ -28,6 +29,7 @@ export class AdminCoursesController {
     private readonly authoring: CourseAuthoringService,
     private readonly lifecycle: CourseLifecycleService,
     private readonly bunnyStream: BunnyStreamService,
+    private readonly awsVideo: AwsVideoService,
   ) {}
 
   @Get()
@@ -53,16 +55,39 @@ export class AdminCoursesController {
    */
   @Get(':id/lessons/:lessonId/video')
   @ApiOperation({ summary: 'Bunny playback metadata for one lesson video, so a reviewer can actually play it (FR-065)' })
+  @UseInterceptors(PlaybackCookiesInterceptor)
   public async getLessonVideo(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
-  ): Promise<BunnyVideoMetadata> {
+  ): Promise<unknown> {
     const { sections } = await this.authoring.getCourseWithCurriculum(id);
     const lesson = sections.flatMap((section) => section.lessons).find((l) => l.id === lessonId);
     if (!lesson?.video_id) {
       throw new NotFoundException(biBody('No video has been uploaded for this lesson yet', 'لم يتم رفع فيديو لهذا الدرس بعد'));
     }
-    return this.bunnyStream.getVideo(lesson.video_id);
+    if (isAwsRef(lesson.video_id)) {
+      const assetId = awsAssetId(lesson.video_id);
+      const asset = await this.awsVideo.getStatus(assetId);
+      if (asset.status !== 'ready') return { status: asset.status, platform: 'aws' };
+      const grant = await this.awsVideo.grantPlayback(assetId);
+      return {
+        status: 'ready',
+        platform: 'aws',
+        hls_url: grant.hls_url,
+        expires_at: grant.expires_at,
+        playback_cookies: grant.playback_cookies,
+      };
+    }
+    // The reviewer is an authorised viewer, but the raw Bunny metadata carries unsigned embed and
+    // playback URLs that anyone could reuse. Return only what the player needs, signed.
+    const { embedUrl: _embed, playbackUrl: _playback, ...meta } = await this.bunnyStream.getVideo(lesson.video_id);
+    const signed = this.bunnyStream.generateSignedEmbedUrl(lesson.video_id, 15 * 60);
+    if (signed === null) {
+      throw new ServiceUnavailableException(
+        biBody('Secure video playback is not configured on the server.', 'التشغيل الآمن للفيديو غير مُهيَّأ على الخادم.'),
+      );
+    }
+    return { ...meta, platform: 'bunny', signed_url: signed };
   }
 
   @Post(':id/approve')

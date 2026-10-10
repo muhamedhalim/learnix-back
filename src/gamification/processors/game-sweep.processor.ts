@@ -11,7 +11,7 @@ import { GamificationService } from '../services/gamification.service';
  * streak-reset sweep (see `GameJobsService`); the reset itself is an idempotent
  * bulk UPDATE, so re-running is always safe.
  */
-@Processor(QUEUE_NAMES.GAMIFICATION, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.GAMIFICATION, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class GameSweepProcessor extends WorkerHost {
   private readonly logger = new Logger(GameSweepProcessor.name);
 

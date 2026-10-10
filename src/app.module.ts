@@ -83,6 +83,8 @@ import { WishlistModule } from './wishlist/wishlist.module';
 import { isMarketplaceEnabled } from './config/marketplace.config';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { QueuesModule } from './queues/queues.module';
+import { runsBackgroundWork } from './config/process-role';
+import { CronLockModule } from './common/utils/cron-lock.module';
 import { User } from './users/entities/user.entity';
 import { UsersModule } from './users/users.module';
 
@@ -195,7 +197,9 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     EventEmitterModule.forRoot(),
     ObservabilityModule,
     SanitizationModule,
-    ScheduleModule.forRoot(),
+    // Cron jobs only run in processes that do background work (PROCESS_ROLE != api).
+    ...(runsBackgroundWork() ? [ScheduleModule.forRoot()] : []),
+    CronLockModule,
     AuthModule,
     // Single global backstop tier. Do NOT add stricter named tiers here — the
     // global ThrottlerGuard enforces EVERY named config on EVERY route, so a

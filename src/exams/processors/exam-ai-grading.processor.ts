@@ -15,7 +15,7 @@ interface AiGradeJob {
  * Suggestions are written to `ai_suggested_score`/`ai_confidence` only — the
  * teacher always makes the final grading decision.
  */
-@Processor(QUEUE_NAMES.EXAM_AI_GRADING, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.EXAM_AI_GRADING, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class ExamAiGradingProcessor extends WorkerHost {
   private readonly logger = new Logger(ExamAiGradingProcessor.name);
 

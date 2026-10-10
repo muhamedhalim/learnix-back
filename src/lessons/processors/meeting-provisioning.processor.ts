@@ -17,7 +17,7 @@ interface MeetingProvisionJob {
  * conditional claim, provider call, and result persistence, so behaviour is
  * identical whether it runs here or is unit-tested directly.
  */
-@Processor(QUEUE_NAMES.MEETING_PROVISIONING, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.MEETING_PROVISIONING, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class MeetingProvisioningProcessor extends WorkerHost {
   private readonly logger = new Logger(MeetingProvisioningProcessor.name);
 

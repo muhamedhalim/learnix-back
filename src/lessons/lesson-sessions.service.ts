@@ -43,6 +43,7 @@ import { TeacherMeetingAccount } from './entities/teacher-meeting-account.entity
 import { TeacherMeetingAccountStatus } from './entities/teacher-meeting-account-status.enum';
 import { MeetingAccountsService } from './meetings/meeting-accounts.service';
 import { MeetingProviderRegistry } from './meetings/meeting-provider-registry.service';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 interface DatabaseError {
   code?: string;
@@ -860,6 +861,7 @@ export class LessonSessionsService {
    * notification dedupe key is the durable exactly-once gate for each event.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @CronSingleRunner('lessons.session_notifications')
   public async dispatchScheduledSessionNotifications(): Promise<void> {
     const now = this.currentTime();
     // T070: a booking is a candidate only when some notification it could still

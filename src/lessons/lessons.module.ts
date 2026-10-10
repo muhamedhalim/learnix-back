@@ -33,7 +33,9 @@ import { LessonNote } from './entities/lesson-note.entity';
 import { LessonProgress } from './entities/lesson-progress.entity';
 import { LessonContentService } from './lesson-content.service';
 import { TeacherHomeworkService } from './teacher-homework.service';
+import { LessonAwsVideoService } from './lesson-aws-video.service';
 import { LessonsService } from './lessons.service';
+import { VideoModule } from '../video/video.module';
 import { ProgressService } from './progress.service';
 
 @Module({
@@ -56,6 +58,7 @@ import { ProgressService } from './progress.service';
     NotificationsModule,
     ReviewsModule,
     UploadModule,
+    VideoModule,
   ],
   controllers: [
     AdminLessonsController,
@@ -76,8 +79,9 @@ import { ProgressService } from './progress.service';
     LessonContentService,
     TeacherHomeworkService,
     BunnyStreamService,
+    LessonAwsVideoService,
   ],
-  exports: [LessonsService, ProgressService, BunnyStreamService, TypeOrmModule],
+  exports: [LessonsService, ProgressService, BunnyStreamService, LessonAwsVideoService, TypeOrmModule],
 })
 export class LessonsModule implements OnModuleInit {
   public onModuleInit(): void {

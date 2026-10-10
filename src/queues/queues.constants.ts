@@ -1,5 +1,6 @@
 import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connection.util';
 import { areBackgroundJobsEnabled } from '../config/feature-flags';
+import { runsBackgroundWork } from '../config/process-role';
 
 /**
  * Queue Names and Configuration Constants
@@ -264,6 +265,9 @@ export const WORKER_CONFIG = {
     process.env['WORKER_CONCURRENCY'] ?? process.env['QUEUE_CONCURRENCY'] ?? '5',
     10,
   ),
+
+  /** Consume jobs only in processes that do background work (PROCESS_ROLE != api). */
+  autorun: runsBackgroundWork(),
 };
 
 /**

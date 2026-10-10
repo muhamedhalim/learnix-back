@@ -17,6 +17,8 @@ export enum PushPlatform {
 export enum PushProviderName {
   /** Firebase Cloud Messaging (HTTP v1, via the Firebase Admin SDK). */
   FCM = 'fcm',
+  /** Standard Web Push (RFC 8030) with VAPID; the token is the browser's PushSubscription JSON. */
+  WEBPUSH = 'webpush',
 }
 
 /**

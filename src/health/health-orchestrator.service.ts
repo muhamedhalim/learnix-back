@@ -179,6 +179,8 @@ export class HealthOrchestratorService {
         backendVersion: this.config.get<string>('APP_VERSION') ?? '0.0.1',
         frontendVersion: this.config.get<string>('FRONTEND_VERSION') ?? null,
         deploymentId:
+          this.config.get<string>('GIT_SHA') ??
+          this.config.get<string>('COMMIT_SHA') ??
           this.config.get<string>('RAILWAY_GIT_COMMIT_SHA') ??
           this.config.get<string>('GIT_COMMIT') ??
           this.config.get<string>('RENDER_GIT_COMMIT') ??

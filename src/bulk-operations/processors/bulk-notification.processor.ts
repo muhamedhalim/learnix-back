@@ -27,7 +27,7 @@ interface BulkNotificationJob {
 
 const RECIPIENT_BATCH_SIZE = 500;
 
-@Processor(QUEUE_NAMES.BULK_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.BULK_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class BulkNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkNotificationProcessor.name);
 

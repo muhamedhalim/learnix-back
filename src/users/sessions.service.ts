@@ -7,6 +7,7 @@ import { LessThan, Repository } from 'typeorm';
 import { biBody } from '../i18n/error-translator.util';
 import type { UserSessionDto } from './dto/user-session.dto';
 import { UserSession } from './entities/user-session.entity';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 @Injectable()
 export class SessionsService {
@@ -21,6 +22,7 @@ export class SessionsService {
    * Cleanup expired sessions - runs daily at 3 AM
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  @CronSingleRunner('users.cleanup_sessions')
   public async cleanupExpiredSessions(): Promise<void> {
     const now = new Date();
 

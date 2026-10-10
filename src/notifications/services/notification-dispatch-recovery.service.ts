@@ -8,6 +8,7 @@ import { FEATURE_FLAGS, isFeatureEnabled } from '../../config/feature-flags';
 import { areQueuesEnabled } from '../../queues/queues.constants';
 import { Notification, NotificationChannel, NotificationOrigin } from '../entities';
 import { PushNotificationJobsService } from './push-notification-jobs.service';
+import { CronSingleRunner } from '../../common/utils/cron-lock.util';
 
 /**
  * Recovery net for the database/queue boundary.
@@ -29,6 +30,7 @@ export class NotificationDispatchRecoveryService {
   ) {}
 
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @CronSingleRunner('notifications.recover_push_decisions')
   public async recoverMissingPushDecisions(): Promise<number> {
     if (
       this.running ||

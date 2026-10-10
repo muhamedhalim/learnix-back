@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { maskSecret } from '../../common/utils/mask.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { PushDevice, PushDeviceDisabledReason, PushPlatform, PushProviderName } from '../entities';
+import { parseWebPushToken } from '../push/web-push.util';
 
 export interface RegisterPushDeviceInput {
   userId: string;
@@ -69,8 +70,9 @@ export class PushDeviceService {
    * A user may hold any number of distinct devices; nothing here caps or
    * replaces them.
    */
-  public async register(input: RegisterPushDeviceInput): Promise<PushDevice> {
-    const provider = input.provider ?? PushProviderName.FCM;
+  public async register(rawInput: RegisterPushDeviceInput): Promise<PushDevice> {
+    const provider = rawInput.provider ?? PushProviderName.FCM;
+    const input = { ...rawInput, token: this.normaliseToken(provider, rawInput.token) };
     const platform = input.platform ?? PushPlatform.WEB;
     const deviceId = input.deviceId ?? null;
     const now = new Date();
@@ -146,6 +148,25 @@ export class PushDeviceService {
     );
     this.logger.log(`Push device ${created.id} registered for user ${input.userId}`);
     return created;
+  }
+
+  /**
+   * A Web Push token is a JSON subscription whose key order is up to the client; canonicalise it so
+   * the same subscription can never be stored twice. Anything that is not a safe subscription
+   * (including an endpoint on a non-push-service host, which would be an SSRF vector) is refused.
+   */
+  private normaliseToken(provider: PushProviderName, token: string): string {
+    if (provider !== PushProviderName.WEBPUSH) return token;
+    const subscription = parseWebPushToken(token);
+    if (subscription === null) {
+      throw new BadRequestException(
+        biBody('Invalid push subscription', 'اشتراك الإشعارات غير صالح'),
+      );
+    }
+    return JSON.stringify({
+      endpoint: subscription.endpoint,
+      keys: { auth: subscription.keys.auth, p256dh: subscription.keys.p256dh },
+    });
   }
 
   /** Every device eligible to receive a push for this user. */

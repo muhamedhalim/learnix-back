@@ -1,11 +1,14 @@
 import {
   Controller,
   Get,
+  Header,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
+import { PlaybackCookiesInterceptor } from '../../video/playback-cookies';
 import {
   ApiOperation,
   ApiParam,
@@ -105,6 +108,21 @@ export class PackagesController {
       status: CourseStatus.PUBLISHED,
     });
     return await this.packagesService.findAllPublic(publicFilter);
+  }
+
+  /**
+   * Cookie grant for a free-preview lesson hosted on AWS. Never cached: the response sets
+   * path-scoped, short-lived signed cookies.
+   */
+  @Get(':id/preview/lessons/:lessonId/playback')
+  @UseInterceptors(PlaybackCookiesInterceptor)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Playback grant for a free-preview lesson (AWS video)' })
+  public async previewPlayback(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+  ): Promise<unknown> {
+    return await this.coursePreviewService.getPreviewPlayback(id, lessonId);
   }
 
   /**

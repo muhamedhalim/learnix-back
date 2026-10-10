@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 
@@ -14,7 +14,11 @@ import { withHealthTimeout } from './health-timeout.util';
  * deliberately minimal.
  */
 @Injectable()
-export class HealthService {
+export class HealthService implements OnModuleDestroy {
+  // One long-lived client for readiness probes. A fresh client per probe meant a full TCP + TLS
+  // handshake every few seconds against ElastiCache; ioredis reconnects on its own.
+  private readinessRedis: Redis | null = null;
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly config: ConfigService,
@@ -71,27 +75,31 @@ export class HealthService {
    * No-ops when Redis isn't configured at all — the same "optional outside
    * production" contract every other Redis consumer in this codebase
    * honours (`app.module.ts`, `queues.module.ts`). A brand-new, short-lived
-   * connection is used and always disconnected, so a readiness probe firing
-   * every few seconds never accumulates idle Redis connections.
+   * connection is reused across probes (a single client, closed on shutdown), so
+   * a probe firing every few seconds neither handshakes each time nor piles up
+   * connections.
    */
   private async checkRedisReady(): Promise<void> {
     const redisUrl = resolveRedisUrl((key) => this.config.get<string>(key));
     if (redisUrl === undefined) return;
 
+    this.readinessRedis ??= this.createReadinessClient(redisUrl);
+    await withHealthTimeout('readiness.redis', this.readinessRedis.ping(), 2_000);
+  }
+
+  private createReadinessClient(redisUrl: string): Redis {
     const client = new Redis(redisUrl, {
-      lazyConnect: true,
       connectTimeout: 2_000,
       maxRetriesPerRequest: 1,
-      retryStrategy: () => null,
+      retryStrategy: (attempt) => Math.min(attempt * 200, 2_000),
     });
-    try {
-      await withHealthTimeout(
-        'readiness.redis',
-        client.connect().then(() => client.ping()),
-        2_000,
-      );
-    } finally {
-      client.disconnect();
-    }
+    // Failures surface through the failing ping; this only stops unhandled 'error' events.
+    client.on('error', () => undefined);
+    return client;
+  }
+
+  public onModuleDestroy(): void {
+    this.readinessRedis?.disconnect();
+    this.readinessRedis = null;
   }
 }

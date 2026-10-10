@@ -15,6 +15,7 @@ jest.mock('ioredis', () => {
       connect: jest.fn().mockResolvedValue(undefined),
       ping: jest.fn().mockResolvedValue('PONG'),
       disconnect: jest.fn(),
+      on: jest.fn(),
     };
     mockRedisInstances.push(instance);
     return instance;
@@ -57,7 +58,22 @@ describe('HealthService.getReadiness', () => {
     expect(result.status).toBe('ready');
     expect(mockRedisInstances).toHaveLength(1);
     expect(mockRedisInstances[0]?.ping).toHaveBeenCalled();
-    expect(mockRedisInstances[0]?.disconnect).toHaveBeenCalled();
+  });
+
+  it('reuses one Redis client across probes and closes it on shutdown', async () => {
+    const service = new HealthService(
+      dataSourceWithQuery(jest.fn().mockResolvedValue([])),
+      configFor({ REDIS_URL: 'rediss://localhost:6379' }),
+    );
+
+    await service.getReadiness();
+    await service.getReadiness();
+
+    expect(mockRedisInstances).toHaveLength(1);
+    expect(mockRedisInstances[0]?.ping).toHaveBeenCalledTimes(2);
+    expect(mockRedisInstances[0]?.disconnect).not.toHaveBeenCalled();
+    service.onModuleDestroy();
+    expect(mockRedisInstances[0]?.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it('is not_ready when the database query fails', async () => {
@@ -74,9 +90,10 @@ describe('HealthService.getReadiness', () => {
   it('is not_ready when Redis is configured but unreachable, even though the database is fine', async () => {
     (jest.requireMock('ioredis') as jest.Mock).mockImplementationOnce(() => {
       const instance = {
-        connect: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
-        ping: jest.fn(),
+        connect: jest.fn(),
+        ping: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')),
         disconnect: jest.fn(),
+        on: jest.fn(),
       };
       mockRedisInstances.push(instance);
       return instance;

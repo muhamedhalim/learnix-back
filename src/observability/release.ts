@@ -20,6 +20,9 @@ import type { EnvReader } from '../common/utils/redis-connection.util';
 
 /** Platform-injected commit SHA variables, in precedence order. */
 const COMMIT_SHA_KEYS = [
+  // Platform-neutral (set by the CI image build / ECS task definition) wins.
+  'GIT_SHA',
+  'COMMIT_SHA',
   'RAILWAY_GIT_COMMIT_SHA',
   'GIT_COMMIT',
   'RENDER_GIT_COMMIT',
@@ -41,7 +44,7 @@ function firstNonEmpty(get: EnvReader, keys: readonly string[]): string | undefi
  * more honest than a fabricated one, and Sentry treats "no release" correctly.
  */
 export function resolveRelease(get: EnvReader): string | undefined {
-  return firstNonEmpty(get, ['SENTRY_RELEASE', 'APP_VERSION', ...COMMIT_SHA_KEYS]);
+  return firstNonEmpty(get, ['SENTRY_RELEASE', 'APP_RELEASE', 'APP_VERSION', ...COMMIT_SHA_KEYS]);
 }
 
 /**

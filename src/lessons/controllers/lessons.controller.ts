@@ -9,6 +9,7 @@ import {
   Query,
   Res,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -28,6 +29,7 @@ import type { JwtPayload } from '../../common/interfaces/user-request.interface'
 import { LessonFilterDto, UpsertNoteDto } from '../dto';
 import { LessonContentService } from '../lesson-content.service';
 import { LessonsService } from '../lessons.service';
+import { PlaybackCookiesInterceptor } from '../../video/playback-cookies';
 
 @ApiTags('Lessons')
 @Controller('lessons')
@@ -130,6 +132,7 @@ export class LessonsController {
 
   @Get(':id/signed-url')
   @UseGuards(HybridAuthGuard)
+  @UseInterceptors(PlaybackCookiesInterceptor)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get a signed playback URL for a lesson video',
@@ -144,7 +147,7 @@ export class LessonsController {
   public async getSignedUrl(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ signedUrl: string; expiresIn: number }> {
+  ): Promise<{ signedUrl: string; expiresIn: number; platform?: 'aws' }> {
     return await this.lessonsService.getSignedPlaybackUrl(
       id,
       user.userId,

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
+import { MailEventsConsumer } from './mail-events.consumer';
 import { MailProcessor } from './mail.processor';
 import { MailService } from './mail.service';
 import { NotificationDelivery } from '../notifications/entities';
@@ -15,7 +16,7 @@ import { NotificationDelivery } from '../notifications/entities';
     TypeOrmModule.forFeature([NotificationDelivery]),
     registerQueues({ name: QUEUE_NAMES.EMAIL, config: QUEUE_CONFIGS[QUEUE_NAMES.EMAIL] }),
   ],
-  providers: [MailService, ...(areQueuesEnabled() ? [MailProcessor] : [])],
+  providers: [MailService, MailEventsConsumer, ...(areQueuesEnabled() ? [MailProcessor] : [])],
   exports: [MailService],
 })
 export class MailModule {}

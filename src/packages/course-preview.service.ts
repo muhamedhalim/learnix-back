@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { In, IsNull, Repository } from 'typeorm';
@@ -6,6 +6,8 @@ import { In, IsNull, Repository } from 'typeorm';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
+import { LessonAwsVideoService } from '../lessons/lesson-aws-video.service';
+import type { PlaybackGrant } from '../video/aws-video.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { LessonStatus } from '../lessons/entities/lesson-status.enum';
 import { MediaService } from '../media/media.service';
@@ -36,7 +38,11 @@ interface PreviewLesson {
    * embed URL: this endpoint is public and unauthenticated, so only a
    * short-lived signed URL is safe to hand out.
    */
-  video: { signed_url: string; expires_in: number } | null;
+  video:
+    | { signed_url: string; expires_in: number }
+    // AWS video: fetch cookies on demand from GET /packages/:id/preview/lessons/:lessonId/playback
+    | { platform: 'aws'; lesson_id: string }
+    | null;
 }
 
 /**
@@ -58,6 +64,8 @@ interface CachedPreviewLesson {
   is_free_preview: boolean;
   locked: boolean;
   signable_video_id: string | null;
+  /** Free-preview lesson whose video is an AWS asset (only the lesson id is cached, never a grant). */
+  aws_playback_lesson_id: string | null;
 }
 
 interface CachedPreviewSection {
@@ -90,7 +98,31 @@ export class CoursePreviewService {
     private readonly media: MediaService,
     private readonly bunnyStream: BunnyStreamService,
     private readonly applicationCache: ApplicationCacheService,
+    @Optional() private readonly lessonAwsVideo?: LessonAwsVideoService,
   ) {}
+
+  /**
+   * Playback grant for ONE free-preview lesson of a published course. Public and unauthenticated by
+   * design, so it is strictly limited to free-preview lessons that belong to the course, and the
+   * grant is never cached (the route sends `Cache-Control: no-store`).
+   */
+  public async getPreviewPlayback(packageId: string, lessonId: string): Promise<PlaybackGrant> {
+    const notFound = new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
+    const pkg = await this.packagesRepository.findOne({
+      where: { id: packageId, deleted_at: IsNull(), status: CourseStatus.PUBLISHED, is_active: true },
+    });
+    if (!pkg || !this.lessonAwsVideo) throw notFound;
+    const item = await this.itemsRepository.findOne({ where: { package_id: packageId, lesson_id: lessonId } });
+    const lesson = item
+      ? await this.lessonsRepository.findOne({
+          where: { id: lessonId, deleted_at: IsNull(), status: LessonStatus.PUBLISHED },
+        })
+      : null;
+    if (!lesson || !lesson.is_free_preview || lesson.video_asset_id === null || lesson.bunny_video_status !== 'ready') {
+      throw notFound;
+    }
+    return this.lessonAwsVideo.playback(lesson);
+  }
 
   /**
    * T037 (a): only the unsigned half of the preview is cached. A 404 thrown
@@ -117,7 +149,7 @@ export class CoursePreviewService {
   } {
     return {
       chapter: section.chapter,
-      lessons: section.lessons.map(({ signable_video_id, ...lesson }) => {
+      lessons: section.lessons.map(({ signable_video_id, aws_playback_lesson_id, ...lesson }) => {
         const signedUrl = signable_video_id
           ? this.bunnyStream.generateSignedEmbedUrl(
               signable_video_id,
@@ -128,7 +160,9 @@ export class CoursePreviewService {
           ...lesson,
           video: signedUrl
             ? { signed_url: signedUrl, expires_in: FREE_PREVIEW_SIGNED_URL_TTL_SECONDS }
-            : null,
+            : aws_playback_lesson_id
+              ? { platform: 'aws' as const, lesson_id: aws_playback_lesson_id }
+              : null,
         };
       }),
     };
@@ -251,6 +285,7 @@ export class CoursePreviewService {
     const toPreview = (lesson: Lesson): CachedPreviewLesson => {
       const free = lesson.is_free_preview;
       const videoReady = lesson.bunny_video_id !== null && lesson.bunny_video_status === 'ready';
+      const awsReady = lesson.video_asset_id !== null && lesson.bunny_video_status === 'ready';
       return {
         id: lesson.id,
         title: lesson.title,
@@ -258,6 +293,7 @@ export class CoursePreviewService {
         is_free_preview: free,
         locked: !free,
         signable_video_id: free && videoReady ? (lesson.bunny_video_id as string) : null,
+        aws_playback_lesson_id: free && awsReady ? lesson.id : null,
       };
     };
 

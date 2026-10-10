@@ -1,4 +1,3 @@
-import { createReadStream } from 'node:fs';
 
 import {
   Controller,
@@ -76,10 +75,14 @@ export class AdminCodeExportsController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<StreamableFile> {
-    const { path, fileName, contentType } = await this.exportService.getDownload(id, user.userId);
-    return new StreamableFile(createReadStream(path), {
+    const { stream, fileName, contentType, contentLength } = await this.exportService.getDownload(
+      id,
+      user.userId,
+    );
+    return new StreamableFile(stream, {
       type: contentType,
       disposition: `attachment; filename="${fileName}"`,
+      ...(contentLength !== undefined ? { length: contentLength } : {}),
     });
   }
 }

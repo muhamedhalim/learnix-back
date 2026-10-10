@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Put, UseGuards, UseInterceptors } from '@nestjs/common';
+import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
@@ -42,6 +43,7 @@ export class LearnerPlayerController {
   }
 
   @Get(':id/lessons/:lessonId')
+  @UseInterceptors(PlaybackCookiesInterceptor)
   @ApiOperation({ summary: 'Signed content for one lesson, verified per request (FR-105, FR-084, FR-244)' })
   public async getLessonContent(
     @GetUser() user: JwtPayload,

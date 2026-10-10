@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { processEnvReader } from '../common/utils/redis-connection.util';
 import { resolveAppEnvLabel } from '../config/app-env';
 import { MailService } from '../mail/mail.service';
+import { AlertCooldownStore } from './alert-cooldown.store';
 import { AdminNotificationEvent } from '../notifications/constants/admin-notification-events';
 import { AdminNotificationCategory } from '../notifications/entities/admin-notification-category.enum';
 import { NotificationPriority } from '../notifications/entities/notification-priority.enum';
@@ -42,7 +43,6 @@ export interface AlertDeliveryOutcome {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const DEFAULT_MIN_INTERVAL_SECONDS = 900;
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 5_000;
-const MAX_TRACKED_KEYS = 2_000;
 
 /** Alert-key prefix → admin-notification category. Anything unmatched is `SYSTEM`. */
 const ALERT_CATEGORY_PREFIXES: ReadonlyArray<
@@ -100,8 +100,8 @@ function priorityForSeverity(severity: AlertSeverity): NotificationPriority {
 @Injectable()
 export class OperationalAlertService {
   private readonly logger = new Logger(OperationalAlertService.name);
-  /** Last external delivery per incident key, for repeat suppression. */
-  private readonly lastDeliveredAt = new Map<string, number>();
+  /** Repeat suppression for external channels, shared across replicas when Redis is available. */
+  private readonly cooldown: AlertCooldownStore;
   /**
    * Re-entrancy guard. Delivering an alert can itself fail (the email queue is
    * down, the webhook host is unreachable). Those failures are LOGGED, never
@@ -114,7 +114,10 @@ export class OperationalAlertService {
     private readonly adminNotifications: AdminNotificationsService,
     private readonly mail: MailService,
     private readonly config: ConfigService,
-  ) {}
+    @Optional() cooldown?: AlertCooldownStore,
+  ) {
+    this.cooldown = cooldown ?? new AlertCooldownStore(config);
+  }
 
   public async dispatch(alert: OperationalAlert): Promise<AlertDeliveryOutcome> {
     const outcome: AlertDeliveryOutcome = {
@@ -143,7 +146,9 @@ export class OperationalAlertService {
 
     // Suppression applies only to the external channels: the in-app feed is a
     // durable record and should always reflect every occurrence.
-    const suppressExternal = this.isSuppressed(alert.key);
+    // Atomic across replicas: exactly one of N processes that see the same incident delivers it.
+    const claimed = wantsEmail || wantsWebhook ? await this.cooldown.claim(alert.key, this.minIntervalMs()) : false;
+    const suppressExternal = (wantsEmail || wantsWebhook) && !claimed;
     outcome.suppressed = suppressExternal;
 
     this.delivering = true;
@@ -161,8 +166,9 @@ export class OperationalAlertService {
       this.delivering = false;
     }
 
-    if (!suppressExternal && (outcome.email !== 'skipped' || outcome.webhook !== 'skipped')) {
-      this.markDelivered(alert.key);
+    // Nothing was attempted externally: hand the claim back so the next occurrence can try.
+    if (claimed && outcome.email === 'skipped' && outcome.webhook === 'skipped') {
+      await this.cooldown.release(alert.key);
     }
 
     if (
@@ -184,28 +190,6 @@ export class OperationalAlertService {
     }
 
     return outcome;
-  }
-
-  /** True when this exact incident was already delivered externally recently. */
-  private isSuppressed(key: string): boolean {
-    const last = this.lastDeliveredAt.get(key);
-    if (last === undefined) return false;
-    return Date.now() - last < this.minIntervalMs();
-  }
-
-  private markDelivered(key: string): void {
-    // Bounded: evict the oldest entries rather than growing without limit.
-    if (this.lastDeliveredAt.size >= MAX_TRACKED_KEYS) {
-      const cutoff = Date.now() - this.minIntervalMs();
-      for (const [existing, at] of this.lastDeliveredAt) {
-        if (at < cutoff) this.lastDeliveredAt.delete(existing);
-      }
-      if (this.lastDeliveredAt.size >= MAX_TRACKED_KEYS) {
-        const oldest = this.lastDeliveredAt.keys().next();
-        if (!oldest.done) this.lastDeliveredAt.delete(oldest.value);
-      }
-    }
-    this.lastDeliveredAt.set(key, Date.now());
   }
 
   private minIntervalMs(): number {

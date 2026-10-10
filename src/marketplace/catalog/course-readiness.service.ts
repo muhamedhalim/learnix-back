@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { BunnyStreamService } from '../../lessons/bunny-stream.service';
+import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
 import { LessonContentType } from '../common/enums';
@@ -34,6 +35,7 @@ export class CourseReadinessService {
     @InjectRepository(MarketplaceCourseLesson)
     private readonly lessons: Repository<MarketplaceCourseLesson>,
     private readonly bunnyStream: BunnyStreamService,
+    @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
   public async evaluate(courseId: string): Promise<ReadinessResult> {
@@ -84,13 +86,19 @@ export class CourseReadinessService {
    * configured at all — there is nothing to verify against.
    */
   private async allVideoLessonsReady(lessonRows: MarketplaceCourseLesson[]): Promise<boolean> {
-    if (!this.bunnyStream.isConfigured) return true;
     const videoLessons = lessonRows.filter((l) => l.content_type === LessonContentType.VIDEO);
     if (videoLessons.length === 0) return true;
 
     const statuses = await Promise.all(
       videoLessons.map(async (lesson) => {
         if (!lesson.video_id) return false;
+        // AWS videos are always verified against their asset, whatever else is configured.
+        if (isAwsRef(lesson.video_id)) {
+          const asset = await this.awsVideo?.getStatus(awsAssetId(lesson.video_id)).catch(() => null);
+          return asset?.status === 'ready';
+        }
+        // Legacy Bunny ids: nothing to verify against when Bunny is not configured.
+        if (!this.bunnyStream.isConfigured) return true;
         const metadata = await this.bunnyStream.getVideo(lesson.video_id);
         return metadata.status === 'ready';
       }),

@@ -10,6 +10,7 @@ import {
   NotificationDeliveryStatus,
   type PushDevice,
 } from '../entities';
+import { PushProviderName } from '../entities';
 import {
   PUSH_PROVIDER,
   type PushMessage,
@@ -136,7 +137,10 @@ export class PushDispatchService {
     }
 
     // 3 ── devices
-    const devices = await this.devices.findActiveForUser(notification.user_id);
+    const devices = await this.devices.findActiveForUser(
+      notification.user_id,
+      this.provider.name as PushProviderName,
+    );
     if (devices.length === 0) {
       await this.deliveries.recordSkip(
         notification.id,

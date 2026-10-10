@@ -18,7 +18,7 @@ import { CourseRemovalService, RemovalOrderJobData } from '../course-removal.ser
  * `ClearanceSweepService` own every decision, so behaviour is identical
  * whether it runs here or is unit-tested directly.
  */
-@Processor(QUEUE_NAMES.MARKETPLACE, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.MARKETPLACE, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class MarketplaceRemovalProcessor extends WorkerHost {
   private readonly logger = new Logger(MarketplaceRemovalProcessor.name);
 

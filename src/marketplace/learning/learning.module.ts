@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { CertificatesModule } from '../../certificates/certificates.module';
 import { LessonsModule } from '../../lessons/lessons.module';
+import { VideoModule } from '../../video/video.module';
 import { User } from '../../users/entities/user.entity';
 import { CatalogModule } from '../catalog/catalog.module';
 import { CommerceModule } from '../commerce/commerce.module';
@@ -27,7 +28,7 @@ import { ProgressService } from './progress.service';
  * primitives, reused rather than a second certificates table.
  */
 @Module({
-  imports: [CommerceModule, CatalogModule, LessonsModule, CertificatesModule, TypeOrmModule.forFeature([User])],
+  imports: [CommerceModule, CatalogModule, LessonsModule, VideoModule, CertificatesModule, TypeOrmModule.forFeature([User])],
   controllers: [LearnerPlayerController, LearnerCertificatesController],
   providers: [ProgressService, CompletionService, LessonProgressService, PlayerService, MarketplaceCertificateIssuanceService],
   exports: [ProgressService, CompletionService, LessonProgressService, PlayerService, MarketplaceCertificateIssuanceService],

@@ -33,7 +33,9 @@ import { PurchaseParentNotificationListener } from './listeners/purchase-parent-
 import { Order } from '../payments/entities/order.entity';
 import { ParentNotificationProcessor } from './processors/parent-notification.processor';
 import { PushNotificationProcessor } from './processors/push-notification.processor';
+import { ConfigService } from '@nestjs/config';
 import { FirebasePushProvider } from './push/firebase-push.provider';
+import { WebPushProvider } from './push/web-push.provider';
 import { PUSH_PROVIDER } from './push/push-provider.interface';
 import {
   AdminNotificationsService,
@@ -143,7 +145,14 @@ import { TemplateRendererService } from './templates/template-renderer.service';
 
     // Push pipeline
     FirebasePushProvider,
-    { provide: PUSH_PROVIDER, useExisting: FirebasePushProvider },
+    WebPushProvider,
+    {
+      // PUSH_PROVIDER=webpush selects standard Web Push; anything else keeps FCM (historic default).
+      provide: PUSH_PROVIDER,
+      inject: [ConfigService, FirebasePushProvider, WebPushProvider],
+      useFactory: (config: ConfigService, fcm: FirebasePushProvider, web: WebPushProvider) =>
+        config.get<string>('PUSH_PROVIDER')?.trim().toLowerCase() === 'webpush' ? web : fcm,
+    },
     PushDeviceService,
     PushDispatchService,
     PushNotificationJobsService,

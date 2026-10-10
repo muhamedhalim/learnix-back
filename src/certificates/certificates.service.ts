@@ -36,6 +36,7 @@ import { CertificateHistory } from './entities/certificate-history.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
 import { CertificateTemplate } from './entities/certificate-template.entity';
 import { CertificateTemplateStatus } from './entities/certificate-template-status.enum';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 export const CERTIFICATE_ISSUED_EVENT = 'certificate.issued';
 
@@ -540,6 +541,7 @@ export class CertificatesService {
 
   /** Retries a bounded batch so failed completion events do not leave a silent certificate gap. */
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @CronSingleRunner('certificates.retry_auto_issuance')
   public async retryPendingAutoIssuanceFailures(): Promise<void> {
     const failures = await this.autoIssuanceFailuresRepository.find({
       where: { resolved_at: IsNull(), next_retry_at: LessThanOrEqual(new Date()) },

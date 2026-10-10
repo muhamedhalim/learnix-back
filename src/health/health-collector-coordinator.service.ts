@@ -72,10 +72,13 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
     this.instanceId =
       this.config.get<string>('INSTANCE_ID') ||
       this.config.get<string>('RAILWAY_REPLICA_ID') ||
+      this.config.get<string>('ECS_TASK_ID') ||
       this.config.get<string>('HOSTNAME') ||
       `${hostname()}:${process.pid.toString()}`;
-    this.processRole = this.config.get<string>('PROCESS_ROLE') || 'api';
-    this.designatedRole = this.config.get<string>('HEALTH_COLLECTOR_PROCESS_ROLE') || 'api';
+    // PROCESS_ROLE: all (default, single process) | api | worker. Crons run only where background
+    // work runs, so the designated collector defaults to `worker`; `all` is always designated.
+    this.processRole = this.config.get<string>('PROCESS_ROLE') || 'all';
+    this.designatedRole = this.config.get<string>('HEALTH_COLLECTOR_PROCESS_ROLE') || 'worker';
     this.cadenceSeconds = this.positiveNumber(
       this.config.get<string>('HEALTH_COLLECTOR_CADENCE_SECONDS'),
       DEFAULT_CADENCE_SECONDS,
@@ -131,7 +134,7 @@ export class HealthCollectorCoordinatorService implements OnModuleInit, OnModule
   }
 
   public isDesignatedProcess(): boolean {
-    return this.processRole === this.designatedRole;
+    return this.processRole === 'all' || this.processRole === this.designatedRole;
   }
 
   public getIdentity(): {

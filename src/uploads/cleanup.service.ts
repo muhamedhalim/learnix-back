@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 
 import { FEATURE_FLAGS, isFeatureEnabled } from '../config/feature-flags';
 import { User } from '../users/entities/user.entity';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 /**
  * CleanupService
@@ -48,6 +49,7 @@ export class CleanupService {
     name: 'file-cleanup',
     timeZone: 'UTC',
   })
+  @CronSingleRunner('uploads.weekly_cleanup')
   public async performWeeklyCleanup(): Promise<void> {
     // DESTRUCTIVE: this deletes files from the configured storage. Enabled
     // unless ENABLE_FILE_CLEANUP is exactly "false", so production behaviour is

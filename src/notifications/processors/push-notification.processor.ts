@@ -23,7 +23,7 @@ import type { PushDeliveryJob } from '../services/push-notification-jobs.service
  * permanently invalid token — is a completed job with a recorded outcome, not
  * a retry, because no amount of retrying changes any of them.
  */
-@Processor(QUEUE_NAMES.PUSH_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.PUSH_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class PushNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(PushNotificationProcessor.name);
 

@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { BunnyStreamService } from '../../lessons/bunny-stream.service';
+import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
+import type { PlaybackCookie } from '../../video/playback-cookies';
 import { AccessService } from '../commerce/access.service';
 import { MarketplaceLessonProgress } from '../commerce/entities';
 import { LessonContentType } from '../common/enums';
@@ -47,6 +49,9 @@ export interface SignedLessonContent {
   content_html: string | null;
   playback_url: string | null;
   expires_in: number | null;
+  /** `aws` => `playback_url` is a same-origin HLS path authorised by `playback_cookies`. */
+  platform?: 'aws' | 'bunny';
+  playback_cookies?: PlaybackCookie[];
 }
 
 /**
@@ -71,6 +76,7 @@ export class PlayerService {
     private readonly progress: Repository<MarketplaceLessonProgress>,
     private readonly access: AccessService,
     private readonly bunnyStream: BunnyStreamService,
+    @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
   public async getPlayerData(learnerId: string, enrollmentId: string): Promise<PlayerData> {
@@ -155,6 +161,18 @@ export class PlayerService {
 
     if (!lesson.video_id) {
       throw new NotFoundException(biBody('Video not yet available for this lesson', 'الفيديو غير متوفر بعد لهذا الدرس'));
+    }
+    if (isAwsRef(lesson.video_id) && this.awsVideo) {
+      const grant = await this.awsVideo.grantPlayback(awsAssetId(lesson.video_id));
+      return {
+        lesson_id: lesson.id,
+        content_type: lesson.content_type,
+        content_html: null,
+        playback_url: grant.hls_url,
+        expires_in: Math.max(0, Math.round((Date.parse(grant.expires_at) - Date.now()) / 1000)),
+        platform: 'aws',
+        playback_cookies: grant.playback_cookies,
+      };
     }
     const signedUrl = this.bunnyStream.generateSignedEmbedUrl(lesson.video_id, SIGNED_URL_TTL_SECONDS);
     if (!signedUrl) {

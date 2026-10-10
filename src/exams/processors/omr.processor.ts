@@ -31,7 +31,7 @@ interface OmrJob {
  * with an uploaded image is processed; anything else (already
  * processing/ready/review_required/confirmed/completed/failed) is a no-op.
  */
-@Processor(QUEUE_NAMES.EXAM_OMR, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.EXAM_OMR, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class OmrProcessor extends WorkerHost {
   private readonly logger = new Logger(OmrProcessor.name);
 

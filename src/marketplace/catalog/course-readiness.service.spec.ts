@@ -36,6 +36,7 @@ function buildService(
   sectionCount: number,
   lessonRows: MarketplaceCourseLesson[],
   bunnyOverrides: { isConfigured?: boolean; getVideo?: jest.Mock } = {},
+  awsStatus: jest.Mock = jest.fn().mockResolvedValue({ status: 'ready' }),
 ) {
   const courses = { findOne: jest.fn().mockResolvedValue(course) };
   const sections = { count: jest.fn().mockResolvedValue(sectionCount) };
@@ -49,7 +50,14 @@ function buildService(
     isConfigured: bunnyOverrides.isConfigured ?? false,
     getVideo: bunnyOverrides.getVideo ?? jest.fn().mockResolvedValue({ status: 'ready' }),
   };
-  const service = new CourseReadinessService(courses as never, sections as never, lessons as never, bunnyStream as never);
+  const awsVideo = { getStatus: awsStatus };
+  const service = new CourseReadinessService(
+    courses as never,
+    sections as never,
+    lessons as never,
+    bunnyStream as never,
+    awsVideo as never,
+  );
   return { service, bunnyStream };
 }
 
@@ -114,11 +122,30 @@ describe('CourseReadinessService', () => {
   });
 
   describe('video_lessons_ready (FR-053)', () => {
-    it('skips the check entirely when Bunny Stream is not configured', async () => {
-      const videoLessons = [...READY_LESSONS, buildLesson({ content_type: LessonContentType.VIDEO, video_id: null })];
+    it('does not verify legacy Bunny ids when Bunny Stream is not configured', async () => {
+      const videoLessons = [...READY_LESSONS, buildLesson({ content_type: LessonContentType.VIDEO, video_id: 'bunny-legacy' })];
       const { service } = buildService(buildCourse(), 1, videoLessons, { isConfigured: false });
       const result = await service.evaluate('course-1');
       expect(result.items.find((i) => i.key === 'video_lessons_ready')?.passed).toBe(true);
+    });
+
+    it('still blocks a video lesson with no video when Bunny Stream is not configured (AWS-only setups)', async () => {
+      const videoLessons = [...READY_LESSONS, buildLesson({ content_type: LessonContentType.VIDEO, video_id: null })];
+      const { service } = buildService(buildCourse(), 1, videoLessons, { isConfigured: false });
+      const result = await service.evaluate('course-1');
+      expect(result.items.find((i) => i.key === 'video_lessons_ready')?.passed).toBe(false);
+    });
+
+    it('verifies an AWS video against its asset status, regardless of Bunny configuration', async () => {
+      const videoLessons = [...READY_LESSONS, buildLesson({ content_type: LessonContentType.VIDEO, video_id: 'aws:11111111-1111-1111-1111-111111111111' })];
+      const processing = buildService(buildCourse(), 1, videoLessons, { isConfigured: false }, jest.fn().mockResolvedValue({ status: 'processing' }));
+      expect((await processing.service.evaluate('course-1')).items.find((i) => i.key === 'video_lessons_ready')?.passed).toBe(false);
+
+      const ready = buildService(buildCourse(), 1, videoLessons, { isConfigured: false }, jest.fn().mockResolvedValue({ status: 'ready' }));
+      expect((await ready.service.evaluate('course-1')).items.find((i) => i.key === 'video_lessons_ready')?.passed).toBe(true);
+
+      const missing = buildService(buildCourse(), 1, videoLessons, { isConfigured: false }, jest.fn().mockRejectedValue(new Error('not found')));
+      expect((await missing.service.evaluate('course-1')).items.find((i) => i.key === 'video_lessons_ready')?.passed).toBe(false);
     });
 
     it('blocks submission while a video lesson is still processing', async () => {

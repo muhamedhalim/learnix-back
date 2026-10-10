@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 
 import { Job } from 'bullmq';
 
-import { QUEUE_NAMES } from '../../queues/queues.constants';
+import { QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
 import { CodeBatchesService } from '../code-batches.service';
 
 interface GenerateBatchJob {
@@ -15,7 +15,7 @@ interface GenerateBatchJob {
  * reporting progress back to the job. Enables scaling to 100k+ codes without
  * blocking the API. Requires Redis to be configured.
  */
-@Processor(QUEUE_NAMES.CODE_GENERATION)
+@Processor(QUEUE_NAMES.CODE_GENERATION, { autorun: WORKER_CONFIG.autorun })
 export class CodeGenerationProcessor extends WorkerHost {
   private readonly logger = new Logger(CodeGenerationProcessor.name);
 

@@ -2,6 +2,9 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { BunnyStreamService } from '../lessons/bunny-stream.service';
+import { LessonAwsVideoService } from '../lessons/lesson-aws-video.service';
+import { UploadModule } from '../uploads/upload.module';
+import { VideoModule } from '../video/video.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { CertificateTemplate } from '../certificates/entities/certificate-template.entity';
 import { MetricsModule } from '../common/metrics';
@@ -42,13 +45,15 @@ import { PackagesService } from './packages.service';
     MediaModule,
     MetricsModule,
     ReviewsModule,
+    VideoModule,
+    UploadModule,
   ],
   controllers: [
     AdminPackagesController,
     PackagesController,
     TeacherPackagesController,
   ],
-  providers: [PackagesService, CoursePreviewService, BunnyStreamService],
+  providers: [PackagesService, CoursePreviewService, BunnyStreamService, LessonAwsVideoService],
   exports: [PackagesService, TypeOrmModule],
 })
 export class PackagesModule implements OnModuleInit {

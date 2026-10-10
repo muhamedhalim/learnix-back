@@ -41,6 +41,8 @@ import {
   UpdateLessonDto,
 } from '../dto';
 import { LessonsService } from '../lessons.service';
+import { IsInt, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { LessonAwsVideoService } from '../lesson-aws-video.service';
 
 /** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
 interface MulterFile {
@@ -50,13 +52,35 @@ interface MulterFile {
   buffer: Buffer;
 }
 
+export class StartAwsVideoUploadDto {
+  @IsString()
+  @MaxLength(255)
+  public filename!: string;
+
+  @IsString()
+  @MaxLength(150)
+  public content_type!: string;
+
+  @IsInt()
+  @Min(1)
+  public size!: number;
+}
+
+export class CompleteAwsVideoUploadDto {
+  @IsUUID()
+  public upload_id!: string;
+}
+
 @ApiTags('Teacher Lessons')
 @Controller('teacher/lessons')
 @UseGuards(HybridAuthGuard, RolesGuard)
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherLessonsController {
-  constructor(private readonly lessonsService: LessonsService) {}
+  constructor(
+    private readonly lessonsService: LessonsService,
+    private readonly lessonAwsVideo: LessonAwsVideoService,
+  ) {}
 
   /**
    * Get my lessons
@@ -247,6 +271,42 @@ export class TeacherLessonsController {
     return await this.lessonsService.createBunnyUploadSession(id, user.userId, dto.title);
   }
 
+  /* ===================== AWS video: direct-to-S3 upload ===================== */
+
+  /** Whether the AWS video pipeline is available (otherwise the UI falls back to the legacy uploader). */
+  @Get('video/aws/capabilities')
+  @ApiOperation({ summary: 'Is direct-to-S3 video upload available?' })
+  public awsVideoCapabilities(): { enabled: boolean } {
+    return { enabled: this.lessonAwsVideo.isEnabled() };
+  }
+
+  /** Presigned (or multipart) upload plan for the lesson's video; the browser uploads straight to S3. */
+  @Post(':id/video/aws/upload')
+  @ApiOperation({ summary: 'Start a direct-to-S3 video upload' })
+  public async startAwsVideoUpload(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StartAwsVideoUploadDto,
+  ): Promise<unknown> {
+    return await this.lessonAwsVideo.startUpload(id, user.userId, {
+      filename: dto.filename,
+      contentType: dto.content_type,
+      size: dto.size,
+    });
+  }
+
+  /** Verify the uploaded source, start transcoding and attach it to the lesson. */
+  @Post(':id/video/aws/complete')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Finish a direct-to-S3 video upload and start processing' })
+  public async completeAwsVideoUpload(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteAwsVideoUploadDto,
+  ): Promise<unknown> {
+    return await this.lessonAwsVideo.completeUpload(id, user.userId, dto.upload_id);
+  }
+
   @Post(':id/video/upload-session/:sessionId/complete')
   @ApiOperation({ summary: 'Verify and attach a completed direct upload' })
   public async completeUploadSession(
@@ -335,6 +395,16 @@ export class TeacherLessonsController {
   /**
    * Delete the lesson's Bunny Stream video and clear stored video metadata.
    */
+  @Delete(':id/video')
+  @ApiOperation({ summary: 'Delete the lesson video (any provider)' })
+  public async deleteVideo(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    await this.lessonsService.removeBunnyVideo(id, user.userId);
+    return { message: 'Video removed successfully' };
+  }
+
   @Delete(':id/video/bunny')
   @ApiOperation({
     summary: 'Delete the Bunny Stream video',

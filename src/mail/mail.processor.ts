@@ -11,8 +11,8 @@ import {
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../queues/queues.constants';
 import { MailService, type MailJob } from './mail.service';
 
-/** The only component that performs an outbound MailerSend API call. */
-@Processor(QUEUE_NAMES.EMAIL, { concurrency: WORKER_CONFIG.concurrency })
+/** The only component that performs an outbound email API call (SES or MailerSend). */
+@Processor(QUEUE_NAMES.EMAIL, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class MailProcessor extends WorkerHost {
   public constructor(
     private readonly mail: MailService,
@@ -33,7 +33,7 @@ export class MailProcessor extends WorkerHost {
           status: result.accepted
             ? NotificationDeliveryStatus.SENT
             : NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
-          provider: 'mailersend',
+          provider: this.mail.providerName,
           provider_message_id: result.providerMessageId ?? null,
           error_message: result.reason?.slice(0, 1000) ?? null,
           attempts: job.attemptsMade + 1,

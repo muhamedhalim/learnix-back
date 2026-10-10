@@ -186,7 +186,7 @@ describe('PushDispatchService (DEF-005 dispatch enforcement)', () => {
 
   it('never addresses a revoked device — only active ones are queried', async () => {
     await service.dispatch('n1');
-    expect(devices.findActiveForUser).toHaveBeenCalledWith('u1');
+    expect(devices.findActiveForUser).toHaveBeenCalledWith('u1', 'fcm');
   });
 
   it('disables ONLY the invalid token and keeps the other devices delivered', async () => {

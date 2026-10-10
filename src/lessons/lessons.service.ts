@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Optional,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
@@ -37,6 +38,9 @@ import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
 import { LessonVideoUploadSession } from './entities/lesson-video-upload-session.entity';
 import { LessonSessionsService } from './lesson-sessions.service';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
+import { LessonAwsVideoService } from './lesson-aws-video.service';
+import type { PlaybackCookie } from '../video/playback-cookies';
 
 /**
  * Response type for lesson with teacher and subject details
@@ -146,6 +150,7 @@ interface LessonListRawRow {
   subject_name: string;
   thumbnail: string | null;
   bunny_video_id: string | null;
+  video_asset_id: string | null;
   bunny_video_status: string | null;
   video_width: number | null;
   video_height: number | null;
@@ -251,6 +256,7 @@ export class LessonsService {
     private readonly productFinancialMetrics: ProductFinancialMetricsService,
     private readonly learningMetrics: LearningMetricsService,
     private readonly reviewsService: ReviewsService,
+    @Optional() private readonly lessonAwsVideo?: LessonAwsVideoService,
   ) {}
 
   /**
@@ -406,6 +412,7 @@ export class LessonsService {
       .addSelect('subject.name', 'subject_name')
       .addSelect('lesson.thumbnail', 'thumbnail')
       .addSelect('lesson.bunny_video_id', 'bunny_video_id')
+      .addSelect('lesson.video_asset_id', 'video_asset_id')
       .addSelect('lesson.bunny_video_status', 'bunny_video_status')
       .addSelect('lesson.video_width', 'video_width')
       .addSelect('lesson.video_height', 'video_height')
@@ -540,7 +547,7 @@ export class LessonsService {
       },
       thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),
-      has_video: row.bunny_video_id !== null,
+      has_video: row.bunny_video_id !== null || row.video_asset_id !== null,
       bunny_video_status: row.bunny_video_status,
       video_width: row.video_width,
       video_height: row.video_height,
@@ -825,6 +832,9 @@ export class LessonsService {
     if (lesson.bunny_video_id) {
       await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
     }
+    if (lesson.video_asset_id !== null) {
+      await this.lessonAwsVideo?.detach(lesson);
+    }
   }
 
   /**
@@ -1055,6 +1065,7 @@ export class LessonsService {
 
   /** Durable cleanup saga for expired uploads and replacement leftovers. */
   @Cron(CronExpression.EVERY_30_MINUTES)
+  @CronSingleRunner('lessons.cleanup_upload_sessions')
   public async cleanExpiredBunnyUploadSessions(): Promise<void> {
     // DESTRUCTIVE: `cleanupUploadSession` deletes the abandoned video from the
     // configured Bunny Stream library. Gated by the same flag as the weekly
@@ -1173,6 +1184,9 @@ export class LessonsService {
     > & { lessonId: string }
   > {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    if (lesson.video_asset_id !== null && this.lessonAwsVideo) {
+      return await this.lessonAwsVideo.status(lessonId, teacherId);
+    }
     if (!lesson.bunny_video_id) {
       throw new BadRequestException(
         biBody(
@@ -1206,6 +1220,10 @@ export class LessonsService {
   /** Remove the lesson's Bunny video (from Bunny + clear stored metadata). */
   public async removeBunnyVideo(lessonId: string, teacherId: string): Promise<void> {
     const lesson = await this.findOwnedLesson(lessonId, teacherId);
+    if (lesson.video_asset_id !== null && this.lessonAwsVideo) {
+      await this.lessonAwsVideo.detach(lesson);
+      return;
+    }
     if (lesson.bunny_video_id) {
       await this.bunnyStream.deleteVideo(lesson.bunny_video_id);
     }
@@ -1274,8 +1292,18 @@ export class LessonsService {
     lessonId: string,
     userId: string,
     role: string | null,
-  ): Promise<{ signedUrl: string; expiresIn: number }> {
+  ): Promise<{ signedUrl: string; expiresIn: number; platform?: 'aws'; playback_cookies?: PlaybackCookie[] }> {
     const lesson = await this.assertViewerAccess(lessonId, userId, role);
+    if (lesson.video_asset_id !== null && lesson.bunny_video_status === 'ready' && this.lessonAwsVideo) {
+      // CloudFront signed cookies + a same-origin HLS path; no token ever appears in a URL.
+      const grant = await this.lessonAwsVideo.playback(lesson);
+      return {
+        signedUrl: grant.hls_url,
+        expiresIn: Math.max(0, Math.round((Date.parse(grant.expires_at) - Date.now()) / 1000)),
+        platform: 'aws',
+        playback_cookies: grant.playback_cookies,
+      };
+    }
     if (!lesson.bunny_video_id || lesson.bunny_video_status !== 'ready') {
       throw new BadRequestException(
         biBody('This lesson has no ready video.', 'لا يوجد لهذا الدرس فيديو جاهز.'),
@@ -1310,7 +1338,7 @@ export class LessonsService {
         biBody('A lesson title is required before publishing.', 'يلزم عنوان للدرس قبل النشر.'),
       );
     }
-    if (lesson.bunny_video_id && lesson.bunny_video_status !== 'ready') {
+    if ((lesson.bunny_video_id || lesson.video_asset_id) && lesson.bunny_video_status !== 'ready') {
       throw new BadRequestException(
         biBody(
           'Video is still processing. You can publish once it is ready.',
@@ -1387,7 +1415,7 @@ export class LessonsService {
       },
       thumbnail,
       thumbnail_url: this.media.resolveThumbnailUrl(thumbnail),
-      has_video: lesson.bunny_video_id !== null,
+      has_video: lesson.bunny_video_id !== null || lesson.video_asset_id !== null,
       bunny_video_status: lesson.bunny_video_status,
       video_width: lesson.video_width,
       video_height: lesson.video_height,

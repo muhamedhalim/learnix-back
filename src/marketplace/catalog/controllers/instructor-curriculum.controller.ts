@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
@@ -13,6 +14,35 @@ import { CreateLessonDto, UpdateLessonDto } from '../dto/lesson.dto';
 import type { MarketplaceCourseLesson, MarketplaceCourseSection } from '../entities';
 import type { LessonUploadAuthorization } from '../lesson-video.service';
 import { LessonVideoService } from '../lesson-video.service';
+
+export class StartInstructorVideoUploadDto {
+  @IsString()
+  @MaxLength(255)
+  public filename!: string;
+
+  @IsString()
+  @MaxLength(150)
+  public content_type!: string;
+
+  @IsInt()
+  @Min(1)
+  public size!: number;
+}
+
+export class InstructorPartUrlsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(10_000, { each: true })
+  public part_numbers!: number[];
+}
+
+export class CompleteInstructorVideoUploadDto {
+  @IsUUID()
+  public upload_id!: string;
+}
 
 /**
  * Contracts §3 curriculum block. FR-045: sections and lessons, ordered,
@@ -158,6 +188,88 @@ export class InstructorCurriculumController {
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
   ): Promise<LessonUploadAuthorization> {
     return this.lessonVideo.createUploadAuthorization(instructor.id, courseId, lessonId);
+  }
+
+  @Get('video-upload/capabilities')
+  @ApiOperation({ summary: 'Is direct-to-S3 video upload available?' })
+  public awsVideoCapabilities(): { enabled: boolean } {
+    return { enabled: this.lessonVideo.awsEnabled() };
+  }
+
+  /** AWS: presigned/multipart plan so the browser uploads the source video straight to S3. */
+  @Post('lessons/:lessonId/video-upload/aws')
+  @ApiOperation({ summary: 'Start a direct-to-S3 video upload for a lesson' })
+  public async startAwsVideoUpload(
+    @CurrentInstructor() instructor: MarketplaceInstructor,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Body() dto: StartInstructorVideoUploadDto,
+  ): Promise<unknown> {
+    return this.lessonVideo.startAwsUpload(instructor.id, instructor.user_id, courseId, lessonId, {
+      filename: dto.filename,
+      contentType: dto.content_type,
+      size: dto.size,
+    });
+  }
+
+  @Post('lessons/:lessonId/video-upload/aws/:uploadId/parts')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Presigned URLs for specific multipart parts' })
+  public async awsPartUrls(
+    @CurrentInstructor() instructor: MarketplaceInstructor,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('uploadId', ParseUUIDPipe) uploadId: string,
+    @Body() dto: InstructorPartUrlsDto,
+  ): Promise<{ urls: Record<number, string> }> {
+    return {
+      urls: await this.lessonVideo.awsPartUrls(
+        instructor.id,
+        instructor.user_id,
+        courseId,
+        lessonId,
+        uploadId,
+        dto.part_numbers,
+      ),
+    };
+  }
+
+  @Get('lessons/:lessonId/video-upload/aws/:uploadId/parts')
+  @ApiOperation({ summary: 'Parts already stored (resume an interrupted upload)' })
+  public async awsListParts(
+    @CurrentInstructor() instructor: MarketplaceInstructor,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('uploadId', ParseUUIDPipe) uploadId: string,
+  ): Promise<{ parts: Array<{ part_number: number; size: number }> }> {
+    return {
+      parts: await this.lessonVideo.awsListParts(instructor.id, instructor.user_id, courseId, lessonId, uploadId),
+    };
+  }
+
+  @Post('lessons/:lessonId/video-upload/aws/:uploadId/abort')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Cancel an in-progress video upload' })
+  public async awsAbort(
+    @CurrentInstructor() instructor: MarketplaceInstructor,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Param('uploadId', ParseUUIDPipe) uploadId: string,
+  ): Promise<void> {
+    await this.lessonVideo.abortAwsUpload(instructor.id, instructor.user_id, courseId, lessonId, uploadId);
+  }
+
+  @Post('lessons/:lessonId/video-upload/aws/complete')
+  @HttpCode(200)
+  @InvalidatesCache(['marketplace_catalog'])
+  @ApiOperation({ summary: 'Verify the uploaded video, start processing and attach it to the lesson' })
+  public async completeAwsVideoUpload(
+    @CurrentInstructor() instructor: MarketplaceInstructor,
+    @Param('courseId', ParseUUIDPipe) courseId: string,
+    @Param('lessonId', ParseUUIDPipe) lessonId: string,
+    @Body() dto: CompleteInstructorVideoUploadDto,
+  ): Promise<unknown> {
+    return this.lessonVideo.completeAwsUpload(instructor.id, instructor.user_id, courseId, lessonId, dto.upload_id);
   }
 
   @Get('lessons/:lessonId/video-status')

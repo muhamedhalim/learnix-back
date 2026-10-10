@@ -13,7 +13,14 @@ import {
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
+import { renderInvitationEmail } from './local-templates';
 import { MailDeliveryException } from './mail-delivery.exception';
+import {
+  classifySesError,
+  resolveSesConfig,
+  SesTransport,
+  type ResolvedSesConfig,
+} from './ses.transport';
 import {
   classifyMailerSendError,
   resolveMailerSendConfig,
@@ -58,6 +65,8 @@ export class MailService {
   private readonly from: Sender | null;
   private readonly replyTo: Recipient | null;
   private readonly resolvedConfig: ResolvedMailerSendConfig;
+  private readonly sesConfig: ResolvedSesConfig;
+  private readonly ses: SesTransport | null;
   private providerObservation: {
     state: MailerSendRuntimeState;
     lastAttemptAt: string | null;
@@ -70,18 +79,34 @@ export class MailService {
     @InjectQueue(QUEUE_NAMES.EMAIL) private readonly emailQueue: Queue<MailJob>,
   ) {
     this.resolvedConfig = resolveMailerSendConfig((key) => this.configService.get<string>(key));
+    this.sesConfig = resolveSesConfig((key) => this.configService.get<string>(key));
+    this.ses = this.sesConfig.configured ? new SesTransport(this.sesConfig) : null;
     this.providerObservation = {
-      state: this.resolvedConfig.state,
+      state: this.sesConfig.enabled ? this.sesConfig.state : this.resolvedConfig.state,
       lastAttemptAt: null,
       lastSuccessAt: null,
       lastFailureAt: null,
     };
 
+    if (this.sesConfig.enabled) {
+      this.client = null;
+      this.from = null;
+      this.replyTo = null;
+      if (this.ses === null) {
+        this.logger.warn(
+          `Amazon SES is selected but required configuration is missing: ${this.sesConfig.missing.join(', ')}.`,
+        );
+      } else {
+        this.logger.log('Amazon SES email provider initialized.');
+      }
+      return;
+    }
+
     if (!this.resolvedConfig.enabled) {
       this.client = null;
       this.from = null;
       this.replyTo = null;
-      this.logger.log('Email provider is disabled because MAIL_PROVIDER is not "mailersend".');
+      this.logger.log('Email provider is disabled because MAIL_PROVIDER is not "ses" or "mailersend".');
       return;
     }
 
@@ -101,8 +126,14 @@ export class MailService {
     this.logger.log('MailerSend email provider initialized.');
   }
 
+  /** Which provider delivers mail (`ses`, `mailersend`, or `none`). */
+  public get providerName(): 'ses' | 'mailersend' | 'none' {
+    if (this.sesConfig.enabled) return 'ses';
+    return this.resolvedConfig.enabled ? 'mailersend' : 'none';
+  }
+
   public isConfigured(): boolean {
-    return this.client !== null && this.from !== null;
+    return this.ses !== null || (this.client !== null && this.from !== null);
   }
 
   public getHealthStatus(): {
@@ -116,12 +147,13 @@ export class MailService {
     lastSuccessAt: string | null;
     lastFailureAt: string | null;
   } {
+    const active = this.sesConfig.enabled ? this.sesConfig : this.resolvedConfig;
     return {
       state: this.providerObservation.state,
-      enabled: this.resolvedConfig.enabled,
-      configured: this.resolvedConfig.configured,
-      missing: [...this.resolvedConfig.missing],
-      configuredTemplateCount: Object.keys(this.resolvedConfig.templateIds).length,
+      enabled: active.enabled,
+      configured: active.configured,
+      missing: [...active.missing],
+      configuredTemplateCount: this.sesConfig.enabled ? 0 : Object.keys(this.resolvedConfig.templateIds).length,
       probeExecuted: false,
       lastAttemptAt: this.providerObservation.lastAttemptAt,
       lastSuccessAt: this.providerObservation.lastSuccessAt,
@@ -156,7 +188,7 @@ export class MailService {
   public async send(message: MailJob): Promise<boolean> {
     if (!this.isConfigured()) {
       this.logger.warn(
-        this.logDetails('skipped', message, { reason: 'MailerSend is not configured' }),
+        this.logDetails('skipped', message, { reason: 'Email provider is not configured' }),
       );
       return false;
     }
@@ -183,8 +215,8 @@ export class MailService {
 
   /** Called only by the BullMQ worker. Never call this from a controller or domain service. */
   public async deliver(message: MailJob): Promise<MailDeliveryResult> {
-    if (this.client === null || this.from === null) {
-      throw new MailDeliveryException('MailerSend delivery worker is not configured.');
+    if (this.ses === null && (this.client === null || this.from === null)) {
+      throw new MailDeliveryException('Email delivery worker is not configured.');
     }
 
     // Staging-only enforcement of MAIL_ALLOWLIST — inert on production (see
@@ -212,6 +244,11 @@ export class MailService {
       ...this.providerObservation,
       lastAttemptAt: attemptedAt,
     };
+    if (this.ses !== null) return await this.deliverViaSes(this.ses, message, attemptedAt, envGet);
+    if (this.client === null || this.from === null) {
+      throw new MailDeliveryException('Email delivery worker is not configured.');
+    }
+
     try {
       const email = new EmailParams()
         .setFrom(this.from)
@@ -264,6 +301,50 @@ export class MailService {
       };
       performanceMetrics.recordFailure('email');
       this.logger.error(this.logDetails('send_failed', message, this.errorDetails(error)));
+      throw new MailDeliveryException('Email delivery failed.');
+    }
+  }
+
+  /** SES path of {@link deliver}: same staging guard and observation, no remote templates. */
+  private async deliverViaSes(
+    ses: SesTransport,
+    message: MailJob,
+    attemptedAt: string,
+    envGet: (key: string) => string | undefined,
+  ): Promise<MailDeliveryResult> {
+    try {
+      if (message.subject === undefined || (message.html === undefined && message.text === undefined)) {
+        // SES has no MailerSend-style remote templates; refuse rather than send an empty mail.
+        throw new MailDeliveryException('Email has no subject or body for SES delivery.');
+      }
+      const providerMessageId = await ses.send({
+        to: message.to,
+        recipientName: message.recipientName,
+        subject: applyStagingSubjectPrefix(envGet, message.subject),
+        text: message.text,
+        html: message.html,
+      });
+      this.providerObservation = {
+        state: 'configured',
+        lastAttemptAt: attemptedAt,
+        lastSuccessAt: new Date().toISOString(),
+        lastFailureAt: this.providerObservation.lastFailureAt,
+      };
+      this.logger.log(this.logDetails('sent', message, { requestId: providerMessageId }));
+      return { accepted: true, ...(providerMessageId === null ? {} : { providerMessageId }) };
+    } catch (error) {
+      this.providerObservation = {
+        state: classifySesError(error),
+        lastAttemptAt: attemptedAt,
+        lastSuccessAt: this.providerObservation.lastSuccessAt,
+        lastFailureAt: new Date().toISOString(),
+      };
+      performanceMetrics.recordFailure('email');
+      this.logger.error(
+        this.logDetails('send_failed', message, {
+          errorName: error instanceof Error ? error.name : 'unknown',
+        }),
+      );
       throw new MailDeliveryException('Email delivery failed.');
     }
   }
@@ -358,6 +439,10 @@ export class MailService {
         personalization: { ...input.personalization, locale },
       });
     }
+    if (template === 'invitation') {
+      const rendered = renderInvitationEmail(mailInput.recipientName, locale, input.personalization);
+      if (rendered !== null) return await this.send({ ...mailInput, ...rendered });
+    }
     const subject = this.localizedFallbackSubject(template, fallbackSubject, locale);
     return await this.send({
       ...mailInput,
@@ -398,7 +483,7 @@ export class MailService {
     extra: Record<string, unknown> = {},
   ): string {
     return JSON.stringify({
-      provider: 'mailersend',
+      provider: this.providerName,
       status,
       recipient: maskEmail(message.to) ?? 'unknown',
       templateId: message.templateId ?? null,

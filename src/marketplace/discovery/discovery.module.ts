@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { LessonsModule } from '../../lessons/lessons.module';
+import { VideoModule } from '../../video/video.module';
 import { MarketplaceCategory, MarketplaceCourse } from '../catalog/entities';
 import { CatalogModule } from '../catalog/catalog.module';
 import { ReviewsModule } from '../reviews/reviews.module';
@@ -30,6 +31,7 @@ import { PreviewAccessService } from './preview-access.service';
     CatalogModule,
     ReviewsModule,
     LessonsModule,
+    VideoModule,
   ],
   controllers: [PublicCategoriesController, PublicCatalogController],
   providers: [CategoriesReadService, CatalogQueryService, CatalogSearchService, CourseDetailService, PreviewAccessService],

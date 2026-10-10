@@ -24,7 +24,7 @@ interface AutoSubmitJob {
  *    attempt whose deadline passed without its delayed job firing (e.g. Redis
  *    or the worker was down at the time).
  */
-@Processor(QUEUE_NAMES.EXAM_AUTO_SUBMIT, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.EXAM_AUTO_SUBMIT, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class ExamAutoSubmitProcessor extends WorkerHost {
   private readonly logger = new Logger(ExamAutoSubmitProcessor.name);
 

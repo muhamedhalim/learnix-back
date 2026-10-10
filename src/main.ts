@@ -3,7 +3,7 @@ import './polyfills';
 // its auto-instrumentation can hook HTTP/DB/Redis. No-op when SENTRY_DSN is unset.
 import './instrument';
 
-import { Logger, type LogLevel, RequestMethod, ValidationPipe } from '@nestjs/common';
+import { ConsoleLogger, Logger, type LogLevel, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -20,6 +20,8 @@ import { getAllowedOrigins, isOriginAllowed } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
 import { withMigrationAdvisoryLock } from './database/migration-lock.util';
+import { resolveProcessRole, runsBackgroundWork } from './config/process-role';
+import { buildLoggerOptions, resolveKeepAliveTimeouts, resolveTrustProxyHops } from './config/http-runtime';
 
 const logger = new Logger('Bootstrap');
 
@@ -97,7 +99,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: getLogLevels(),
+    logger: new ConsoleLogger(buildLoggerOptions(getLogLevels())),
     // Retains the unparsed request body on `req.rawBody`. Required to verify
     // Meta's `X-Hub-Signature-256` HMAC, which is computed over the exact bytes
     // Meta sent — re-serialising the parsed JSON would not reproduce them.
@@ -125,7 +127,8 @@ async function bootstrap(): Promise<void> {
 
   const isProd = process.env['NODE_ENV'] === 'production';
 
-  app.set('trust proxy', 1);
+  // Hops between the client and this process: 1 historically; CloudFront + ALB = 2.
+  app.set('trust proxy', resolveTrustProxyHops());
 
   const cookieSecret = process.env['COOKIE_SECRET'] || process.env['JWT_SECRET'];
 
@@ -290,6 +293,7 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env['PORT']) || 3000;
 
   await app.listen(port, '0.0.0.0');
+  logger.log(`Process role: ${resolveProcessRole()} (background work ${runsBackgroundWork() ? 'on' : 'off'})`);
 
   // Lesson videos are uploaded as one long-lived multipart request (see
   // teacher-lessons.controller.ts). Node's http.Server defaults — introduced
@@ -311,8 +315,11 @@ async function bootstrap(): Promise<void> {
   // An unauthenticated client can no longer pin a socket open indefinitely by
   // dribbling headers or going idle; the body phase (where large uploads live)
   // remains unbounded. headersTimeout must exceed keepAliveTimeout.
-  httpServer.headersTimeout = 65_000; // headers must fully arrive within 65s
-  httpServer.keepAliveTimeout = 61_000; // idle keep-alive socket ceiling
+  // Defaults (125 s / 130 s) sit above the ALB's 120 s idle timeout so the LB never reuses a
+  // socket Node already closed. Override with HTTP_KEEP_ALIVE_TIMEOUT_MS.
+  const keepAlive = resolveKeepAliveTimeouts();
+  httpServer.headersTimeout = keepAlive.headersTimeoutMs;
+  httpServer.keepAliveTimeout = keepAlive.keepAliveTimeoutMs;
   httpServer.setTimeout(0); // no per-socket inactivity kill during a slow large upload body
 
   logger.log(`🚀 Server running on http://0.0.0.0:${port}`);

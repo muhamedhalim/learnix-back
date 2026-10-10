@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 /**
  * Decides whether a Postgres connection needs SSL, based on the target host
  * rather than `NODE_ENV`.
@@ -12,7 +14,8 @@
  */
 export function resolveDatabaseSsl(
   databaseUrl: string | undefined,
-): false | { rejectUnauthorized: boolean } {
+  get: (key: string) => string | undefined = (key) => process.env[key],
+): false | { rejectUnauthorized: boolean; ca?: string } {
   if (!databaseUrl) return false;
 
   let hostname: string;
@@ -26,5 +29,23 @@ export function resolveDatabaseSsl(
     hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
   if (isLoopback) return false;
 
-  return { rejectUnauthorized: process.env['SSL_REJECT_UNAUTHORIZED'] !== 'false' };
+  const ca = resolveDatabaseCa(get);
+  return {
+    rejectUnauthorized: get('SSL_REJECT_UNAUTHORIZED') !== 'false',
+    ...(ca !== undefined ? { ca } : {}),
+  };
+}
+
+/**
+ * Extra trust anchor for the database server certificate, as PEM text (`DATABASE_SSL_CA`) or a
+ * file path (`DATABASE_SSL_CA_FILE`). Amazon RDS certificates chain to the Amazon RDS CA bundle,
+ * which is not in Node's default store; the bundle is shipped in the image. An unreadable
+ * configured file is a hard error rather than a silent downgrade.
+ */
+function resolveDatabaseCa(get: (key: string) => string | undefined): string | undefined {
+  const inline = get('DATABASE_SSL_CA');
+  if (inline !== undefined && inline.trim() !== '') return inline.replace(/\\n/g, '\n');
+  const file = get('DATABASE_SSL_CA_FILE');
+  if (file === undefined || file.trim() === '') return undefined;
+  return readFileSync(file.trim(), 'utf8');
 }

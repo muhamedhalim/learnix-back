@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   ParseUUIDPipe,
   Post,
@@ -17,6 +18,8 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { RegisterPushDeviceDto, UnregisterPushDeviceDto } from '../dto';
 import { PushProviderName } from '../entities';
+import { PUSH_PROVIDER, type PushProvider } from '../push/push-provider.interface';
+import { WebPushProvider } from '../push/web-push.provider';
 import { PushDeviceService, type PushDeviceView } from '../services/push-device.service';
 
 /**
@@ -45,7 +48,21 @@ import { PushDeviceService, type PushDeviceView } from '../services/push-device.
 @Controller('notifications/push/devices')
 @UseGuards(HybridAuthGuard)
 export class PushDevicesController {
-  constructor(private readonly devices: PushDeviceService) {}
+  constructor(
+    private readonly devices: PushDeviceService,
+    @Inject(PUSH_PROVIDER) private readonly provider: PushProvider,
+    private readonly web: WebPushProvider,
+  ) {}
+
+  @Get('public-key')
+  @ApiOperation({
+    summary: 'VAPID public key browsers need to subscribe to Web Push',
+    description: 'Null when Web Push is not the active push provider.',
+  })
+  public publicKey(): { data: { public_key: string | null; provider: string } } {
+    const active = this.provider.name === 'webpush' && this.web.isConfigured();
+    return { data: { public_key: active ? this.web.publicKey : null, provider: this.provider.name } };
+  }
 
   @Post()
   @HttpCode(HttpStatus.OK)

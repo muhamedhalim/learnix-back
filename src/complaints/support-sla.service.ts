@@ -11,6 +11,7 @@ import {
 import { Complaint } from './entities/complaint.entity';
 import { ComplaintStatus } from './enums/complaint-status.enum';
 import { SupportManagementService } from './support-management.service';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 /**
  * Baseline policy pending the Phase 8 supervisor-managed SLA settings surface.
@@ -53,6 +54,7 @@ export class SupportSlaService {
   }
 
   @Cron('0 */15 * * * *')
+  @CronSingleRunner('support.sla_evaluate')
   public async evaluate(): Promise<void> {
     const now = new Date();
     const policy = await this.supportManagement.activePolicy();

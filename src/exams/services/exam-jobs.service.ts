@@ -4,6 +4,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { runsBackgroundWork } from '../../config/process-role';
 
 /** Repeatable auto-submit sweep interval — see `AttemptService.sweepExpiredAttempts`. */
 const SWEEP_INTERVAL_MS = 60_000;
@@ -33,6 +34,8 @@ export class ExamJobsService implements OnModuleInit {
    * that was missed, with no manual re-registration step required.
    */
   public async onModuleInit(): Promise<void> {
+    // Repeatable schedules are registered by processes that do background work only.
+    if (!runsBackgroundWork()) return;
     await this.autoSubmitQueue.add(
       JOB_TYPES.EXAM.AUTO_SUBMIT_SWEEP,
       {},

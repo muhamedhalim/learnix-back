@@ -18,6 +18,7 @@ import { HealthOrchestratorService } from './health-orchestrator.service';
 import { HealthRiskService } from './health-risk.service';
 import { HealthService } from './health.service';
 import { FinancialOperationsAlertListener } from './listeners/financial-operations-alert.listener';
+import { AlertCooldownStore } from './alert-cooldown.store';
 import { OperationalAlertService } from './operational-alert.service';
 import { BackendApiHealthIndicator } from './indicators/backend-api.indicator';
 import { DatabaseHealthIndicator } from './indicators/database.indicator';
@@ -52,6 +53,7 @@ import { StorageHealthIndicator } from './indicators/storage.indicator';
     HealthAuditService,
     HealthDiagnosticsService,
     OperationalAlertService,
+    AlertCooldownStore,
     // Consumes the critical payment/refund/finance domain events that the
     // outbox previously published with no subscriber. Registered here (not in
     // PaymentsModule) because HealthModule already imports PaymentsModule —

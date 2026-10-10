@@ -15,6 +15,9 @@ import { decodeSecretBoxKey, SecretBoxKeyError } from '../common/utils/secret-bo
 import { AppEnvironment, recordReader, resolveAppEnv } from './app-env';
 import { assertEnvironmentIsolation } from './environment-isolation.guard';
 import { validateProductionPublicOrigins } from './public-url.util';
+import { resolveDatabaseSsl } from '../common/utils/database-ssl.util';
+import { resolveRedisUrl } from '../common/utils/redis-connection.util';
+import { resolveKeepAliveTimeouts, resolveLogFormat, resolveTrustProxyHops } from './http-runtime';
 
 enum Environment {
   Development = 'development',
@@ -43,6 +46,33 @@ export function validatePaymobBaseUrl(value: unknown): void {
   ) {
     throw new Error(
       'PAYMOB_BASE_URL must use an allowlisted HTTPS Paymob host without credentials, query, or fragment.',
+    );
+  }
+}
+
+/**
+ * With REQUIRE_TLS_BACKENDS=true (set in the AWS environments) the app refuses to boot on
+ * plaintext Redis or an unverified database certificate, instead of silently running unencrypted.
+ */
+export function validateTlsBackends(config: Record<string, unknown>): void {
+  const read = recordReader(config);
+  if (read('REQUIRE_TLS_BACKENDS') !== 'true') return;
+
+  const redisUrl = resolveRedisUrl(read);
+  if (redisUrl !== undefined && !redisUrl.toLowerCase().startsWith('rediss://')) {
+    throw new Error(
+      'REQUIRE_TLS_BACKENDS=true: the Redis URL must use rediss:// (TLS).',
+    );
+  }
+  if (read('SSL_REJECT_UNAUTHORIZED') === 'false') {
+    throw new Error(
+      'REQUIRE_TLS_BACKENDS=true: SSL_REJECT_UNAUTHORIZED=false is not allowed.',
+    );
+  }
+  const databaseUrl = read('DATABASE_URL');
+  if (databaseUrl !== undefined && resolveDatabaseSsl(databaseUrl, read) === false) {
+    throw new Error(
+      'REQUIRE_TLS_BACKENDS=true: DATABASE_URL points at a loopback host, which is not TLS-protected.',
     );
   }
 }
@@ -203,9 +233,67 @@ export class EnvironmentVariables {
   @IsOptional()
   public REDIS_URL?: string;
 
-  @IsString()
+  @IsIn(['all', 'api', 'worker'])
   @IsOptional()
   public PROCESS_ROLE?: string;
+
+  // Runtime behind CloudFront + ALB (semantic checks live in http-runtime.ts / validate()).
+  @IsString()
+  @IsOptional()
+  public TRUST_PROXY_HOPS?: string;
+
+  @IsString()
+  @IsOptional()
+  public HTTP_KEEP_ALIVE_TIMEOUT_MS?: string;
+
+  @IsString()
+  @IsOptional()
+  public LOG_FORMAT?: string;
+
+  /** Extra CA for the database certificate: PEM text or a file path (Amazon RDS bundle). */
+  @IsString()
+  @IsOptional()
+  public DATABASE_SSL_CA?: string;
+
+  @IsString()
+  @IsOptional()
+  public DATABASE_SSL_CA_FILE?: string;
+
+  // Amazon S3 object storage. Credentials come from the task role; the key/endpoint variables are
+  // for local S3-compatible testing only and are rejected in production (see StorageService).
+  @IsString()
+  @IsOptional()
+  public S3_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  public S3_REGION?: string;
+
+  @IsString()
+  @IsOptional()
+  public S3_ENDPOINT?: string;
+
+  @IsString()
+  @IsOptional()
+  public S3_ACCESS_KEY_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  public S3_SECRET_ACCESS_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  public S3_FORCE_PATH_STYLE?: string;
+
+  /** Private bucket MediaConvert reads lesson videos from (direct uploads, purpose lesson_video). */
+  @IsString()
+  @IsOptional()
+  public VIDEO_SOURCE_BUCKET?: string;
+
+  /** `true` makes boot fail unless Redis uses rediss:// and the database certificate is verified. */
+  @IsString()
+  @IsOptional()
+  public REQUIRE_TLS_BACKENDS?: string;
 
   @IsString()
   @IsOptional()
@@ -689,6 +777,10 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
     );
   }
 
+  resolveTrustProxyHops(read);
+  resolveKeepAliveTimeouts(read);
+  resolveLogFormat(read);
+  validateTlsBackends(config);
   validateProductionPublicOrigins(config);
   validatePaymobBaseUrl(validatedConfig.PAYMOB_BASE_URL);
   if (validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY) {

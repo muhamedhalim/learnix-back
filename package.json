@@ -45,6 +45,7 @@
     "db:restore": "bash scripts/db-restore.sh",
     "verify:seed-interconnection": "ts-node -r tsconfig-paths/register scripts/verify-seed-interconnection.ts",
     "verify:seed-idempotency": "ts-node -r tsconfig-paths/register scripts/verify-seed-idempotency.ts",
+    "verify:clean-boot": "node scripts/verify-clean-boot.mjs",
     "verify:seed-correlation": "ts-node -r tsconfig-paths/register scripts/seed-correlation-check.ts",
     "verify:prelaunch-reset": "ts-node -r tsconfig-paths/register scripts/verify-prelaunch-reset.ts",
     "fingerprint:secrets": "ts-node -r tsconfig-paths/register scripts/fingerprint-secrets.ts",
@@ -53,7 +54,12 @@
     "db:reset:prelaunch:prod": "node dist/src/database/prelaunch-reset.cli.js"
   },
   "dependencies": {
+    "@aws-sdk/client-mediaconvert": "^3.1149.0",
+    "@aws-sdk/client-pinpoint-sms-voice-v2": "^3.1149.0",
     "@aws-sdk/client-s3": "^3.1079.0",
+    "@aws-sdk/client-sesv2": "^3.1149.0",
+    "@aws-sdk/client-sqs": "^3.1149.0",
+    "@aws-sdk/cloudfront-signer": "^3.1149.0",
     "@aws-sdk/s3-request-presigner": "^3.1079.0",
     "@bull-board/api": "^6.14.2",
     "@bull-board/express": "^6.14.2",
@@ -111,7 +117,8 @@
     "sharp": "^0.35.3",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.11.1",
-    "typeorm": "^0.3.31"
+    "typeorm": "^0.3.31",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@darraghor/eslint-plugin-nestjs-typed": "^7.1.18",
@@ -129,7 +136,7 @@
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.0.0",
-    "@types/node": "^22.10.7",
+    "@types/node": "^24.19.2",
     "@types/papaparse": "^5.5.2",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.17.6",
@@ -137,7 +144,9 @@
     "@types/qrcode": "^1.5.6",
     "@types/sharp": "^0.31.1",
     "@types/supertest": "^6.0.2",
+    "@types/web-push": "^3.6.4",
     "autocannon": "^8.0.0",
+    "aws-sdk-client-mock": "^4.1.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-import-resolver-typescript": "^4.4.4",
@@ -198,7 +207,7 @@
     "websocket-driver": "0.7.5"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=10.0.0"
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
   }
 }

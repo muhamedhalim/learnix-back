@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ActivityLogsModule } from '../../activity-logs/activity-logs.module';
 import { LessonsModule } from '../../lessons/lessons.module';
+import { UploadModule } from '../../uploads/upload.module';
+import { VideoModule } from '../../video/video.module';
 import { MarketplaceEnrollment } from '../commerce/entities';
 import { InstructorsModule } from '../instructors/instructors.module';
 import { CategoryService } from './category.service';
@@ -42,6 +44,8 @@ import {
     // rather than a second video integration. One-way dependency only —
     // LessonsModule has no knowledge of marketplace code.
     LessonsModule,
+    VideoModule,
+    UploadModule,
     ActivityLogsModule,
     // `ApprovedInstructorGuard` (used by every controller in this module via
     // `@ApprovedInstructor()`) is provided and exported by InstructorsModule

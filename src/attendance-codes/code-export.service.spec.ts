@@ -13,6 +13,9 @@ import {
   CodeExportStatus,
   PdfLayout,
 } from './entities';
+import { StorageService } from '../storage/storage.service';
+import { Readable } from 'node:stream';
+import { StorageObjectNotFoundError } from '../storage/storage.interface';
 
 describe('CodeExportService', () => {
   let service: CodeExportService;
@@ -29,6 +32,7 @@ describe('CodeExportService', () => {
   const codeRepo = { createQueryBuilder: jest.fn() };
   const auditRepo = { insert: jest.fn() };
   const queue = { add: jest.fn() };
+  const storage = { upload: jest.fn(), getObject: jest.fn(), tryDelete: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -40,6 +44,7 @@ describe('CodeExportService', () => {
         { provide: getRepositoryToken(AttendanceCode), useValue: codeRepo },
         { provide: getRepositoryToken(AttendanceCodeAudit), useValue: auditRepo },
         { provide: getQueueToken(QUEUE_NAMES.CODE_EXPORT), useValue: queue },
+        { provide: StorageService, useValue: storage },
       ],
     }).compile();
     service = module.get(CodeExportService);
@@ -93,7 +98,44 @@ describe('CodeExportService', () => {
     });
   });
 
+  describe('getDownload from object storage', () => {
+    const completed = {
+      id: 'exp-9',
+      batch_id: null,
+      format: CodeExportFormat.CSV,
+      status: CodeExportStatus.COMPLETED,
+      file_path: 'code-exports/exp-9.csv',
+      file_name: 'codes.csv',
+    };
+
+    it('streams the file from storage and audits the download', async () => {
+      const stream = Readable.from(['a,b']);
+      exportRepo.findOne.mockResolvedValue(completed);
+      storage.getObject.mockResolvedValue({ stream, contentType: 'text/csv', contentLength: 3 });
+
+      const result = await service.getDownload('exp-9', 'admin-1');
+
+      expect(storage.getObject).toHaveBeenCalledWith('code-exports/exp-9.csv');
+      expect(result).toMatchObject({ stream, fileName: 'codes.csv', contentLength: 3 });
+      expect(auditRepo.insert).toHaveBeenCalled();
+    });
+
+    it('reports 404 when the stored object has disappeared', async () => {
+      exportRepo.findOne.mockResolvedValue(completed);
+      storage.getObject.mockRejectedValue(new StorageObjectNotFoundError('code-exports/exp-9.csv'));
+      await expect(service.getDownload('exp-9', 'admin-1')).rejects.toThrow(
+        'Export file is not available',
+      );
+    });
+  });
+
   describe('cleanupExpired', () => {
+    it('deletes the stored objects of expired exports', async () => {
+      exportRepo.find.mockResolvedValue([{ id: 'e1', file_path: 'code-exports/e1.csv' }]);
+      await service.cleanupExpired();
+      expect(storage.tryDelete).toHaveBeenCalledWith('code-exports/e1.csv');
+    });
+
     it('removes expired export records', async () => {
       exportRepo.find.mockResolvedValue([
         { id: 'e1', file_path: null },

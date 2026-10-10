@@ -4,7 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Queue } from 'bullmq';
 import { existsSync } from 'node:fs';
-import { mkdir, stat, unlink } from 'node:fs/promises';
+import { mkdir, readFile, stat, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LessThan, Repository } from 'typeorm';
 
@@ -24,6 +25,9 @@ import {
 } from './entities';
 import { ExportableCode, ExportContext, exportCsv, exportExcel, exportJson } from './exporters';
 import { exportPdf } from './exporters/pdf.exporter';
+import { StorageObjectNotFoundError, type StoredObject } from '../storage/storage.interface';
+import { StorageService } from '../storage/storage.service';
+import type { Readable } from 'node:stream';
 
 interface FormatMeta {
   ext: string;
@@ -32,6 +36,9 @@ interface FormatMeta {
 }
 
 /** Per-format file extension, MIME type and BullMQ job name. */
+/** Object-storage prefix for finished exports (private; see StorageService). */
+const EXPORT_KEY_PREFIX = 'code-exports/';
+
 const FORMAT_META: Record<CodeExportFormat, FormatMeta> = {
   [CodeExportFormat.CSV]: {
     ext: 'csv',
@@ -63,14 +70,19 @@ const FORMAT_META: Record<CodeExportFormat, FormatMeta> = {
 /**
  * Manages asynchronous attendance-code exports: persists a job, enqueues it,
  * streams matching codes into a cached file (CSV/Excel/PDF/JSON/QR) off the
- * request path, and serves the result for download. Files are cached on disk
- * until their TTL, then removed by {@link cleanupExpired}.
+ * request path, and serves the result for download.
+ *
+ * The worker builds each file in a local scratch directory, uploads it to PRIVATE object
+ * storage (`code-exports/<id>.<ext>`), and deletes the scratch file. Downloads stream from
+ * object storage, so any API task can serve a file produced by any worker task. Objects are
+ * removed by {@link cleanupExpired} after their TTL.
  */
 @Injectable()
 export class CodeExportService {
   private readonly logger = new Logger(CodeExportService.name);
+  /** Scratch space only: never the system of record (the file lives in object storage). */
   private readonly storageDir =
-    process.env['CODE_EXPORT_DIR'] ?? join(process.cwd(), 'storage', 'code-exports');
+    process.env['CODE_EXPORT_DIR'] ?? join(tmpdir(), 'learnix-code-exports');
   private readonly ttlMs =
     Number.parseInt(process.env['CODE_EXPORT_TTL_HOURS'] ?? '24', 10) * 3_600_000;
   private readonly redeemBaseUrl = process.env['CODE_REDEEM_BASE_URL'] ?? '';
@@ -84,6 +96,7 @@ export class CodeExportService {
     private readonly auditRepo: Repository<AttendanceCodeAudit>,
     @InjectQueue(QUEUE_NAMES.CODE_EXPORT)
     private readonly exportQueue: Queue,
+    private readonly storage: StorageService,
   ) {}
 
   /* ============================ Job lifecycle ============================ */
@@ -154,6 +167,7 @@ export class CodeExportService {
     const meta = FORMAT_META[record.format];
     const selection = (record.filters ?? {}) as CodeSelection;
     const filePath = join(this.storageDir, `${record.id}.${meta.ext}`);
+    const objectKey = `${EXPORT_KEY_PREFIX}${record.id}.${meta.ext}`;
     const fileName = this.buildFileName(record.format, meta.ext);
 
     try {
@@ -181,13 +195,25 @@ export class CodeExportService {
 
       const written = await this.write(record.format, record.layout, filePath, ctx);
 
-      const size = total > 0 && existsSync(filePath) ? (await stat(filePath)).size : 0;
+      // An empty export has no file; otherwise move the scratch file into private storage.
+      let size = 0;
+      let storedKey: string | null = null;
+      if (total > 0 && existsSync(filePath)) {
+        size = (await stat(filePath)).size;
+        await this.storage.upload({
+          buffer: await readFile(filePath),
+          path: objectKey,
+          contentType: meta.contentType,
+          visibility: 'private',
+        });
+        storedKey = objectKey;
+      }
       await this.exportRepo.update(record.id, {
         status: CodeExportStatus.COMPLETED,
         progress: 100,
         total_count: written,
         file_name: fileName,
-        file_path: filePath,
+        file_path: storedKey,
         file_size: String(size),
       });
 
@@ -207,6 +233,8 @@ export class CodeExportService {
       });
       this.logger.error(`Export ${record.id} failed: ${message}`);
       throw err;
+    } finally {
+      await unlink(filePath).catch(() => undefined);
     }
   }
 
@@ -259,14 +287,20 @@ export class CodeExportService {
   public async getDownload(
     id: string,
     actorId: string,
-  ): Promise<{ path: string; fileName: string; contentType: string }> {
+  ): Promise<{ stream: Readable; fileName: string; contentType: string; contentLength?: number }> {
     const record = await this.getExport(id);
-    if (
-      record.status !== CodeExportStatus.COMPLETED ||
-      !record.file_path ||
-      !existsSync(record.file_path)
-    ) {
+    if (record.status !== CodeExportStatus.COMPLETED || !record.file_path) {
       throw new NotFoundException(biBody('Export file is not available', 'ملف التصدير غير متاح'));
+    }
+
+    let object: StoredObject;
+    try {
+      object = await this.storage.getObject(record.file_path);
+    } catch (err) {
+      if (err instanceof StorageObjectNotFoundError) {
+        throw new NotFoundException(biBody('Export file is not available', 'ملف التصدير غير متاح'));
+      }
+      throw err;
     }
 
     await this.auditRepo.insert({
@@ -277,9 +311,10 @@ export class CodeExportService {
     });
 
     return {
-      path: record.file_path,
+      stream: object.stream,
       fileName: record.file_name ?? `export.${FORMAT_META[record.format].ext}`,
       contentType: FORMAT_META[record.format].contentType,
+      ...(object.contentLength !== undefined ? { contentLength: object.contentLength } : {}),
     };
   }
 
@@ -291,9 +326,7 @@ export class CodeExportService {
       where: { expires_at: LessThan(new Date()) },
     });
     for (const record of expired) {
-      if (record.file_path && existsSync(record.file_path)) {
-        await unlink(record.file_path).catch(() => undefined);
-      }
+      await this.storage.tryDelete(record.file_path);
     }
     if (expired.length > 0) {
       await this.exportRepo.remove(expired);

@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -97,6 +98,7 @@ export class PublicCatalogController {
   }
 
   @Get(':slug/preview/:lessonId')
+  @UseInterceptors(PlaybackCookiesInterceptor)
   @ApiOperation({ summary: 'Signed playback for a free-preview lesson only (FR-048, FR-084)' })
   public async preview(@Param('slug') slug: string, @Param('lessonId') lessonId: string): Promise<PreviewLessonContent> {
     return this.previewAccess.getPreviewLesson(slug, lessonId);

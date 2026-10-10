@@ -315,7 +315,30 @@ function checkRedis(context: RuleContext): void {
   }
 }
 
+/** Amazon S3 buckets: a staging deployment must not point at (or be named like) a production bucket. */
+function checkS3Buckets(context: RuleContext): void {
+  for (const variable of ['S3_BUCKET', 'VIDEO_SOURCE_BUCKET', 'VIDEO_OUTPUT_BUCKET']) {
+    assertNotProductionIdentifier(
+      context,
+      variable,
+      'STAGING_PRODUCTION_STORAGE_BUCKET',
+      'Use the staging account\'s own bucket. The orphan-cleanup crons DELETE objects, so a shared ' +
+        'bucket means staging deletes production files.',
+    );
+    const bucket = context.get(variable);
+    if (bucket !== undefined && bucket.trim() !== '' && !STAGING_TOKEN_PATTERN.test(bucket)) {
+      deny(context, {
+        code: 'STAGING_STORAGE_BUCKET_NOT_MARKED',
+        rule: 'structural',
+        variable,
+        message: `bucket "${bucket.trim()}" does not identify itself as staging. Name it e.g. "learnix-staging-files".`,
+      });
+    }
+  }
+}
+
 function checkStorage(context: RuleContext): void {
+  checkS3Buckets(context);
   assertNotProductionIdentifier(
     context,
     'R2_BUCKET',
@@ -470,8 +493,11 @@ function checkCookies(context: RuleContext): void {
 }
 
 function checkMessaging(context: RuleContext): void {
-  const mailEnabled = (context.get('MAIL_PROVIDER') ?? '').trim().toLowerCase() === 'mailersend';
-  const mailKeyPresent = (context.get('MAILERSEND_API_KEY') ?? '').trim() !== '';
+  const mailProvider = (context.get('MAIL_PROVIDER') ?? '').trim().toLowerCase();
+  const mailEnabled = mailProvider === 'mailersend' || mailProvider === 'ses';
+  // SES authenticates through the task role, so being selected is what makes it live.
+  const mailKeyPresent =
+    mailProvider === 'ses' || (context.get('MAILERSEND_API_KEY') ?? '').trim() !== '';
 
   if (mailEnabled && mailKeyPresent && parseList(context.get('MAIL_ALLOWLIST')).length === 0) {
     deny(context, {
@@ -479,7 +505,7 @@ function checkMessaging(context: RuleContext): void {
       rule: 'structural',
       variable: 'MAIL_ALLOWLIST',
       message:
-        'is required when MailerSend is configured on staging. Without it, any address present in ' +
+        'is required when an email provider (SES or MailerSend) is configured on staging. Without it, any address present in ' +
         'the database receives real mail. Set a comma-separated list of permitted recipients or domains.',
     });
   }

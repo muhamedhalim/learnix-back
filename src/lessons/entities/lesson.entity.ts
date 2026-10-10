@@ -74,7 +74,11 @@ export class Lesson {
     name: 'video_platform',
   })
   @Index('IDX_lessons_video_platform')
-  video_platform!: 'bunny';
+  video_platform!: 'bunny' | 'aws';
+
+  /** AWS-hosted video (see `video_assets`). Null for Bunny-hosted or video-less lessons. */
+  @Column({ type: 'uuid', nullable: true, name: 'video_asset_id' })
+  video_asset_id!: string | null;
 
   @Column({
     type: 'varchar',

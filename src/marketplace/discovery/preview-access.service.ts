@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { BunnyStreamService } from '../../lessons/bunny-stream.service';
+import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
+import type { PlaybackCookie } from '../../video/playback-cookies';
 import type { CourseSnapshot } from '../catalog/course-version.service';
 import { CourseDetailService } from './course-detail.service';
 
@@ -11,8 +13,12 @@ export interface PreviewLessonContent {
   title_ar: string | null;
   content_type: string;
   duration_seconds: number;
-  /** Present for a video lesson — a short-lived signed (when Bunny signing is configured) embed URL. */
+  /** Present for a Bunny video lesson: a short-lived signed embed URL. Null when signing is not configured, so a free preview never falls back to an unsigned URL. */
   embed_url: string | null;
+  /** AWS video: same-origin HLS path, authorised by the `playback_cookies` the route turns into Set-Cookie. */
+  hls_url?: string | null;
+  expires_at?: string;
+  playback_cookies?: PlaybackCookie[];
   /** Present for a text lesson — already sanitised on write (FR-304). */
   content_html: string | null;
 }
@@ -29,6 +35,7 @@ export class PreviewAccessService {
   constructor(
     private readonly courseDetail: CourseDetailService,
     private readonly bunnyStream: BunnyStreamService,
+    @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
   public async getPreviewLesson(slug: string, lessonId: string): Promise<PreviewLessonContent> {
@@ -41,6 +48,12 @@ export class PreviewAccessService {
       throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
+    const videoId = lesson.content_type === 'video' ? lesson.video_id : null;
+    const aws =
+      isAwsRef(videoId) && this.awsVideo
+        ? await this.awsVideo.grantPlayback(awsAssetId(videoId))
+        : null;
+
     return {
       id: lesson.id,
       title: lesson.title,
@@ -48,9 +61,12 @@ export class PreviewAccessService {
       content_type: lesson.content_type,
       duration_seconds: lesson.duration_seconds,
       embed_url:
-        lesson.content_type === 'video' && lesson.video_id
-          ? (this.bunnyStream.generateSignedEmbedUrl(lesson.video_id) ?? this.bunnyStream.buildEmbedUrl(lesson.video_id))
+        videoId && aws === null && !isAwsRef(videoId)
+          ? this.bunnyStream.generateSignedEmbedUrl(videoId)
           : null,
+      ...(aws !== null
+        ? { hls_url: aws.hls_url, expires_at: aws.expires_at, playback_cookies: aws.playback_cookies }
+        : {}),
       content_html: lesson.content_type === 'text' ? lesson.content_html : null,
     };
   }

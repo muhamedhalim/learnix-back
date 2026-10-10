@@ -4,6 +4,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { runsBackgroundWork } from '../../config/process-role';
 
 /** Nightly sweep cadence (ms). Runs hourly so a lapsed streak clears promptly. */
 const STREAK_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -24,6 +25,8 @@ export class GameJobsService implements OnModuleInit {
   ) {}
 
   public async onModuleInit(): Promise<void> {
+    // Repeatable schedules are registered by processes that do background work only.
+    if (!runsBackgroundWork()) return;
     await this.queue.add(
       JOB_TYPES.GAMIFICATION.STREAK_RESET_SWEEP,
       {},

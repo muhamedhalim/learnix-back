@@ -14,7 +14,7 @@ interface AnalyticsJob {
  * Worker that recomputes + warms an exam's aggregated analytics after any grade
  * change, so teacher dashboards read fresh, precomputed stats off the hot path.
  */
-@Processor(QUEUE_NAMES.EXAM_ANALYTICS, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.EXAM_ANALYTICS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class ExamAnalyticsProcessor extends WorkerHost {
   private readonly logger = new Logger(ExamAnalyticsProcessor.name);
 

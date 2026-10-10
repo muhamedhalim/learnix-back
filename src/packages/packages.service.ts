@@ -44,6 +44,7 @@ import { CourseStatus } from './entities/course-status.enum';
 import { CourseVersion } from './entities/course-version.entity';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
+import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 /** T087: a package as it appears in LIST responses: no `lessons[]` (only `lessons_count`); detail endpoints keep it. */
 export type PackageListItem = Omit<PackageWithDetails, 'lessons'>;
@@ -1168,6 +1169,7 @@ export class PackagesService {
    * Runs every 5 minutes.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @CronSingleRunner('packages.publish_scheduled')
   public async publishScheduledCourses(): Promise<void> {
     const due = await this.packagesRepository
       .createQueryBuilder('package')

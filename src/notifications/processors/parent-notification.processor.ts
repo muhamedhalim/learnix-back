@@ -48,7 +48,7 @@ const SECRET_VARIABLE_KEYS = new Set(['code']);
  *    the same channel. Downgrading a parent to SMS because Meta had a bad
  *    minute would be a silent, permanent quality regression.
  */
-@Processor(QUEUE_NAMES.PARENT_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency })
+@Processor(QUEUE_NAMES.PARENT_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class ParentNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(ParentNotificationProcessor.name);
 

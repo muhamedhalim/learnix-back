@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 
 import { Job } from 'bullmq';
 
-import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
 import { CodeExportService } from '../code-export.service';
 
 interface ExportJob {
@@ -15,7 +15,7 @@ interface ExportJob {
  * format (CSV/Excel/PDF/JSON/QR) plus cache cleanup, dispatching by job name.
  * The heavy file streaming runs here, off the request path. Requires Redis.
  */
-@Processor(QUEUE_NAMES.CODE_EXPORT)
+@Processor(QUEUE_NAMES.CODE_EXPORT, { autorun: WORKER_CONFIG.autorun })
 export class CodeExportProcessor extends WorkerHost {
   private readonly logger = new Logger(CodeExportProcessor.name);
 

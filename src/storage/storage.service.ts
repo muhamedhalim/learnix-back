@@ -45,16 +45,17 @@ const PRIVATE_LOCAL_PREFIXES = [
   'support-tickets/',
   'resources/',
   'attachments/',
+  'code-exports/',
 ] as const;
 
 /**
- * Build a diagnostic, non-sensitive description of an AWS-SDK / R2 error. The
+ * Build a diagnostic, non-sensitive description of an AWS-SDK / S3-compatible error. The
  * SDK's `err.message` alone is often just "Access Denied"; the useful signal
  * lives in `name`, `Code`, `$metadata.httpStatusCode` and `$fault`. We surface
  * those (never credentials) so failures are actionable in the logs instead of a
  * generic wrapper.
  */
-function describeS3Error(err: unknown): string {
+function describeS3Error(err: unknown, store = 'object store'): string {
   const e = err as {
     name?: string;
     message?: string;
@@ -72,45 +73,30 @@ function describeS3Error(err: unknown): string {
   ].filter(Boolean);
   let hint = '';
   if (status === 403 || e?.name === 'AccessDenied') {
-    hint =
-      ' — the R2 API token is missing write permission for this bucket. ' +
-      'Re-issue an R2 token with "Object Read & Write" scoped to the bucket ' +
-      'and update R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY.';
+    hint = ` — the ${store} credentials/role lack write permission for this bucket (check the task role or token).`;
   } else if (status === 404 || e?.name === 'NoSuchBucket') {
-    hint = ' — the R2 bucket does not exist or R2_BUCKET is misconfigured.';
+    hint = ` — the ${store} bucket does not exist or its bucket variable is misconfigured.`;
   }
   return `${parts.join(' ')}${hint}`;
 }
 
 /**
- * Cloudflare R2 (S3-compatible) provider. Primary backend for every non-video
- * asset. Browser-facing public assets are served through MediaController and
+ * S3-compatible object-store provider (Amazon S3, or Cloudflare R2 while it is still
+ * configured). Primary backend for every non-video asset.
+ * Browser-facing public assets are served through MediaController and
  * private objects (paid PDFs, submissions, OMR scans) are streamed only after
  * backend authorization. R2_PUBLIC_BASE_URL is retained solely to recognize
  * and migrate legacy persisted URLs; callers must never return provider URLs.
  */
-class R2StorageProvider implements StorageProvider {
-  public readonly name = 'r2';
-  private readonly s3: S3Client;
-
+class ObjectStoreProvider implements StorageProvider {
   constructor(
-    accountId: string,
-    accessKeyId: string,
-    secretAccessKey: string,
-    private readonly bucket: string,
-    region: string,
+    public readonly name: 's3' | 'r2',
+    public readonly s3: S3Client,
+    public readonly bucket: string,
     private readonly publicBaseUrl: string,
     private readonly signedExpires: number,
     private readonly logger: Logger,
-  ) {
-    this.s3 = new S3Client({
-      region: region !== '' ? region : 'auto',
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-      credentials: { accessKeyId, secretAccessKey },
-      // R2 requires path-style addressing.
-      forcePathStyle: true,
-    });
-  }
+  ) {}
 
   public async upload({
     buffer,
@@ -131,7 +117,7 @@ class R2StorageProvider implements StorageProvider {
       // Log the ORIGINAL exception (with stack + AWS metadata) so the real
       // cause is diagnosable; the caller still gets a friendly message.
       this.logger.error(
-        `R2 upload failed for ${path}: ${describeS3Error(err)}`,
+        `${this.name} upload failed for ${path}: ${describeS3Error(err, this.name)}`,
         err instanceof Error ? err.stack : undefined,
       );
       throw new Error('File upload failed');
@@ -148,7 +134,7 @@ class R2StorageProvider implements StorageProvider {
     try {
       await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: path }));
     } catch (err) {
-      this.logger.warn(`R2 delete failed for ${path}: ${describeS3Error(err)}`);
+      this.logger.warn(`${this.name} delete failed for ${path}: ${describeS3Error(err, this.name)}`);
     }
   }
 
@@ -179,7 +165,7 @@ class R2StorageProvider implements StorageProvider {
         throw new StorageObjectNotFoundError(path);
       }
       if (err instanceof StorageObjectNotFoundError) throw err;
-      this.logger.error(`R2 getObject failed for ${path}: ${describeS3Error(err)}`);
+      this.logger.error(`${this.name} getObject failed for ${path}: ${describeS3Error(err, this.name)}`);
       throw err;
     }
   }
@@ -382,6 +368,9 @@ export class StorageService implements StorageProvider {
   }
 
   private selectProvider(): StorageProvider {
+    const s3Bucket = this.config.get<string>('S3_BUCKET');
+    if (s3Bucket) return this.buildS3Provider(s3Bucket);
+
     const accountId = this.config.get<string>('R2_ACCOUNT_ID');
     const accessKeyId = this.config.get<string>('R2_ACCESS_KEY_ID');
     const secretAccessKey = this.config.get<string>('R2_SECRET_ACCESS_KEY');
@@ -394,12 +383,16 @@ export class StorageService implements StorageProvider {
           'R2_PUBLIC_BASE_URL must not be configured in production: R2 objects must be private and served only through authorized backend routes or signed URLs.',
         );
       }
-      return new R2StorageProvider(
-        accountId,
-        accessKeyId,
-        secretAccessKey,
+      return new ObjectStoreProvider(
+        'r2',
+        new S3Client({
+          region: this.config.get<string>('R2_REGION') || 'auto',
+          endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+          credentials: { accessKeyId, secretAccessKey },
+          // R2 requires path-style addressing.
+          forcePathStyle: true,
+        }),
         bucket,
-        this.config.get<string>('R2_REGION') ?? 'auto',
         publicBaseUrl ?? '',
         Number.parseInt(this.config.get<string>('SIGNED_URL_EXPIRES_SECONDS') ?? '', 10) ||
           DEFAULT_SIGNED_EXPIRES,
@@ -427,14 +420,56 @@ export class StorageService implements StorageProvider {
     }
 
     if (this.config.get<string>('NODE_ENV') === 'production') {
-      throw new Error('R2 or Bunny object storage must be configured in production');
+      throw new Error('S3 (S3_BUCKET), R2 or Bunny object storage must be configured in production');
     }
-    this.logger.warn('No object storage configured (R2/Bunny) - using local disk fallback.');
+    this.logger.warn('No object storage configured (S3/R2/Bunny) - using local disk fallback.');
     return new LocalStorageProvider(
       this.config.get<string>('UPLOAD_DIR') ?? './uploads',
       this.config.get<string>('PRIVATE_UPLOAD_DIR') ?? './private-uploads',
       this.config.get<string>('BACKEND_URL') ?? 'http://localhost:3001',
     );
+  }
+
+  /**
+   * Amazon S3 (or an S3-compatible endpoint for local testing). Credentials come from the default
+   * AWS provider chain (ECS task role): static keys are refused in production so no long-lived
+   * key can be configured by accident. Objects are never public; callers use backend routes or
+   * signed URLs.
+   */
+  private buildS3Provider(bucket: string): StorageProvider {
+    const production = this.config.get<string>('NODE_ENV') === 'production';
+    const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID');
+    const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY');
+    const endpoint = this.config.get<string>('S3_ENDPOINT');
+    if (production && (accessKeyId || secretAccessKey || endpoint)) {
+      throw new Error(
+        'S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY / S3_ENDPOINT are for local testing only; production uses the task role.',
+      );
+    }
+    if (this.config.get<string>('S3_PUBLIC_BASE_URL')) {
+      throw new Error('S3 objects must be private: S3_PUBLIC_BASE_URL is not supported.');
+    }
+    const client = new S3Client({
+      region: this.config.get<string>('S3_REGION') || this.config.get<string>('AWS_REGION') || 'eu-central-1',
+      ...(endpoint ? { endpoint, forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE') !== 'false' } : {}),
+      ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+    });
+    return new ObjectStoreProvider(
+      's3',
+      client,
+      bucket,
+      '',
+      Number.parseInt(this.config.get<string>('SIGNED_URL_EXPIRES_SECONDS') ?? '', 10) ||
+        DEFAULT_SIGNED_EXPIRES,
+      this.logger,
+    );
+  }
+
+  /** The S3 client + bucket, for direct (presigned) uploads. `null` for non-S3 backends. */
+  public getDirectUploadBackend(): { client: S3Client; bucket: string } | null {
+    return this.provider instanceof ObjectStoreProvider
+      ? { client: this.provider.s3, bucket: this.provider.bucket }
+      : null;
   }
 
   public get name(): string {
