@@ -1,0 +1,55 @@
+# Copy to the PRODUCTION_TFVARS_JSON repository variable (as JSON) or terraform.tfvars. Nothing here is secret:
+# secrets are generated into / entered in Secrets Manager (docs/phase3-staging.md, AWS-DEPLOYMENT-RUNBOOK.md).
+
+admin_email     = "admin@learnix.school"
+mail_from_email = "no-reply@learnix.school"
+alert_emails    = ["ops@learnix.school"]
+
+# --- Domain: Vercel keeps the frontend at the apex; AWS adds api.<domain> ----------------------------------
+# domain_name   = "learnix.school"
+# api_subdomain = "api"
+# cors_extra_origins = [] # exact https origins only (e.g. "https://www.learnix.school"); never *.vercel.app
+
+# --- Phase 6: zone copy: EVERY existing record (except _dmarc), including the apex/www records that point at
+# Vercel. Copy the targets from Vercel's domain settings and the live Cloudflare zone; do not invent them.
+dns_records = [
+  # { name = "learnix.school", type = "A", ttl = 300, records = ["<apex target shown by Vercel>"] },
+  # { name = "www.learnix.school", type = "CNAME", ttl = 300, records = ["<target shown by Vercel>"] },
+  # { name = "learnix.school", type = "MX", ttl = 300, records = ["10 <mx host>"] },
+]
+certificate_enabled = false # true after the Name.com NS change has propagated: certificate + api.<domain> aliases
+
+# --- Images and capacity (0 until the first image is in ECR; autoscaling attaches above 0) ------------
+image_tag            = "bootstrap"
+api_desired_count    = 0
+worker_desired_count = 0
+# worker_max_count        = 4
+# worker_backlog_per_task = 100
+
+# --- Application pipelines ---------------------------------------------------------------------------
+app_repositories = {
+  api = "OWNER/learnix-back" # the frontend deploys through Vercel and needs no AWS role
+}
+
+# --- Secrets injected as environment variables (after the operator fills the secret values) -----------
+inject_vapid          = false
+inject_cloudfront_key = false
+# video_public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+extra_secrets = {
+  # PAYMOB_API_KEY = { secret = "paymob", key = "PAYMOB_API_KEY" }
+}
+extra_environment = {
+  # PAYMOB_INTEGRATION_ID = "<id>"
+}
+
+# --- SMS (null until AWS approves the Egypt sender ID) ---------------------------------------------------
+# sms_sender_id                = "LEARNIX"
+# sms_protect_configuration_id = "protect-0123456789abcdef"
+
+# --- Edge, observability, hardening ----------------------------------------------------------------------
+waf_block                   = false # true after tuning on real traffic
+canary_enabled              = false # true once the API host is live
+application_signals_enabled = true
+read_only_root_filesystem   = false # true after staging has run with it
+# rum_session_sample_rate       = 0.25
+# backup_monthly_retention_days = 365

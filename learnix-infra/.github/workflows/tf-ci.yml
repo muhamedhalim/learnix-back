@@ -1,0 +1,166 @@
+name: tf-ci
+
+on:
+  pull_request:
+    paths: ['bootstrap/**', 'org/**', 'modules/**', 'environments/**', 'policies/**', 'scripts/**', '.github/workflows/**']
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [bootstrap, org, environments/staging, environments/production]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+      - run: terraform fmt -check -recursive
+        working-directory: ${{ matrix.dir }}
+      - run: terraform init -backend=false -input=false
+        working-directory: ${{ matrix.dir }}
+      - run: terraform validate
+        working-directory: ${{ matrix.dir }}
+      - name: Offline plan against mocked providers (cycles, count/for_each, validations)
+        if: ${{ startsWith(matrix.dir, 'environments/') }}
+        run: terraform test
+        working-directory: ${{ matrix.dir }}
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --chdir=${{ matrix.dir }}
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ${{ matrix.dir }}
+          framework: terraform
+          soft_fail: false
+
+  deploy-script:
+    name: ecs-deploy.sh against a fake AWS CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/ecs-deploy.sh
+      - run: |
+          docker run --rm -v "$PWD/scripts/tests:/fake" -v "$PWD/scripts:/src:ro" alpine:3.20 sh -c \
+            "apk add --no-cache bash jq >/dev/null && mkdir -p /work && install -m 755 /fake/fake-aws /usr/local/bin/aws && bash /fake/ecs-deploy.test.sh"
+
+  plan-org:
+    # Needs the bootstrap outputs stored as repository variables (see docs/phase2-manual-steps.md).
+    if: ${{ vars.AWS_PLAN_ROLE_ARN != '' }}
+    needs: static
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Write backend and variable files
+        working-directory: org
+        run: |
+          cat > backend.hcl <<EOF
+          bucket       = "${{ vars.TF_STATE_BUCKET }}"
+          region       = "${{ vars.AWS_REGION }}"
+          encrypt      = true
+          kms_key_id   = "${{ vars.TF_STATE_KMS_KEY_ARN }}"
+          use_lockfile = true
+          EOF
+          printf '%s' '${{ vars.ORG_TFVARS_JSON }}' > ci.auto.tfvars.json
+      - run: terraform init -input=false -backend-config=backend.hcl
+        working-directory: org
+      - run: terraform plan -input=false -lock-timeout=60s -out=tfplan
+        working-directory: org
+      - name: Policy check (conftest)
+        working-directory: org
+        run: |
+          terraform show -json tfplan > tfplan.json
+          docker run --rm -v "$PWD/..:/project" -w /project openpolicyagent/conftest:v0.56.0 \
+            test --policy policies --parser json org/tfplan.json
+
+  plan-staging:
+    # Needs the staging bootstrap outputs stored as repository variables (docs/phase3-staging.md).
+    if: ${{ vars.STAGING_PLAN_ROLE_ARN != '' }}
+    needs: static
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.STAGING_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Write backend and variable files
+        working-directory: environments/staging
+        run: |
+          cat > backend.hcl <<EOF
+          bucket       = "${{ vars.STAGING_TF_STATE_BUCKET }}"
+          region       = "${{ vars.AWS_REGION }}"
+          encrypt      = true
+          kms_key_id   = "${{ vars.STAGING_TF_STATE_KMS_KEY_ARN }}"
+          use_lockfile = true
+          EOF
+          printf '%s' '${{ vars.STAGING_TFVARS_JSON }}' > ci.auto.tfvars.json
+      - run: terraform init -input=false -backend-config=backend.hcl
+        working-directory: environments/staging
+      - run: terraform plan -input=false -lock-timeout=60s -out=tfplan
+        working-directory: environments/staging
+      - name: Policy check (conftest)
+        working-directory: environments/staging
+        run: |
+          terraform show -json tfplan > tfplan.json
+          docker run --rm -v "$PWD/../..:/project" -w /project openpolicyagent/conftest:v0.56.0             test --policy policies --parser json environments/staging/tfplan.json
+
+  plan-production:
+    # Needs the production bootstrap outputs stored as repository variables (docs/phase6-production.md).
+    if: ${{ vars.PRODUCTION_PLAN_ROLE_ARN != '' }}
+    needs: static
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PRODUCTION_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Write backend and variable files
+        working-directory: environments/production
+        run: |
+          cat > backend.hcl <<EOF
+          bucket       = "${{ vars.PRODUCTION_TF_STATE_BUCKET }}"
+          region       = "${{ vars.AWS_REGION }}"
+          encrypt      = true
+          kms_key_id   = "${{ vars.PRODUCTION_TF_STATE_KMS_KEY_ARN }}"
+          use_lockfile = true
+          EOF
+          printf '%s' '${{ vars.PRODUCTION_TFVARS_JSON }}' > ci.auto.tfvars.json
+      - run: terraform init -input=false -backend-config=backend.hcl
+        working-directory: environments/production
+      - run: terraform plan -input=false -lock-timeout=60s -out=tfplan
+        working-directory: environments/production
+      - name: Policy check (conftest)
+        working-directory: environments/production
+        run: |
+          terraform show -json tfplan > tfplan.json
+          docker run --rm -v "$PWD/../..:/project" -w /project openpolicyagent/conftest:v0.56.0             test --policy policies --parser json environments/production/tfplan.json

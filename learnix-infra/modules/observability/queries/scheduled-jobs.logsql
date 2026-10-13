@@ -1,0 +1,4 @@
+fields @timestamp, context, message
+| filter context like /(?i)cron|scheduled|sweep|reconcil/
+| sort @timestamp desc
+| limit 200

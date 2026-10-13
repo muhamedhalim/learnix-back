@@ -1,0 +1,4 @@
+fields @timestamp, @logStream, context, message, stack
+| filter level = "error"
+| sort @timestamp desc
+| limit 200

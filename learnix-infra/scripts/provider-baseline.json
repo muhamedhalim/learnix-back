@@ -1,0 +1,83 @@
+{
+  "railway": [
+    "learnix-back/railway.json",
+    "learnix-back/scripts/smoke-test.sh",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/database/migrate-cli.ts",
+    "learnix-back/src/database/migration-lock.util.ts",
+    "learnix-back/src/database/seed-staging.ts",
+    "learnix-back/src/health/health-collector-coordinator.service.ts",
+    "learnix-back/src/health/health-orchestrator.service.ts",
+    "learnix-back/src/main.ts",
+    "learnix-back/src/observability/release.ts",
+    "learnix-front/.github/workflows/ci.yml",
+    "learnix-front/next.config.ts"
+  ],
+  "cloudflare-r2": [
+    "learnix-back/scripts/e2e-media.ts",
+    "learnix-back/scripts/fingerprint-secrets.ts",
+    "learnix-back/scripts/migrate-uploads-to-r2.ts",
+    "learnix-back/src/config/app-env.ts",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/config/public-url.util.ts",
+    "learnix-back/src/database/prelaunch-reset.ts",
+    "learnix-back/src/health/indicators/storage.indicator.ts",
+    "learnix-back/src/media/media.service.ts",
+    "learnix-back/src/storage/storage.service.ts",
+    "learnix-front/next.config.ts"
+  ],
+  "bunny-stream": [
+    "learnix-back/scripts/fingerprint-secrets.ts",
+    "learnix-back/src/config/env.validation.ts",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/config/public-url.util.ts",
+    "learnix-back/src/database/prelaunch-reset.ts",
+    "learnix-back/src/health/indicators/external-providers.indicator.ts",
+    "learnix-back/src/health/indicators/storage.indicator.ts",
+    "learnix-back/src/lessons/bunny-stream.service.ts",
+    "learnix-back/src/media/media.service.ts",
+    "learnix-back/src/storage/storage.service.ts",
+    "learnix-front/app/[locale]/hooks/api/useMarketplaceVideoUpload.ts",
+    "learnix-front/app/[locale]/lib/bunny.ts",
+    "learnix-front/app/[locale]/utils/video.ts"
+  ],
+  "mailersend": [
+    "learnix-back/scripts/fingerprint-secrets.ts",
+    "learnix-back/src/config/env.validation.ts",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/health/indicators/external-providers.indicator.ts",
+    "learnix-back/src/mail/mail.service.ts",
+    "learnix-back/src/mail/mailersend.config.ts"
+  ],
+  "twilio": [
+    "learnix-back/scripts/fingerprint-secrets.ts",
+    "learnix-back/src/config/env.validation.ts",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/health/indicators/external-providers.indicator.ts",
+    "learnix-back/src/notifications/services/sms-sender.service.ts"
+  ],
+  "firebase": [
+    "learnix-back/scripts/fingerprint-secrets.ts",
+    "learnix-back/src/config/env.validation.ts",
+    "learnix-back/src/config/environment-isolation.guard.ts",
+    "learnix-back/src/firebase/firebase.service.ts",
+    "learnix-back/src/health/indicators/external-providers.indicator.ts",
+    "learnix-back/src/notifications/push/firebase-push.provider.ts",
+    "learnix-back/src/notifications/push/web-push.util.ts",
+    "learnix-back/src/users/users.service.ts",
+    "learnix-front/app/[locale]/Components/notifications/ForegroundPushListener.tsx",
+    "learnix-front/app/[locale]/lib/push/firebase-config.ts",
+    "learnix-front/app/[locale]/lib/push/push-client.ts",
+    "learnix-front/public/firebase-messaging-sw.js"
+  ],
+  "sentry": [
+    "learnix-back/src/observability/sentry.ts",
+    "learnix-front/app/[locale]/Components/monitoring/WebVitals.tsx",
+    "learnix-front/app/[locale]/error.tsx",
+    "learnix-front/app/[locale]/lib/monitoring/report-api-error.ts",
+    "learnix-front/app/global-error.tsx",
+    "learnix-front/instrumentation-client.ts",
+    "learnix-front/instrumentation.ts",
+    "learnix-front/next.config.ts"
+  ]
+}

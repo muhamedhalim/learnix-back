@@ -1,0 +1,87 @@
+# AWS open items
+
+Everything still open on 2026-10-13, classified. Owner "you" = the account owner / product owner.
+Closing evidence is what must be recorded before the item is ticked.
+
+## 1. Local test results and unresolved local failures
+
+| Suite | Result | Note |
+|---|---|---|
+| learnix-back unit (`npx jest --ci`) | 371 suites, 3,109 tests passed, 1 suite and 7 tests skipped (2026-10-13, after the Vercel change) | Includes the new CORS-over-HTTP and video-origin tests |
+| learnix-back e2e (`npm run test:e2e -- --ci`) | **Run 2026-10-13 after the Vercel change: 90/91 suites, 727/728 tests passed.** The one failure, `quiz-analytics-parity` (statement count 15, expected 7), passed 3 of 3 times when re-run alone; the previous full run (before this change) was 91/91, 728/728 | Suspected cause (not proven): the run's statement counter picked up background statements (cron locks / health collection) because the assertion landed on a minute boundary, the same class of flake as the `lesson-session-concurrency` fix. The change under test does not touch that code. Baseline at `a737a67` was 84/91 suites failing |
+| learnix-front typecheck / unit / build | tsc clean; 163 files, 779 tests passed; `next build` succeeded (2026-10-13, after the Vercel change) | Run without Vercel: Vercel's own build is not exercised locally |
+| Container images (local Docker, amd64) | api: 150 migrations + clean-boot checks 17/17 with `--read-only` (earlier run, image unchanged by the Vercel change except the video URL code) | arm64 and Fargate volume behaviour still need the live run. The web image no longer exists |
+| Unresolved local failures | **none** | Found and fixed while doing this change: the marketplace sitemap queried `<NEXT_PUBLIC_API_URL>/marketplace/courses` without `/api/v1` when the variable is a bare origin (test added). The earlier standalone-server 404s for `/sitemap.xml` and `/favicon.ico` concerned the removed web container; on Vercel, check `https://<domain>/sitemap.xml` after the next deploy |
+| Terraform validate + mocked plan tests, tflint, checkov | all passed (staging 6/6, production 4/4 runs; checkov 608 and 718 passed, 0 failed) | AWS-PRODUCTION-READINESS.md §5 |
+| Deploy script (fake AWS CLI) / provider audit | 11/11 passed / OK | — |
+
+## 2. Incomplete (buildable without AWS, not done)
+
+| Item | Why not done | Next step |
+|---|---|---|
+| Backend ESLint enforces nothing (`eslint.config.mjs` exports only ignores; TypeScript files match no config) | Pre-existing; re-enabling the type-checked ruleset is a large separate change | Re-enable incrementally (one rule group per PR) |
+| conftest policies not run locally | conftest/OPA not installed in this environment (no download approved) | They run in `tf-apply-*` before every apply; or install conftest and run `conftest test` on a saved plan JSON |
+| RUM source maps (unminified browser stack traces) | Optional; server errors are already readable | Upload `.next` maps to S3 per release, wire the RUM source-map setting |
+| CSP header | Not designed yet; RUM, hls.js and the API host need explicit sources. It belongs on the **Vercel** responses (`headers()` in `next.config.ts`), not on CloudFront | Add a report-only CSP in `learnix-front`, then enforce |
+| Digest promotion staging → production ECR | Production rebuilds the same commit | Stage 2: cross-account ECR pull or replication for the api image |
+| Origin TLS on the internal ALB, DNSSEC, second NAT, S3 CRR, AWS Config, Security Hub | Stage 2 items in the plan | Per plan §7 triggers |
+| Legacy provider code removal | Rollback paths until the 30-day parity window ends (no AWS replacement has been tested live yet) | docs/phase8-decommission.md; `provider-audit.mjs --write-baseline` after each removal |
+
+## 3. Awaiting approval / external action (you)
+
+| Item | Blocks | Evidence that closes it |
+|---|---|---|
+| Create AWS Organization and accounts, payment method, root MFA | everything | `org/` applied, budget test email |
+| SES production access (production account) | production email to arbitrary recipients | AWS approval email |
+| Egypt SMS sender ID registration, protect configuration (Egypt only), spend limit | SMS in production (Twilio stays the rollback) | Sender ID approved; `sms_sender_id` set |
+| `aws application-signals start-discovery` per account | traces/RED metrics (else set `application_signals_enabled = false`) | Service map visible |
+| CloudFront flat-rate Business plan subscription | production cost model | Plan visible on the distribution |
+| Budget ceiling (~$650/month prod at launch), Support plan | Phase 0 | Written approval |
+| Legal: PDPL cross-border hosting, minors' data, Paymob SAQ type | launch | Written answers |
+| **D1. DNS host:** Route 53 for the whole zone (Terraform default) or keep Cloudflare DNS and add only `api`, the ACM validation record and the SES records there. Moving the zone drops Cloudflare's proxy in front of the Vercel site if it is proxied today; Vercel recommends direct DNS, but confirm | Phase 6 | Decision recorded; if Cloudflare stays, the Route 53 resources are unused (a zone costs about $0.50/month) |
+| Name.com NS change | DNS move (Phase 6) | `dns-diff` zero differences (apex and www still resolve to Vercel) |
+| **Vercel Production variables** (`NEXT_PUBLIC_API_URL` and the RUM set) switched to the AWS API at launch, followed by a Vercel redeploy | launch | Old values recorded first; `terraform output vercel_environment` values set; login works on the live site |
+| **Vercel staging scope** (branch-scoped variables or a custom environment) and Deployment Protection on the staging deployment; whether the Vercel plan offers it | staging | Staging frontend reachable only by testers; staging API called from it |
+| **Vercel Node.js version** vs `engines.node >= 24` added to `learnix-front` (Vercel follows `engines`) | next frontend deploy | Project setting reviewed; build green on Vercel |
+| Vercel plan and usage costs (bandwidth, edge requests, image optimisation, functions) | budget | Not in the AWS estimate; unchanged by this decision |
+| Paymob / Meta / Zoom / Google / Microsoft callback URLs on `https://api.<domain>` | launch | Provider delivery logs show 2xx |
+| Firebase ID-token login path removal (decision 5) | Phase 8 cleanup | Approval, then delete + tests |
+| Video ladder (add 1080p?), source retention (Glacier vs delete) | cost | Decision recorded |
+| GuardDuty Malware Protection for S3 uploads | security posture | Decision recorded |
+| Vendor decommissions (Bunny, R2, MailerSend, Twilio, Firebase, Cloudflare, Railway; **not Vercel, which stays**) | Phase 8 | Each a separate yes, after 30 days |
+| Confirm nobody holds paid content / unpaid refund on the old system; Paymob export for accounting | launch announcement | Written confirmation |
+
+## 4. Awaiting AWS validation (needs the accounts; see AWS-PRODUCTION-READINESS.md §3)
+
+* First real `terraform plan`/`apply` of org, bootstrap, staging, production (mocked plans cannot catch
+  API-side validation such as WAF rule limits, CloudFront VPC origin quotas or IAM policy grammar).
+* MediaConvert job settings (renditions, thumbnails) on a real file; EventBridge → SQS delivery.
+* CloudFront signed-cookie playback and 403s; VPC origin to the internal ALB.
+* **The cross-origin path from the real Vercel site:** preflight and credentialed calls to `api.<domain>`, the
+  `SameSite=None; Secure; Partitioned` auth cookies and the CSRF header in current Chrome, Safari (ITP) and Firefox,
+  HLS playback with signed cookies sent cross-origin (hls.js and Safari's native player), the `/video/*` CORS
+  policy, S3 presigned uploads from the Vercel origin (bucket CORS), and the logout/refresh flows. Not provable
+  locally: only the CORS contract and cookie attributes are tested here.
+* Vercel's servers calling the API (sitemap, image optimiser) from shared egress addresses: confirm the WAF rate
+  rules do not count them against real users, and that staging's open paths (`/api/v1/media/public/`,
+  `/api/v1/marketplace/courses`) are enough for the staging site to render images and the sitemap.
+* Cloudflare proxy removal in front of Vercel (if applicable) after the NS change: TLS, redirects, caching headers.
+* Read-only root filesystem on Fargate (VOLUME ownership behaviour documented by AWS, unproven here).
+* ADOT/CloudWatch agent sidecar: traces and Application Signals metrics appear; memory headroom.
+* Worker queue-backlog scaling reacts (metric math on `QueueBacklog` / `RunningTaskCount`).
+* RUM events arrive through the Cognito guest role; Synthetics canary runtime and checks pass.
+* AWS Backup jobs succeed and copy to eu-west-1; PITR drill RTO; RDS cross-region automated backups.
+* SES DKIM/SPF/DMARC and feedback; SMS delivery receipts on the four Egyptian carriers; Web Push on real browsers.
+* `ecs-deploy.sh` against real ECS (migrate exit code, rollback on circuit breaker and alarms).
+* k6 FR-331 thresholds on production sizing; cost lines within 10 % of the calculator.
+
+## 5. First steps after you create the AWS account
+
+1. Root MFA, billing alerts; enable Organizations; apply `org/` (docs/phase2-manual-steps.md).
+2. The same day: request SES production access, start the Egypt sender ID registration, check quotas.
+3. Bootstrap the staging and production accounts; configure GitHub variables and environments (`learnix-back` only).
+4. `aws application-signals start-discovery` in both workload accounts.
+5. Apply staging, fill secrets, escrow the two encryption keys, set the `learnix-back` variables, run the first
+   API deploy, raise the desired counts, set the Vercel staging variables from `terraform output
+   vercel_environment` and run the staging acceptance with `--frontend` (AWS-DEPLOYMENT-RUNBOOK.md §2).
+6. Leave the Vercel production project and variables untouched until the launch step (runbook §3.4 and §6).

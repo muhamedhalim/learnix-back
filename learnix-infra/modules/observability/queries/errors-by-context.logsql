@@ -1,0 +1,4 @@
+fields @timestamp, context, message
+| filter level = "error"
+| stats count(*) as errors by context
+| sort errors desc

@@ -1,0 +1,7 @@
+fields @timestamp, message
+| filter message like /"event":"http_request"/
+| parse message '"route":"*"' as route
+| parse message '"durationMs":*,' as duration
+| stats count(*) as requests, pct(duration, 95) as p95_ms, max(duration) as max_ms by route
+| sort p95_ms desc
+| limit 50

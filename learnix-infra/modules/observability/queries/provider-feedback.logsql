@@ -1,0 +1,4 @@
+fields @timestamp, context, level, message
+| filter context in ["SmsEventsConsumer", "MailEventsConsumer", "MediaEventsConsumer", "WhatsappWebhookController"]
+| sort @timestamp desc
+| limit 200

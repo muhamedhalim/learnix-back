@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Fake aws CLI for ecs-deploy.sh tests. Behaviour via env: MIGRATE_EXIT, ROLLOUT (COMPLETED|FAILED), ALARMS.
+LOG=/work/calls.log; echo "$*" >> $LOG
+case "$1 $2" in
+  "ecs describe-services")
+    svc=$(echo "$*" | sed -E 's/.*--services ([^ ]+).*/\1/')
+    if echo "$*" | grep -q rolloutState; then
+      if [ -f /work/rolledback ]; then echo COMPLETED; else echo "${ROLLOUT:-COMPLETED}"; fi
+    else
+      cur=$(cat /work/td-$svc 2>/dev/null || echo "arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-staging-$svc:7")
+      echo "$cur"
+    fi ;;
+  "ecs describe-task-definition")
+    td=$(echo "$*" | sed -E 's/.*--task-definition ([^ ]+).*/\1/'); name=$(basename "${td%%:*}" | sed 's/.*-//')
+    [ "$name" = "$td" ] && name=migrate
+    fam=$(echo "$td" | sed -E 's#.*task-definition/##; s#:[0-9]+$##')
+    cat <<J
+{"taskDefinition":{"taskDefinitionArn":"$td","family":"$fam","revision":7,"status":"ACTIVE","requiresAttributes":[],"compatibilities":["FARGATE"],"registeredAt":"x","registeredBy":"y",
+"containerDefinitions":[{"name":"$name","image":"old:1","essential":true,"environment":[{"name":"GIT_SHA","value":"old"}]},{"name":"otel-init","image":"adot","essential":false}],
+"cpu":"512","memory":"1024","networkMode":"awsvpc"},"tags":[{"key":"Project","value":"learnix"}]}
+J
+    ;;
+  "ecs register-task-definition")
+    f=$(echo "$*" | sed -E 's#.*file://([^ ]+).*#\1#'); cp "$f" /work/registered-$(jq -r .family "$f").json
+    echo "arn:aws:ecs:eu-central-1:111122223333:task-definition/$(jq -r .family "$f"):8" ;;
+  "ecs run-task") echo "arn:aws:ecs:eu-central-1:111122223333:task/c/abc" ;;
+  "ecs wait") ;;
+  "ecs describe-tasks") echo "${MIGRATE_EXIT:-0}" ;;
+  "ecs update-service")
+    svc=$(echo "$*" | sed -E 's/.*--service ([^ ]+).*/\1/'); td=$(echo "$*" | sed -E 's/.*--task-definition ([^ ]+).*/\1/')
+    echo "$td" > /work/td-$svc; echo "$td"
+    case "$td" in *:7) touch /work/rolledback ;; esac ;;
+  "cloudwatch describe-alarms") echo "${ALARMS:-}" ;;
+  *) echo "unexpected: $*" >&2; exit 2 ;;
+esac

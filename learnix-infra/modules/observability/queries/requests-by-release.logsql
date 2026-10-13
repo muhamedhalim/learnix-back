@@ -1,0 +1,5 @@
+fields @timestamp, message
+| filter message like /"event":"http_request"/
+| parse message '"release":"*"' as release
+| parse message '"statusCode":*,' as status
+| stats count(*) as requests, sum(status >= 500) as errors by release

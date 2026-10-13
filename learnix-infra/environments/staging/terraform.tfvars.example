@@ -1,0 +1,40 @@
+# Copy to ci.auto.tfvars.json (as JSON, via the STAGING_TFVARS_JSON repository variable) or terraform.tfvars.
+# Nothing here is secret. Secrets are generated into / entered in Secrets Manager (see docs/phase3-staging.md).
+
+admin_email     = "admin@staging.learnix.school"
+mail_from_email = "no-reply@staging.learnix.school"
+mail_allowlist  = ["qa@learnix.school"]
+
+# Who may reach staging (everything else is blocked by WAF). Office / VPN / QA addresses.
+allowed_ipv4_cidrs = ["203.0.113.10/32"]
+
+# The staging frontend is a Vercel deployment. Give its exact origin (a stable branch domain), or let it
+# default to https://<domain_name>. Vercel previews (*.vercel.app) are NOT trusted unless listed exactly.
+frontend_url = "https://staging.learnix.school"
+# cors_extra_origins = []
+
+# Stage 1: leave the domain unset (or set domain_name only): the API answers on the *.cloudfront.net name.
+# Stage 2: after delegating NS records for domain_name from the parent zone, set custom_domain_enabled = true;
+# the API is then api.<domain_name> (https://api.staging.learnix.school).
+# domain_name           = "staging.learnix.school"
+# custom_domain_enabled = false
+# Record(s) that point the delegated zone apex at Vercel (copy the value from Vercel's domain settings):
+# dns_records = [{ name = "staging.learnix.school", type = "A", ttl = 300, records = ["<apex target shown by Vercel>"] }]
+
+alert_emails = ["ops@learnix.school"]
+
+# Keep 0 until the first images are in ECR; then raise (and bump image_tag).
+api_desired_count = 0
+
+# Application pipelines (GitHub OIDC deploy roles). Must match the repositories' GitHub environment "staging".
+app_repositories = {
+  api = "OWNER/learnix-back" # the frontend deploys through Vercel and needs no AWS role
+}
+
+# Observability and hardening (defaults shown).
+# application_signals_enabled = true   # needs `aws application-signals start-discovery` once per account
+# read_only_root_filesystem   = true
+
+# SMS: leave null until AWS approves the Egypt sender ID; SMS_MODE=sandbox on staging regardless.
+# sms_sender_id                = "LEARNIX"
+# sms_protect_configuration_id = "protect-0123456789abcdef"

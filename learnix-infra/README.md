@@ -1,0 +1,33 @@
+# learnix-infra
+
+Terraform and operations tooling for the Learnix AWS platform (plan: AWS-first, fresh start, `eu-central-1`).
+**Vercel keeps hosting the Next.js frontend; this repository provisions the backend and its supporting services
+only** (API, workers, data, files, video, messaging, monitoring, backups, the API's CDN/WAF/DNS).
+
+**Status: all phases written and verified offline; nothing applied, no AWS account used.** Start with
+[AWS-ARCHITECTURE.md](AWS-ARCHITECTURE.md), then [AWS-DEPLOYMENT-RUNBOOK.md](AWS-DEPLOYMENT-RUNBOOK.md).
+
+| Document | Contents |
+|---|---|
+| [AWS-ARCHITECTURE.md](AWS-ARCHITECTURE.md) | Definitive architecture: diagram, services, dependencies, security, networking, monitoring, backups, staging/production separation, retained external providers |
+| [AWS-SERVICE-DECISIONS.md](AWS-SERVICE-DECISIONS.md) | External-provider audit, replacement per provider, Paymob audit, AWS option choices |
+| [AWS-COST-ESTIMATE.md](AWS-COST-ESTIMATE.md) | Monthly scenarios, cost drivers, budgets, validation |
+| [AWS-DEPLOYMENT-RUNBOOK.md](AWS-DEPLOYMENT-RUNBOOK.md) | First steps after account creation → staging → production; deploy, rollback, restore |
+| [AWS-PRODUCTION-READINESS.md](AWS-PRODUCTION-READINESS.md) | Every readiness item with its status (locally verified / awaiting AWS / awaiting approval / incomplete) |
+| [AWS-OPEN-ITEMS.md](AWS-OPEN-ITEMS.md) | What remains, who owns it, and the evidence that closes it |
+
+| Path | What it is |
+|---|---|
+| `bootstrap/` | Per account: Terraform state bucket (S3 native locking, KMS), GitHub OIDC provider, `learnix-gha-plan` / `learnix-gha-apply` roles (apply capped by a permission boundary) |
+| `org/` | Management account: Organization, OUs, accounts, SCPs, Identity Center, org CloudTrail, GuardDuty, Access Analyzer, Budgets, cost-anomaly alerts |
+| `modules/` | `kms-key`, `s3-bucket`, `network`, `ecs-cluster`, `ecs-service` (Application Signals sidecar, read-only root FS, CPU and queue-backlog autoscaling), `alb`, `cdn` (CloudFront + WAF for the API host, video CORS), `database`, `cache`, `media`, `messaging`, `secrets`, `observability` (alarms, anomaly detection, saved queries, dashboard), `rum`, `synthetics`, `backup`, `deploy-role` (GitHub OIDC for the backend pipeline) |
+| `environments/staging/`, `environments/production/` | One state each; `tests/plan.tftest.hcl` plans them offline against mocked providers with assertions; `terraform.tfvars.example` |
+| `policies/` | conftest rules run on every plan (protected-resource destroy, IAM users/keys, public access blocks) |
+| `scripts/` | `ecs-deploy.sh` (deploy/migrate/rollback; copied into learnix-back as `scripts/aws/ecs-deploy.sh`) and its offline test, `provider-audit.mjs` + baseline, staging acceptance (including the cross-origin CORS contract with the Vercel frontend), API-host DNS check, zone-copy diff, PITR drill |
+| `loadtest/` | k6 FR-331 catalogue test |
+| `docs/phase2…phase8-*.md` | Detailed per-phase runbooks and checklists |
+| `.github/workflows/` | `tf-ci` (fmt, validate, test, tflint, checkov, deploy-script test, plans), reviewer-gated applies, nightly drift |
+
+Rules: no IAM users or access keys; no secrets in this repository or in Terraform state; production
+applies the reviewed saved plan only; legacy providers never appear in the AWS configuration
+(`node scripts/provider-audit.mjs`).
