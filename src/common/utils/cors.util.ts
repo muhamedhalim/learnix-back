@@ -1,3 +1,5 @@
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
+
 function normalizeOrigin(origin: string): string {
   return origin.replace(/\/+$/, '');
 }
@@ -29,4 +31,28 @@ export function getAllowedOrigins(): string[] {
 
 export function isOriginAllowed(origin: string, allowedOrigins: readonly string[]): boolean {
   return allowedOrigins.includes(normalizeOrigin(origin));
+}
+
+/**
+ * The credentialed CORS contract between the Vercel-hosted frontend and this API (a separate origin):
+ * only exact allowlisted origins receive `Access-Control-Allow-Origin` (echoed, never `*`) with credentials,
+ * so the auth cookies and the CSRF header can travel; every other browser origin gets no CORS headers and is
+ * blocked by the browser. Requests without an Origin header (webhooks, health checks, server-to-server) are
+ * not CORS requests and pass through to their own authentication.
+ */
+export function buildCorsOptions(
+  allowedOrigins: readonly string[],
+  onBlocked?: (origin: string) => void,
+): CorsOptions {
+  return {
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (isOriginAllowed(origin, allowedOrigins)) return callback(null, true);
+      onBlocked?.(origin);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+  };
 }

@@ -53,9 +53,13 @@ export class VideoConfig {
     return this.get('CLOUDFRONT_SIGNING_ALGORITHM') === 'SHA256' ? 'SHA256' : 'SHA1';
   }
 
-  /** Viewer-facing origin that serves `/video/*` (same site as the app, so cookies are first-party). */
+  /**
+   * Viewer-facing origin that serves `/video/*`: the API's CloudFront host (api.<domain>), not the frontend.
+   * The signed cookies are issued by an API response, so they are host-only cookies of this origin; the player
+   * on the Vercel-hosted frontend reaches it cross-origin (same site) with credentials.
+   */
   public get publicOrigin(): string {
-    const explicit = this.get('VIDEO_PUBLIC_ORIGIN') || this.get('FRONTEND_URL');
+    const explicit = this.get('VIDEO_PUBLIC_ORIGIN') || this.get('BACKEND_URL');
     return explicit.replace(/\/+$/, '');
   }
 

@@ -10,7 +10,7 @@ provider-as-before behaviour, so none of this changes an existing deployment unt
 |---|---|---|
 | `PROCESS_ROLE` | `all` (default), `api`, `worker` | `api`: HTTP only. `worker`: queue consumers + `@Cron` jobs (HTTP stays up for health checks, unrouted). One image, role chosen per ECS service. |
 | `RUN_MIGRATIONS` | `false` on services | Migrations run in the one-shot `migrate` task: `node dist/src/database/migrate-cli.js run` (advisory-locked). |
-| `TRUST_PROXY_HOPS` | `1` default; **`2`** behind CloudFront + ALB | Wrong value keys the rate limiter on edge addresses. |
+| `TRUST_PROXY_HOPS` | `1` default; **`2`** behind CloudFront + ALB (browsers reach the API host directly; the Vercel frontend is not a proxy hop) | Wrong value keys the rate limiter on edge addresses. |
 | `HTTP_KEEP_ALIVE_TIMEOUT_MS` | `125000` default | Must exceed the ALB idle timeout (120 s). Headers timeout = this + 5 s. |
 | `LOG_FORMAT` | `text` default; **`json`** on AWS | One JSON object per line for CloudWatch Logs Insights. |
 | `WORKER_CONCURRENCY` | `5` | Per replica. |
@@ -51,7 +51,7 @@ files and source buckets, `s3:ListBucket` on all video buckets, `s3:GetObject/Pu
 | `CLOUDFRONT_KEY_PAIR_ID` | Public key id in the CloudFront key group for `/video/*`. |
 | `CLOUDFRONT_PRIVATE_KEY` or `CLOUDFRONT_PRIVATE_KEY_B64` | **secret**. PEM private key used to sign playback cookies. |
 | `CLOUDFRONT_SIGNING_ALGORITHM` | `SHA1` default; `SHA256` where the distribution supports it. |
-| `VIDEO_PUBLIC_ORIGIN` | Viewer-facing origin serving `/video/*` (defaults to `FRONTEND_URL`). Must be the same site as the app so cookies are first-party. |
+| `VIDEO_PUBLIC_ORIGIN` | Origin serving `/video/*`: the API's CloudFront host (defaults to `BACKEND_URL`, never to `FRONTEND_URL`). The signed cookies are host-only cookies of this origin; the player on the Vercel-hosted frontend reaches it cross-origin but same-site (so `SameSite=Lax` cookies are sent) with credentials, and the CDN answers with an exact-origin CORS policy. `hls_url` in API responses is absolute on this origin. |
 
 Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned by `GET /lessons/:id/signed-url`
 (and the marketplace player, free-preview and admin-review routes). Marketplace lessons store `aws:<asset id>` in `video_id`.
@@ -106,3 +106,18 @@ the only writable path. Code exports are written there briefly before upload to 
 ## Release identity
 
 `GIT_SHA` (or `APP_RELEASE`) set by the image build/task definition; `INSTANCE_ID` / `ECS_TASK_ID` optional.
+
+## Frontend on Vercel, API on AWS (cross-origin contract)
+
+| Variable | Value | Notes |
+|---|---|---|
+| `FRONTEND_URL` | `https://learnix.school` | The Vercel app. Used for reset links, payment return URLs and the backend-to-frontend health probe. |
+| `BACKEND_URL` | `https://api.learnix.school` | Public API origin: Paymob/Meta/OAuth callbacks, protected download links, absolute media URLs. |
+| `CORS_ORIGINS` | `https://learnix.school` | Exact-origin allowlist for credentialed requests (`buildCorsOptions` in `src/common/utils/cors.util.ts`). Must include `FRONTEND_URL`. Production validation rejects wildcards. Never list `*.vercel.app` previews on production. |
+| `COOKIE_DOMAIN` | **unset** | Cookies stay host-only on the API host (`SameSite=None; Secure; Partitioned`, `HttpOnly` for the credentials). A parent-domain value would hand staging and production each other's cookies; the isolation guard refuses it. |
+
+Frontend request flow: the browser loads pages from Vercel, then calls `https://api.<domain>/api/v1/...` with
+`withCredentials`, the `X-CSRF-Token` header (value from `GET /auth/csrf-token`) and the HttpOnly cookies. The API is
+same-site with the frontend (same registrable domain), so cookie behaviour does not depend on third-party-cookie
+policy; preflights are answered by the API itself. The Next.js server (Vercel) calls the API only for public data
+(sitemap, certificate PDF links).

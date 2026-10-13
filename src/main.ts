@@ -16,7 +16,7 @@ import { AdminInitializationService } from './admin-init/admin-initialization.se
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
-import { getAllowedOrigins, isOriginAllowed } from './common/utils/cors.util';
+import { buildCorsOptions, getAllowedOrigins } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
 import { withMigrationAdvisoryLock } from './database/migration-lock.util';
@@ -186,28 +186,9 @@ async function bootstrap(): Promise<void> {
 
   logger.log(`Allowed CORS Origins: ${allowedOrigins.join(', ')}`);
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      // allow server-to-server / postman / health checks
-      if (!origin) return callback(null, true);
-
-      // Strict allow-list match — no wildcard suffix matching. This prevents
-      // arbitrary *.vercel.app (or any look-alike) origins from making
-      // credentialed cross-origin requests.
-      const isAllowed = isOriginAllowed(origin, allowedOrigins);
-
-      if (isAllowed) return callback(null, true);
-
-      logger.warn(`CORS BLOCKED: ${origin}`);
-      return callback(null, false);
-    },
-
-    credentials: true,
-
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-  });
+  // Strict allow-list match, no wildcard suffix matching: arbitrary *.vercel.app (or any look-alike)
+  // origins cannot make credentialed cross-origin requests (see buildCorsOptions).
+  app.enableCors(buildCorsOptions(allowedOrigins, (origin) => logger.warn(`CORS BLOCKED: ${origin}`)));
 
   app.useGlobalPipes(
     new ValidationPipe({

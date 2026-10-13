@@ -208,7 +208,7 @@ describe('AwsVideoService', () => {
       publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
     }).privateKey,
     signingAlgorithm: 'SHA1' as const,
-    publicOrigin: 'https://learnix.school',
+    publicOrigin: 'https://api.learnix.school',
   };
 
   beforeEach(() => {
@@ -314,7 +314,7 @@ describe('AwsVideoService', () => {
 
     rows.get(asset.id)!['status'] = 'ready';
     const grant = await service.grantPlayback(asset.id);
-    expect(grant.hls_url).toBe(`/video/${asset.id}/hls/index.m3u8`);
+    expect(grant.hls_url).toBe(`https://api.learnix.school/video/${asset.id}/hls/index.m3u8`);
     expect(grant.playback_cookies.every((c) => c.path === `/video/${asset.id}/`)).toBe(true);
   });
 

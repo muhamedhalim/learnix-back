@@ -49,7 +49,7 @@ export interface SignedLessonContent {
   content_html: string | null;
   playback_url: string | null;
   expires_in: number | null;
-  /** `aws` => `playback_url` is a same-origin HLS path authorised by `playback_cookies`. */
+  /** `aws` => `playback_url` is an absolute HLS URL on the API/CDN host authorised by `playback_cookies`. */
   platform?: 'aws' | 'bunny';
   playback_cookies?: PlaybackCookie[];
 }

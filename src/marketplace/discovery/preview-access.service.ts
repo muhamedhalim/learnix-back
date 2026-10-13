@@ -15,7 +15,7 @@ export interface PreviewLessonContent {
   duration_seconds: number;
   /** Present for a Bunny video lesson: a short-lived signed embed URL. Null when signing is not configured, so a free preview never falls back to an unsigned URL. */
   embed_url: string | null;
-  /** AWS video: same-origin HLS path, authorised by the `playback_cookies` the route turns into Set-Cookie. */
+  /** AWS video: absolute HLS URL on the API/CDN host, authorised by the `playback_cookies` the route turns into Set-Cookie. */
   hls_url?: string | null;
   expires_at?: string;
   playback_cookies?: PlaybackCookie[];

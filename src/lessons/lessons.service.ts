@@ -1295,7 +1295,7 @@ export class LessonsService {
   ): Promise<{ signedUrl: string; expiresIn: number; platform?: 'aws'; playback_cookies?: PlaybackCookie[] }> {
     const lesson = await this.assertViewerAccess(lessonId, userId, role);
     if (lesson.video_asset_id !== null && lesson.bunny_video_status === 'ready' && this.lessonAwsVideo) {
-      // CloudFront signed cookies + a same-origin HLS path; no token ever appears in a URL.
+      // CloudFront signed cookies + an absolute HLS URL on the API/CDN host (credentialed CORS); no token ever appears in a URL.
       const grant = await this.lessonAwsVideo.playback(lesson);
       return {
         signedUrl: grant.hls_url,

@@ -16,7 +16,7 @@ name: Deploy API to AWS (ECS)
 #   AWS_REGION, AWS_DEPLOY_ROLE_ARN (deploy_roles.api), ECR_REPOSITORY_URL (ecr_repositories.api),
 #   ECS_CLUSTER (ecs_cluster), ECS_SERVICES ("api,worker" or "api" on single-role staging),
 #   MIGRATE_FAMILY (migrate_task_definition_family), TASK_NETWORK (task_network, JSON),
-#   ALARM_PREFIX (learnix-<env>), SITE_URL (site_url), DB_INSTANCE_ID (production only)
+#   ALARM_PREFIX (learnix-<env>), API_URL (api_url), DB_INSTANCE_ID (production only)
 # Nothing secret is stored here: the job assumes the deploy role through GitHub OIDC.
 
 on:
@@ -182,6 +182,6 @@ jobs:
           retention-days: 30
 
       # Staging is behind a WAF IP allowlist that GitHub's runners are not on; enable per environment.
-      - name: Read-only smoke test through CloudFront
+      - name: Read-only smoke test of the API host through CloudFront
         if: vars.SMOKE_FROM_RUNNER == 'true'
-        run: bash scripts/smoke-test.sh "${{ vars.SITE_URL }}"
+        run: bash scripts/smoke-test.sh "${{ vars.API_URL }}"

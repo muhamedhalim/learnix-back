@@ -405,7 +405,8 @@ export class AwsVideoService {
     );
     return {
       platform: 'aws',
-      hls_url: `/video/${asset.id}/${MASTER_PLAYLIST_PATH}`,
+      // Absolute: the player runs on the Vercel-hosted frontend, a different origin from this API/CDN host.
+      hls_url: `${this.cfg.publicOrigin}/video/${asset.id}/${MASTER_PLAYLIST_PATH}`,
       expires_at: expiresAt.toISOString(),
       playback_cookies: cookies,
     };
