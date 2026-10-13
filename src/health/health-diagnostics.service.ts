@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 
 import { Queue } from 'bullmq';
 
-import { resolveRedisUrl } from '../common/utils/redis-connection.util';
 import { MailService } from '../mail/mail.service';
+import { standaloneQueueOptions } from '../queues/queue-options.util';
 import { QUEUE_NAMES } from '../queues/queues.constants';
 import { HealthAlertService } from './health-alert.service';
 import { HealthAuditService } from './health-audit.service';
@@ -148,9 +148,9 @@ export class HealthDiagnosticsService {
     if (!Object.values(QUEUE_NAMES).includes(input.queueName as never)) {
       throw new Error('Unknown queue');
     }
-    const redisUrl = resolveRedisUrl((key) => this.config.get<string>(key));
-    if (!redisUrl) throw new Error('Redis is not configured');
-    const queue = new Queue(input.queueName, { connection: { url: redisUrl } });
+    const queueOptions = standaloneQueueOptions((key) => this.config.get<string>(key));
+    if (!queueOptions) throw new Error('Redis is not configured');
+    const queue = new Queue(input.queueName, queueOptions);
     let affected = 0;
     try {
       if (input.action === 'retry_failed') {

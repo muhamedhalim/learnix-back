@@ -9,7 +9,7 @@ import { UploadedFile } from './entities/uploaded-file.entity';
 import { FileManagementService } from './file-management.service';
 import { UploadService } from './upload.service';
 import { UploadsController } from './uploads.controller';
-import { DirectUpload } from './direct/direct-upload.entity';
+import { DirectUpload } from './direct/entities/direct-upload.entity';
 import { DirectUploadsCleanupService } from './direct/direct-uploads-cleanup.service';
 import { DirectUploadsController } from './direct/direct-uploads.controller';
 import { DirectUploadsService } from './direct/direct-uploads.service';

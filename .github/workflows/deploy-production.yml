@@ -25,9 +25,10 @@ name: Deploy production (approval + backup + migration gate)
 # safety checks and a real audit trail, but not real deploy-timing control.
 # This is stated plainly rather than silently built as if it were binding.
 
+# RETIRED (AWS migration): the Railway production service has been down since 2026-08-13 and AWS is
+# deployed by deploy-aws.yml. Kept for manual use only until Phase 8 removes it
+# (learnix-infra/docs/phase8-decommission.md). No longer runs on push.
 on:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 
 concurrency:
@@ -128,17 +129,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Pre-deploy backup
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-        run: bash scripts/db-backup.sh ./backups
-
-      - name: Upload backup artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-pre-deploy-backup-${{ github.sha }}
-          path: backups/
-          retention-days: 30
+      # The pre-deploy pg_dump used to be uploaded as a GitHub Actions artifact, which copied production
+      # personal data (students, guardians, payments) out of the database provider for 30 days. Removed.
+      # AWS takes an RDS snapshot inside the account instead (deploy-aws.yml).
 
       - name: Wait for readiness
         # READINESS, not liveness. `/api/v1/health` returns 200 unconditionally

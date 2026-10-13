@@ -124,6 +124,8 @@ jobs:
       COOKIE_SECRET: test-cookie-secret-value-at-least-32-chars-x
       BCRYPT_ROUNDS: '4'
       METRICS_BEARER_TOKEN: test-metrics-token
+      # Cron locks are held 30 s after a run in deployed environments; tests call jobs back to back.
+      CRON_LOCK_HOLD_MS: '0'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -137,8 +139,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # One worker (maxWorkers: 1, serial like --runInBand) that jest recycles past 1.5 GB
+      # (workerIdleMemoryLimit); a single in-band process ran out of heap after ~67 suites.
       - name: Run E2E tests
-        run: npm run test:e2e -- --ci --runInBand
+        run: npm run test:e2e -- --ci
 
   secret-scan:
     name: Secret scanning (gitleaks)

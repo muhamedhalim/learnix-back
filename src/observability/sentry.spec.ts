@@ -34,6 +34,8 @@ const MONITORED_KEYS = [
   'RENDER_GIT_COMMIT',
   'VERCEL_GIT_COMMIT_SHA',
   'GITHUB_SHA',
+  'OTEL_AWS_APPLICATION_SIGNALS_ENABLED',
+  'NODE_OPTIONS',
 ] as const;
 
 describe('Sentry monitoring bootstrap', () => {
@@ -116,6 +118,31 @@ describe('Sentry monitoring bootstrap', () => {
       process.env['SENTRY_DSN'] = 'https://key@example.ingest.sentry.io/1';
       initSentry();
       expect(initMock).toHaveBeenCalledWith(expect.objectContaining({ sendDefaultPii: false }));
+    });
+  });
+
+  describe('coexistence with AWS Distro for OpenTelemetry', () => {
+    it('keeps Sentry tracing when ADOT is not active', () => {
+      process.env['SENTRY_DSN'] = 'https://key@example.ingest.sentry.io/1';
+      initSentry();
+      expect(initMock.mock.calls[0]?.[0]).not.toHaveProperty('skipOpenTelemetrySetup');
+      expect(initMock).toHaveBeenCalledWith(expect.objectContaining({ tracesSampleRate: 0.1 }));
+    });
+
+    it('leaves the tracer provider to ADOT and only captures errors when Application Signals is on', () => {
+      process.env['SENTRY_DSN'] = 'https://key@example.ingest.sentry.io/1';
+      process.env['OTEL_AWS_APPLICATION_SIGNALS_ENABLED'] = 'true';
+      initSentry();
+      expect(initMock).toHaveBeenCalledWith(
+        expect.objectContaining({ skipOpenTelemetrySetup: true, tracesSampleRate: 0 }),
+      );
+    });
+
+    it('detects the ADOT agent from NODE_OPTIONS as well', () => {
+      process.env['SENTRY_DSN'] = 'https://key@example.ingest.sentry.io/1';
+      process.env['NODE_OPTIONS'] = '--require /otel-auto-instrumentation-node/autoinstrumentation.js';
+      initSentry();
+      expect(initMock).toHaveBeenCalledWith(expect.objectContaining({ skipOpenTelemetrySetup: true }));
     });
   });
 

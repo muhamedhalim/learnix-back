@@ -169,6 +169,10 @@ export function initSentry(): void {
   }
 
   const release = resolveRelease(read);
+  // On AWS the ADOT auto-instrumentation (NODE_OPTIONS --require .../autoinstrumentation.js) owns the
+  // global OpenTelemetry tracer provider and sends traces to X-Ray. Sentry v8 would register a second
+  // one; during the Sentry parity window it therefore captures errors only and leaves tracing to ADOT.
+  const adotActive = isAdotTracingActive(read);
   Sentry.init({
     dsn,
     // APP_ENV, not NODE_ENV: staging deliberately runs NODE_ENV=production (it
@@ -182,7 +186,9 @@ export function initSentry(): void {
     // deployment is release-tagged with no extra configuration — see release.ts.
     ...(release !== undefined ? { release } : {}),
     // Sampling is env-tunable; default to a low trace rate to control volume.
-    tracesSampleRate: Number(read('SENTRY_TRACES_SAMPLE_RATE') ?? '0.1'),
+    ...(adotActive
+      ? { skipOpenTelemetrySetup: true, tracesSampleRate: 0 }
+      : { tracesSampleRate: Number(read('SENTRY_TRACES_SAMPLE_RATE') ?? '0.1') }),
     // Never let PII leave the process — request bodies/headers are scrubbed.
     sendDefaultPii: false,
     beforeSend: (event) => scrubSentryEvent(event),
@@ -193,6 +199,14 @@ export function initSentry(): void {
     release === undefined
       ? 'Sentry initialised (no release identifier resolved).'
       : `Sentry initialised (release ${release}).`,
+  );
+}
+
+/** True when the AWS Distro for OpenTelemetry agent instruments this process (Application Signals). */
+export function isAdotTracingActive(read: (key: string) => string | undefined): boolean {
+  return (
+    read('OTEL_AWS_APPLICATION_SIGNALS_ENABLED') === 'true' ||
+    /autoinstrumentation/u.test(read('NODE_OPTIONS') ?? '')
   );
 }
 

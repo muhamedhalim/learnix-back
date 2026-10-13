@@ -1,0 +1,43 @@
+name: Roll back API on AWS (ECS)
+
+# Points api (and worker) back at earlier task-definition revisions: paste the content of the
+# previous-task-definitions artifact of the deploy you are undoing, e.g.
+#   {"api":"arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-production-api:41",
+#    "worker":"arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-production-worker:41"}
+# Database changes are NOT reverted: migrations are expand/contract by policy; a data problem is a
+# point-in-time restore (learnix-infra/scripts/pitr-restore-drill.sh, runbook "Rollback").
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+      previous_task_definitions:
+        description: JSON object service -> task definition ARN
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Roll back
+        env:
+          PREVIOUS: ${{ inputs.previous_task_definitions }}
+        run: |
+          echo "$PREVIOUS" | jq -e 'type == "object" and all(.[]; test("^arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task-definition/[A-Za-z0-9_-]+:[0-9]+$"))' >/dev/null \
+            || { echo "::error::previous_task_definitions must map service names to task definition ARNs"; exit 1; }
+          echo "$PREVIOUS" > rollback.json
+          services=$(jq -r 'keys | join(",")' rollback.json)
+          bash scripts/aws/ecs-deploy.sh --cluster "${{ vars.ECS_CLUSTER }}" --services "$services" --rollback --to-file rollback.json

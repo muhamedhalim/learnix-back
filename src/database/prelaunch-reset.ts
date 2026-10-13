@@ -3,7 +3,13 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { ConfigService } from '@nestjs/config';
 
-import { DeleteObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { Queue } from 'bullmq';
 import { config as loadDotenv } from 'dotenv';
 import Redis from 'ioredis';
@@ -92,7 +98,18 @@ export interface StorageManifest {
   objectKeys: string[];
   unresolvedReferences: string[];
   localExportFiles: string[];
+  /** AWS video pipeline objects (video_assets): exact source keys and HLS output prefixes. */
+  videoObjects: VideoObjectRef[];
 }
+
+export interface VideoObjectRef {
+  bucket: string;
+  key?: string;
+  prefix?: string;
+}
+
+/** Code exports finished after the S3 move are stored as object keys under this prefix. */
+const CODE_EXPORT_KEY_PREFIX = 'code-exports/';
 
 export const BUNNY_CLEANUP_STATUS = 'SKIPPED BY USER REQUEST';
 export const BACKUP_WAIVER_STATUS = 'WAIVED BY OPERATOR FOR THIS EXECUTION';
@@ -244,7 +261,7 @@ function safeObjectKey(storage: StorageService, value: string, exactKey: boolean
   return key;
 }
 
-async function collectStorageManifest(
+export async function collectStorageManifest(
   dataSource: DataSource,
   storage: StorageService,
 ): Promise<StorageManifest> {
@@ -281,14 +298,42 @@ async function collectStorageManifest(
     });
   }
 
-  const exports = (await dataSource.query(
+  const exportRows = (await dataSource.query(
     `SELECT file_path AS path FROM code_exports WHERE file_path IS NOT NULL`,
   )) as Array<{ path: string }>;
+  // Exports are object keys since they moved to object storage; older rows may still be local paths.
+  const exports = exportRows.filter((row) => !row.path.startsWith(CODE_EXPORT_KEY_PREFIX));
+  exportRows
+    .filter((row) => row.path.startsWith(CODE_EXPORT_KEY_PREFIX))
+    .forEach((row) => keys.add(row.path));
+
+  const videoRows = (await dataSource.query(
+    `SELECT source_bucket, source_key, output_bucket, output_prefix, thumbnail_key
+       FROM video_assets WHERE status <> 'deleted'`,
+  )) as Array<{
+    source_bucket: string;
+    source_key: string;
+    output_bucket: string | null;
+    output_prefix: string | null;
+    thumbnail_key: string | null;
+  }>;
+  const videoObjects: VideoObjectRef[] = [];
+  for (const row of videoRows) {
+    videoObjects.push({ bucket: row.source_bucket, key: row.source_key });
+    // A prefix that is empty or does not end in "/" could match unrelated keys; never list it.
+    if (row.output_bucket && row.output_prefix && /^[^/].*\/$/u.test(row.output_prefix)) {
+      videoObjects.push({ bucket: row.output_bucket, prefix: row.output_prefix });
+    } else if (row.output_bucket && row.output_prefix) {
+      unresolved.add(`video_assets.output_prefix:${row.output_prefix}`);
+    }
+    if (row.thumbnail_key) keys.add(row.thumbnail_key);
+  }
 
   return {
     objectKeys: [...keys].sort(),
     unresolvedReferences: [...unresolved].sort(),
     localExportFiles: [...new Set(exports.map((row) => row.path))].sort(),
+    videoObjects,
   };
 }
 
@@ -298,10 +343,12 @@ async function cleanupStorage(
   config: ConfigService,
 ): Promise<{
   objectsDeleted: number;
+  videoObjectsDeleted: number;
   bunnyCleanup: typeof BUNNY_CLEANUP_STATUS;
   localFilesDeleted: number;
 }> {
   const objectsDeleted = await cleanupObjectKeys(manifest.objectKeys, storage, config);
+  const videoObjectsDeleted = await cleanupVideoObjects(manifest.videoObjects, storage);
 
   let localFilesDeleted = 0;
   const exportRoot = resolve(config.get<string>('CODE_EXPORT_DIR') ?? './exports');
@@ -320,7 +367,57 @@ async function cleanupStorage(
       },
     );
   }
-  return { objectsDeleted, bunnyCleanup: BUNNY_CLEANUP_STATUS, localFilesDeleted };
+  return { objectsDeleted, videoObjectsDeleted, bunnyCleanup: BUNNY_CLEANUP_STATUS, localFilesDeleted };
+}
+
+/**
+ * Deletes the AWS video pipeline's objects (originals in the source bucket, HLS ladders in the output
+ * bucket) with the same S3 client the application uses (ECS task role in AWS). Only prefixes recorded
+ * on video_assets rows are listed, each ending in "/", so nothing outside an asset is touched.
+ */
+export async function cleanupVideoObjects(
+  refs: VideoObjectRef[],
+  storage: Pick<StorageService, 'getDirectUploadBackend'>,
+): Promise<number> {
+  if (refs.length === 0) return 0;
+  const client = storage.getDirectUploadBackend()?.client;
+  if (!client) {
+    throw new Error(
+      'video_assets rows exist but object storage is not S3; configure S3_BUCKET (and the video buckets) before resetting.',
+    );
+  }
+  let deleted = 0;
+  for (const ref of refs) {
+    if (ref.key !== undefined) {
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: ref.bucket, Key: ref.key }));
+      } catch (error) {
+        if (isNotFound(error)) continue;
+        throw error;
+      }
+      await client.send(new DeleteObjectCommand({ Bucket: ref.bucket, Key: ref.key }));
+      deleted++;
+      continue;
+    }
+    let token: string | undefined;
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({ Bucket: ref.bucket, Prefix: ref.prefix, ContinuationToken: token }),
+      );
+      const objects = (page.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
+      if (objects.length > 0) {
+        const result = await client.send(
+          new DeleteObjectsCommand({ Bucket: ref.bucket, Delete: { Objects: objects, Quiet: true } }),
+        );
+        if ((result.Errors ?? []).length > 0) {
+          throw new Error(`Deleting ${ref.prefix} in ${ref.bucket} failed for ${String(result.Errors?.length)} objects.`);
+        }
+        deleted += objects.length;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token !== undefined);
+  }
+  return deleted;
 }
 
 function isNotFound(error: unknown): boolean {
@@ -601,6 +698,7 @@ export async function runPrelaunchReset(options: {
     const manifest = await collectStorageManifest(dataSource, storage);
     printSection('Storage manifest', {
       objects: manifest.objectKeys.length,
+      videoObjects: manifest.videoObjects.length,
       localExports: manifest.localExportFiles.length,
       unresolvedReferences: manifest.unresolvedReferences,
     });

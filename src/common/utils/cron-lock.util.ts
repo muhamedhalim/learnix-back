@@ -11,11 +11,21 @@ import type { DataSource } from 'typeorm';
  * the winner finishes would let a slightly-late replica run the same tick again. Holding it
  * covers that clock skew. `holdMs` must stay well below the job's shortest interval.
  *
+ * `CRON_LOCK_HOLD_MS` overrides the default hold for every job (tests set 0 so a job can be invoked
+ * several times in a row; leave it unset in deployed environments).
+ *
  * The DataSource is registered once by `CronLockModule`. When none is registered (unit tests,
  * scripts) the wrapped job simply runs, which preserves existing behaviour.
  */
 const logger = new Logger('CronLock');
 export const DEFAULT_CRON_LOCK_HOLD_MS = 30_000;
+
+function defaultHoldMs(): number {
+  const raw = process.env['CRON_LOCK_HOLD_MS'];
+  if (raw === undefined || raw.trim() === '') return DEFAULT_CRON_LOCK_HOLD_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CRON_LOCK_HOLD_MS;
+}
 let dataSource: DataSource | null = null;
 
 export function registerCronLockDataSource(ds: DataSource | null): void {
@@ -25,7 +35,7 @@ export function registerCronLockDataSource(ds: DataSource | null): void {
 export async function runWithCronLock<T>(
   name: string,
   task: () => Promise<T>,
-  holdMs: number = DEFAULT_CRON_LOCK_HOLD_MS,
+  holdMs: number = defaultHoldMs(),
 ): Promise<T | undefined> {
   if (dataSource === null) return task();
 

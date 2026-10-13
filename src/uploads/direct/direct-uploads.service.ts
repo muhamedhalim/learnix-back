@@ -21,7 +21,7 @@ import { LessThan, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { StorageService } from '../../storage/storage.service';
-import { DirectUpload } from './direct-upload.entity';
+import { DirectUpload } from './entities/direct-upload.entity';
 import {
   DIRECT_UPLOAD_POLICIES,
   DIRECT_UPLOAD_PURPOSES,

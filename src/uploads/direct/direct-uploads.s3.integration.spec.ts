@@ -11,7 +11,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { Repository } from 'typeorm';
 
 import type { StorageService } from '../../storage/storage.service';
-import type { DirectUpload } from './direct-upload.entity';
+import type { DirectUpload } from './entities/direct-upload.entity';
 import { DirectUploadsService } from './direct-uploads.service';
 
 const endpoint = process.env['S3_TEST_ENDPOINT'];

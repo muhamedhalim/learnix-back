@@ -75,7 +75,7 @@ Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned
 | `SMS_AWS_CONFIGURATION_SET`, `SMS_AWS_PROTECT_CONFIGURATION_ID` | Event destination and the Egypt-only protect configuration. |
 | `SMS_ALLOWED_COUNTRY_PREFIXES` | Default `+20`; second line of defence against SMS pumping. |
 | `SMS_MODE=sandbox` | Staging: nothing is sent. |
-| `SMS_EVENTS_QUEUE_URL` | SQS queue of delivery events (configuration set -> SNS -> SQS). Worker logs them (warn on failure, destination masked). |
+| `SMS_EVENTS_QUEUE_URL` | SQS queue of delivery events (configuration set -> SNS -> SQS). The worker logs each event (warn on failure, destination masked; CloudWatch metric `SmsDeliveryFailures`) and promotes the guardian message in `parent_messages` from `sent` to `delivered` / `failed` by `provider_message_id` (same monotonic path as the WhatsApp webhook). OTP texts are logged only. |
 
 ## Web Push
 
@@ -85,6 +85,23 @@ Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (**secret**), `VAPID_SUBJECT` (`mailto:`) | Generate once with `npx web-push generate-vapid-keys`. |
 
 Subscription endpoints are allowlisted to real browser push services (SSRF guard) at registration and at send time.
+
+## Observability (CloudWatch)
+
+| Variable | Notes |
+|---|---|
+| `QUEUE_METRICS_NAMESPACE` | e.g. `Learnix/Queues`. Processes that run queue consumers publish `QueueBacklog` (waiting + prioritized jobs, all work queues) and `DeadLetterJobs` every 60 s with `PutMetricData`. Drives worker autoscaling (backlog per running task) and the backlog alarm. Unset = nothing published. Task role needs `cloudwatch:PutMetricData` limited to this namespace. |
+| `QUEUE_METRICS_ENVIRONMENT` | Value of the `Environment` dimension (Terraform: `learnix-<env>`). |
+| `OTEL_*`, `NODE_OPTIONS` | Set by Terraform when Application Signals is enabled (ADOT Node.js auto-instrumentation from an init container + CloudWatch agent sidecar). Traces go to X-Ray, RED metrics to Application Signals. When these are present, Sentry (if still configured) captures errors only and leaves the OpenTelemetry tracer to ADOT. |
+
+Logs are one JSON object per line (`LOG_FORMAT=json`); CloudWatch metric filters count `level=error`, SMS
+failures and SES bounces/complaints, and saved Logs Insights queries live under `learnix-<env>/` in the
+CloudWatch console.
+
+## Container filesystem
+
+The image declares `VOLUME /tmp`; with `readonlyRootFilesystem` (on in staging, then production) `/tmp` is
+the only writable path. Code exports are written there briefly before upload to S3.
 
 ## Release identity
 

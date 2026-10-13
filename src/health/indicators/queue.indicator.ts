@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { Job, Queue } from 'bullmq';
 
-import { resolveRedisUrl } from '../../common/utils/redis-connection.util';
+import { standaloneQueueOptions } from '../../queues/queue-options.util';
 import { QUEUE_NAMES } from '../../queues/queues.constants';
 import type { HealthIndicator } from '../health-indicator.interface';
 import { errorCode, sanitiseMessage } from '../health-sanitizer.util';
@@ -86,8 +86,8 @@ export class QueueHealthIndicator implements HealthIndicator {
 
   public async check(): Promise<HealthComponentResult[]> {
     const startedAt = Date.now();
-    const redisUrl = resolveRedisUrl((key) => this.config.get<string>(key));
-    if (!redisUrl) {
+    const queueOptions = standaloneQueueOptions((key) => this.config.get<string>(key));
+    if (!queueOptions) {
       return [
         componentResult({
           id: this.id,
@@ -109,9 +109,7 @@ export class QueueHealthIndicator implements HealthIndicator {
       ];
     }
 
-    const queues = ALL_QUEUE_NAMES.map(
-      (name) => new Queue(name, { connection: { url: redisUrl } }),
-    );
+    const queues = ALL_QUEUE_NAMES.map((name) => new Queue(name, queueOptions));
     try {
       return await withHealthTimeout(
         this.id,

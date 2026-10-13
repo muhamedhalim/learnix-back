@@ -6,12 +6,12 @@ import type { RenderedMessage } from '../templates/template.types';
 import type { ChannelSendResult, ChannelTarget, ParentChannel } from './parent-channel.interface';
 
 /**
- * SMS fallback, wrapping the pre-existing Twilio sender.
+ * SMS fallback (AWS End User Messaging SMS; Twilio only as the rollback provider).
  *
- * SMS has no read receipt and (as configured) no delivery webhook, so a message
- * sent here can only ever reach SENT — never DELIVERED. That is a real property
- * of the transport, and the status column now reflects it honestly instead of
- * claiming delivery on provider acceptance.
+ * The send call only proves the provider ACCEPTED the message, so the row stops at SENT here. With
+ * AWS, carrier delivery receipts arrive later through the configuration set's event destination and
+ * `SmsEventsConsumer` promotes the row to DELIVERED or FAILED by `provider_message_id`. Twilio has no
+ * callback configured, so its messages stay at SENT. SMS has no read receipt either way.
  */
 @Injectable()
 export class SmsChannel implements ParentChannel {

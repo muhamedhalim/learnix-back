@@ -27,9 +27,9 @@ name: Deploy staging (validate + smoke test)
 #      it is exactly why deploy-production.yml (separately) does NOT follow
 #      this same shape.
 
+# RETIRED (AWS migration): Railway/Vercel staging is replaced by deploy-aws.yml. Manual use only until
+# Phase 8 removes it. No longer runs on push.
 on:
-  push:
-    branches: [develop]
   workflow_dispatch: {}
 
 concurrency:

@@ -833,8 +833,13 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
           statement.sql.startsWith('START TRANSACTION') ||
           statement.sql.startsWith('UPDATE'),
       );
-      // candidate query + cancelled-booking query, and nothing else
-      expect(statements.map((statement) => statement.sql.slice(0, 6))).toEqual(['SELECT', 'SELECT']);
+      // The cluster-wide cron lock (CronSingleRunner) costs a try-lock and an unlock on its own
+      // connection; besides those: candidate query + cancelled-booking query, and nothing else.
+      const isLock = (sql: string) => /pg_(try_)?advisory_(un)?lock/.test(sql);
+      expect(statements.filter((statement) => isLock(statement.sql))).toHaveLength(2);
+      expect(
+        statements.filter((statement) => !isLock(statement.sql)).map((statement) => statement.sql.slice(0, 6)),
+      ).toEqual(['SELECT', 'SELECT']);
       expect(writes).toEqual([]);
     });
   });

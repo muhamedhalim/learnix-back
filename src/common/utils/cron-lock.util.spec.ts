@@ -61,6 +61,38 @@ describe('cron lock', () => {
     }
   });
 
+  it('CRON_LOCK_HOLD_MS=0 releases right after the run (tests invoke jobs back to back)', async () => {
+    const previous = process.env['CRON_LOCK_HOLD_MS'];
+    process.env['CRON_LOCK_HOLD_MS'] = '0';
+    try {
+      const { ds, release } = fakeDataSource(true);
+      registerCronLockDataSource(ds);
+      await runWithCronLock('x', () => Promise.resolve(1));
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previous === undefined) delete process.env['CRON_LOCK_HOLD_MS'];
+      else process.env['CRON_LOCK_HOLD_MS'] = previous;
+    }
+  });
+
+  it('ignores an invalid CRON_LOCK_HOLD_MS and keeps the default hold', async () => {
+    jest.useFakeTimers();
+    const previous = process.env['CRON_LOCK_HOLD_MS'];
+    process.env['CRON_LOCK_HOLD_MS'] = '-5';
+    try {
+      const { ds, release } = fakeDataSource(true);
+      registerCronLockDataSource(ds);
+      await runWithCronLock('x', () => Promise.resolve(1));
+      expect(release).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+      if (previous === undefined) delete process.env['CRON_LOCK_HOLD_MS'];
+      else process.env['CRON_LOCK_HOLD_MS'] = previous;
+    }
+  });
+
   it('decorator preserves `this` and arguments', async () => {
     class Job {
       public value = 5;

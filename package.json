@@ -54,6 +54,7 @@
     "db:reset:prelaunch:prod": "node dist/src/database/prelaunch-reset.cli.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.1150.0",
     "@aws-sdk/client-mediaconvert": "^3.1149.0",
     "@aws-sdk/client-pinpoint-sms-voice-v2": "^3.1149.0",
     "@aws-sdk/client-s3": "^3.1079.0",
@@ -94,7 +95,6 @@
     "class-validator": "^0.14.2",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
-    "dockerode": "^4.0.9",
     "exceljs": "^4.4.0",
     "express-basic-auth": "^1.2.1",
     "firebase-admin": "^13.5.0",
@@ -132,7 +132,6 @@
     "@swc/core": "^1.15.11",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.8.1",
-    "@types/dockerode": "^3.3.44",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.0.0",

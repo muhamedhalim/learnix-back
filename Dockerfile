@@ -36,7 +36,13 @@ COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
 COPY --chown=node:node --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# A Windows checkout with core.autocrlf can carry CRLF into the build context; a CR in the shebang makes
+# the container fail with "exec docker-entrypoint.sh: no such file or directory".
+RUN sed -i 's/$//' /usr/local/bin/docker-entrypoint.sh
 USER node
+# The only writable path with a read-only root filesystem (ECS readonlyRootFilesystem): scratch files
+# such as code exports before upload. Fargate gives a task volume mounted here the image's mode (1777).
+VOLUME ["/tmp"]
 EXPOSE 3000
 # Run under ECS with initProcessEnabled=true so signals reach node and zombies are reaped.
 ENTRYPOINT ["docker-entrypoint.sh"]
