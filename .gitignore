@@ -69,3 +69,5 @@ ormconfig.json
 
 # Internal audit documents
 AUDIT
+# E2E diagnostics (jest JSON/JUnit/log), produced by `npm run test:e2e:ci`
+/e2e-results

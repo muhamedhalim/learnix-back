@@ -32,6 +32,7 @@ Nothing was committed, pushed or deployed, and no cloud / Railway / AWS resource
 | 16  | Third-party actions on mutable tags                                                                                                                                             | Medium   | Fixed (SHA / digest pins)                         |
 | 17  | **ESLint is effectively disabled**: `eslint.config.mjs` is commented out, so CI's lint step checks 9 non-TypeScript files                                                       | High     | **Not fixed, needs a decision (§8.1)**            |
 | 18  | Frontend `ci.yml`: 18 lint errors, 1 flaky vitest test                                                                                                                          | High     | Fixed in the first pass (judgement call, §10)     |
+| 19  | `e2e`: no retained output, JUnit, service logs or per-shard view when a shard failed                                                                                            | Medium   | Fixed (§2.3b)                                     |
 
 ## 2. Root causes
 
@@ -92,6 +93,39 @@ given everywhere except the two Redis checks, which read ambient `process.env`.
    repository order). Jest counts an obsolete snapshot as a failure, so `jest --ci` exited **1** with
    `91 passed, 91 total`. The stale file was removed; the suite now exits 0.
 
+### 2.3b `e2e` aggregate check (`SHARD_RESULT=failure`) and diagnostics
+
+The aggregate `e2e` job was already correct: it fails unless `needs.e2e-shard.result` is `success`, so
+a failed, cancelled or skipped shard can never read as a pass. `SHARD_RESULT=failure` was the
+_symptom_ of the three shard failures in §2.3, not a fault of the aggregate. **No GitHub Actions logs
+were available**, so the failing test names of the original red run are not known and are not
+guessed here; what is proven is that the three causes above reproduce locally and that, once fixed, all
+four shards pass.
+
+What was added so the next red run explains itself (jest's own output only, nothing inferred):
+
+| Addition                                                                        | Why                                                                                                                         |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/e2e-preflight.ts` (`npm run e2e:preflight`)                            | Node major, `SELECT version()`, Redis `PING` before jest; names the broken service, prints versions only                    |
+| `npm run test:e2e:ci`                                                           | `--ci --logHeapUsage`, `results.json` (jest JSON) and `junit.xml` (`jest-junit` 17, devDependency)                          |
+| Full console log kept with `tee`, `PIPESTATUS[0]` re-raised                     | Output survives a failure and the step still fails with jest's exit code (verified: exit 3 stays 3)                         |
+| `scripts/e2e-summary.ts`                                                        | Per-shard table in the run summary (failed suite and test names verbatim); exit 1 on a failed, missing or unreadable result |
+| `Collect service logs`, `Upload E2E results` (both `if: always()`)              | Postgres/Redis container logs + the three files above → artifact `e2e-shard-N`, 14 days                                     |
+| Aggregate `e2e`: download `e2e-shard-*`, per-shard table, then the verdict step | One page shows every shard; the verdict step is unchanged and still fails unless all passed                                 |
+
+No `|| true` / `continue-on-error` was added: the reporting steps use `if: always()` (and
+`--report-only` for the table) while the failing step has already failed the job.
+Artifacts contain only `jest-output.log`, `results.json`, `junit.xml`, `containers.txt` and the
+service logs of the job's own disposable containers; no repository secret is in scope of that job and
+the synthetic values were confirmed absent from the three jest files.
+
+**Not changed, on evidence.** Shard count, `timeout-minutes: 60`, `maxWorkers: 1` and
+`workerIdleMemoryLimit: 1536MB` stay: local shard times were 7 to 12 min (§5) and the peak heap was
+1121 MB, so there is no evidence for a change. No retries were added. Database isolation is unchanged:
+each shard has its own Postgres/Redis service containers, the schema is built once per shard in
+`global-setup-e2e.ts`, and `resetDatabase()` truncates between tests. The `--logHeapUsage` figures will
+show on the first real run whether a shard approaches the 1.5 GB recycle limit.
+
 ### 2.4 Prettier, five files (finding 7)
 
 `format-check` runs `prettier --check` on the files the push changed. The last commit (`ci-cd`)
@@ -129,21 +163,22 @@ See §7 for the full account. Short version: 96 advisories → 0 high/critical, 
 
 Backend repo (`learnix-back`), uncommitted:
 
-| File                                                                   | Change                                                                                                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`                                             | Stage ordering, sharded e2e + aggregate check, env-validation fix, blocking audit, `workflow-lint`, `deploy-staging` job, e2e env (§2.3)                                                                         |
-| `.github/workflows/deploy-aws.yml`                                     | `workflow_call` + dispatch only (no `push`), production gate queries `ci.yml`, header comment                                                                                                                    |
-| `.github/workflows/deploy-production.yml`                              | shellcheck SC2046 quoting fix (retired workflow, manual only)                                                                                                                                                    |
-| `.github/workflows/secret-scanning.yml`                                | **Deleted (merged into `ci.yml` `secret-scan`)**, §4                                                                                                                                                             |
-| `.github/dependabot.yml`                                               | **New**: weekly npm + github-actions update PRs (they run the full CI)                                                                                                                                           |
-| `package.json`                                                         | 6 `overrides` (§7), jest `transform`/`transformIgnorePatterns` for the ESM-only `sanitize-html` tree, scripts `validate:env`, `format:changed`                                                                   |
-| `package-lock.json`                                                    | Regenerated by `npm audit fix` + overrides (165 version changes, 41 added, 42 removed; no major bump of a direct dependency)                                                                                     |
-| `test/jest-e2e.json`                                                   | Same jest ESM transform (the e2e app imports `sanitize-html` too); Prettier-formatted                                                                                                                            |
-| `test/e2e/__snapshots__/student-progress-report…snap`                  | **Deleted** (obsolete)                                                                                                                                                                                           |
-| `scripts/format-changed.ts`                                            | **New** (§2.4)                                                                                                                                                                                                   |
-| `docs/CI_CD_SETUP.md`, `docs/BRANCH_PROTECTION_SETUP.md`               | Job table and required-check guidance                                                                                                                                                                            |
-| `CI-CD-AUDIT-REPORT.md`, 4× `learnix-infra/docs/*.md`                  | Prettier formatting (report rewritten)                                                                                                                                                                           |
-| Earlier in this audit (already in commit `429a382`, kept and verified) | `marketplace.config.spec.ts`, `prelaunch-reset.ts` / `.spec.ts`, `rollback-aws.yml`, `branch-sync.yml`, `deploy-staging.yml`, permissions/timeouts/SHA pins, `format-check` injection fix, `TYPEORM_SYNCHRONIZE` |
+| File                                                                   | Change                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/ci.yml`                                             | Stage ordering, sharded e2e + aggregate check, env-validation fix, blocking audit, `workflow-lint`, `deploy-staging` job, e2e env (§2.3)                                                                                  |
+| `.github/workflows/deploy-aws.yml`                                     | `workflow_call` + dispatch only (no `push`), production gate queries `ci.yml`, header comment                                                                                                                             |
+| `.github/workflows/deploy-production.yml`                              | shellcheck SC2046 quoting fix (retired workflow, manual only)                                                                                                                                                             |
+| `.github/workflows/secret-scanning.yml`                                | **Deleted (merged into `ci.yml` `secret-scan`)**, §4                                                                                                                                                                      |
+| `.github/dependabot.yml`                                               | **New**: weekly npm + github-actions update PRs (they run the full CI)                                                                                                                                                    |
+| `package.json`                                                         | 6 `overrides` (§7), jest `transform`/`transformIgnorePatterns` for the ESM-only `sanitize-html` tree, scripts `validate:env`, `format:changed`, `test:e2e:ci`, `e2e:preflight`, `e2e:summary`, devDependency `jest-junit` |
+| `package-lock.json`                                                    | Regenerated by `npm audit fix` + overrides (165 version changes, 41 added, 42 removed; no major bump of a direct dependency)                                                                                              |
+| `test/jest-e2e.json`                                                   | Same jest ESM transform (the e2e app imports `sanitize-html` too); Prettier-formatted                                                                                                                                     |
+| `test/e2e/__snapshots__/student-progress-report…snap`                  | **Deleted** (obsolete)                                                                                                                                                                                                    |
+| `scripts/e2e-preflight.ts`, `scripts/e2e-summary.ts`, `.gitignore`     | **New** E2E diagnostics (§2.3b); `/e2e-results` ignored                                                                                                                                                                   |
+| `scripts/format-changed.ts`                                            | **New** (§2.4)                                                                                                                                                                                                            |
+| `docs/CI_CD_SETUP.md`, `docs/BRANCH_PROTECTION_SETUP.md`               | Job table and required-check guidance                                                                                                                                                                                     |
+| `CI-CD-AUDIT-REPORT.md`, 4× `learnix-infra/docs/*.md`                  | Prettier formatting (report rewritten)                                                                                                                                                                                    |
+| Earlier in this audit (already in commit `429a382`, kept and verified) | `marketplace.config.spec.ts`, `prelaunch-reset.ts` / `.spec.ts`, `rollback-aws.yml`, `branch-sync.yml`, `deploy-staging.yml`, permissions/timeouts/SHA pins, `format-check` injection fix, `TYPEORM_SYNCHRONIZE`          |
 
 Not touched: `src/config/env.validation.ts`, the isolation guard, Terraform / `learnix-infra`
 infrastructure, Dockerfile, deployment scripts, application source (apart from `prelaunch-reset.ts`).
@@ -185,6 +220,7 @@ Local timings (single developer machine, warm caches; GitHub runners will differ
 | `env-validation` + 3 negative controls      | seconds (4 `ts-node` runs)                   | 10 min              |
 | `migration-chain` (150 migrations)          | 29 s                                         | 20 min              |
 | E2E, all 91 suites on one worker            | 2263 s (37.7 min) → ~10 min per shard of ~23 | 60 min per shard    |
+| E2E per shard, `test:e2e:ci` (§6)           | 579 s / 719 s / 461 s / 419 s                | 60 min per shard    |
 | `dependency-audit`, `secret-scan`           | seconds                                      | 10 min              |
 | `workflow-lint` (actionlint)                | seconds                                      | 5 min               |
 | Docker build of the production image        | 97 s (amd64)                                 | n/a (deploy job)    |
@@ -201,25 +237,30 @@ checkout that does not push.
 
 ## 6. Verification results (local)
 
-| Check                                                                                       | Result                                                                                                                  |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `env-validation`, old flow (`NODE_ENV=production npm ci`)                                   | **Reproduced**: `Cannot find module 'tsconfig-paths/register'`                                                          |
-| `env-validation`, new flow, synthetic staging values, `NODE_ENV=production`                 | `Environment validation passed.`                                                                                        |
-| Negative controls (production DB host, unmarked DB name, short JWT secret)                  | All 3 rejected with the expected rule                                                                                   |
-| Prettier on changed files (`npm run format:changed`, 11 files)                              | Clean (was 5 failing files)                                                                                             |
-| Prettier, whole repo                                                                        | ~670 pre-existing non-conforming files, **not gated** (unchanged baseline)                                              |
-| ESLint `npx eslint .`                                                                       | 0 errors, but it only lints 9 non-TS files (§8.1)                                                                       |
-| `tsc --noEmit -p tsconfig.json`; `npm run build`                                            | 0 errors; build success (1635 files)                                                                                    |
-| Unit tests, clean export, no `.env*`, remediated dependencies (`test:cov --ci --runInBand`) | **371 suites passed, 1 skipped; 3110 tests passed, 7 skipped, 0 failed**                                                |
-| E2E, CI-equivalent env (no `.env.test`, `SYNCHRONIZE=false`), before the env fix            | 179 failed / 549 passed (29 suites)                                                                                     |
-| E2E, after the env fix, remediated dependencies, all suites                                 | **91 suites / 728 tests passed**; exit code 1 only because of the obsolete snapshot                                     |
-| E2E suite that owned the obsolete snapshot, after removing it                               | 3/3 passed, exit code 0 (the full 91-suite run was not repeated end to end after this one-file change)                  |
-| `migration-chain` against empty Postgres 16                                                 | 150/150 applied, none pending                                                                                           |
-| `npm audit`                                                                                 | 96 (4 critical, 44 high, 48 moderate) → **22 moderate, 0 high, 0 critical**                                             |
-| `docker build` of the production image, then `require('sanitize-html')` / `uuid` inside it  | Build success; sanitizer strips `onerror` / `javascript:` as expected                                                   |
-| `actionlint` (pinned image, shellcheck on) over all 6 workflows                             | 0 findings (it found a missing `workflow_call` trigger and a SC2046 warning along the way, both fixed)                  |
-| `rollback-aws.yml` jq validation, real `jq 1.7.1`                                           | valid map accepted; `{}`, bad key, bad ARN, array, `; curl` suffix all rejected; `keys \| join(",")` gives `api,worker` |
-| `sharding`: `jest --listTests --shard=i/4`                                                  | 23 / 23 / 23 / 22 suites (91)                                                                                           |
+| Check                                                                                                     | Result                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `env-validation`, old flow (`NODE_ENV=production npm ci`)                                                 | **Reproduced**: `Cannot find module 'tsconfig-paths/register'`                                                                                                                                                                                                                                                                       |
+| `env-validation`, new flow, synthetic staging values, `NODE_ENV=production`                               | `Environment validation passed.`                                                                                                                                                                                                                                                                                                     |
+| Negative controls (production DB host, unmarked DB name, short JWT secret)                                | All 3 rejected with the expected rule                                                                                                                                                                                                                                                                                                |
+| Prettier on changed files (`npm run format:changed`, 11 files)                                            | Clean (was 5 failing files)                                                                                                                                                                                                                                                                                                          |
+| Prettier, whole repo                                                                                      | ~670 pre-existing non-conforming files, **not gated** (unchanged baseline)                                                                                                                                                                                                                                                           |
+| ESLint `npx eslint .`                                                                                     | 0 errors, but it only lints 9 non-TS files (§8.1)                                                                                                                                                                                                                                                                                    |
+| `tsc --noEmit -p tsconfig.json`; `npm run build`                                                          | 0 errors; build success (1635 files)                                                                                                                                                                                                                                                                                                 |
+| Unit tests, clean export, no `.env*`, remediated dependencies (`test:cov --ci --runInBand`)               | **371 suites passed, 1 skipped; 3110 tests passed, 7 skipped, 0 failed**                                                                                                                                                                                                                                                             |
+| E2E, CI-equivalent env (no `.env.test`, `SYNCHRONIZE=false`), before the env fix                          | 179 failed / 549 passed (29 suites)                                                                                                                                                                                                                                                                                                  |
+| E2E, after the env fix, remediated dependencies, all suites                                               | **91 suites / 728 tests passed**; exit code 1 only because of the obsolete snapshot                                                                                                                                                                                                                                                  |
+| E2E suite that owned the obsolete snapshot, after removing it                                             | 3/3 passed, exit code 0 (the full 91-suite run was not repeated end to end after this one-file change)                                                                                                                                                                                                                               |
+| `migration-chain` against empty Postgres 16                                                               | 150/150 applied, none pending                                                                                                                                                                                                                                                                                                        |
+| `npm audit`                                                                                               | 96 (4 critical, 44 high, 48 moderate) → **22 moderate, 0 high, 0 critical**                                                                                                                                                                                                                                                          |
+| `docker build` of the production image, then `require('sanitize-html')` / `uuid` inside it                | Build success; sanitizer strips `onerror` / `javascript:` as expected                                                                                                                                                                                                                                                                |
+| `actionlint` (pinned image, shellcheck on) over all 6 workflows                                           | 0 findings (it found a missing `workflow_call` trigger and a SC2046 warning along the way, both fixed)                                                                                                                                                                                                                               |
+| `rollback-aws.yml` jq validation, real `jq 1.7.1`                                                         | valid map accepted; `{}`, bad key, bad ARN, array, `; curl` suffix all rejected; `keys \| join(",")` gives `api,worker`                                                                                                                                                                                                              |
+| E2E, each shard with the CI command (`test:e2e:ci --shard=i/4`, CI env, disposable Postgres 16 + Redis 7) | **Shard 1: 23 suites, 196/196 (exit 0, 588 s). Shard 2: 23 suites, 229/229 (720 s). Shard 3: 23 suites, 153/153 (462 s). Shard 4: 22 suites, 150/150 (421 s).** Total 91 suites, 728 tests, 0 failed. Peak heap per shard 1121 / 704 / 576 / 848 MB                                                                                  |
+| E2E diagnostics: preflight, JUnit, JSON, log, summary                                                     | Preflight passes on healthy services and fails with `ECONNREFUSED` / `Connection is closed` on dead ports (exit 1); `junit.xml` and `results.json` produced; `e2e-summary` aggregates all four shards and exits 1 for a failed, a missing and an unreadable result (negative controls used throw-away JSON, not reported as results) |
+| `tee` wrapper keeps the failure                                                                           | A failing command (exit 3) still exits 3 through `tee` + `PIPESTATUS`                                                                                                                                                                                                                                                                |
+| Axios and `@grpc/grpc-js`                                                                                 | `axios` 1.20.0 (direct, via `@nestjs/axios`, `twilio`), `@grpc/grpc-js` 1.14.6 (via `@nestjs/terminus`, `google-gax`): neither appears in `npm audit`                                                                                                                                                                                |
+| `npm audit` after adding `jest-junit`                                                                     | unchanged: 22 moderate, 0 high, 0 critical                                                                                                                                                                                                                                                                                           |
+| `sharding`: `jest --listTests --shard=i/4`                                                                | 23 / 23 / 23 / 22 suites (91)                                                                                                                                                                                                                                                                                                        |
 
 ## 7. Vulnerabilities
 
@@ -326,7 +367,12 @@ classifies migrations and requires `production-db-approval` for destructive ones
 5. **Environments and variables** (`staging`, `production`, `production-db-approval`, the `vars.*`
    in `deploy-aws.yml`) can only be verified in GitHub settings.
 6. **Dependabot** must be enabled for the repository for `.github/dependabot.yml` to take effect.
-7. **Hosted-runner timing**: the shard count (4) and timeouts (60 min per shard) are estimates from
+7. **E2E artifacts and summaries** (`upload-artifact` / `download-artifact` of `e2e-shard-N`, the
+   `$GITHUB_STEP_SUMMARY` tables, `docker logs` of the service containers on the hosted runner) were
+   exercised only as far as their scripts go locally; the first real run confirms them, including
+   what the aggregate job does when a shard uploaded nothing (it reports "no result files" and still
+   fails on `needs.e2e-shard.result`).
+8. **Hosted-runner timing**: the shard count (4) and timeouts (60 min per shard) are estimates from
    local timings; the first real run should confirm them.
 
 ## 10. Frontend (`learnix-front`, separate repo, first pass only)

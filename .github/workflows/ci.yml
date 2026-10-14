@@ -182,10 +182,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fails in seconds, with the cause named, when Node/Postgres/Redis are not what the suites need
+      # (instead of as dozens of unrelated suite failures, or a hang). Prints versions only.
+      - name: Preflight (Node, Postgres, Redis)
+        run: npm run e2e:preflight
+
       # One worker (maxWorkers: 1, serial like --runInBand) that jest recycles past 1.5 GB
       # (workerIdleMemoryLimit); a single in-band process ran out of heap after ~67 suites.
+      # `test:e2e:ci` also writes e2e-results/results.json (jest JSON) and junit.xml and logs the heap
+      # used per suite. The full console output is kept in e2e-results/jest-output.log via tee; the
+      # step's own exit status is jest's, never tee's, so a red suite still fails the job.
       - name: Run E2E tests (shard ${{ matrix.shard }}/4)
-        run: npm run test:e2e -- --ci --shard=${{ matrix.shard }}/4
+        env:
+          JEST_JUNIT_OUTPUT_DIR: e2e-results
+          JEST_JUNIT_OUTPUT_NAME: junit.xml
+        run: |
+          mkdir -p e2e-results
+          set +e
+          npm run test:e2e:ci -- --shard=${{ matrix.shard }}/4 2>&1 | tee e2e-results/jest-output.log
+          code=${PIPESTATUS[0]}
+          set -e
+          exit "$code"
+
+      # Reporting only: runs after a failure too, and never changes the job's verdict (the step above
+      # already failed it). Written from jest's own result file; nothing is inferred.
+      - name: Summarise shard results
+        if: ${{ always() }}
+        run: npm run --silent e2e:summary -- --report-only e2e-results/results.json >> "$GITHUB_STEP_SUMMARY"
+
+      # Service-container logs (Postgres errors, Redis restarts) explain failures the jest log cannot.
+      # The values in them are this job's synthetic, disposable ones; no repository secret is in scope.
+      - name: Collect service logs
+        if: ${{ always() }}
+        run: |
+          mkdir -p e2e-results
+          docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}' > e2e-results/containers.txt
+          for id in $(docker ps -aq); do
+            name=$(docker inspect --format '{{.Config.Image}}' "$id" | tr '/:' '__')
+            if ! docker logs --tail 2000 "$id" > "e2e-results/service-${name}.log" 2>&1; then
+              echo "::warning::could not read logs of container ${name}"
+            fi
+          done
+
+      - name: Upload E2E results (shard ${{ matrix.shard }}/4)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-shard-${{ matrix.shard }}
+          path: e2e-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   # Single, stable check name for branch protection regardless of how many shards run. It fails
   # unless EVERY shard succeeded (a skipped or cancelled shard is a failure, never a silent pass).
@@ -194,14 +240,50 @@ jobs:
     needs: e2e-shard
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A shard that was cancelled or timed out may not have uploaded anything; the absence is reported
+      # below, so a failed download must not hide the verdict step.
+      - name: Download shard results
+        if: ${{ always() }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-shard-*
+          path: shard-results
+
+      # Reporting only: a per-shard table in the run summary. The verdict is the next step.
+      - name: Per-shard summary
+        if: ${{ always() }}
+        run: |
+          shopt -s nullglob
+          files=(shard-results/e2e-shard-*/results.json)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No shard result files were uploaded (shards cancelled or failed before jest ran)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            npm run --silent e2e:summary -- --report-only "${files[@]}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Require every shard to pass
+        if: ${{ always() }}
         env:
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
         run: |
           if [ "$SHARD_RESULT" != "success" ]; then
-            echo "::error::E2E shards finished as '$SHARD_RESULT', not 'success'."
+            echo "::error::E2E shards finished as '$SHARD_RESULT', not 'success'. See the per-shard table in the run summary and the e2e-shard-N artifacts."
             exit 1
           fi
 

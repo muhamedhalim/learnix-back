@@ -26,6 +26,10 @@ Triggers on pull requests and on pushes to `main`/`develop` (pushes to other bra
 | `workflow-lint`          | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts                                           |
 | `deploy-staging`         | **New.** Push to `develop` only, after every required job above passed: calls `deploy-aws.yml` (reusable) for the AWS staging rollout. Production remains a manual `workflow_dispatch` of `deploy-aws.yml` |
 
+#### E2E diagnostics (what to open when `e2e` is red)
+
+Each `e2e-shard` job runs `npm run e2e:preflight` first (Node major, `SELECT version()` on Postgres, Redis `PING`; versions only, no connection strings), then `npm run test:e2e:ci`, which keeps the **full** console output (`jest-output.log`, via `tee`, with jest's own exit status preserved), a JSON result file (`results.json`) and a JUnit file (`junit.xml`, `jest-junit`), and logs the heap used per suite (`--logHeapUsage`). After the tests, with `if: always()`, the shard publishes a result table to the run summary, collects the Postgres/Redis container logs, and uploads everything under `e2e-results/` as the artifact `e2e-shard-N` (14 days; nothing else is uploaded, and the job's values are synthetic). The aggregate `e2e` job downloads all shard artifacts, writes a per-shard table (failed suite and test names, copied from jest's JSON) to its summary and then fails unless `needs.e2e-shard.result` is `success`. Reproduce a shard locally with `npm run test:e2e:ci -- --shard=N/4` (against a disposable Postgres/Redis, never a shared dev database).
+
 ### 1.2 `deploy-staging.yml` (new)
 
 Triggers on push to `develop`. **Does not itself deploy anything** — see the file's own header
