@@ -13,16 +13,18 @@ with the same inputs the workflow passes it — never by an actual triggered run
 
 Triggers on pull requests and on pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
 
-| Job                      | What it does                                                                                                                                                                                    | New this phase? |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `build-test`             | Typecheck, lint, build, unit tests with coverage                                                                                                                                                | No              |
-| `migration-chain`        | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                     | No (Phase 0)    |
-| `e2e`                    | Full E2E suite against Postgres 16 + Redis 7 service containers                                                                                                                                 | No              |
-| `secret-scan`            | Gitleaks                                                                                                                                                                                        | No              |
-| `format-check`           | **New.** `prettier --check` scoped to files changed since the merge-base only — not the whole repo. See §2 for why                                                                              |
-| `env-validation`         | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                         |
-| `migration-safety-check` | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED |
-| `dependency-audit`       | **New**, `continue-on-error: true`. `npm audit --audit-level=high`                                                                                                                              |
+| Job                      | What it does                                                                                                                                                                                               | New this phase? |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `build-test`             | Typecheck, lint, build, unit tests with coverage                                                                                                                                                           | No              |
+| `migration-chain`        | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                                | No (Phase 0)    |
+| `e2e`                    | Full E2E suite against Postgres 16 + Redis 7 service containers, split over 4 parallel shards (`e2e-shard`); `e2e` is the single aggregate check that fails unless every shard passed                      | No              |
+| `secret-scan`            | Gitleaks                                                                                                                                                                                                   | No              |
+| `format-check`           | **New.** `prettier --check` scoped to files changed since the merge-base only — not the whole repo. See §2 for why                                                                                         |
+| `env-validation`         | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                                    |
+| `migration-safety-check` | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED            |
+| `dependency-audit`       | **Blocking.** `npm audit --audit-level=high` (zero high/critical advisories today; remaining moderates are listed in `CI-CD-AUDIT-REPORT.md`)                                                              |
+| `workflow-lint`          | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts                                           |
+| `deploy-staging`         | **New.** Push to `develop` only, after every required job above passed: calls `deploy-aws.yml` (reusable) for the AWS staging rollout. Production remains a manual `workflow_dispatch` of `deploy-aws.yml` |
 
 ### 1.2 `deploy-staging.yml` (new)
 
@@ -99,9 +101,9 @@ value is explicitly set.
 - No workflow in this document has been executed by real GitHub Actions from this session — no
   `gh` CLI, no authenticated Actions API access. Every claim above is "this is what the YAML says
   and locally reproduces," not "this has been observed to pass in CI."
-- `dependency-audit` and `migration-safety-check` are both `continue-on-error: true` and therefore
-  currently cannot be made _required_ status checks in branch protection (§ `BRANCH_PROTECTION_SETUP.md`
-  §3.1's own caveat) — a required check that can never fail is not a gate.
+- `migration-safety-check` is `continue-on-error: true` and therefore currently cannot be made a
+  _required_ status check in branch protection (§ `BRANCH_PROTECTION_SETUP.md` §3.1's own caveat) — a
+  required check that can never fail is not a gate. `dependency-audit` is blocking and may be required.
 - `deploy-production.yml`'s approval gate does not yet control Railway's actual deploy timing
   (§1.3). This is the single most important open item from Phase 4/5 and is repeated in the final
   report rather than buried here.

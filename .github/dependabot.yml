@@ -1,0 +1,18 @@
+# Keeps the lockfile and the pinned workflow actions moving, so `npm audit` (a blocking CI gate) is
+# fed by small weekly PRs instead of a large remediation after the gate turns red. Updates arrive as
+# pull requests only: they run the full CI (including e2e) before anything can reach develop.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

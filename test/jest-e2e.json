@@ -1,20 +1,26 @@
 {
-  "moduleFileExtensions": [
-    "js",
-    "json",
-    "ts"
-  ],
+  "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "testEnvironment": "node",
   "maxWorkers": 1,
   "workerIdleMemoryLimit": "1536MB",
   "testRegex": ".e2e-spec.ts$",
-  "setupFilesAfterEnv": [
-    "<rootDir>/setup-e2e.ts"
-  ],
+  "setupFilesAfterEnv": ["<rootDir>/setup-e2e.ts"],
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.ts$": "ts-jest",
+    "^.+\\.m?js$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "allowJs": true,
+          "module": "commonjs",
+          "target": "ES2022",
+          "esModuleInterop": true
+        }
+      }
+    ]
   },
   "globalSetup": "<rootDir>/global-setup-e2e.ts",
-  "testTimeout": 30000
+  "testTimeout": 30000,
+  "transformIgnorePatterns": ["^(?!.*/node_modules/sanitize-html/node_modules/).*/node_modules/"]
 }

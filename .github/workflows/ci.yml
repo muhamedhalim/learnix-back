@@ -59,6 +59,7 @@ jobs:
 
   migration-chain:
     name: Migration chain (empty database)
+    needs: build-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Proves the ENTIRE migration history applies cleanly to a genuinely empty
@@ -105,12 +106,19 @@ jobs:
       - name: Run every migration against an empty database
         run: npm run test:migrations
 
-  e2e:
-    name: E2E tests (Postgres + Redis)
+  e2e-shard:
+    name: E2E shard ${{ matrix.shard }}/4
+    # Only worth running on code that already typechecks and builds.
+    needs: build-test
     runs-on: ubuntu-latest
-    # 95 serial suites at ~50 s each locally; bounded so a hang (see TYPEORM_SYNCHRONIZE below) can no
-    # longer burn the 6 h default.
-    timeout-minutes: 120
+    # 91 serial suites take ~80 min on one runner, so they are split across 4 independent runners
+    # (each with its own Postgres + Redis services). Bounded so a hang (see TYPEORM_SYNCHRONIZE
+    # below) can no longer burn the 6 h default.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16
@@ -146,6 +154,19 @@ jobs:
       METRICS_BEARER_TOKEN: test-metrics-token
       # Cron locks are held 30 s after a run in deployed environments; tests call jobs back to back.
       CRON_LOCK_HOLD_MS: '0'
+      # Mirrors the gitignored .env.test (absent in CI, so the e2e job must state it itself). Without
+      # MARKETPLACE_ENABLED the marketplace module is not registered and ~25 suites get 404s; without
+      # the workers flag background BullMQ jobs race the deterministic per-test cleanup. All values are
+      # synthetic and grant access to nothing: the two keys only encrypt fixture rows in this job's
+      # disposable Postgres service.
+      MARKETPLACE_ENABLED: 'true'
+      E2E_DISABLE_BACKGROUND_WORKERS: 'true'
+      REDIS_URL: redis://localhost:6379/15
+      MEETING_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      PAYOUT_ACCOUNT_ENCRYPTION_KEY: ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=
+      # Signed-embed URLs for free-preview lessons are only produced when a token key exists
+      # (public-academic-cache suite); this one signs fixture URLs for a fake video id.
+      BUNNY_STREAM_TOKEN_KEY: e2e-synthetic-bunny-token-key
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -163,8 +184,26 @@ jobs:
 
       # One worker (maxWorkers: 1, serial like --runInBand) that jest recycles past 1.5 GB
       # (workerIdleMemoryLimit); a single in-band process ran out of heap after ~67 suites.
-      - name: Run E2E tests
-        run: npm run test:e2e -- --ci
+      - name: Run E2E tests (shard ${{ matrix.shard }}/4)
+        run: npm run test:e2e -- --ci --shard=${{ matrix.shard }}/4
+
+  # Single, stable check name for branch protection regardless of how many shards run. It fails
+  # unless EVERY shard succeeded (a skipped or cancelled shard is a failure, never a silent pass).
+  e2e:
+    name: E2E tests (Postgres + Redis)
+    needs: e2e-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every shard to pass
+        env:
+          SHARD_RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          if [ "$SHARD_RESULT" != "success" ]; then
+            echo "::error::E2E shards finished as '$SHARD_RESULT', not 'success'."
+            exit 1
+          fi
 
   secret-scan:
     name: Secret scanning (gitleaks)
@@ -250,8 +289,11 @@ jobs:
     # staging environment's secrets (those are validated for real by
     # deploy-staging.yml's own env-validation step, which runs inside the
     # `staging` GitHub Environment).
+    # NODE_ENV=production is deliberately NOT set at job level: `npm ci` honours it and silently omits
+    # devDependencies, which removed ts-node and tsconfig-paths and made the validation step die with
+    # "Cannot find module 'tsconfig-paths/register'". Production semantics are applied only to the
+    # validation steps below, so the validator still runs exactly as it would in a production boot.
     env:
-      NODE_ENV: production
       APP_ENV: staging
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/staging_placeholder
       REDIS_URL: redis://localhost:6379
@@ -280,18 +322,22 @@ jobs:
         run: npm ci
 
       - name: Validate synthetic staging configuration
-        run: npx ts-node -r tsconfig-paths/register scripts/validate-env.ts
+        env:
+          NODE_ENV: production
+        run: npm run validate:env
 
       # Negative controls: a validator that can never fail proves nothing. Each case starts from the
       # SAME valid staging config above and breaks exactly one rule that must stay enforced; the step
       # fails if validation still passes, or fails for a different reason than the expected rule.
       # Only synthetic values are used and no rule is relaxed anywhere.
       - name: Validation must still reject unsafe staging configurations
+        env:
+          NODE_ENV: production
         run: |
           expect_rejection() {
             local expected="$1"; shift
             local out
-            if out=$(env "$@" npx ts-node -r tsconfig-paths/register scripts/validate-env.ts 2>&1); then
+            if out=$(env "$@" npm run --silent validate:env 2>&1); then
               echo "::error::validation unexpectedly PASSED for: $expected"; exit 1
             fi
             if ! printf '%s' "$out" | grep -q "$expected"; then
@@ -341,13 +387,9 @@ jobs:
     name: Dependency audit (npm audit)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Non-blocking today: the current baseline is 3 high + 42 moderate
-    # advisories, all transitive through firebase-admin's Google Cloud
-    # dependency chain (verified 2026-08-06, not this project's own direct
-    # dependency). Recorded as debt rather than hidden — flip
-    # continue-on-error off once that baseline is cleared or explicitly
-    # accepted, so a *new* high-severity advisory doesn't silently join it.
-    continue-on-error: true
+    # Blocking: any high or critical advisory fails the run. The lockfile was remediated to zero
+    # high/critical findings (CI-CD-AUDIT-REPORT.md lists the overrides and the moderate advisories
+    # that have no upstream fix yet), so a *new* advisory can no longer join silently.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -362,3 +404,45 @@ jobs:
 
       - name: npm audit (high and above)
         run: npm audit --audit-level=high
+
+  workflow-lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Static check of every workflow (expression/context typos, bad `needs`, reusable-workflow inputs,
+    # shell mistakes in `run:` via shellcheck). Pinned by digest (actionlint v1.7.7).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: actionlint
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo
+          rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color
+
+  # Staging is deployed from THIS run, after every required check above has passed, instead of a
+  # second workflow racing CI on the same push. Production stays a manual, approval-gated dispatch of
+  # deploy-aws.yml (its gate requires this job to have succeeded for the exact commit).
+  deploy-staging:
+    name: Deploy staging (AWS)
+    needs:
+      - build-test
+      - format-check
+      - env-validation
+      - migration-chain
+      - e2e
+      - secret-scan
+      - dependency-audit
+      - workflow-lint
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
+    # A reusable workflow's jobs can never hold more than the caller grants: id-token for the OIDC
+    # role assumption, actions:read for the promotion gate's run lookup.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy-aws.yml
+    with:
+      environment: staging

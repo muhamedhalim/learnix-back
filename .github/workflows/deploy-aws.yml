@@ -6,8 +6,10 @@ name: Deploy API to AWS (ECS)
 # learnix-infra/scripts/ecs-deploy.sh): migrate task first (must exit 0), then api + worker, with
 # automatic rollback when a deployment fails or alarms fire.
 #
-#   push to develop      -> staging
-#   workflow_dispatch    -> staging or production
+#   push to develop      -> staging, called by ci.yml (job `deploy-staging`) only AFTER every required
+#                           CI check passed; this file no longer has its own push trigger, so CI and the
+#                           deploy are one run and cannot race each other
+#   workflow_dispatch    -> staging or production (manual)
 #
 # Production additionally requires: a successful staging deploy of the same commit, the migration
 # classifier, a DB-owner approval for destructive migrations, and a manual RDS snapshot before migrating.
@@ -20,8 +22,12 @@ name: Deploy API to AWS (ECS)
 # Nothing secret is stored here: the job assumes the deploy role through GitHub OIDC.
 
 on:
-  push:
-    branches: [develop]
+  workflow_call:
+    inputs:
+      environment:
+        description: Target environment
+        type: string
+        default: staging
   workflow_dispatch:
     inputs:
       environment:
@@ -63,9 +69,10 @@ jobs:
         if: env.TARGET == 'production'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Push-triggered runs only ever target staging (push to develop).
+        # Staging is deployed by the `deploy-staging` job of ci.yml on a push to develop, so a green CI run
+        # on develop for this exact commit means the checks AND the staging rollout both succeeded.
         run: |
-          staging=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy-aws.yml/runs?head_sha=${{ github.sha }}&status=success&event=push&per_page=5" \
+          staging=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=${{ github.sha }}&branch=develop&event=push&status=success&per_page=5" \
             --jq '.total_count')
           if [ "${staging:-0}" -lt 1 ]; then
             echo "::error::No successful staging deploy of ${{ github.sha }}; deploy it to staging first."

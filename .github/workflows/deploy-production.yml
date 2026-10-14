@@ -90,7 +90,7 @@ jobs:
           if [ "$CODE" -eq 0 ]; then echo "classification=SAFE" >> "$GITHUB_OUTPUT";
           elif [ "$CODE" -eq 1 ]; then echo "classification=NEEDS_DB_APPROVAL" >> "$GITHUB_OUTPUT";
           else echo "classification=BLOCKED" >> "$GITHUB_OUTPUT"; fi
-          exit $([ "$CODE" -eq 2 ] && echo 1 || echo 0)
+          exit "$([ "$CODE" -eq 2 ] && echo 1 || echo 0)"
           # BLOCKED fails this job outright — a blocked migration must be
           # reworked, not approved around. NEEDS_DB_APPROVAL passes this job
           # and is gated by the separate db-owner-approval job below instead.
