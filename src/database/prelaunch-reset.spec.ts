@@ -66,6 +66,31 @@ describe('prelaunch reset safety', () => {
     ).not.toThrow();
   });
 
+  it('judges the env it is given, not ambient process.env, when checking Redis', () => {
+    const original = process.env['REDIS_URL'];
+    process.env['REDIS_URL'] = 'redis://ambient.invalid:6379';
+    try {
+      expect(() =>
+        assertExecutionGuards(
+          {
+            APP_ENV: 'production',
+            DATABASE_URL: 'postgres://user:pass@db.internal/railway',
+            RESET_PRELAUNCH_DATA: 'true',
+            RESET_PRELAUNCH_BACKUP_WAIVED: 'true',
+            RESET_PRELAUNCH_SERVICES_STOPPED: 'true',
+            RESET_PRELAUNCH_TARGET: 'db.internal/railway',
+            RESET_PRELAUNCH_REDIS_DEDICATED: 'true',
+          },
+          identity,
+          { skipExternal: false },
+        ),
+      ).toThrow(/Redis must be configured/);
+    } finally {
+      if (original === undefined) delete process.env['REDIS_URL'];
+      else process.env['REDIS_URL'] = original;
+    }
+  });
+
   it('requires an explicit waiver when a backup reference is intentionally unavailable', () => {
     expect(() =>
       assertExecutionGuards(

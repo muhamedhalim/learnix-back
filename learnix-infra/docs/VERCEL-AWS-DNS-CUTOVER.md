@@ -1,0 +1,345 @@
+# Vercel + AWS DNS cutover: audit and checklist
+
+**Status: audit and preparation only.** Nothing described here has been executed. No DNS record, nameserver,
+Vercel setting, production variable or AWS resource was changed while writing this document.
+Companion file: [VERCEL-ENVIRONMENT-MATRIX.md](VERCEL-ENVIRONMENT-MATRIX.md) (variables, URL inventory, provider callbacks).
+
+Audit date: 2026-10-13. Repositories inspected: `learnix-front` (branch `master`), `learnix-back` (branch `main`,
+contains `learnix-infra/`). Git status was clean in both before and after the audit.
+
+## 0. How to read this document
+
+Every statement carries one of these evidence tags. Nothing tagged `REPO` or `INFERRED` should be treated as live fact.
+
+| Tag | Meaning |
+|---|---|
+| **V-DNS** | Observed on 2026-10-13 (about 12:36 UTC) by read-only queries to public resolvers 1.1.1.1 and 8.8.8.8 (and Cloudflare DNS-over-HTTPS). Point-in-time; proxied Cloudflare records hide their real target. |
+| **V-HTTP** | Observed on 2026-10-13 by read-only `HEAD`/`GET` requests over HTTPS (status line and response headers only). |
+| **V-TEST** | Observed by running an offline unit test in this checkout. |
+| **REPO** | Stated in a source file, Terraform file or document in the repositories. Evidence of intent, not of live state. |
+| **INFERRED** | My reading of the code, not exercised. |
+| **MANUAL** | Needs a console (Vercel, Cloudflare, Name.com, AWS, Paymob, Meta, Zoom/Google/Microsoft, SES). Unknown until someone looks. |
+
+## 1. Summary and the decision this document asks you to make
+
+### 1.1 What is verified about today's DNS
+
+* **V-DNS** The zone `learnix.school` is authoritative at **Cloudflare** (`dina.ns.cloudflare.com`, `max.ns.cloudflare.com`).
+  No DS/DNSKEY records exist, so DNSSEC is not enabled.
+* **V-DNS / V-HTTP** The apex and `www` answer with Cloudflare anycast addresses, i.e. the records are **Cloudflare-proxied** (orange cloud).
+  Responses carry `x-vercel-id` / `x-vercel-cache`, so the proxied origin is Vercel. The TLS certificate presented
+  at the apex is issued by Google Trust Services (Cloudflare Universal SSL), not by Vercel. `www` answers `307` to `https://learnix.school/` (Vercel's redirect).
+* **V-DNS** Because the records are proxied, **public DNS does not reveal the real Vercel target**. The apex/`www`
+  origin values exist only in the Cloudflare dashboard (and Vercel's domain panel).
+* **V-HTTP** `api.learnix.school` already exists and is proxied. It answers **HTTP 525** (Cloudflare cannot complete TLS to its origin).
+  `staging.learnix.school` and `api-staging.learnix.school` also answer 525. `api.staging.learnix.school` fails the TLS handshake.
+  None of these has a working backend today, consistent with `phase7-launch.md` ("old Railway production has been down since 2026-08-13").
+* **V-DNS** Random, never-created labels (`zz-nx-8f3a1c.learnix.school`, `…staging.learnix.school`, `…api.learnix.school`) all resolve to the
+  same Cloudflare addresses, so **wildcard record(s) exist** in the zone. Names such as `admin`, `app`, `dev`, `cdn`, `media`, `video`, `files`, `grafana`, `status` resolve only because of that wildcard.
+* **V-DNS** A CAA set exists at the apex that authorises `comodoca.com`, `digicert.com`, `letsencrypt.org`, `pki.goog`, `sectigo.com`, `ssl.com`
+  (issue, and issuewild for all but sectigo). **It does not authorise Amazon.** AWS Certificate Manager
+  will refuse to issue the `api.learnix.school` certificate until `amazon.com` is added (section 4, B7).
+* **V-DNS** Mail DNS is a mix of three providers:
+  Cloudflare Email Routing (`MX route1/2/3.mx.cloudflare.net`, SPF include `_spf.mx.cloudflare.net`),
+  **MailerSend** (SPF include `_spf.mailersend.net`, `mlsend2._domainkey` CNAME, `email` and `mta` CNAMEs), and
+  **Brevo** (`brevo-code` TXT, `brevo1/brevo2._domainkey` CNAMEs, DMARC `rua=mailto:rua@dmarc.brevo.com`).
+  Brevo is not referenced anywhere in either repository (undocumented).
+* **V-DNS** `_dmarc.learnix.school` = `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com`.
+
+### 1.2 Recommendation (not a decision I can make for you)
+
+**Keep Cloudflare as the DNS host for `learnix.school`. Do not move the nameservers for this cutover.**
+Add only what the API and AWS email need, as **DNS-only** (grey-cloud) records. Reasons, all evidenced above:
+
+1. The frontend works today through Cloudflare to Vercel. A nameserver move changes how the apex is served
+   (proxy and Cloudflare certificate disappear; Vercel must issue and serve the certificate) and is not required for the API.
+2. The real apex/`www` origin values are hidden by the proxy. The Terraform zone copy
+   (`dns_records`) needs those values and **cannot be filled from `dig` output** (it would copy Cloudflare edge addresses).
+3. Inbound mail routing (`route*.mx.cloudflare.net`) is a Cloudflare Email Routing product (**MANUAL**: confirm in the dashboard; Cloudflare documents that Email Routing requires the zone's DNS to be on Cloudflare).
+4. An undocumented wildcard, an undocumented mail provider (Brevo) and unknown further records mean the zone is not yet fully inventoried.
+5. The CloudFront API host needs one CNAME, three DKIM CNAMEs, two bounce records, one certificate-validation CNAME and one CAA addition. That is eight to nine records, not a zone move.
+
+The repository's Terraform and `phase6-production.md` are written for the opposite design (Route 53 hosts the whole zone, Name.com
+nameservers move). That plan remains possible (section 7 gives its prerequisites as a separate plan) but is **not** the default
+this audit supports. If you keep Cloudflare, three Terraform behaviours need attention (section 4, C-list) and **no Terraform change is required to start**.
+
+## 2. Hostname architecture (REPO, verified against code)
+
+| Role | Hostname | Served by | Source |
+|---|---|---|---|
+| Production frontend | `https://learnix.school` (apex; `www` redirects to it) | Vercel project `dodline` (name from `learnix-front/.vercel/project.json`), via Cloudflare proxy today (V-HTTP) | REPO + V-HTTP |
+| Production API + HLS video | `https://api.learnix.school` | CloudFront (+WAF) → VPC origin → internal ALB → ECS. `/video/*` on the same host is S3 behind signed cookies | `environments/production/edge.tf`, `modules/cdn/main.tf` |
+| Staging frontend | `https://staging.learnix.school` | Vercel (branch/custom environment) | `environments/staging/edge.tf`, `terraform.tfvars.example` |
+| Staging API | `https://api.staging.learnix.school`, or the distribution's `*.cloudfront.net` name until `custom_domain_enabled=true` | CloudFront + WAF IP allowlist | `environments/staging/edge.tf` |
+| Legacy staging API | `api-staging.learnix.school` | Retired Railway-era name (still in `next.config.ts` and old docs) | REPO |
+| Media / uploads / video | **no dedicated hostname**; `api.<domain>/api/v1/media/public/*`, `api.<domain>/video/*`, S3 presigned URLs on `*.s3.<region>.amazonaws.com` | CloudFront, S3 | `modules/cdn/main.tf` |
+| Webhook receivers | `api.<domain>/api/v1/...` (same host) | Same distribution | `outputs.tf: provider_callback_urls` |
+
+Cookie, CORS and CSRF facts the hostname design depends on (all read from code, section 5 covers behaviour):
+
+* `api.learnix.school` and `learnix.school` share the registrable domain, so browser calls are **cross-origin but same-site**.
+* `COOKIE_DOMAIN` is intentionally unset; the isolation guard refuses a parent-domain value (`environment-isolation.guard.ts:477-490`). No cookie-domain change is needed or permitted.
+* Auth cookies (`access`, `refresh`, CSRF) are host-only on the API host: `HttpOnly` (credentials), signed, `Secure`, `SameSite=None`, `Partitioned` in production (`cookie-security.util.ts`, `auth.controller.ts:52-88`).
+* CORS is an exact-origin, credentialed allowlist from `CORS_ORIGINS` (`cors.util.ts`); production validation rejects wildcards and requires it to contain `FRONTEND_URL` (`public-url.util.ts:131-147`). Verified by unit tests (V-TEST, 116 tests across CORS, cookie, public-URL, isolation-guard and video-config specs passed).
+* The playback cookies for `/video/*` are `SameSite=Lax`, host-only, path-scoped (`video/playback-cookies.ts:61-80`). They are only sent when the player's page and the API host are **same-site**. This holds for `learnix.school` → `api.learnix.school`. It would **not** hold for a `*.vercel.app` preview calling any API host, or for a staging frontend calling a `*.cloudfront.net` API name (section 4, D-list). INFERRED, not browser-tested.
+
+## 3. DNS record inventory
+
+Legend for **Action** assumes the recommended design (Cloudflare stays authoritative). The "Option B" column in section 7 lists what changes
+if you migrate the zone instead. `<…>` marks a value that is not known and must be read from the named console. Nothing here is guessed.
+
+### 3.1 Records that exist today (what must not break)
+
+| # | Record name | Type | Value/target | TTL | Purpose | DNS provider | Action | Env | Evidence | Risk if missing or changed wrongly |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E1 | `learnix.school` (zone delegation) | NS | `dina.ns.cloudflare.com`, `max.ns.cloudflare.com` | 86400 (observed at 1.1.1.1) | Delegation of the zone | Name.com (registrar) → Cloudflare | **Keep** | prod | V-DNS | Changing it moves every record at once; this is the nameserver migration (section 7) |
+| E2 | `learnix.school` | A / AAAA (proxied) | Shown: 104.21.41.129, 172.67.165.1 / 2606:4700:3031::ac43:a501, 2606:4700:3036::6815:2981 (Cloudflare edge). **Real origin: `<Vercel target, Cloudflare dashboard>` MANUAL** | 300 (Auto) | Frontend on Vercel | Cloudflare | **Keep** | prod | V-DNS, V-HTTP (`x-vercel-id`) | Frontend outage. Never copy the shown edge IPs anywhere |
+| E3 | `www.learnix.school` | CNAME or A (proxied; underlying type **MANUAL**) | Edge IPs as above. Origin `<Vercel target> MANUAL` | 300 (Auto) | www → apex redirect (Vercel answers 307) | Cloudflare | **Keep** | prod | V-DNS, V-HTTP | `www` visitors break; also the only reason `https://www.learnix.school` need not be a CORS origin |
+| E4 | `learnix.school` | MX ×3 | `63 route1.mx.cloudflare.net`, `59 route2.mx.cloudflare.net`, `5 route3.mx.cloudflare.net` | 300 | Inbound mail (Cloudflare Email Routing) | Cloudflare | **Keep** | prod | V-DNS | `info@learnix.school` (public contact address in `site.ts`) stops receiving |
+| E5 | `learnix.school` | TXT | `v=spf1 include:_spf.mx.cloudflare.net include:_spf.mailersend.net ~all` | 3600 | SPF for Cloudflare routing + MailerSend | Cloudflare | **Keep unchanged** during parity. SES uses a custom MAIL FROM (`bounce.`) so it does not need an apex SPF change | prod | V-DNS | Mail from MailerSend (the rollback provider) fails SPF |
+| E6 | `learnix.school` | TXT | `brevo-code:<token present in zone>` | 3600 | Brevo domain verification | Cloudflare | **Keep; owner decision** (undocumented provider) | prod | V-DNS | Loss of a Brevo-sent stream you may not know about |
+| E7 | `_dmarc.learnix.school` | TXT | `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | 3600 | DMARC policy + aggregate reports | Cloudflare | **Verify, then modify deliberately** (see B6) | prod | V-DNS | The Terraform DMARC record would overwrite this and drop reporting |
+| E8 | `brevo1._domainkey`, `brevo2._domainkey` `.learnix.school` | CNAME | `b1.learnix-school.dkim.brevo.com`, `b2.learnix-school.dkim.brevo.com` | not observed | Brevo DKIM | Cloudflare | **Keep** | prod | V-DNS | Brevo mail loses DKIM alignment |
+| E9 | `mlsend2._domainkey.learnix.school` | CNAME | `mlsend2._domainkey.mailersend.net` | not observed | MailerSend DKIM (rollback provider, `MAIL_PROVIDER=mailersend`) | Cloudflare | **Keep until MailerSend is decommissioned (Phase 8)** | prod | V-DNS | MailerSend rollback unusable |
+| E10 | `email.learnix.school`, `mta.learnix.school` | CNAME | `links.mailersend.net`, `mailersend.net` | 3600 (mta observed) | MailerSend link tracking / MTA | Cloudflare | **Keep until Phase 8** | prod | V-DNS | Tracking links in old mail break |
+| E11 | `learnix.school` | CAA | issue + issuewild: `comodoca.com`, `digicert.com; cansignhttpexchanges=yes`, `letsencrypt.org`, `pki.goog; cansignhttpexchanges=yes`, `ssl.com`; issue only: `sectigo.com` | n/a | Certificate issuance policy | Cloudflare (may be auto-managed, **MANUAL**) | **Add** `0 issue "amazon.com"` (B7); keep the rest | prod | V-DNS | Without it ACM issuance for `api.learnix.school` fails |
+| E12 | `*.learnix.school` (and probably `*.staging`, `*.api`; exact set **MANUAL**) | A (proxied, behaviour) | Cloudflare edge | 300 | Unknown; catch-all | Cloudflare | **Verify** (export zone) | prod | V-DNS | Hides which names are real; any `dns_records` copy that omits it changes resolution |
+| E13 | `mail.learnix.school` | A (proxied) | Edge IPs (may be the wildcard) | 300 | Unknown | Cloudflare | **Verify** | prod | V-DNS | Low |
+| E14 | `api.learnix.school` | A/AAAA or CNAME (proxied, **525**) | Edge IPs; origin was the retired Railway backend (**MANUAL** to confirm) | 300 (Auto) | Old API host | Cloudflare | **Modify**: replace by the CloudFront target (B2) | prod | V-DNS, V-HTTP 525 | Collides with the record Terraform wants to create; while it stays, the API host is dead |
+| E15 | `staging.learnix.school` | A (proxied, **525**) | Edge IPs | 300 | Old staging frontend name | Cloudflare | **Modify/Verify** with B11 | staging | V-DNS, V-HTTP | Staging frontend unreachable until repointed to Vercel |
+| E16 | `api.staging.learnix.school` | A (proxied or via wildcard; TLS handshake **fails**) | Edge IPs | 300 | Intended staging API name | Cloudflare | **Modify**: replace by the staging CloudFront target (B9) | staging | V-DNS, V-HTTP | A proxied name two levels deep is not covered by Universal SSL (handshake fails) |
+| E17 | `api-staging.learnix.school` | A (proxied, 525) | Edge IPs | 300 | Legacy Railway staging API | Cloudflare | **Remove** after decommission sign-off | staging | V-DNS, V-HTTP; `next.config.ts` still allows it | Stale; trivial |
+| E18 | Any other record in the zone (autodiscover, verification TXTs for Google/Meta/Paymob/SES, etc.) | any | `<unknown>` | n/a | Unknown | Cloudflare | **Verify** by exporting the full zone | both | Not enumerable from outside | An unnoticed record (provider verification, mail) breaks if the zone is rebuilt |
+
+### 3.2 Records to add for the AWS backend and email
+
+All new records at Cloudflare are **DNS only** (grey cloud). A proxied record cannot carry certificate validation or DKIM, and putting Cloudflare in front of
+CloudFront doubles the CDN, makes the WAF rate rules see Cloudflare addresses, and invalidates `TRUST_PROXY_HOPS=2`.
+
+| # | Record name | Type | Value/target | TTL | Purpose | DNS provider | Action | Env | Evidence | Risk |
+|---|---|---|---|---|---|---|---|---|---|---|
+| B1 | `_<token>.api.learnix.school` (name given by ACM) | CNAME | `<value given by ACM>` (certificate requested in **us-east-1**) | 300 (Terraform uses 60) | ACM DNS validation for the API alias | Cloudflare (Terraform writes it to Route 53 by default) | **Add**, DNS-only | prod | `edge.tf:143-178`; value **MANUAL** (exists only after the certificate request) | Certificate never validates; `terraform apply` waits (up to its timeout) |
+| B2 | `api.learnix.school` | CNAME | `<cloudfront_domain_name Terraform output>` (the `*.cloudfront.net` name) | 300; 60 during cutover | Public API + video + webhook host | Cloudflare | **Modify** E14; DNS-only | prod | `edge.tf:181-193` (Terraform uses Route 53 alias A/AAAA to the same distribution) | API unreachable, or reachable through a double CDN if left proxied |
+| B3 | `<token1..3>._domainkey.learnix.school` | CNAME ×3 | `<token>.dkim.amazonses.com` (tokens issued by SES when the identity is created) | 600 | SES Easy DKIM | Cloudflare | **Add**, DNS-only | prod | `modules/messaging/main.tf:172-180`; tokens **MANUAL** | SES identity never verifies; mail fails DMARC alignment |
+| B4 | `bounce.learnix.school` | MX | `10 feedback-smtp.eu-central-1.amazonses.com` (region = `var.region`, default `eu-central-1`) | 600 | Custom MAIL FROM (bounce handling) | Cloudflare | **Add** | prod | `messaging/main.tf:182-190` | SPF/DMARC alignment via MAIL FROM fails; SES falls back to its default (`behavior_on_mx_failure = USE_DEFAULT_VALUE`) |
+| B5 | `bounce.learnix.school` | TXT | `v=spf1 include:amazonses.com ~all` | 600 | SPF for the MAIL FROM domain | Cloudflare | **Add** | prod | `messaging/main.tf:192-200` | As B4 |
+| B6 | `_dmarc.learnix.school` | TXT | Decision required. Terraform would write `v=DMARC1; p=<dmarc_policy>` with **no `rua`**. Today's value has `rua=mailto:rua@dmarc.brevo.com` | 3600 | DMARC | Cloudflare | **Decide, then edit manually**; do not let Terraform overwrite it | prod | `messaging/main.tf:202-210`; `production/variables.tf:109` | Reports lost; `phase6-production.md` plans "quarantine after 30 days of clean reports" which is impossible without any `rua` |
+| B7 | `learnix.school` | CAA | `0 issue "amazon.com"` (additive; AWS documents `amazon.com`, `amazontrust.com`, `awstrust.com`, `amazonaws.com` as accepted) | 3600 | Allow ACM to issue the API certificate | Cloudflare | **Add** | prod | V-DNS (current set has no Amazon). INFERRED from RFC 8659: a CAA lookup for `api.learnix.school` falls back to the apex set (a CNAME at `api` cannot hold its own CAA), so the apex set is the one that matters | `api.learnix.school` certificate request fails |
+| B8 | `_<token>.api.staging.learnix.school` | CNAME | `<value given by ACM>` (us-east-1) | 300 | Staging API certificate validation | Cloudflare (or the delegated sub-zone, see B12) | **Add**, DNS-only | staging | `staging/edge.tf:129-164` | As B1 |
+| B9 | `api.staging.learnix.school` | CNAME | `<staging cloudfront_domain_name output>` | 300 | Staging API | Cloudflare / sub-zone | **Modify** E16; DNS-only | staging | `staging/edge.tf:179-191` | Staging API unreachable |
+| B10 | `<token1..3>._domainkey.staging.learnix.school`; `bounce.staging.learnix.school` MX + TXT; `_dmarc.staging.learnix.school` TXT | CNAME ×3, MX, TXT, TXT | `<SES tokens>`, `10 feedback-smtp.<region>.amazonses.com`, `v=spf1 include:amazonses.com ~all`, `v=DMARC1; p=<policy>` | 600 | Staging SES identity (identity domain = `staging.learnix.school`) | Cloudflare / sub-zone | **Add** | staging | `staging/foundation.tf:174-181`; tokens **MANUAL** | Staging mail only reaches verified addresses (it is in the SES sandbox with `MAIL_ALLOWLIST` anyway) |
+| B11 | `staging.learnix.school` | A or CNAME | `<target shown by Vercel for the staging domain>` **MANUAL** | 300 | Staging frontend on Vercel | Cloudflare | **Modify** E15 | staging | `staging/terraform.tfvars.example` | Staging site unreachable |
+| B12 | `staging.learnix.school` (delegation) | NS ×4 | `<Route 53 name_servers output of the staging stack>` | 300 | Delegated staging sub-zone (design in `staging/edge.tf:118-127`) | Cloudflare | **Not recommended** under Option A: it conflicts with E15/E16 (a delegation shadows everything below `staging`) and is unnecessary. Put B8-B11 directly in Cloudflare instead | staging | REPO | If both A and NS exist at one name, behaviour is provider-specific; a delegation silently hides E16 |
+| B13 | Vercel domain verification (`_vercel` TXT or similar) | TXT | `<value shown by Vercel, only if it asks>` | 300 | Domain ownership for Vercel | Cloudflare | **Verify**: no `_vercel` TXT is observed (V-DNS) and the site works, so none is currently required | prod | V-DNS | n/a unless the domain is re-added to a Vercel project |
+
+### 3.3 Hostnames and records that are deliberately **not** needed
+
+| Item | Why no DNS change |
+|---|---|
+| Media / upload / video hostname | None configured. Video is `https://api.<domain>/video/*`; uploads go to S3 presigned URLs; public images are `https://api.<domain>/api/v1/media/public/*`. No `media.`/`cdn.`/`video.` record is required (the names that resolve today only do so through the wildcard) |
+| Paymob, Meta WhatsApp, Zoom/Google/Microsoft OAuth | Provider-hosted. They call (or redirect to) `api.<domain>`; no records of yours |
+| Web Push (VAPID), SMS (AWS End User Messaging), CloudWatch RUM, Cognito guest role | No DNS |
+| Bunny Stream / Cloudflare R2 | Legacy; `iframe.mediadelivery.net`, R2 and `learning-center-backend-production.up.railway.app` are only allow-listed in `next.config.ts`. No zone record is referenced by code |
+| `www` CORS origin | Vercel redirects `www` to the apex (V-HTTP), so `cors_extra_origins` need not contain it unless you later change that redirect |
+
+## 4. Conflicts, obsolete and undocumented configuration
+
+### A. Conflicts between Vercel/Cloudflare reality and the AWS plan
+
+| ID | Finding | Evidence | Consequence | Resolution |
+|---|---|---|---|---|
+| A1 | Apex and `www` are Cloudflare-proxied; real origin values are not public | V-DNS, V-HTTP | `dns_records` for Route 53 cannot be built from public DNS; `dns-diff.mjs` can **false-pass** if edge IPs are copied (old and new would both answer the same edge IPs, then break after delegation) | Do not migrate the zone by default. If you do, copy values from Vercel's domain panel and the Cloudflare export only |
+| A2 | CAA excludes Amazon | V-DNS | ACM request for `api.learnix.school` fails | B7 |
+| A3 | `api.learnix.school` already exists (proxied, 525) and a wildcard exists | V-DNS/V-HTTP | Terraform's `aws_route53_record.api` collides with any copy of that record in `dns_records` (duplicate key in the zone) | Exclude `api` from `dns_records` (Option B) or replace the record in place (Option A) |
+| A4 | Terraform assumes Route 53 is authoritative: the ACM validation and SES DKIM records are written to a zone that nobody queries | `production/edge.tf:159-170`, `messaging/main.tf` | With Cloudflare authoritative, `aws_acm_certificate_validation` blocks until you add B1 by hand; DKIM/bounce records must also be added by hand | Add them manually while `apply` waits, or make Route 53 records conditional (Terraform change, not performed) |
+| A5 | Staging design uses a delegated sub-zone while Cloudflare already has records at `staging`, `api.staging` and the wildcard | `staging/edge.tf:118-127`, V-DNS | Delegation conflicts with E15/E16 | B12 note: write the staging records directly |
+| A6 | Staging stage 1 serves the API on a `*.cloudfront.net` name | `staging/edge.tf:1-13` | (a) `next.config.ts` `images.remotePatterns` does not list it, so `next/image` rejects API images; (b) the host is cross-site to the frontend, so the `SameSite=Lax` playback cookies are not sent and HLS fails (INFERRED) | Do staging acceptance only after `custom_domain_enabled = true`, or add the exact host to `remotePatterns` and expect no video |
+| A7 | `_dmarc` is overwritten by Terraform, dropping `rua` | `messaging/main.tf:202-210`, V-DNS | No DMARC visibility | B6 |
+| A8 | Inbound mail relies on Cloudflare Email Routing | V-DNS | Moves with the nameservers: breaks if the zone leaves Cloudflare (MANUAL: confirm product) | Option B prerequisite |
+| A9 | `*.vercel.app` previews cannot call production, and staging needs exact origins | `production/variables.tf:45-58`, `cors.util.ts` | Per-deployment preview URLs are unique, so they cannot be allow-listed practically | Use one stable staging domain; give previews no API |
+
+### B. Obsolete or stale references (not changed)
+
+| ID | Reference | Where | Note |
+|---|---|---|---|
+| B-1 | `https://learning-center-backend-production.up.railway.app` as the CI fallback API URL | `learnix-front/.github/workflows/ci.yml`, `.env.example`, `next.config.ts` | Railway is retired; build-only value, harmless but misleading |
+| B-2 | `api-staging.learnix.school` | `next.config.ts`, backend `ci.yml`, `docs/PHASE_*`, specs | Superseded by `api.staging.learnix.school`; still resolves (wildcard/proxied) with 525 |
+| B-3 | `PAYMOB_ALLOWED_HOSTS` | `AWS-SERVICE-DECISIONS.md:47` | Not read by any code (the allow-list is hard-coded in `env.validation.ts:28`) |
+| B-4 | R2 hostname `16d2fd45…r2.cloudflarestorage.com` | `next.config.ts` | Legacy storage, remove at Phase 8 |
+| B-5 | `scripts/provider-audit.mjs` expects `learnix-infra` as a sibling repository (resolves `learnix-back/learnix-back`) | script run in this checkout | It aborts here ("Repository not found"). Not a cutover blocker |
+| B-6 | `.vercel/project.json` shows project name `dodline` while the repository is `learnix-front` | frontend repo | Cosmetic; confirm the project in the Vercel dashboard is the one holding the domain |
+| B-7 | `.env.example` (frontend) says NEXT_PUBLIC_APP_ENV consumers "do not exist yet"; `instrumentation*.ts` do read it | frontend | Comment is stale |
+
+### C. Undocumented or unowned configuration
+
+| ID | Finding | Action |
+|---|---|---|
+| C1 | **Brevo** DNS records exist (verification, 2 DKIM CNAMEs, DMARC reports) but no code or doc uses Brevo | Owner decides: still used (newsletter?) or remove |
+| C2 | The wildcard record(s) | Export from Cloudflare; decide whether to keep |
+| C3 | `PAYMOB_BASE_URL` has **no default** in code and **is not set by Terraform** (`apps.tf` does not include it; `extra_environment` has only a comment `PAYMOB_*` ids) | Set `PAYMOB_BASE_URL=https://accept.paymob.com` via `extra_environment`. When unset, `PaymobGateway` builds the relative URL `/api/auth/tokens` and checkout cannot start. **Payments blocker** |
+| C4 | `CODE_REDEEM_BASE_URL` is not set; QR codes then encode the bare code, not a URL (`qr.util.ts:10-16`) | Optional; value would be `https://learnix.school/student/redeem` |
+| C5 | `MEETING_OAUTH_REDIRECT_BASE_URL` not set by Terraform; falls back to `BACKEND_URL` (correct) | None, but register `https://api.<domain>/api/v1/teacher/meeting-accounts/callback` |
+| C6 | Paymob **response/return callback** (browser redirect after payment) is not part of `provider_callback_urls` and the backend never sends a redirect URL to Paymob. The frontend page `/student/payment-return` expects `?orderId=<uuid>` | MANUAL: record what URL the Paymob integration currently uses and whether Paymob can supply `orderId` (a static dashboard URL cannot). **Booking/payment UX blocker until confirmed** |
+| C7 | Production Vercel variable values, domain list, Cloudflare SSL mode and rules, Name.com account data | MANUAL (section 8) |
+
+### D. Behaviour risks found by reading the code (INFERRED unless stated)
+
+* `proxy.ts` (Next edge middleware) trusts only the first-party `user` context cookie for RBAC redirects; API authorisation is the backend's cookie. Nothing in the migration changes this.
+* WAF: auth rate rule is 100 requests per 5 minutes per IP and starts in COUNT mode (`production/variables.tf`). Schools sharing one NAT address are the risk when `waf_block=true`.
+* The CloudWatch Synthetics canary also probes the **Vercel** site (`/ar`, `/ar/auth/login`) from AWS addresses. If Cloudflare bot protection challenges AWS egress, the canary alarms with a false positive.
+
+## 5. End-to-end flows after migration
+
+| # | Flow | Hostnames | Auth / cookies / CORS | DNS dependency | Health check |
+|---|---|---|---|---|---|
+| F1 | Browser → Vercel frontend | `learnix.school` | None to API; first-party `user`, `NEXT_LOCALE` cookies (`SameSite=Strict`) | E2, E3 (unchanged) | `GET https://learnix.school/ar` → 200 (canary `home`) |
+| F2 | Browser → AWS API (XHR) | `api.learnix.school` | Preflight answered by Nest: `Access-Control-Allow-Origin: https://learnix.school`, credentials, headers `Content-Type, Authorization, X-CSRF-Token`; HttpOnly signed cookies; CSRF = signed cookie + `X-CSRF-Token` header from `GET /auth/csrf-token` | B1, B2, B7 | `GET /api/v1/health/readiness` (also ALB target `/api/v1/health`) |
+| F3 | Vercel server → AWS API | same | Unauthenticated public data only: marketplace sitemap (`/marketplace/courses`), `verify/[code]` PDF link. Vercel egress addresses are shared and may count against WAF rate rules | B2 | `curl https://api.<domain>/api/v1/marketplace/courses?limit=1` |
+| F4 | `next/image` (Vercel) → API media | `api.learnix.school/api/v1/media/public/*` | Public; host must be in `remotePatterns` (it is, for `api.learnix.school` and `api.staging.learnix.school`) | B2 | Load a course thumbnail |
+| F5 | AWS API → RDS / Valkey / S3 / SQS | private VPC | IAM task roles, TLS (`REQUIRE_TLS_BACKENDS`) | none public | `/health/readiness` |
+| F6 | AWS API → Paymob (`accept.paymob.com`) | outbound HTTPS via NAT | API key/secret | none | Admin payment diagnostics (`PAYMOB_BASE_URL` must be set, C3) |
+| F7 | Paymob → AWS webhook | `POST api.<domain>/api/v1/payments/webhook` (and `/callback`, `/marketplace/webhooks/payment`) | `@SkipCsrf`; HMAC-SHA512 over fields with `PAYMOB_WEBHOOK_SECRET`, timing-safe compare (`paymob.gateway.ts:288,522`); CORS irrelevant (no Origin) | B1, B2 | Paymob dashboard delivery log; send a signed test payload |
+| F8 | Browser → Paymob iframe → return | `accept.paymob.com` then the **Paymob-configured return URL** (C6) | Return carries no financial decision; frontend re-reads the order via the authenticated API | none of yours (provider config) | Test-mode purchase |
+| F9 | Meta → WhatsApp webhook | `GET/POST api.<domain>/api/v1/webhooks/whatsapp` | GET handshake with `hub.verify_token`; POST HMAC-SHA256 `X-Hub-Signature-256` with `META_WHATSAPP_APP_SECRET` over the raw body | B2 | Meta "Verify and save" |
+| F10 | Zoom / Google / Microsoft → OAuth callback | `GET api.<domain>/api/v1/teacher/meeting-accounts/callback`, then 302 to `https://learnix.school/teacher/integrations` | Signed `state` with single-use nonce | B2; provider redirect URI registration | Teacher connects an account in staging |
+| F11 | Email links (reset, instructor setup, certificate verify) | Built from `FRONTEND_URL`: `https://learnix.school/auth/reset-password?token=…`, `/verify/<code>` | Page on Vercel, then API | E2; SES identity B3-B5 | Request a password reset; click the link |
+| F12 | Browser → HLS video | `api.learnix.school/video/*` | `GET /lessons/:id/signed-url` sets CloudFront signed cookies (host-only, `Lax`, path-scoped, 15 min); hls.js uses `withCredentials`; CDN returns exact-origin CORS | B2 | Play a lesson in staging with the real frontend origin |
+| F13 | Browser → S3 presigned upload | `<bucket>.s3.<region>.amazonaws.com` | Bucket CORS set from `frontend_origins` (`production/foundation.tf:122,183`) | none | Upload a book/resource, then a video |
+| F14 | SES / SMS feedback | AWS-internal (SNS → SQS) | IAM | none | Worker log shows events |
+
+**Does the hostname architecture support the existing auth implementation?** Yes for `learnix.school` ↔ `api.learnix.school`
+(same-site, exact-origin CORS, host-only cookies, double-submit CSRF), with no cookie-domain, SameSite or CSRF-exemption
+change required. It does **not** hold for a different registrable domain (`*.vercel.app`, `*.cloudfront.net`): credentialed
+JSON calls would still work through `SameSite=None; Partitioned`, but the `Lax` playback cookies would not be sent.
+Browser behaviour (Chrome, Safari ITP, Firefox, CHIPS) is **not** proven here; see `AWS-OPEN-ITEMS.md` §4.
+
+## 6. Ordered migration checklist (Option A: Cloudflare stays)
+
+Each step lists what is changed. Items marked **YOU** are outside what the repository can do.
+
+### Step 0. Freeze and record (read-only)
+
+1. **YOU** Export the complete Cloudflare zone (DNS → Records → Export) and store it. Record for every proxied record its proxy state and origin value.
+2. **YOU** In Vercel (project `dodline`, **MANUAL**: confirm), record Domains (apex, `www`, staging), Production/Preview/Development
+   Environment Variables (names and values, secrets kept in your manager), the Node.js version, Git integration and Deployment Protection. Copy `NEXT_PUBLIC_API_URL` **before** changing anything.
+3. **YOU** Record Cloudflare SSL/TLS mode, Page/Transform/Redirect rules, WAF/Bot settings, Email Routing rules and Name.com nameserver/DNSSEC state.
+4. Re-run: `nslookup` / `Resolve-DnsName` for the names in section 3.1 to confirm nothing changed since 2026-10-13.
+
+### Step 1. AWS readiness (no DNS)
+
+1. Backend image deployed, `migrate` task run, `api_desired_count ≥ 2`, `worker_desired_count ≥ 1`.
+2. Set `PAYMOB_BASE_URL` (C3), Paymob ids, `PAYMOB_EXPECTED_MODE=live`, secrets via `extra_secrets` / `extra_environment`.
+3. Confirm `CloudFront Business plan`, WAF in COUNT mode, SES production access requested.
+
+### Step 2. Certificate for the API host
+
+1. **YOU (Cloudflare)** Add the CAA record `0 issue "amazon.com"` at the apex (B7). Keep existing CAA entries.
+2. Apply with `certificate_enabled = true` (this requests the us-east-1 certificate).
+3. **YOU** While the apply waits, copy the validation CNAME from ACM and create it at Cloudflare, DNS-only (B1).
+4. Wait for status `ISSUED`. Terraform will also create (unused) Route 53 `api` A/AAAA aliases in its own zone.
+   **Rollback of this step:** delete B1; nothing user-facing changed.
+
+### Step 3. Test the API on its CloudFront name before any DNS change
+
+```bash
+node learnix-infra/scripts/staging-acceptance.mjs https://api.learnix.school --frontend https://learnix.school --pin <cloudfront_domain_name>
+```
+
+`--pin` forces the connection to the distribution, so this runs before B2 exists. All checks must pass, including the credentialed
+preflight from the frontend origin and the refusal of a foreign origin and of a `*.vercel.app` URL.
+
+### Step 4. Point the API hostname (the only production DNS change)
+
+1. **YOU** Note that the existing `api` record is proxied (TTL Auto, observed 300). Use TTL 60-300 s on the new record so a rollback propagates quickly.
+2. **YOU** In Cloudflare **edit** E14 into B2: `api` CNAME → `<cloudfront_domain_name>`, **DNS only**.
+3. Verify: `node learnix-infra/scripts/cutover-verify.mjs api.learnix.school <cloudfront_domain_name>`.
+   Then `curl -I https://api.learnix.school/api/v1/health/readiness` shows 200 with CloudFront headers (`x-amz-cf-id`).
+   **Rollback of this step:** set `api` back to its previous proxied record (copied in Step 0). Cost: the API host returns to 525.
+
+### Step 5. Email (SES) DNS
+
+1. **YOU** Read the DKIM tokens from the SES identity (`learnix.school`) and create B3, B4, B5 at Cloudflare, DNS-only.
+2. **YOU** Decide B6 (DMARC) deliberately. If you keep Brevo reporting, keep its `rua` and add the one you want; do not let Terraform replace it.
+3. Wait for SES to show the identity and DKIM as verified. Keep E5, E8, E9, E10 untouched.
+4. Send a test message through SES from `MAIL_FROM_EMAIL` to a mailbox you control; confirm SPF/DKIM/DMARC `pass` in the headers.
+
+### Step 6. Provider callbacks (before the frontend switch)
+
+**YOU** register in each dashboard (values in `VERCEL-ENVIRONMENT-MATRIX.md` §5): Paymob processed callback, Paymob marketplace callback if used,
+Paymob response/return URL (C6), Meta webhook + verify token, Zoom/Google/Microsoft redirect URIs. Check each provider's delivery log after the switch.
+
+### Step 7. Vercel Preview rehearsal
+
+1. **YOU** Create a Vercel Preview deployment whose `NEXT_PUBLIC_API_URL` is `https://api.learnix.school`.
+2. Add that **exact** preview origin to production `cors_extra_origins` only for the test, then remove it. (A preview is a different site, so video playback is
+   expected not to work from it, section 2.) Prefer testing from a stable domain.
+3. Walk: login/logout/refresh, CSRF mutation, public catalog, image rendering, certificate verify page, upload (small, then 20 GB-class), Paymob **test-mode** purchase if credentials exist.
+
+### Step 8. Switch the production frontend
+
+1. **YOU** In Vercel, set Production variables from `VERCEL-ENVIRONMENT-MATRIX.md` §2 and redeploy. They are baked into the build. The previous deployment remains one click away.
+2. Set `canary_enabled = true` and apply.
+
+### Step 9. Validate the live journeys (watch dashboards)
+
+Login, logout, refresh; reset-password email → Vercel page; student purchase with a **low-value live Paymob payment** that you perform and then refund;
+webhook processed exactly once; email, SMS OTP (if sender ID approved), WhatsApp template delivery status; Web Push; upload → transcode → playback with signed cookies;
+teacher meeting-account connect; code export download.
+
+### Step 10. Rollback values to have written down **before** Step 4
+
+| Item | Rollback value | Where it lives |
+|---|---|---|
+| `api` record before change | exact type/value/proxy state of E14 | Step 0 export |
+| Vercel Production `NEXT_PUBLIC_API_URL` and all other changed variables | previous values | Step 0 notes |
+| Vercel production deployment | previous deployment (instant promote) | Vercel dashboard |
+| API task definition | previous revision (circuit breaker does this on failed health) | ECS |
+| TTL | records you change keep TTL 60-300; NS TTL observed 86400 (only matters for Option B) | Cloudflare |
+| Legacy backend | **none**: Railway is down; there is no previous backend to point back to | `phase7-launch.md` |
+
+## 7. Option B: moving the zone to Route 53 (separate plan, not the default)
+
+Do this only if you have a reason Cloudflare cannot remain (for example, retiring Cloudflare altogether). Prerequisites that must be closed first:
+
+1. Full zone export reconciled against `dns_records` **by origin value, not by resolved IP**. Include the wildcard(s), E4-E10, E13, any records from E18.
+2. Decision on losing the Cloudflare proxy and Universal SSL in front of Vercel; Vercel then must serve the certificate. Confirm in Vercel which records it requires for the apex and `www`.
+3. Inbound mail: Cloudflare Email Routing alternative chosen and MX/SPF rewritten (E4, E5).
+4. CAA: publish a deliberate set that includes `amazon.com` and Vercel's CA (`letsencrypt.org` is already present).
+5. `api` excluded from `dns_records` (A3); `_dmarc` handled (B6); staging delegation record added to the production zone if the delegated design is kept (B12).
+6. `dns-diff.mjs` clean **and** reviewed for edge-IP false positives (A1); NS delegated for ≥ 1 day; TTLs lowered 24 h ahead.
+7. DNSSEC stays off (none observed).
+8. Rollback: set Cloudflare's nameservers back at Name.com; bounded by the NS TTL (observed 86400).
+
+## 8. Checks that cannot be completed without live consoles
+
+| # | Check | Console / owner |
+|---|---|---|
+| 1 | Real Vercel target values and proxy state for apex, `www`, `staging` | Vercel Domains + Cloudflare |
+| 2 | Current Production, Preview, Development variable values, scopes and branch scoping; `NEXT_PUBLIC_API_URL` today | Vercel |
+| 3 | Whether the live frontend currently points at `api.learnix.school`, the Railway URL, or something else | Vercel / browser network tab on the live site |
+| 4 | Cloudflare: SSL mode, rules, WAF/bot settings, Email Routing, CAA ownership, wildcard list, full export | Cloudflare |
+| 5 | Name.com: nameserver state, DNSSEC, transfer lock, who holds the account | Name.com |
+| 6 | Vercel plan features: Deployment Protection, custom environments, branch-scoped variables, Node 24 setting (`engines` requires ≥ 24) | Vercel |
+| 7 | AWS accounts: ACM issuance, SES identity/DKIM/production access, SMS sender ID, CloudFront plan, WAF behaviour, ALB health | AWS |
+| 8 | Paymob: integration ids, processed/response callback URLs, HMAC secret, live vs test mode, whether the return URL can carry `orderId` | Paymob |
+| 9 | Meta: WhatsApp app secret, verify token, webhook subscription fields | Meta for Developers |
+| 10 | Zoom/Google/Microsoft: registered redirect URIs and app review state | Each provider |
+| 11 | Browser behaviour: partitioned cookies, ITP, preflight, signed-cookie HLS from the real origin | Real browsers against the live pair |
+| 12 | TLS validity and reachability of `api.learnix.school` after B2 | After Step 4 |
+| 13 | Terraform plan/validate/tests (Terraform is not installed on this workstation) | CI or a machine with Terraform |
+| 14 | Brevo ownership and purpose | You |
+
+## 9. Blockers: what can stop each critical journey
+
+| Journey | Blockers (status) |
+|---|---|
+| **Login / sessions** | API host is dead today (525, V-HTTP). Certificate cannot be issued until CAA allows Amazon (A2). Host must stay same-site with the frontend (section 2). Existing `api` record must be replaced (A3). `COOKIE_DOMAIN` must stay unset. Whether production Vercel currently targets `api.learnix.school` is MANUAL |
+| **Booking (lessons, meetings)** | Meeting OAuth redirect URIs not registered at providers (REPO says registration is a manual step); `GOOGLE_MEET_*`/`ZOOM_*`/`MS_TEAMS_*` secrets must be in the `meetings` secret and mapped with `extra_secrets` |
+| **Payments** | `PAYMOB_BASE_URL` unset (C3); Paymob processed callback not yet repointed; response/return URL and `orderId` behaviour unknown (C6); `PAYMOB_EXPECTED_MODE=live` and live integration ids must be supplied; HMAC secret must match the dashboard |
+| **Email** | SES production access (sandbox otherwise); B3-B5 not created; DMARC decision (B6); MailerSend and Brevo records must stay until their decommission decisions |
+| **WhatsApp** | Webhook URL + verify token at Meta (F9); `META_WHATSAPP_*` secrets in the `meta-whatsapp` secret, mapped with `extra_secrets` |
+| **Media / video** | Staging stage-1 `cloudfront.net` host is cross-site (A6); production needs `video_public_key_pem` + `inject_cloudfront_key`; signed-cookie playback is unproven in real browsers (open item) |
+| **Frontend itself** | Must stay untouched: E2/E3 proxied origin values, Vercel domains, Node version (≥ 24 by `engines`) |
+
+**Verdict: not ready to cut over.** The unknowns in section 8 (items 1-5, 8) and the verified blockers A2, A3, C3 must be closed first.
+Each is cheap to close; none was closed by this audit because they need console access or a decision.

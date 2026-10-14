@@ -12,10 +12,18 @@ on:
   push:
     branches: [main, develop]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-sync-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-divergence:
     name: Check main/develop divergence
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout (full history)
         uses: actions/checkout@v4

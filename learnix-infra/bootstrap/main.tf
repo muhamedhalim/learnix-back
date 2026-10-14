@@ -1,7 +1,12 @@
-terraform {
+﻿terraform {
   required_version = ">= 1.10.0"
 
-  required_providers {
+  
+  # Partial configuration: bucket, region, kms_key_id and use_lockfile come from backend.hcl (outputs of this stack).
+  backend "s3" {
+    key = "bootstrap/terraform.tfstate"
+  }
+required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
@@ -376,3 +381,4 @@ resource "aws_iam_role_policy_attachment" "apply_admin" {
   role       = aws_iam_role.apply.name
   policy_arn = "arn:${local.partition}:iam::aws:policy/AdministratorAccess"
 }
+

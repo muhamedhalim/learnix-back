@@ -44,12 +44,20 @@ jobs:
   gates:
     name: Promotion gates
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # `gh api .../actions/workflows/.../runs` needs actions:read. The workflow-level block grants only
+    # contents:read, and every unlisted scope is then "none", so this call returned 403 and the
+    # production gate could never pass.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       classification: ${{ steps.classify.outputs.classification }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Production needs a green staging deploy of this commit
         if: env.TARGET == 'production'
@@ -97,6 +105,7 @@ jobs:
     needs: [gates, db-owner-approval]
     if: always() && needs.gates.result == 'success' && (needs.db-owner-approval.result == 'success' || needs.db-owner-approval.result == 'skipped')
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
     environment: ${{ inputs.environment || 'staging' }}
     permissions:
       contents: read
@@ -105,6 +114,8 @@ jobs:
       IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Refuse an unconfigured environment
         env:
@@ -121,17 +132,17 @@ jobs:
             [ -n "${!v}" ] || { echo "::error::GitHub environment variable $v is not set"; exit 1; }
           done
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build (linux/arm64, RDS CA bundle included)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/arm64
@@ -141,7 +152,7 @@ jobs:
             RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 
       - name: Scan the image (fail on fixable HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1 (the unprefixed tag 0.33.1 does not exist)
         with:
           image-ref: ${{ env.IMAGE }}
           severity: HIGH,CRITICAL
@@ -155,22 +166,31 @@ jobs:
       # pg_dump, which copied production personal data out of the database account.
       - name: Pre-deploy database snapshot
         if: env.TARGET == 'production'
+        env:
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
         run: |
+          [ -n "$DB_INSTANCE_ID" ] || { echo "::error::GitHub environment variable DB_INSTANCE_ID is not set"; exit 1; }
           id="pre-deploy-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}"
-          aws rds create-db-snapshot --db-instance-identifier "${{ vars.DB_INSTANCE_ID }}" --db-snapshot-identifier "$id" \
-            --tags Key=Purpose,Value=pre-deploy Key=Commit,Value=${{ github.sha }} >/dev/null
+          aws rds create-db-snapshot --db-instance-identifier "$DB_INSTANCE_ID" --db-snapshot-identifier "$id" \
+            --tags Key=Purpose,Value=pre-deploy Key=Commit,Value="$GITHUB_SHA" >/dev/null
           aws rds wait db-snapshot-available --db-snapshot-identifier "$id"
           echo "Snapshot $id is available."
 
       - name: Migrate, then roll out (automatic rollback)
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
+          TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          ALARM_PREFIX: ${{ vars.ALARM_PREFIX }}
         run: |
           bash scripts/aws/ecs-deploy.sh \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --services "${{ vars.ECS_SERVICES }}" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICES" \
             --image "$IMAGE" \
-            --migrate-family "${{ vars.MIGRATE_FAMILY }}" \
-            --network '${{ vars.TASK_NETWORK }}' \
-            --alarm-prefix "${{ vars.ALARM_PREFIX }}"
+            --migrate-family "$MIGRATE_FAMILY" \
+            --network "$TASK_NETWORK" \
+            --alarm-prefix "$ALARM_PREFIX"
 
       - name: Keep the rollback point
         if: always()
@@ -184,4 +204,6 @@ jobs:
       # Staging is behind a WAF IP allowlist that GitHub's runners are not on; enable per environment.
       - name: Read-only smoke test of the API host through CloudFront
         if: vars.SMOKE_FROM_RUNNER == 'true'
-        run: bash scripts/smoke-test.sh "${{ vars.API_URL }}"
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: bash scripts/smoke-test.sh "$API_URL"

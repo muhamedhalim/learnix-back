@@ -1,4 +1,8 @@
-import { getMarketplaceConfig, isMarketplaceEnabled, MARKETPLACE_ALERT_THRESHOLDS } from './marketplace.config';
+import {
+  getMarketplaceConfig,
+  isMarketplaceEnabled,
+  MARKETPLACE_ALERT_THRESHOLDS,
+} from './marketplace.config';
 
 const ENV_KEYS = [
   'MARKETPLACE_COMMISSION_RATE_BPS',
@@ -119,15 +123,32 @@ describe('AppModule marketplace registration (T002)', () => {
   const originalEnabled = process.env['MARKETPLACE_ENABLED'];
   const originalNodeEnv = process.env['NODE_ENV'];
 
+  // Requiring app.module.ts triggers ConfigModule.forRoot({ validate })
+  // synchronously at decoration time, so the full env contract must be
+  // satisfied even though this spec never actually connects to anything.
+  // These are self-contained, non-secret, disposable values — NOT read from the
+  // gitignored `.env.test`, which does not exist in CI and made this spec crash
+  // the whole jest process there. Validation itself is deliberately untouched.
+  const REQUIRED_ENV: Record<string, string> = {
+    DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/lms_unit_test',
+    JWT_SECRET: 'unit-test-jwt-secret-value-at-least-32-chars',
+    JWT_REFRESH_SECRET: 'unit-test-refresh-secret-value-at-least-32-chars',
+  };
+  const originalRequired = new Map<string, string | undefined>();
+
   beforeAll(() => {
-    // Requiring app.module.ts triggers ConfigModule.forRoot({ validate })
-    // synchronously at decoration time, so the full env contract must be
-    // satisfied even though this spec never actually connects to anything —
-    // the same disposable-test values the e2e harness itself loads.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    (require('dotenv') as typeof import('dotenv')).config({
-      path: require('node:path').join(__dirname, '..', '..', '.env.test'),
-    });
+    for (const [key, value] of Object.entries(REQUIRED_ENV)) {
+      originalRequired.set(key, process.env[key]);
+      process.env[key] = value;
+    }
+  });
+
+  afterAll(() => {
+    for (const key of Object.keys(REQUIRED_ENV)) {
+      const original = originalRequired.get(key);
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
   });
 
   beforeEach(() => {
@@ -149,8 +170,10 @@ describe('AppModule marketplace registration (T002)', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { AppModule } = require('../app.module') as typeof import('../app.module');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { MarketplaceModule } = require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
-    const { MODULE_METADATA } = require('@nestjs/common/constants') as typeof import('@nestjs/common/constants');
+    const { MarketplaceModule } =
+      require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
+    const { MODULE_METADATA } =
+      require('@nestjs/common/constants') as typeof import('@nestjs/common/constants');
 
     const imports = (Reflect.getMetadata(MODULE_METADATA.IMPORTS, AppModule) ?? []) as unknown[];
     expect(imports.filter((m) => m === MarketplaceModule)).toHaveLength(1);
@@ -162,10 +185,13 @@ describe('AppModule marketplace registration (T002)', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { AppModule } = require('../app.module') as typeof import('../app.module');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { MarketplaceModule } = require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
+    const { MarketplaceModule } =
+      require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { UsersModule } = require('../users/users.module') as typeof import('../users/users.module');
-    const { MODULE_METADATA } = require('@nestjs/common/constants') as typeof import('@nestjs/common/constants');
+    const { UsersModule } =
+      require('../users/users.module') as typeof import('../users/users.module');
+    const { MODULE_METADATA } =
+      require('@nestjs/common/constants') as typeof import('@nestjs/common/constants');
 
     const imports = (Reflect.getMetadata(MODULE_METADATA.IMPORTS, AppModule) ?? []) as unknown[];
     expect(imports).not.toContain(MarketplaceModule);

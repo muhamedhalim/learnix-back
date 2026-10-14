@@ -11,7 +11,7 @@ with the same inputs the workflow passes it — never by an actual triggered run
 
 ### 1.1 `ci.yml` (modified this phase)
 
-Triggers on every push and pull request, unchanged. Jobs, in the order they appear in the file:
+Triggers on pull requests and on pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
 
 | Job                      | What it does                                                                                                                                                                                    | New this phase? |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |

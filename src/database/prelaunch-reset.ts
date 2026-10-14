@@ -17,7 +17,7 @@ import { DataSource, type EntityManager } from 'typeorm';
 
 import { AdminInitializationService } from '../admin-init/admin-initialization.service';
 import { resolveDatabaseSsl } from '../common/utils/database-ssl.util';
-import { processEnvReader, resolveRedisUrl } from '../common/utils/redis-connection.util';
+import { resolveRedisUrl } from '../common/utils/redis-connection.util';
 import {
   bullMqPrefix,
   namespacedPrefix,
@@ -181,16 +181,19 @@ export function assertExecutionGuards(
     );
   }
 
-  const appEnv = resolveAppEnv(recordReader(env));
+  // Every check below reads the `env` that was passed in — never ambient `process.env` — so the guard
+  // judges exactly the configuration it was given (the CLI passes process.env at its single call site).
+  const read = recordReader(env);
+  const appEnv = resolveAppEnv(read);
   if (appEnv === AppEnvironment.Production && options.skipExternal) {
     throw new UnsafePrelaunchResetError('--skip-external is forbidden in production.');
   }
-  if (appEnv === AppEnvironment.Production && !resolveRedisUrl(processEnvReader())) {
+  if (appEnv === AppEnvironment.Production && !resolveRedisUrl(read)) {
     throw new UnsafePrelaunchResetError('Redis must be configured for a production reset.');
   }
   if (
     appEnv === AppEnvironment.Production &&
-    resolveRedisNamespace(processEnvReader()) === '' &&
+    resolveRedisNamespace(read) === '' &&
     env['RESET_PRELAUNCH_REDIS_DEDICATED'] !== 'true'
   ) {
     throw new UnsafePrelaunchResetError(
@@ -367,7 +370,12 @@ async function cleanupStorage(
       },
     );
   }
-  return { objectsDeleted, videoObjectsDeleted, bunnyCleanup: BUNNY_CLEANUP_STATUS, localFilesDeleted };
+  return {
+    objectsDeleted,
+    videoObjectsDeleted,
+    bunnyCleanup: BUNNY_CLEANUP_STATUS,
+    localFilesDeleted,
+  };
 }
 
 /**
@@ -402,15 +410,24 @@ export async function cleanupVideoObjects(
     let token: string | undefined;
     do {
       const page = await client.send(
-        new ListObjectsV2Command({ Bucket: ref.bucket, Prefix: ref.prefix, ContinuationToken: token }),
+        new ListObjectsV2Command({
+          Bucket: ref.bucket,
+          Prefix: ref.prefix,
+          ContinuationToken: token,
+        }),
       );
       const objects = (page.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
       if (objects.length > 0) {
         const result = await client.send(
-          new DeleteObjectsCommand({ Bucket: ref.bucket, Delete: { Objects: objects, Quiet: true } }),
+          new DeleteObjectsCommand({
+            Bucket: ref.bucket,
+            Delete: { Objects: objects, Quiet: true },
+          }),
         );
         if ((result.Errors ?? []).length > 0) {
-          throw new Error(`Deleting ${ref.prefix} in ${ref.bucket} failed for ${String(result.Errors?.length)} objects.`);
+          throw new Error(
+            `Deleting ${ref.prefix} in ${ref.bucket} failed for ${String(result.Errors?.length)} objects.`,
+          );
         }
         deleted += objects.length;
       }
@@ -740,11 +757,7 @@ export async function runPrelaunchReset(options: {
       );
     }
     if (!options.skipExternal) {
-      const storageResult = await cleanupStorage(
-        manifest,
-        storage,
-        config,
-      );
+      const storageResult = await cleanupStorage(manifest, storage, config);
       printSection('Storage cleanup', storageResult);
       if (!redis) throw new Error('Redis is configured as required but could not be connected.');
       printSection('Redis keys removed', await cleanupRedis(redis, process.env));

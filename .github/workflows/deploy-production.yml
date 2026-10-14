@@ -31,6 +31,9 @@ name: Deploy production (approval + backup + migration gate)
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -39,6 +42,10 @@ jobs:
   check-staging-smoke:
     name: Require a green staging smoke test for this SHA
     runs-on: ubuntu-latest
+    # Listing workflow runs needs actions:read, which the workflow-level contents:read block withholds.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Query latest "Deploy staging" run for this commit
         env:
