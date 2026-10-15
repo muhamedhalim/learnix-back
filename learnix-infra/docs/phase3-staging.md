@@ -36,7 +36,7 @@ internal ALB. The data stores sit in subnets with no internet route.
 
 ## Order of operations
 
-Steps 4 and 5 are automated by the backend pipeline (`deploy-aws.yml` in learnix-back: build, scan, push,
+Steps 4 and 5 are automated by the backend pipeline (`ci-cd.yml` in learnix-back, job `deploy`: build, scan, push,
 migrate, roll out, roll back on failure). The frontend is not part of it: Vercel builds and deploys it. The manual commands below
 remain the fallback; the full sequence is in `AWS-DEPLOYMENT-RUNBOOK.md` §2.
 

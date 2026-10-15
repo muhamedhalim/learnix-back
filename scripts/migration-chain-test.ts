@@ -5,7 +5,7 @@
  * WHY THIS EXISTS
  * ---------------
  * The E2E suite materialises its schema with `TYPEORM_SYNCHRONIZE=true`
- * (`test/.env.test`, `.github/workflows/ci.yml`), building tables directly from
+ * (`test/.env.test`, `.github/workflows/ci-cd.yml`), building tables directly from
  * entity metadata. That is fast and convenient, and it means **no test in this
  * repository has ever executed the migration files.** The 104-file chain that
  * every real deployment depends on is, today, unverified.

@@ -84,7 +84,7 @@ function awsConfigFiles() {
     const dir = join(infraRoot, 'environments', env);
     for (const f of readdirSync(dir)) if (f.endsWith('.tf')) files.push(join(dir, f));
   }
-  files.push(join(repos['learnix-back'], '.github/workflows/deploy-aws.yml'));
+  files.push(join(repos['learnix-back'], '.github/workflows/ci-cd.yml'));
   return files.filter((f) => existsSync(f));
 }
 

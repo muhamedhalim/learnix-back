@@ -1,25 +1,104 @@
-name: CI
+name: CI/CD
 
-# `push` is limited to the long-lived branches: every other branch is covered by its pull request,
-# and running both for the same commit doubled every job (push + pull_request) without adding signal.
+# THE one authoritative pipeline for this repository: validation, security checks, tests, image build and
+# the AWS (ECS) rollout, plus the nightly branch-sync check and the manual rollback. Nothing else under
+# .github/workflows may trigger on push / pull_request or deploy. Architecture and rules: docs/CI_CD_SETUP.md.
+#
+#   pull_request                -> `control` -> every validation job + `ci-gate`. Never deploys.
+#   push to develop             -> validation -> `ci-gate` -> promotion gates -> deploy STAGING (this same run)
+#   push to main                -> validation + branch-sync only. Production is a manual, approval-gated dispatch
+#   schedule (nightly)          -> branch-sync only
+#   workflow_dispatch           -> `action`: deploy (staging|production) | rollback | branch-sync
+#
+# `push` is limited to the long-lived branches: every other branch is covered by its pull request, and running
+# both for the same commit doubled every job. The deploy is a job of THIS run (not a second workflow reacting
+# to CI), so CI and the rollout cannot race each other or deploy the same commit twice.
 on:
   push:
     branches: [main, develop]
   pull_request:
+  schedule:
+    - cron: '0 3 * * *' # nightly branch-sync check, 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to run (deploy and rollback need the environment's own approvals)
+        type: choice
+        options: [deploy, rollback, branch-sync]
+        default: deploy
+      environment:
+        description: Target environment (deploy and rollback)
+        type: choice
+        options: [staging, production]
+        default: staging
+      previous_task_definitions:
+        description: 'rollback only: JSON object service -> task definition ARN (the previous-task-definitions artifact of the deploy being undone)'
+        type: string
+        required: false
 
-# Least privilege: no job here writes to the repository, issues or packages.
+# Least privilege: jobs below that need more (OIDC, run lookup) say so themselves.
 permissions:
   contents: read
 
-# Cancel superseded runs of the same ref (a newer push to a PR/feature ref makes the older run
-# worthless). Never cancel a run on main/develop: each commit there must keep its own verdict.
+# Validation runs: a newer push to a PR makes the older run worthless, so it is cancelled. Pushes (only
+# main/develop reach here) queue instead: a run that is already deploying is NEVER cancelled, and a newer
+# push replaces only a run that has not started. Manual and scheduled runs get a unique group so they can
+# neither cancel nor be dropped by anything. The AWS rollout has its own per-environment lock on the
+# `deploy` and `rollback` jobs, which is what stops two operations touching the same ECS services.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/develop' }}
+  group: ci-cd-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Execution control: decides, once, which parts of the pipeline this event runs. Every other job hangs off
+  # these outputs, so there is exactly one place that maps an event to an action.
+  control:
+    name: Execution control
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ci: ${{ steps.route.outputs.ci }}
+      deploy: ${{ steps.route.outputs.deploy }}
+      rollback: ${{ steps.route.outputs.rollback }}
+      branch_sync: ${{ steps.route.outputs.branch_sync }}
+      environment: ${{ steps.route.outputs.environment }}
+      manual: ${{ steps.route.outputs.manual }}
+    steps:
+      - name: Route this event
+        id: route
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTION: ${{ inputs.action }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          ci=false deploy=false rollback=false branch_sync=false manual=false target=''
+          case "$EVENT" in
+            pull_request) ci=true ;;
+            push)
+              ci=true branch_sync=true
+              if [ "$REF" = refs/heads/develop ]; then deploy=true target=staging; fi ;;
+            schedule) branch_sync=true ;;
+            workflow_dispatch)
+              manual=true
+              case "$ACTION" in
+                deploy) deploy=true target="$ENVIRONMENT" ;;
+                rollback) rollback=true target="$ENVIRONMENT" ;;
+                branch-sync) branch_sync=true ;;
+                *) echo "::error::unknown action '$ACTION'"; exit 1 ;;
+              esac ;;
+            *) echo "::error::unexpected event '$EVENT'"; exit 1 ;;
+          esac
+          {
+            echo "ci=$ci"; echo "deploy=$deploy"; echo "rollback=$rollback"
+            echo "branch_sync=$branch_sync"; echo "environment=$target"; echo "manual=$manual"
+          } >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT ci=$ci deploy=$deploy($target) rollback=$rollback branch_sync=$branch_sync" >> "$GITHUB_STEP_SUMMARY"
+
   build-test:
     name: Typecheck, lint, build & test
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -237,8 +316,8 @@ jobs:
   # unless EVERY shard succeeded (a skipped or cancelled shard is a failure, never a silent pass).
   e2e:
     name: E2E tests (Postgres + Redis)
-    needs: e2e-shard
-    if: ${{ always() }}
+    needs: [control, e2e-shard]
+    if: ${{ always() && needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -289,6 +368,8 @@ jobs:
 
   secret-scan:
     name: Secret scanning (gitleaks)
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -308,6 +389,8 @@ jobs:
 
   format-check:
     name: Prettier (changed files only)
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # `npm run lint` includes `prettier --check .` on the WHOLE repo, which
@@ -359,6 +442,8 @@ jobs:
 
   env-validation:
     name: Environment validation (staging shape)
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Calls the exact validate() NestJS's ConfigModule calls at boot
@@ -435,6 +520,8 @@ jobs:
 
   migration-safety-check:
     name: Migration safety check
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Classifies every migration file changed relative to `origin/main` as
@@ -467,6 +554,8 @@ jobs:
 
   dependency-audit:
     name: Dependency audit (npm audit)
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Blocking: any high or critical advisory fails the run. The lockfile was remediated to zero
@@ -489,6 +578,8 @@ jobs:
 
   workflow-lint:
     name: Workflow lint (actionlint)
+    needs: control
+    if: ${{ needs.control.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # Static check of every workflow (expression/context typos, bad `needs`, reusable-workflow inputs,
@@ -504,12 +595,14 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo
           rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color
 
-  # Staging is deployed from THIS run, after every required check above has passed, instead of a
-  # second workflow racing CI on the same push. Production stays a manual, approval-gated dispatch of
-  # deploy-aws.yml (its gate requires this job to have succeeded for the exact commit).
-  deploy-staging:
-    name: Deploy staging (AWS)
+
+  # One verdict for "everything that must be green before anything is released". Fails unless EVERY required
+  # job succeeded (a skipped or cancelled one is a failure, never a silent pass). migration-safety-check stays
+  # advisory, exactly as before.
+  ci-gate:
+    name: CI gate
     needs:
+      - control
       - build-test
       - format-check
       - env-validation
@@ -518,13 +611,294 @@ jobs:
       - secret-scan
       - dependency-audit
       - workflow-lint
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/develop' }}
-    # A reusable workflow's jobs can never hold more than the caller grants: id-token for the OIDC
-    # role assumption, actions:read for the promotion gate's run lookup.
+    if: ${{ always() && needs.control.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for r in $RESULTS; do
+            if [ "$r" != success ]; then
+              echo "::error::At least one validation job finished as '$r'. Nothing is released from this run."
+              exit 1
+            fi
+          done
+          echo "All validation jobs succeeded."
+
+  # ---------------------------------------------------------------------------------------------------------
+  # AWS release. One image (linux/arm64) serves the api, worker and migrate task definitions. It is built with
+  # the Amazon RDS CA bundle baked in, scanned, pushed to the target account's ECR under the commit SHA
+  # (immutable), then scripts/aws/ecs-deploy.sh (source of truth: learnix-infra/scripts/ecs-deploy.sh) runs
+  # the migrate task first (must exit 0), then api + worker, rolling back automatically when a deployment
+  # fails or alarms fire.
+  #
+  # Production additionally requires: a successful staging deploy of the same commit, the migration
+  # classifier, a DB-owner approval for destructive migrations, the `production` environment's reviewers and
+  # a manual RDS snapshot before migrating.
+  #
+  # GitHub environment variables (staging / production), from `terraform output` in learnix-infra:
+  #   AWS_REGION, AWS_DEPLOY_ROLE_ARN (deploy_roles.api), ECR_REPOSITORY_URL (ecr_repositories.api),
+  #   ECS_CLUSTER (ecs_cluster), ECS_SERVICES ("api,worker" or "api" on single-role staging),
+  #   MIGRATE_FAMILY (migrate_task_definition_family), TASK_NETWORK (task_network, JSON),
+  #   ALARM_PREFIX (learnix-<env>), API_URL (api_url), DB_INSTANCE_ID (production only)
+  # Nothing secret is stored here: the deploy job assumes the deploy role through GitHub OIDC.
+  # ---------------------------------------------------------------------------------------------------------
+  gates:
+    name: Promotion gates
+    needs: [control, ci-gate]
+    # Push to develop: only after `ci-gate` passed. Manual dispatch: CI is not part of that run, so the
+    # production gate below looks up the CI/CD run of the same commit instead.
+    if: ${{ always() && needs.control.result == 'success' && needs.control.outputs.deploy == 'true' && (needs.ci-gate.result == 'success' || needs.control.outputs.manual == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET: ${{ needs.control.outputs.environment }}
+    # `gh api .../actions/workflows/.../runs` needs actions:read. The workflow-level block grants only
+    # contents:read, and every unlisted scope is then "none", so this call would return 403.
     permissions:
       contents: read
       actions: read
+    outputs:
+      classification: ${{ steps.classify.outputs.classification }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Production needs a green staging deploy of this commit
+        if: env.TARGET == 'production'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Staging is deployed by the `deploy` job of a push run on develop, so a successful CI/CD push run on
+        # develop for this exact commit means the checks AND the staging rollout both succeeded.
+        run: |
+          staging=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-cd.yml/runs?head_sha=${{ github.sha }}&branch=develop&event=push&status=success&per_page=5" \
+            --jq '.total_count')
+          if [ "${staging:-0}" -lt 1 ]; then
+            echo "::error::No successful staging deploy of ${{ github.sha }}; deploy it to staging first."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Classify migration changes
+        id: classify
+        run: |
+          set +e
+          npx ts-node scripts/migration-safety-check.ts --base "origin/main~1"
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "classification=SAFE" >> "$GITHUB_OUTPUT" ;;
+            1) echo "classification=NEEDS_DB_APPROVAL" >> "$GITHUB_OUTPUT" ;;
+            *) echo "classification=BLOCKED" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+
+  db-owner-approval:
+    name: Database-owner approval (destructive migration)
+    needs: [control, gates]
+    if: needs.gates.outputs.classification == 'NEEDS_DB_APPROVAL' && needs.control.outputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production-db-approval
+    steps:
+      - run: echo "Destructive migration approved through the production-db-approval environment."
+
+  deploy:
+    name: Build, migrate and roll out (AWS)
+    needs: [control, gates, db-owner-approval]
+    if: always() && needs.gates.result == 'success' && (needs.db-owner-approval.result == 'success' || needs.db-owner-approval.result == 'skipped')
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    environment: ${{ needs.control.outputs.environment }}
+    # One rollout (or rollback) per environment at a time, never cancelled midway: a newer run waits, and only
+    # a run that has not started yet can be replaced by a newer one.
+    concurrency:
+      group: deploy-api-${{ needs.control.outputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-aws.yml
-    with:
-      environment: staging
+    env:
+      TARGET: ${{ needs.control.outputs.environment }}
+      IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Refuse an unconfigured environment
+        env:
+          REQUIRED: AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY_URL ECS_CLUSTER ECS_SERVICES MIGRATE_FAMILY TASK_NETWORK
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
+          TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+        run: |
+          for v in $REQUIRED; do
+            [ -n "${!v}" ] || { echo "::error::GitHub environment variable $v is not set"; exit 1; }
+          done
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build (linux/arm64, RDS CA bundle included)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+      - name: Scan the image (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1 (the unprefixed tag 0.33.1 does not exist)
+        with:
+          image-ref: ${{ env.IMAGE }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Push (immutable tag = commit)
+        run: docker push "$IMAGE"
+
+      # Production only: a manual snapshot before migrations run. Replaces the old GitHub-artifact
+      # pg_dump, which copied production personal data out of the database account.
+      - name: Pre-deploy database snapshot
+        if: env.TARGET == 'production'
+        env:
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
+        run: |
+          [ -n "$DB_INSTANCE_ID" ] || { echo "::error::GitHub environment variable DB_INSTANCE_ID is not set"; exit 1; }
+          id="pre-deploy-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}"
+          aws rds create-db-snapshot --db-instance-identifier "$DB_INSTANCE_ID" --db-snapshot-identifier "$id" \
+            --tags Key=Purpose,Value=pre-deploy Key=Commit,Value="$GITHUB_SHA" >/dev/null
+          aws rds wait db-snapshot-available --db-snapshot-identifier "$id"
+          echo "Snapshot $id is available."
+
+      - name: Migrate, then roll out (automatic rollback)
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
+          TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          ALARM_PREFIX: ${{ vars.ALARM_PREFIX }}
+        run: |
+          bash scripts/aws/ecs-deploy.sh \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICES" \
+            --image "$IMAGE" \
+            --migrate-family "$MIGRATE_FAMILY" \
+            --network "$TASK_NETWORK" \
+            --alarm-prefix "$ALARM_PREFIX"
+
+      - name: Keep the rollback point
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}
+          path: previous-task-definitions.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # Staging is behind a WAF IP allowlist that GitHub's runners are not on; enable per environment.
+      - name: Read-only smoke test of the API host through CloudFront
+        if: vars.SMOKE_FROM_RUNNER == 'true'
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: bash scripts/smoke-test.sh "$API_URL"
+
+  # Manual only. Points api (and worker) back at earlier task-definition revisions: paste the content of the
+  # previous-task-definitions artifact of the deploy you are undoing, e.g.
+  #   {"api":"arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-production-api:41",
+  #    "worker":"arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-production-worker:41"}
+  # Database changes are NOT reverted: migrations are expand/contract by policy; a data problem is a
+  # point-in-time restore (learnix-infra/scripts/pitr-restore-drill.sh, runbook "Rollback").
+  rollback:
+    name: Roll back API on AWS (ECS)
+    needs: control
+    if: ${{ needs.control.outputs.rollback == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ needs.control.outputs.environment }}
+    # Same group as `deploy`: a rollback must never interleave with a rollout of the same environment.
+    concurrency:
+      group: deploy-api-${{ needs.control.outputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Roll back
+        env:
+          PREVIOUS: ${{ inputs.previous_task_definitions }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+        run: |
+          # Keys become the --services argument, so they are validated as strictly as the ARN values.
+          echo "$PREVIOUS" | jq -e 'type == "object" and length > 0 and all(to_entries[]; (.key | test("^[A-Za-z0-9_-]+$")) and (.value | test("^arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:task-definition/[A-Za-z0-9_-]+:[0-9]+$")))' >/dev/null \
+            || { echo "::error::previous_task_definitions must map service names to task definition ARNs"; exit 1; }
+          echo "$PREVIOUS" > rollback.json
+          services=$(jq -r 'keys | join(",")' rollback.json)
+          bash scripts/aws/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$services" --rollback --to-file rollback.json
+
+  # Read-only: never pushes, merges, or modifies either branch itself. Catches long-term divergence between
+  # the production branch and the staging integration branch before it becomes a painful merge
+  # (STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md §11 / §12.1).
+  branch-sync:
+    name: Check main/develop divergence
+    needs: control
+    if: ${{ needs.control.outputs.branch_sync == 'true' }}
+    # On a push it is advisory (the error is annotated but does not turn the whole run red). It used to be a
+    # separate workflow, so its failure never decided whether ci.yml, and therefore the production
+    # promotion gate, succeeded; folding it in must not change that. Nightly and manual runs still fail.
+    continue-on-error: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: main must not be ahead of develop without a merge-back
+        run: |
+          git fetch origin main develop
+          AHEAD=$(git rev-list --count origin/develop..origin/main)
+          if [ "$AHEAD" -gt 0 ]; then
+            echo "::error::main is $AHEAD commit(s) ahead of develop. A hotfix merged to main must be merged back into develop in the same change (see the plan's §11 hotfix procedure)."
+            git log --oneline origin/develop..origin/main
+            exit 1
+          fi
+          echo "main has no commits missing from develop."
+
+      - name: develop should not drift indefinitely without a release
+        run: |
+          BEHIND=$(git rev-list --count origin/main..origin/develop)
+          echo "develop is $BEHIND commit(s) ahead of main (awaiting release)."
+          if [ "$BEHIND" -gt 100 ]; then
+            echo "::warning::develop is $BEHIND commits ahead of main — consider cutting a release. This is a warning, not a failure: a long-lived develop is a process smell, not a safety issue the way main-ahead-of-develop is."
+          fi

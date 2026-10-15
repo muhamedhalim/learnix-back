@@ -22,26 +22,25 @@ feature/<name>  →  PR  →  develop  →  (auto) staging deploy  →  smoke  �
 ```
 
 1. Branch `feature/<name>` off `develop`.
-2. Open a PR into `develop`. `ci.yml`'s jobs must pass (§ `CI_CD_SETUP.md` §1.1) before merge —
+2. Open a PR into `develop`. `ci-cd.yml`'s validation jobs (`ci-gate`) must pass (§ `CI_CD_SETUP.md` §1.1) before merge —
    enforced by `develop`'s branch protection (§ `BRANCH_PROTECTION_SETUP.md` §3.2).
-3. Merging to `develop` pushes it; Railway/Vercel's staging services (once they exist — Phase 4)
-   deploy from it automatically; `deploy-staging.yml` re-validates against real staging secrets
-   and smoke-tests the result.
+3. Merging to `develop` pushes it; the same `ci-cd.yml` run validates it again, then its `deploy` job
+   rolls it out to AWS staging (Vercel deploys the frontend on its own).
 4. Manually exercise the change on staging (UAT). Let it soak — the plan's own promotion rule
    (§11) is at least 24h with no new Sentry issues before proposing a release.
 5. When ready to release: open a PR `develop` → `main`, titled `Release vX.Y.Z`. This PR is the
    release; do not bundle it with more feature work.
-6. `deploy-production.yml`'s `check-staging-smoke` job requires a green `deploy-staging.yml` run
-   for the exact commit being promoted — if staging was never actually deployed and smoke-tested
-   at this SHA, the production workflow refuses to proceed.
+6. Production is a manual dispatch of `ci-cd.yml` (`action=deploy`, `environment=production`). Its `gates`
+   job requires a successful push run of `ci-cd.yml` on `develop` for the exact commit being promoted —
+   if staging was never actually deployed at this SHA, the production deploy refuses to proceed.
 7. Migration safety classification runs; anything above SAFE needs the `production-db-approval`
    Environment's reviewers, in addition to the release PR's own required review.
 8. Merge with a **merge commit**, not squash — squashing collapses `develop`'s history into a
    single commit on `main`, which permanently diverges the two branches' histories and makes every
-   future `main`/`develop` diff misleading (this is why `branch-sync.yml` compares by commit
+   future `main`/`develop` diff misleading (this is why the `branch-sync` job compares by commit
    ancestry, not by content).
-9. The `production` GitHub Environment's required reviewers approve `deploy-production.yml`'s
-   `deploy` job. It backs up the database, waits for health, and runs a **read-only** smoke test.
+9. The `production` GitHub Environment's required reviewers approve the `deploy` job of that
+   dispatch. It snapshots the database, migrates, rolls out with automatic rollback, and runs a **read-only** smoke test.
 10. Tag `vX.Y.Z`. Append an entry to `CHANGELOG.md` (not yet created — Phase 9 scope) summarising
     the release from Conventional-Commit-style PR titles merged since the last tag.
 
@@ -51,7 +50,7 @@ feature/<name>  →  PR  →  develop  →  (auto) staging deploy  →  smoke  �
 2. PR into `main`, same approval/backup/migration gates as a normal release.
 3. Tag `vX.Y.Z+1`.
 4. **Immediately** open a second PR merging `main` back into `develop` in the same sitting —
-   `branch-sync.yml` fails the next day if this is skipped, but don't wait for it to fail; do it
+   the `branch-sync` job fails the next night if this is skipped, but don't wait for it to fail; do it
    as part of the hotfix itself.
 
 ## 3. Rollback

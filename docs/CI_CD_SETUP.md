@@ -7,55 +7,106 @@ secrets from this session (no `gh` CLI, no GitHub Actions API access; every work
 validated by local YAML parsing and, where possible, by running the underlying script locally
 with the same inputs the workflow passes it — never by an actual triggered run).
 
-## 1. Backend — `learning-center-backend/.github/workflows/`
+## 1. Backend — `.github/workflows/ci-cd.yml` (the ONLY workflow)
 
-### 1.1 `ci.yml` (modified this phase)
+> **Consolidated.** Every backend pipeline lives in one file, `ci-cd.yml`. `ci.yml`, `deploy-aws.yml`,
+> `rollback-aws.yml`, `branch-sync.yml`, `deploy-production.yml` and `deploy-staging.yml` no longer exist (the
+> last two were retired Railway workflows). Do not add another workflow that triggers on `push`,
+> `pull_request` or `workflow_run`, or that deploys: extend `ci-cd.yml` instead.
 
-Triggers on pull requests and on pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
+### 1.0 Why one push used to start several runs, and the rule now
 
-| Job                      | What it does                                                                                                                                                                                               | New this phase? |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `build-test`             | Typecheck, lint, build, unit tests with coverage                                                                                                                                                           | No              |
-| `migration-chain`        | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                                | No (Phase 0)    |
-| `e2e`                    | Full E2E suite against Postgres 16 + Redis 7 service containers, split over 4 parallel shards (`e2e-shard`); `e2e` is the single aggregate check that fails unless every shard passed                      | No              |
-| `secret-scan`            | Gitleaks                                                                                                                                                                                                   | No              |
-| `format-check`           | **New.** `prettier --check` scoped to files changed since the merge-base only — not the whole repo. See §2 for why                                                                                         |
-| `env-validation`         | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                                    |
-| `migration-safety-check` | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED            |
-| `dependency-audit`       | **Blocking.** `npm audit --audit-level=high` (zero high/critical advisories today; remaining moderates are listed in `CI-CD-AUDIT-REPORT.md`)                                                              |
-| `workflow-lint`          | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts                                           |
-| `deploy-staging`         | **New.** Push to `develop` only, after every required job above passed: calls `deploy-aws.yml` (reusable) for the AWS staging rollout. Production remains a manual `workflow_dispatch` of `deploy-aws.yml` |
+A push to `main`/`develop` started two workflow runs (`CI` and `Branch sync check`), and the AWS staging
+deploy was a third, reusable workflow whose own triggers had to be kept in step with CI. Earlier revisions also
+ran CI on both `push` and `pull_request` for the same commit, and deployed from separate `push` workflows
+racing CI. All of that is now one run per event, with the deploy a _job_ of that run:
+
+| Event                                    | What runs (all in one `CI/CD` run)                                                       |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                      |
+| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`) |
+| push to `main`                           | validation -> `ci-gate` (+ advisory `branch-sync`). No deploy.                           |
+| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                       |
+| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                   |
+| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                       |
+| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                       |
+
+`control` is the single place that maps an event to these paths (outputs `ci`, `deploy`, `rollback`,
+`branch_sync`, `environment`, `manual`).
+
+Job graph:
+
+```
+control -+- build-test -+- migration-chain ---+
+         |              +- e2e-shard x4 -> e2e +
+         +- format-check, env-validation, secret-scan,
+         |  dependency-audit, workflow-lint -----+--> ci-gate -> gates -> [db-owner-approval] -> deploy
+         |  (migration-safety-check: advisory)        (staging: push to develop; production: dispatch only)
+         +- rollback      (dispatch action=rollback)
+         +- branch-sync   (push / nightly / dispatch)
+```
+
+Concurrency: validation of a PR is cancelled when a newer commit arrives; pushes to `main`/`develop` queue (a
+run that is already deploying is never cancelled, and a newer push replaces only a run that has not started);
+manual and scheduled runs have a unique group. `deploy` and `rollback` share the lock `deploy-api-<environment>`
+with `cancel-in-progress: false`, so two operations never touch the same ECS services at once and an
+in-flight rollout is never cancelled.
+
+### 1.1 Validation jobs
+
+Triggered by `pull_request` and by pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
+
+| Job                                    | What it does                                                                                                                                                                                    | New this phase? |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `build-test`                           | Typecheck, lint, build, unit tests with coverage                                                                                                                                                | No              |
+| `migration-chain`                      | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                     | No (Phase 0)    |
+| `e2e`                                  | Full E2E suite against Postgres 16 + Redis 7 service containers, split over 4 parallel shards (`e2e-shard`); `e2e` is the single aggregate check that fails unless every shard passed           | No              |
+| `secret-scan`                          | Gitleaks                                                                                                                                                                                        | No              |
+| `format-check`                         | **New.** `prettier --check` scoped to files changed since the merge-base only — not the whole repo. See §2 for why                                                                              |
+| `env-validation`                       | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                         |
+| `migration-safety-check`               | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED |
+| `dependency-audit`                     | **Blocking.** `npm audit --audit-level=high` (zero high/critical advisories today; remaining moderates are listed in `CI-CD-AUDIT-REPORT.md`)                                                   |
+| `workflow-lint`                        | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts                                |
+| `ci-gate`                              | Fails unless every required validation job above succeeded (skipped or cancelled counts as failure). The only thing `gates`/`deploy` wait for                                                   |
+| `gates`, `db-owner-approval`, `deploy` | Release path, see 1.2                                                                                                                                                                           |
+| `rollback`, `branch-sync`              | Manual rollback and the nightly/push divergence check, see 1.3                                                                                                                                  |
 
 #### E2E diagnostics (what to open when `e2e` is red)
 
 Each `e2e-shard` job runs `npm run e2e:preflight` first (Node major, `SELECT version()` on Postgres, Redis `PING`; versions only, no connection strings), then `npm run test:e2e:ci`, which keeps the **full** console output (`jest-output.log`, via `tee`, with jest's own exit status preserved), a JSON result file (`results.json`) and a JUnit file (`junit.xml`, `jest-junit`), and logs the heap used per suite (`--logHeapUsage`). After the tests, with `if: always()`, the shard publishes a result table to the run summary, collects the Postgres/Redis container logs, and uploads everything under `e2e-results/` as the artifact `e2e-shard-N` (14 days; nothing else is uploaded, and the job's values are synthetic). The aggregate `e2e` job downloads all shard artifacts, writes a per-shard table (failed suite and test names, copied from jest's JSON) to its summary and then fails unless `needs.e2e-shard.result` is `success`. Reproduce a shard locally with `npm run test:e2e:ci -- --shard=N/4` (against a disposable Postgres/Redis, never a shared dev database).
 
-### 1.2 `deploy-staging.yml` (new)
+### 1.2 AWS release (`gates` -> `db-owner-approval` -> `deploy`)
 
-Triggers on push to `develop`. **Does not itself deploy anything** — see the file's own header
-comment: Railway's git integration, once a staging `web` service exists and is pointed at
-`develop`, deploys independently of this workflow (confirmed behaviour for the existing
-Production service — Phase 4 §31.2). This workflow instead re-validates the real staging
-configuration (via the `staging` GitHub Environment's secrets, not CI's synthetic ones), waits for
-the deploy to land, and smoke-tests it.
+One linux/arm64 image serves the `api`, `worker` and `migrate` task definitions. `deploy` builds it with the RDS
+CA bundle, scans it (Trivy, fixable HIGH/CRITICAL fail), pushes it to ECR under the commit SHA, then runs
+`scripts/aws/ecs-deploy.sh`: migrate task first (must exit 0), then api + worker, with automatic rollback when a
+deployment fails or alarms fire. Credentials come from GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`); nothing secret is
+stored in the workflow. Required environment variables are listed in the comment above the `gates` job.
 
-### 1.3 `deploy-production.yml` (new)
+- **Staging**: automatic on push to `develop`, only after `ci-gate` passed, in the same run.
+- **Production**: only by `workflow_dispatch` (`action=deploy`, `environment=production`). Requires a successful
+  push run of `ci-cd.yml` on `develop` for the exact commit (which includes its staging rollout), the migration
+  classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
+  `production` environment's reviewers, and an RDS snapshot taken before migrating.
+- Post-deploy verification is `ecs-deploy.sh`'s wait for steady state plus its alarm watch (automatic rollback),
+  and the read-only API smoke test when the environment sets `SMOKE_FROM_RUNNER=true`.
+- There is no Terraform in this workflow: see 1.4.
 
-Triggers on push to `main`. Implements every gate the plan's §12.3 asks for — staging-soak check,
-migration-safety classification with a separate database-owner approval environment for anything
-above SAFE, a pre-deploy backup with an uploaded artifact, a manual-approval `production`
-GitHub Environment, a health-check wait, and a read-only smoke test. **Read the file's own header
-comment before treating this as a working deploy gate**: Railway currently deploys `main` to
-Production automatically and independently of this workflow (Phase 4 §31.2/§0.1) — this workflow
-provides the backup, migration-safety, and audit-trail value regardless, but does not yet control
-_when_ Railway actually deploys. Closing that requires a Railway dashboard change this session
-was not authorised to make against live Production.
+### 1.3 `rollback` and `branch-sync`
 
-### 1.4 `branch-sync.yml` (new)
+`rollback` (`workflow_dispatch`, `action=rollback`) re-points ECS services at earlier task-definition revisions;
+database changes are not reverted. `branch-sync` fails if `main` has a commit not in `develop` (a hotfix that was
+not merged back, plan section 11) and warns when `develop` drifts over 100 commits ahead. On a push it is advisory
+(`continue-on-error`) so that, as before the merge, it cannot turn the run red and block the production gate;
+nightly and manual runs fail normally.
 
-Nightly + on every push to `main`/`develop` + manual dispatch. Fails if `main` has any commit not
-in `develop` (a hotfix that wasn't merged back — plan §11). Warns, without failing, if `develop`
-drifts more than 100 commits ahead of `main` without a release.
+### 1.4 Terraform lives in `learnix-infra`, deliberately not here
+
+The Terraform workflows (`tf-ci`, `tf-apply*`, `drift`) belong to the separate `OWNER/learnix-infra` repository:
+the IAM OIDC trust policies are pinned to that repository's name. The copy of `learnix-infra/` inside this
+repository is a nested directory, and GitHub only reads `.github/workflows` at the repository root, so those
+files never run here. Moving them would change the OIDC subject and therefore IAM trust, which is outside the scope
+of CI consolidation. Applies stay manual (`workflow_dispatch`) behind the `infra-*` environments' required reviewers.
 
 ## 2. Why `prettier --check .` is not a blanket CI gate
 
@@ -108,6 +159,5 @@ value is explicitly set.
 - `migration-safety-check` is `continue-on-error: true` and therefore currently cannot be made a
   _required_ status check in branch protection (§ `BRANCH_PROTECTION_SETUP.md` §3.1's own caveat) — a
   required check that can never fail is not a gate. `dependency-audit` is blocking and may be required.
-- `deploy-production.yml`'s approval gate does not yet control Railway's actual deploy timing
-  (§1.3). This is the single most important open item from Phase 4/5 and is repeated in the final
-  report rather than buried here.
+- The Railway deploy workflows were deleted (Railway production has been down since 2026-08-13 and AWS is
+  deployed by `ci-cd.yml`), so the Phase 4/5 concern about Railway's own auto-deploy no longer applies to AWS.

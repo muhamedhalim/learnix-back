@@ -55,7 +55,7 @@ Status legend:
 | Synthetics heartbeat canary (stopped until launch) | Locally verified (plan assertion) / Awaiting AWS validation | Runtime resolved at plan time (latest `syn-nodejs-puppeteer`) |
 | AWS Backup (daily/monthly, deny-delete vault, eu-west-1 copy) + RDS cross-region automated backups | Locally verified / Awaiting AWS validation | — |
 | App deploy roles (OIDC, repo + environment pinned, least privilege) | Locally verified / Awaiting AWS validation | checkov 0 failed (annotated skips) |
-| Deploy/rollback automation (`ecs-deploy.sh`, `deploy-aws.yml`, `rollback-aws.yml` in both app repos) | Locally verified (11 scenarios against a fake AWS CLI) / Awaiting AWS validation | — |
+| Deploy/rollback automation (`ecs-deploy.sh`, `ci-cd.yml` jobs `deploy`/`rollback` in learnix-back) | Locally verified (11 scenarios against a fake AWS CLI) / Awaiting AWS validation | — |
 | conftest policies on plans | Incomplete locally | Run only in `tf-apply-*` workflows; conftest/OPA not installed here |
 | CloudFront flat-rate plan subscription | Awaiting approval | Console step; Terraform support unverified |
 

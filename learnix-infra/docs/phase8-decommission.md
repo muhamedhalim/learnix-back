@@ -56,8 +56,7 @@ and frontend suites and the clean-boot script, deploy to staging, then productio
 
 ## 3. Documents and CI to update afterwards
 
-`AWS_RUNTIME_ENV.md`, `docs/ENVIRONMENT_INVENTORY.md`, the Railway workflows (`deploy-production.yml` and its
-GitHub-artifact `pg_dump`, which is a PII exposure to remove regardless), Nixpacks/Procfile/`railway.json`, and the
+`AWS_RUNTIME_ENV.md`, `docs/ENVIRONMENT_INVENTORY.md`, the Railway workflows (`deploy-production.yml`/`deploy-staging.yml`, already deleted in the CI/CD consolidation; their GitHub-artifact `pg_dump` PII exposure is gone with them), Nixpacks/Procfile/`railway.json`, and the
 guard rules that name Railway or R2 hosts.
 
 ## 4. Vendor decommissions (each is a separate, irreversible decision for you)

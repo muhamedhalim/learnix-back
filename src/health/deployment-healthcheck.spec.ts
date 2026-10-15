@@ -34,17 +34,4 @@ describe('deployment health check semantics', () => {
 
     expect(railway.deploy?.restartPolicyType).toBe('ON_FAILURE');
   });
-
-  it.each([
-    ['production', '.github/workflows/deploy-production.yml'],
-    ['staging', '.github/workflows/deploy-staging.yml'],
-  ])('the %s deploy workflow waits on readiness, not liveness', (_environment, path) => {
-    const workflow = readRepoFile(path);
-
-    expect(workflow).toContain('/api/v1/health/readiness');
-    // A bare liveness poll must not remain: it would pass for a deployment
-    // that cannot reach PostgreSQL.
-    expect(workflow).not.toMatch(/health"\s*\|\|\s*echo/);
-    expect(workflow).not.toContain('"$URL/api/v1/health"');
-  });
 });
