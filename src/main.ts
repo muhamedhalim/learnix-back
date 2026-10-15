@@ -3,7 +3,13 @@ import './polyfills';
 // its auto-instrumentation can hook HTTP/DB/Redis. No-op when SENTRY_DSN is unset.
 import './instrument';
 
-import { ConsoleLogger, Logger, type LogLevel, RequestMethod, ValidationPipe } from '@nestjs/common';
+import {
+  ConsoleLogger,
+  Logger,
+  type LogLevel,
+  RequestMethod,
+  ValidationPipe,
+} from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -21,7 +27,12 @@ import { ResponseLocalizationInterceptor } from './common/interceptors/response-
 import { AppDataSource } from './data-source';
 import { withMigrationAdvisoryLock } from './database/migration-lock.util';
 import { resolveProcessRole, runsBackgroundWork } from './config/process-role';
-import { buildLoggerOptions, resolveKeepAliveTimeouts, resolveTrustProxyHops } from './config/http-runtime';
+import {
+  buildLoggerOptions,
+  resolveKeepAliveTimeouts,
+  resolveTrustProxyHops,
+} from './config/http-runtime';
+import { installGracefulShutdown } from './common/utils/graceful-shutdown.util';
 
 const logger = new Logger('Bootstrap');
 
@@ -112,7 +123,10 @@ async function bootstrap(): Promise<void> {
   // simply kills the process and every connection is dropped by the OS
   // instead of closed by the app. Strictly additive: request handling and
   // responses are unchanged; only the shutdown path gains a clean drain.
-  app.enableShutdownHooks();
+  // Not app.enableShutdownHooks(): that closes the moment the signal arrives and cannot wait for the load
+  // balancer to stop routing here. The handler marks readiness not-ready, waits SHUTDOWN_DELAY_MS, then
+  // runs app.close() (which still fires every OnModuleDestroy hook) under a hard SHUTDOWN_TIMEOUT_MS.
+  installGracefulShutdown(app);
 
   // Explicit, sequential — not a lifecycle hook — so the ordering the
   // deployment lifecycle requires (migrations → admin init → HTTP server
@@ -188,7 +202,9 @@ async function bootstrap(): Promise<void> {
 
   // Strict allow-list match, no wildcard suffix matching: arbitrary *.vercel.app (or any look-alike)
   // origins cannot make credentialed cross-origin requests (see buildCorsOptions).
-  app.enableCors(buildCorsOptions(allowedOrigins, (origin) => logger.warn(`CORS BLOCKED: ${origin}`)));
+  app.enableCors(
+    buildCorsOptions(allowedOrigins, (origin) => logger.warn(`CORS BLOCKED: ${origin}`)),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -274,7 +290,9 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env['PORT']) || 3000;
 
   await app.listen(port, '0.0.0.0');
-  logger.log(`Process role: ${resolveProcessRole()} (background work ${runsBackgroundWork() ? 'on' : 'off'})`);
+  logger.log(
+    `Process role: ${resolveProcessRole()} (background work ${runsBackgroundWork() ? 'on' : 'off'})`,
+  );
 
   // Lesson videos are uploaded as one long-lived multipart request (see
   // teacher-lessons.controller.ts). Node's http.Server defaults — introduced

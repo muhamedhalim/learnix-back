@@ -1,7 +1,7 @@
 # Phase 5 — GitHub Actions Required From You
 
 Phase 5 of `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md`. This is the action checklist — what to
-actually click/run, in order — complementing `docs/CI_CD_SETUP.md` (what the workflows do) and
+actually click/run, in order — complementing `docs/CI-CD-ARCHITECTURE.md` (what the workflows do) and
 `docs/BRANCH_PROTECTION_SETUP.md` (what each setting should be). Nothing below was performed this
 session: no `gh` CLI is installed, and this session's only confirmed GitHub permission is git
 push (via `git push --dry-run`, not the repo-admin scope branch protection and Environments need.

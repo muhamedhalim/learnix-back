@@ -32,7 +32,9 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
     cacheManager = app.get<Cache>(CACHE_MANAGER);
     const store = cacheManager.stores[0]?.store as unknown;
     if (!(store instanceof RedisKeyvStore)) {
-      throw new Error('The e2e cache manager is not backed by RedisKeyvStore; is REDIS_HOST set in .env.test?');
+      throw new Error(
+        'The e2e cache manager is not backed by RedisKeyvStore; is REDIS_HOST set in .env.test?',
+      );
     }
     client = (store as unknown as { client: { set(...args: unknown[]): Promise<unknown> } }).client;
   });
@@ -49,8 +51,8 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
       `INSERT INTO subjects (id, name) VALUES (gen_random_uuid(), 'Preview Cache Subject') RETURNING id`,
     )) as [{ id: string }];
     const [{ id: freeLessonId }] = (await dataSource.query(
-      `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version, status, is_free_preview, bunny_video_id, bunny_library_id, bunny_video_status)
-       VALUES (gen_random_uuid(), 'Free preview lesson', $1, $2, 100, 1, 'published', true, 'bunny-video-1', 'lib-1', 'ready') RETURNING id`,
+      `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version, status, is_free_preview, video_asset_id, video_status)
+       VALUES (gen_random_uuid(), 'Free preview lesson', $1, $2, 100, 1, 'published', true, gen_random_uuid(), 'ready') RETURNING id`,
       [teacher.userId, subjectId],
     )) as [{ id: string }];
     const [{ id: lockedLessonId }] = (await dataSource.query(
@@ -73,17 +75,27 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
 
   async function getPreview(packageId: string): Promise<{
     students_count: number;
-    curriculum: { lessons: { id: string; locked: boolean; video: { signed_url: string; expires_in: number } | null }[] }[];
+    curriculum: {
+      lessons: {
+        id: string;
+        locked: boolean;
+        video: { platform: 'aws'; lesson_id: string } | null;
+      }[];
+    }[];
   }> {
-    const res = await request(server).get(`${API_PREFIX}/packages/${packageId}/preview`).expect(200);
+    const res = await request(server)
+      .get(`${API_PREFIX}/packages/${packageId}/preview`)
+      .expect(200);
     return res.body as never;
   }
 
-  it('T042: the package preview (miss and hit) is private, no-store and never public/s-maxage — it carries a per-request signed URL', async () => {
+  it('T042: the package preview (miss and hit) is private, no-store and never public/s-maxage', async () => {
     const { packageId } = await seedPreviewFixture();
 
     for (const _pass of ['miss', 'hit']) {
-      const res = await request(server).get(`${API_PREFIX}/packages/${packageId}/preview`).expect(200);
+      const res = await request(server)
+        .get(`${API_PREFIX}/packages/${packageId}/preview`)
+        .expect(200);
       expect(res.headers['cache-control']).toBe('private, no-store');
       expect(res.headers['cache-control']).not.toMatch(/public|s-maxage/);
     }
@@ -104,7 +116,7 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
     expect(counter.count({ requestId: 't037a-hit' })).toBe(0);
   });
 
-  it('miss and hit responses each carry a fresh, full-TTL signed URL for the free-preview lesson; the locked lesson always has video: null', async () => {
+  it('miss and hit responses each point the free-preview lesson at the playback route; the locked lesson always has video: null', async () => {
     const { packageId } = await seedPreviewFixture();
 
     const miss = await getPreview(packageId);
@@ -114,20 +126,20 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
       const flat = response.curriculum.flatMap((section) => section.lessons);
       const free = flat.find((lesson) => !lesson.locked)!;
       const locked = flat.find((lesson) => lesson.locked)!;
-      expect(free.video).not.toBeNull();
-      expect(free.video!.expires_in).toBe(600);
-      expect(free.video!.signed_url).toContain('token=');
+      expect(free.video).toEqual({ platform: 'aws', lesson_id: free.id });
       expect(locked.video).toBeNull();
     }
-    // Every request signs independently: the same lesson can carry a different signed URL per request
-    // (the signature embeds an expiry timestamp), proving the miss did not reuse a cached signed value.
+    // The grant itself (HLS URL and signed cookies) is issued per request by the playback route, so the
+    // cached preview never holds anything that expires.
   });
 
-  it('the raw value written to Redis never contains a signed_url or expires_in key (rule 8); the HTTP body never carries the raw Bunny video/library id', async () => {
+  it('the raw value written to Redis never contains a grant, cookie or expiry (rule 8); the HTTP body never carries the storage asset id', async () => {
     const { packageId } = await seedPreviewFixture();
     const sets = jest.spyOn(client, 'set');
 
-    const res = await request(server).get(`${API_PREFIX}/packages/${packageId}/preview`).expect(200);
+    const res = await request(server)
+      .get(`${API_PREFIX}/packages/${packageId}/preview`)
+      .expect(200);
 
     const previewSetCall = sets.mock.calls.find((call) => {
       const raw = call[1];
@@ -135,19 +147,16 @@ describe('public academic cache: package preview split (spec 004 T037 a)', () =>
     });
     expect(previewSetCall).toBeDefined();
     const rawValue = previewSetCall![1] as string;
-    // The unsigned marker (`signable_video_id`, carrying the raw Bunny video id) IS expected in the
-    // cached value — that is the whole point of the split (sign fresh after every read, never cache a
-    // signed value). Only the SIGNED form is prohibited from ever reaching Redis.
-    expect(rawValue).toContain('bunny-video-1');
-    expect(rawValue).not.toMatch(/signed_url|expires_in/);
+    // The marker naming the playable free-preview lesson IS expected in the cached value — that is the
+    // whole point of the split (the grant is issued after every read, never cached). Only grants,
+    // cookies and expiries are prohibited from ever reaching Redis.
+    expect(rawValue).toContain('aws_playback_lesson_id');
+    expect(rawValue).not.toMatch(/signed_url|expires_in|playback_cookies|CloudFront-/);
 
-    // The signed_url legitimately embeds the video id in its path (it always has, pre-existing
-    // behaviour, `gates/W1-C6d.md` §3: free-teaser video ids are public by design) — what must never
-    // appear is a distinct `bunny_video_id`/`bunny_library_id`/`signable_video_id` field.
     const body = JSON.stringify(res.body);
-    expect(body).not.toContain('bunny_video_id');
-    expect(body).not.toContain('bunny_library_id');
-    expect(body).not.toContain('signable_video_id');
+    expect(body).not.toContain('video_asset_id');
+    expect(body).not.toContain('aws_playback_lesson_id');
+    expect(body).not.toMatch(/playback_cookies|CloudFront-/);
 
     sets.mockRestore();
   });
@@ -230,7 +239,10 @@ describe('public academic cache: remaining endpoints (spec 004 T038)', () => {
   });
 
   describe('teachers', () => {
-    async function seedApprovedTeacher(): Promise<{ userId: string; agent: ReturnType<typeof request.agent> }> {
+    async function seedApprovedTeacher(): Promise<{
+      userId: string;
+      agent: ReturnType<typeof request.agent>;
+    }> {
       const teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
       await dataSource.query(
         `INSERT INTO teacher_profiles (id, user_id, qualifications, years_of_experience, bio)
@@ -404,7 +416,9 @@ describe('public academic cache: remaining endpoints (spec 004 T038)', () => {
       const { lessonId, reviewId } = await seedLessonWithApprovedReview();
       const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
 
-      const warm = await request(server).get(`${API_PREFIX}/lessons/${lessonId}/reviews`).expect(200);
+      const warm = await request(server)
+        .get(`${API_PREFIX}/lessons/${lessonId}/reviews`)
+        .expect(200);
       expect((warm.body as { meta: { total: number } }).meta.total).toBe(1);
 
       await admin.agent
@@ -412,7 +426,9 @@ describe('public academic cache: remaining endpoints (spec 004 T038)', () => {
         .send({ status: 'rejected' })
         .expect(200);
 
-      const fresh = await request(server).get(`${API_PREFIX}/lessons/${lessonId}/reviews`).expect(200);
+      const fresh = await request(server)
+        .get(`${API_PREFIX}/lessons/${lessonId}/reviews`)
+        .expect(200);
       expect((fresh.body as { meta: { total: number } }).meta.total).toBe(0);
     });
   });

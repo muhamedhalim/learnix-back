@@ -5,17 +5,22 @@ export type PublicOriginVariable =
   | 'BACKEND_URL'
   | 'PUBLIC_MEDIA_BASE_URL'
   | 'R2_PUBLIC_BASE_URL'
-  | 'BUNNY_CDN_URL'
   | 'MEETING_OAUTH_REDIRECT_BASE_URL'
   | 'CORS_ORIGINS';
 
 function normalizedHostname(url: URL): string {
-  return url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  return url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
 }
 
 /** True for loopback, private, link-local, carrier-grade NAT and metadata ranges. */
 export function isNonPublicHostname(hostnameValue: string): boolean {
-  const hostname = hostnameValue.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const hostname = hostnameValue
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
   if (
     hostname === 'localhost' ||
     hostname.endsWith('.localhost') ||
@@ -119,7 +124,6 @@ export function validateProductionPublicOrigins(config: Record<string, unknown>)
   for (const variableName of [
     'PUBLIC_MEDIA_BASE_URL',
     'R2_PUBLIC_BASE_URL',
-    'BUNNY_CDN_URL',
     'MEETING_OAUTH_REDIRECT_BASE_URL',
   ] as const) {
     const value = config[variableName];
@@ -138,11 +142,7 @@ export function validateProductionPublicOrigins(config: Record<string, unknown>)
   const corsOrigins = corsValue
     .split(',')
     .map((origin) => parsePublicOrigin(origin.trim(), 'CORS_ORIGINS', true));
-  const frontendOrigin = parsePublicOrigin(
-    String(config['FRONTEND_URL']),
-    'FRONTEND_URL',
-    true,
-  );
+  const frontendOrigin = parsePublicOrigin(String(config['FRONTEND_URL']), 'FRONTEND_URL', true);
   if (!corsOrigins.includes(frontendOrigin)) {
     throw new Error('CORS_ORIGINS must include FRONTEND_URL');
   }

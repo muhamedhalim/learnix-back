@@ -1,5 +1,7 @@
 # Phase 4 Dashboard Checklist — Railway, Vercel, DNS, Cloudflare Access
 
+> **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
+
 Phase 4 of `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md`. This document exists because Phase 4
 cannot be fully executed from this environment: it requires a Vercel account login, DNS
 registrar/Cloudflare access, and creating new paid Railway resources, none of which this session

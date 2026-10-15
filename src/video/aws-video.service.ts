@@ -22,11 +22,7 @@ import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { StorageService } from '../storage/storage.service';
 import type { CompletedDirectUpload } from '../uploads/direct/direct-uploads.service';
-import {
-  buildMediaConvertJob,
-  MASTER_PLAYLIST_PATH,
-  OUTPUT_PREFIX,
-} from './mediaconvert-job.util';
+import { buildMediaConvertJob, MASTER_PLAYLIST_PATH, OUTPUT_PREFIX } from './mediaconvert-job.util';
 import { buildPlaybackCookies, type PlaybackCookie } from './playback-cookies';
 import { VideoAsset } from './entities/video-asset.entity';
 import { VideoConfig } from './video.config';
@@ -105,7 +101,9 @@ export function outcomeFromEvent(detail: JobStateDetail): JobOutcome | null {
       ? { durationSeconds: Math.round(video.durationInMs / 1000) }
       : {}),
     ...(best?.videoDetails?.widthInPx !== undefined ? { width: best.videoDetails.widthInPx } : {}),
-    ...(best?.videoDetails?.heightInPx !== undefined ? { height: best.videoDetails.heightInPx } : {}),
+    ...(best?.videoDetails?.heightInPx !== undefined
+      ? { height: best.videoDetails.heightInPx }
+      : {}),
     ...(poster !== undefined ? { posterUri: poster } : {}),
   };
 }
@@ -125,8 +123,12 @@ export function outcomeFromJob(job: Job): JobOutcome | null {
         ...(o.VideoDetails?.WidthInPx !== undefined || o.VideoDetails?.HeightInPx !== undefined
           ? {
               videoDetails: {
-                ...(o.VideoDetails?.WidthInPx !== undefined ? { widthInPx: o.VideoDetails.WidthInPx } : {}),
-                ...(o.VideoDetails?.HeightInPx !== undefined ? { heightInPx: o.VideoDetails.HeightInPx } : {}),
+                ...(o.VideoDetails?.WidthInPx !== undefined
+                  ? { widthInPx: o.VideoDetails.WidthInPx }
+                  : {}),
+                ...(o.VideoDetails?.HeightInPx !== undefined
+                  ? { heightInPx: o.VideoDetails.HeightInPx }
+                  : {}),
               },
             }
           : {}),
@@ -183,7 +185,7 @@ export class AwsVideoService {
     asset.output_prefix = OUTPUT_PREFIX(asset.id);
     await this.assets.save(asset);
     await this.startTranscode(asset);
-    return (await this.assets.findOneByOrFail({ id: asset.id }));
+    return await this.assets.findOneByOrFail({ id: asset.id });
   }
 
   /** Submit the MediaConvert job. On failure the asset is marked failed so the UI can say so. */
@@ -226,7 +228,9 @@ export class AwsVideoService {
     if (asset.status === 'ready' || asset.status === 'failed' || asset.status === 'deleted') return;
 
     if (outcome.status === 'ERROR' || outcome.status === 'CANCELED') {
-      const message = this.truncate(outcome.errorMessage ?? `Transcoding ${outcome.status.toLowerCase()}`);
+      const message = this.truncate(
+        outcome.errorMessage ?? `Transcoding ${outcome.status.toLowerCase()}`,
+      );
       await this.assets.update(asset.id, { status: 'failed', error_message: message });
       await this.syncLessons(asset.id, { status: 'failed' });
       return;
@@ -244,7 +248,9 @@ export class AwsVideoService {
     });
     await this.syncLessons(asset.id, {
       status: 'ready',
-      ...(outcome.durationSeconds !== undefined ? { durationSeconds: outcome.durationSeconds } : {}),
+      ...(outcome.durationSeconds !== undefined
+        ? { durationSeconds: outcome.durationSeconds }
+        : {}),
       ...(outcome.width !== undefined ? { width: outcome.width } : {}),
       ...(outcome.height !== undefined ? { height: outcome.height } : {}),
       ...(thumbnailKey !== null ? { thumbnailUrl: this.media.buildPublicUrl(thumbnailKey) } : {}),
@@ -260,7 +266,10 @@ export class AwsVideoService {
   }
 
   /** Copy the poster to the public thumbnails prefix so course cards can show it without a signed cookie. */
-  private async publishPoster(asset: VideoAsset, posterUri: string | undefined): Promise<string | null> {
+  private async publishPoster(
+    asset: VideoAsset,
+    posterUri: string | undefined,
+  ): Promise<string | null> {
     const client = this.s3();
     const filesBucket = this.storage.getDirectUploadBackend()?.bucket;
     if (client === null || filesBucket === undefined) return null;
@@ -270,7 +279,11 @@ export class AwsVideoService {
       const match = /^s3:\/\/[^/]+\/(.+)$/.exec(posterUri);
       sourceKey = match?.[1] ?? null;
     }
-    sourceKey ??= await this.findPosterKey(client, outputBucket, asset.output_prefix ?? OUTPUT_PREFIX(asset.id));
+    sourceKey ??= await this.findPosterKey(
+      client,
+      outputBucket,
+      asset.output_prefix ?? OUTPUT_PREFIX(asset.id),
+    );
     if (sourceKey === null) return null;
     const targetKey = `thumbnails/videos/${asset.id}.jpg`;
     try {
@@ -290,7 +303,11 @@ export class AwsVideoService {
     }
   }
 
-  private async findPosterKey(client: S3Client, bucket: string, prefix: string): Promise<string | null> {
+  private async findPosterKey(
+    client: S3Client,
+    bucket: string,
+    prefix: string,
+  ): Promise<string | null> {
     try {
       const listed = await client.send(
         new ListObjectsV2Command({ Bucket: bucket, Prefix: `${prefix}thumb/`, MaxKeys: 5 }),
@@ -313,7 +330,7 @@ export class AwsVideoService {
   ): Promise<void> {
     await this.dataSource.query(
       `UPDATE "lessons"
-          SET "bunny_video_status" = $2,
+          SET "video_status" = $2,
               "duration" = COALESCE($3, "duration"),
               "video_width" = COALESCE($4, "video_width"),
               "video_height" = COALESCE($5, "video_height"),
@@ -390,7 +407,10 @@ export class AwsVideoService {
     }
     if (!this.cfg.isConfigured()) {
       throw new ServiceUnavailableException(
-        biBody('Secure video playback is not configured on the server.', 'التشغيل الآمن للفيديو غير مُهيَّأ على الخادم.'),
+        biBody(
+          'Secure video playback is not configured on the server.',
+          'التشغيل الآمن للفيديو غير مُهيَّأ على الخادم.',
+        ),
       );
     }
     const { cookies, expiresAt } = buildPlaybackCookies(
@@ -430,7 +450,9 @@ export class AwsVideoService {
         if (asset.thumbnail_key !== null) {
           const filesBucket = this.storage.getDirectUploadBackend()?.bucket;
           if (filesBucket !== undefined) {
-            await client.send(new DeleteObjectCommand({ Bucket: filesBucket, Key: asset.thumbnail_key }));
+            await client.send(
+              new DeleteObjectCommand({ Bucket: filesBucket, Key: asset.thumbnail_key }),
+            );
           }
         }
       } catch (err) {

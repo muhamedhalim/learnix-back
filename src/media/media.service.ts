@@ -17,7 +17,7 @@ const PUBLIC_MEDIA_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 /**
  * Backs the public media proxy endpoint. Never hands the frontend a storage
  * URL (signed or otherwise) — it fetches object bytes from `StorageService`
- * and the controller streams them straight to the client, so R2/Bunny/local
+ * and the controller streams them straight to the client, so S3/R2/local
  * details never leak past this module.
  */
 @Injectable()
@@ -159,9 +159,7 @@ export class MediaService {
       // never pass through a response unchanged.
       if (
         hostname === 'r2.cloudflarestorage.com' ||
-        hostname.endsWith('.r2.cloudflarestorage.com') ||
-        hostname === 'storage.bunnycdn.com' ||
-        hostname.endsWith('.storage.bunnycdn.com')
+        hostname.endsWith('.r2.cloudflarestorage.com')
       ) {
         return false;
       }

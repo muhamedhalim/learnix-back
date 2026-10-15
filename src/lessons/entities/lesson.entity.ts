@@ -57,67 +57,37 @@ export class Lesson {
   subject!: Subject;
 
   // Cover image: an uploaded custom image, or a copy of `video_thumbnail`
-  // (Bunny's auto-generated poster) that the teacher chose to use as the
+  // (the transcoder's poster) that the teacher chose to use as the
   // cover. Set via the course-builder's upload widget — never a raw
   // teacher-typed URL (that field was removed from the quick-create form).
   @Column({ type: 'varchar', length: 500, nullable: true })
   thumbnail!: string | null;
 
-  // Primary video fields (Bunny.net)
-  @Column({ type: 'varchar', length: 500, nullable: true, name: 'video_url' })
-  video_url!: string | null;
-
-  @Column({
-    type: 'varchar',
-    length: 20,
-    default: 'bunny',
-    name: 'video_platform',
-  })
-  @Index('IDX_lessons_video_platform')
-  video_platform!: 'bunny' | 'aws';
-
-  /** AWS-hosted video (see `video_assets`). Null for Bunny-hosted or video-less lessons. */
+  /** AWS-hosted video (see `video_assets`: S3 source, MediaConvert HLS, CloudFront signed cookies). Null for video-less lessons. */
   @Column({ type: 'uuid', nullable: true, name: 'video_asset_id' })
   video_asset_id!: string | null;
 
-  @Column({
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-    name: 'bunny_video_id',
-  })
-  bunny_video_id!: string | null;
-
-  @Column({
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-    name: 'bunny_library_id',
-  })
-  bunny_library_id!: string | null;
-
   /**
-   * Bunny Stream encoding lifecycle, mirrored from Bunny's numeric status:
-   * 'created' | 'uploading' | 'processing' | 'ready' | 'failed'.
-   * Null when the lesson has no Bunny-managed video (e.g. legacy URL only).
+   * Transcoding lifecycle of the lesson's video: 'processing' | 'ready' | 'failed'.
+   * Null when the lesson has no video.
    */
   @Column({
     type: 'varchar',
     length: 20,
     nullable: true,
-    name: 'bunny_video_status',
+    name: 'video_status',
   })
-  bunny_video_status!: string | null;
+  video_status!: string | null;
 
-  /** Source video width in pixels, retrieved from Bunny after encoding. */
+  /** Source video width in pixels, set when transcoding completes. */
   @Column({ type: 'int', nullable: true, name: 'video_width' })
   video_width!: number | null;
 
-  /** Source video height in pixels, retrieved from Bunny after encoding. */
+  /** Source video height in pixels, set when transcoding completes. */
   @Column({ type: 'int', nullable: true, name: 'video_height' })
   video_height!: number | null;
 
-  /** CDN URL of the Bunny-generated poster/thumbnail for the video. */
+  /** Public URL of the poster generated for the video. */
   @Column({
     type: 'varchar',
     length: 500,
@@ -126,7 +96,7 @@ export class Lesson {
   })
   video_thumbnail!: string | null;
 
-  /** Stored video size in bytes, retrieved from Bunny after encoding. */
+  /** Stored video size in bytes, set when transcoding completes. */
   @Column({ type: 'bigint', nullable: true, name: 'video_size_bytes' })
   video_size_bytes!: number | null;
 

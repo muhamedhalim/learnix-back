@@ -5,6 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import Redis from 'ioredis';
 import { DataSource } from 'typeorm';
 
+import { isDraining } from '../common/utils/graceful-shutdown.util';
 import { resolveRedisUrl } from '../common/utils/redis-connection.util';
 import { withHealthTimeout } from './health-timeout.util';
 
@@ -56,6 +57,9 @@ export class HealthService implements OnModuleDestroy {
     timestamp: string;
   }> {
     let status: 'ready' | 'not_ready' = 'not_ready';
+
+    // Draining (SIGTERM received): stop being routed to while in-flight requests finish.
+    if (isDraining()) return { status, timestamp: new Date().toISOString() };
 
     try {
       await withHealthTimeout('readiness.database', this.dataSource.query('SELECT 1'), 2_000);

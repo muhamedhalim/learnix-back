@@ -58,11 +58,10 @@ export const FEATURE_FLAGS = {
   WEBHOOK_REPLAY: 'ENABLE_WEBHOOK_REPLAY',
 
   /**
-   * Weekly orphan-file cleanup (`uploads/cleanup.service.ts`) and the
-   * 30-minute expired-upload saga (`lessons/lessons.service.ts`).
+   * Weekly orphan-file cleanup (`uploads/cleanup.service.ts`).
    *
-   * DESTRUCTIVE. These delete objects from the configured storage bucket and
-   * videos from the configured Bunny library. This is the flag to reach for
+   * DESTRUCTIVE. It deletes objects from the configured storage bucket.
+   * This is the flag to reach for
    * when an environment's storage credentials are not yet confirmed isolated.
    */
   FILE_CLEANUP: 'ENABLE_FILE_CLEANUP',

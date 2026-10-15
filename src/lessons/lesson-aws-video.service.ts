@@ -26,10 +26,9 @@ export interface AwsVideoStatus {
 }
 
 /**
- * AWS replacement for the Bunny upload/encode/playback flow on academic lessons: the browser
- * uploads the source straight to S3, MediaConvert builds an HLS ladder, and playback is a
- * CloudFront signed-cookie grant. Lesson columns keep the status vocabulary the UI already
- * understands (`bunny_video_status`: processing | ready | failed).
+ * Video for academic lessons: the browser uploads the source straight to S3, MediaConvert builds an
+ * HLS ladder, and playback is a CloudFront signed-cookie grant. The lesson row mirrors the asset state
+ * in `video_status` (processing | ready | failed).
  */
 @Injectable()
 export class LessonAwsVideoService {
@@ -40,8 +39,9 @@ export class LessonAwsVideoService {
   ) {}
 
   public isEnabled(): boolean {
-    return this.video.isEnabled() && this.uploads.capabilities().purposes.some(
-      (p) => p.purpose === 'lesson_video' && p.enabled,
+    return (
+      this.video.isEnabled() &&
+      this.uploads.capabilities().purposes.some((p) => p.purpose === 'lesson_video' && p.enabled)
     );
   }
 
@@ -75,12 +75,8 @@ export class LessonAwsVideoService {
     const asset = await this.video.registerUpload(completed, teacherId);
     const previousAssetId = lesson.video_asset_id;
 
-    lesson.video_platform = 'aws';
     lesson.video_asset_id = asset.id;
-    lesson.bunny_video_id = null;
-    lesson.bunny_library_id = null;
-    lesson.bunny_video_status = asset.status === 'failed' ? 'failed' : 'processing';
-    lesson.video_url = null;
+    lesson.video_status = asset.status === 'failed' ? 'failed' : 'processing';
     lesson.video_thumbnail = null;
     lesson.video_width = null;
     lesson.video_height = null;
@@ -104,10 +100,11 @@ export class LessonAwsVideoService {
       );
     }
     const asset = await this.video.getStatus(lesson.video_asset_id);
-    const status = asset.status === 'ready' ? 'ready' : asset.status === 'failed' ? 'failed' : 'processing';
+    const status =
+      asset.status === 'ready' ? 'ready' : asset.status === 'failed' ? 'failed' : 'processing';
 
-    if (lesson.bunny_video_status !== status) {
-      lesson.bunny_video_status = status;
+    if (lesson.video_status !== status) {
+      lesson.video_status = status;
       if (asset.duration_seconds !== null) lesson.duration = asset.duration_seconds;
       if (asset.width !== null) lesson.video_width = asset.width;
       if (asset.height !== null) lesson.video_height = asset.height;
@@ -133,8 +130,7 @@ export class LessonAwsVideoService {
   public async detach(lesson: Lesson): Promise<void> {
     const assetId = lesson.video_asset_id;
     lesson.video_asset_id = null;
-    lesson.bunny_video_status = null;
-    lesson.video_url = null;
+    lesson.video_status = null;
     lesson.video_thumbnail = null;
     lesson.video_width = null;
     lesson.video_height = null;
@@ -146,7 +142,9 @@ export class LessonAwsVideoService {
   /** Playback grant. The caller must already have passed the lesson access policy. */
   public playback(lesson: Lesson): Promise<PlaybackGrant> {
     if (lesson.video_asset_id === null) {
-      throw new NotFoundException(biBody('This lesson has no ready video.', 'لا يوجد لهذا الدرس فيديو جاهز.'));
+      throw new NotFoundException(
+        biBody('This lesson has no ready video.', 'لا يوجد لهذا الدرس فيديو جاهز.'),
+      );
     }
     return this.video.grantPlayback(lesson.video_asset_id);
   }

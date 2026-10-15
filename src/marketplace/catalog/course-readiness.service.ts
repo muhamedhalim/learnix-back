@@ -2,7 +2,6 @@ import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { BunnyStreamService } from '../../lessons/bunny-stream.service';
 import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
@@ -34,7 +33,6 @@ export class CourseReadinessService {
     private readonly sections: Repository<MarketplaceCourseSection>,
     @InjectRepository(MarketplaceCourseLesson)
     private readonly lessons: Repository<MarketplaceCourseLesson>,
-    private readonly bunnyStream: BunnyStreamService,
     @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
@@ -46,13 +44,14 @@ export class CourseReadinessService {
     const config = getMarketplaceConfig();
 
     const sectionCount = await this.sections.count({ where: { course_id: courseId } });
-    const lessonRows = sectionCount === 0
-      ? []
-      : await this.lessons
-          .createQueryBuilder('l')
-          .innerJoin(MarketplaceCourseSection, 's', 's.id = l.section_id')
-          .where('s.course_id = :courseId', { courseId })
-          .getMany();
+    const lessonRows =
+      sectionCount === 0
+        ? []
+        : await this.lessons
+            .createQueryBuilder('l')
+            .innerJoin(MarketplaceCourseSection, 's', 's.id = l.section_id')
+            .where('s.course_id = :courseId', { courseId })
+            .getMany();
 
     const totalLessons = lessonRows.length;
     const requiredLessons = lessonRows.filter((l) => l.is_required_for_completion).length;
@@ -65,13 +64,22 @@ export class CourseReadinessService {
       { key: 'category', passed: !!course.category_id },
       { key: 'level', passed: !!course.level },
       { key: 'language', passed: !!course.language?.trim() },
-      { key: 'price', passed: course.price_minor !== null && course.price_minor !== undefined && course.price_minor >= 0 },
+      {
+        key: 'price',
+        passed:
+          course.price_minor !== null &&
+          course.price_minor !== undefined &&
+          course.price_minor >= 0,
+      },
       { key: 'currency', passed: !!course.currency?.trim() },
       { key: 'cover_image', passed: !!course.cover_image_key?.trim() },
       { key: 'at_least_one_section', passed: sectionCount >= 1 },
       { key: 'minimum_lessons', passed: totalLessons >= config.minLessonsForPublication },
       /** FR-333 — named distinctly, though it is the same underlying count as `minimum_required_lessons` below. */
-      { key: 'at_least_one_required_lesson', passed: requiredLessons >= config.minRequiredLessonsForPublication },
+      {
+        key: 'at_least_one_required_lesson',
+        passed: requiredLessons >= config.minRequiredLessonsForPublication,
+      },
       { key: 'at_least_one_free_preview_lesson', passed: previewLessons >= 1 },
       { key: 'learning_outcomes', passed: (course.learning_outcomes?.length ?? 0) > 0 },
       { key: 'video_lessons_ready', passed: await this.allVideoLessonsReady(lessonRows) },
@@ -81,9 +89,9 @@ export class CourseReadinessService {
   }
 
   /**
-   * FR-053: a video lesson blocks submission until its Bunny video has
-   * finished encoding. Skipped (treated as passed) when Bunny Stream isn't
-   * configured at all — there is nothing to verify against.
+   * FR-053: a video lesson blocks submission until its video has finished
+   * transcoding. A lesson whose video is not an AWS asset (no video, or a reference left over from
+   * a retired provider) is not ready: the instructor has to upload it again.
    */
   private async allVideoLessonsReady(lessonRows: MarketplaceCourseLesson[]): Promise<boolean> {
     const videoLessons = lessonRows.filter((l) => l.content_type === LessonContentType.VIDEO);
@@ -92,15 +100,9 @@ export class CourseReadinessService {
     const statuses = await Promise.all(
       videoLessons.map(async (lesson) => {
         if (!lesson.video_id) return false;
-        // AWS videos are always verified against their asset, whatever else is configured.
-        if (isAwsRef(lesson.video_id)) {
-          const asset = await this.awsVideo?.getStatus(awsAssetId(lesson.video_id)).catch(() => null);
-          return asset?.status === 'ready';
-        }
-        // Legacy Bunny ids: nothing to verify against when Bunny is not configured.
-        if (!this.bunnyStream.isConfigured) return true;
-        const metadata = await this.bunnyStream.getVideo(lesson.video_id);
-        return metadata.status === 'ready';
+        if (!isAwsRef(lesson.video_id)) return false;
+        const asset = await this.awsVideo?.getStatus(awsAssetId(lesson.video_id)).catch(() => null);
+        return asset?.status === 'ready';
       }),
     );
     return statuses.every(Boolean);

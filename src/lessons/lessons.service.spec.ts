@@ -6,7 +6,6 @@ import { PaymentsService } from '../payments/services/payments.service';
 import type { Subject } from '../subjects/entities/subject.entity';
 import type { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
-import { BunnyStreamService } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
 import { LessonStatus } from './entities/lesson-status.enum';
 import { LessonsService } from './lessons.service';
@@ -59,10 +58,6 @@ describe('LessonsService.findAll', () => {
       repository as unknown as Repository<Lesson>,
       {} as Repository<User>,
       {} as Repository<Subject>,
-      {} as Repository<
-        import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession
-      >,
-      {} as BunnyStreamService,
       {} as PaymentsService,
       media as unknown as MediaService,
       { getBookingCutoffMinutes: jest.fn().mockReturnValue(60) } as never,
@@ -87,11 +82,8 @@ describe('LessonsService.findAll', () => {
         subject_id: 'subject-1',
         subject_name: 'Math',
         thumbnail: 'thumbnail.jpg',
-        video_url: null,
-        video_platform: 'bunny',
-        bunny_video_id: null,
-        bunny_library_id: null,
-        bunny_video_status: null,
+        video_asset_id: null,
+        video_status: null,
         video_width: null,
         video_height: null,
         video_thumbnail: null,
@@ -193,11 +185,8 @@ describe('LessonsService lesson duration persistence', () => {
     subject_id: subject.id,
     subject,
     thumbnail: null,
-    video_url: null,
-    video_platform: 'bunny',
-    bunny_video_id: null,
-    bunny_library_id: null,
-    bunny_video_status: null,
+    video_asset_id: null,
+    video_status: null,
     video_width: null,
     video_height: null,
     video_thumbnail: null,
@@ -225,9 +214,10 @@ describe('LessonsService lesson duration persistence', () => {
   };
   const usersRepository = { findOne: jest.fn() };
   const subjectsRepository = { findOne: jest.fn() };
-  const bunny = {
-    getVideo: jest.fn(),
-    generateSignedEmbedUrl: jest.fn(),
+  const awsVideo = {
+    status: jest.fn(),
+    playback: jest.fn(),
+    detach: jest.fn(),
   };
   const payments = { hasLessonPlaybackAccess: jest.fn() };
   const media = {
@@ -241,7 +231,9 @@ describe('LessonsService lesson duration persistence', () => {
   };
   const dataSource = {
     transaction: jest.fn(async (callback: (manager: { save: jest.Mock }) => Promise<Lesson>) =>
-      callback({ save: jest.fn(async (_entity: unknown, value: Lesson) => lessonRepository.save(value)) }),
+      callback({
+        save: jest.fn(async (_entity: unknown, value: Lesson) => lessonRepository.save(value)),
+      }),
     ),
     query: jest.fn().mockResolvedValue([{ exists: false }]),
   };
@@ -250,8 +242,8 @@ describe('LessonsService lesson duration persistence', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     lesson.duration = null;
-    lesson.bunny_video_id = null;
-    lesson.bunny_video_status = null;
+    lesson.video_asset_id = null;
+    lesson.video_status = null;
     lesson.video_thumbnail = null;
     lesson.is_free_preview = false;
     // Default: no bookable appointments. Individual-lesson-scheduling specs
@@ -269,10 +261,6 @@ describe('LessonsService lesson duration persistence', () => {
       lessonRepository as unknown as Repository<Lesson>,
       usersRepository as unknown as Repository<User>,
       subjectsRepository as unknown as Repository<Subject>,
-      {} as Repository<
-        import('./entities/lesson-video-upload-session.entity').LessonVideoUploadSession
-      >,
-      bunny as unknown as BunnyStreamService,
       payments as unknown as PaymentsService,
       media as unknown as MediaService,
       lessonSessions as never,
@@ -283,6 +271,7 @@ describe('LessonsService lesson duration persistence', () => {
       // service even on paths that only assert on duration/thumbnail.
       { getLessonStudentCounts: jest.fn().mockResolvedValue(new Map()) } as never,
       {} as never,
+      awsVideo as never,
     );
   });
 
@@ -345,34 +334,49 @@ describe('LessonsService lesson duration persistence', () => {
     expect(result.duration).toBe(1_800);
   });
 
-  it('persists the Bunny-generated video poster after encoding metadata is available', async () => {
-    lesson.bunny_video_id = 'bunny-video-1';
-    bunny.getVideo.mockResolvedValue({
-      status: 'ready',
-      progress: 100,
-      durationSeconds: 120,
-      width: 1920,
-      height: 1080,
-      sizeBytes: 4096,
-      thumbnailUrl: 'https://cdn.example.test/bunny-video-1/thumbnail.jpg',
-    });
+  it('reports the processing state of the lesson video through the AWS video service', async () => {
+    lesson.video_asset_id = 'asset-1';
+    awsVideo.status.mockResolvedValue({ lessonId: lesson.id, status: 'processing' });
 
-    await service.refreshBunnyStatus(lesson.id, teacher.id);
+    const result = await service.refreshVideoStatus(lesson.id, teacher.id);
 
-    expect(lesson.video_thumbnail).toBe('https://cdn.example.test/bunny-video-1/thumbnail.jpg');
-    expect(lessonRepository.save).toHaveBeenCalledWith(lesson);
+    expect(awsVideo.status).toHaveBeenCalledWith(lesson.id, teacher.id);
+    expect(result).toEqual({ lessonId: lesson.id, status: 'processing' });
   });
 
-  it('denies a non-entitled viewer before asking Bunny to sign playback', async () => {
-    lesson.bunny_video_id = 'bunny-video-1';
-    lesson.bunny_video_status = 'ready';
+  it('answers 400 for a status request on a lesson without a video', async () => {
+    await expect(service.refreshVideoStatus(lesson.id, teacher.id)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(awsVideo.status).not.toHaveBeenCalled();
+  });
+
+  it('removes the lesson video through the AWS video service, and is a no-op without one', async () => {
+    await service.removeVideo(lesson.id, teacher.id);
+    expect(awsVideo.detach).not.toHaveBeenCalled();
+
+    lesson.video_asset_id = 'asset-1';
+    await service.removeVideo(lesson.id, teacher.id);
+    expect(awsVideo.detach).toHaveBeenCalledWith(lesson);
+  });
+
+  it('denies a non-entitled viewer before issuing a playback grant', async () => {
+    lesson.video_asset_id = 'asset-1';
+    lesson.video_status = 'ready';
     payments.hasLessonPlaybackAccess.mockResolvedValue(false);
 
     await expect(
       service.getSignedPlaybackUrl(lesson.id, 'student-without-access', UserRole.STUDENT),
     ).rejects.toBeInstanceOf(ForbiddenException);
 
-    expect(bunny.generateSignedEmbedUrl).not.toHaveBeenCalled();
+    expect(awsVideo.playback).not.toHaveBeenCalled();
+  });
+
+  it('refuses to publish a lesson whose video is still processing', async () => {
+    lesson.video_asset_id = 'asset-1';
+    lesson.video_status = 'processing';
+
+    await expect(service.assertPublishable(lesson)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('refuses to publish an Individual Lesson with no future ready appointment (Phase 5.3)', async () => {

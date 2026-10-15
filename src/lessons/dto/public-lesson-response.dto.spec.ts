@@ -16,11 +16,8 @@ describe('toPublicLessonResponse', () => {
       subject: { id: 'subject-1', name: 'Math' },
       thumbnail: 'images/lesson.jpg',
       thumbnail_url: 'https://api.example.test/api/v1/media/public/images/lesson.jpg',
-      video_url: 'https://paid-provider.example/private-video',
-      video_platform: 'bunny',
-      bunny_video_id: 'secret-video-id',
-      bunny_library_id: 'internal-library-id',
-      bunny_video_status: 'ready',
+      video_asset_id: 'secret-asset-id',
+      video_status: 'ready',
       video_width: 1920,
       video_height: 1080,
       video_thumbnail: 'https://provider.example/private-thumbnail.jpg',
@@ -44,7 +41,7 @@ describe('toPublicLessonResponse', () => {
 
     expect(result).toMatchSnapshot();
     expect(JSON.stringify(result)).not.toMatch(
-      /video_url|bunny_|vimeo_|secret-video|private-video|internal-library|"thumbnail"/i,
+      /video_url|video_asset|video_status|secret-asset|private-thumbnail|"thumbnail"/i,
     );
   });
 });

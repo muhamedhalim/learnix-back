@@ -74,7 +74,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       this.checkFirebase(),
       this.checkWhatsApp(),
       this.checkTwilio(),
-      this.checkBunnyStream(),
+      this.checkVideoPipeline(),
       this.checkSentry(),
     ];
     const results = await Promise.all(checks);
@@ -438,56 +438,54 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     });
   }
 
-  private async checkBunnyStream(): Promise<HealthComponentResult> {
+  /**
+   * Lesson video runs on AWS (S3 source, MediaConvert, CloudFront signed cookies). No AWS call is made here:
+   * this reports whether every setting the pipeline needs is present, naming only the variables that are
+   * missing, never their values. The same settings gate `VideoConfig.isConfigured()`.
+   */
+  private checkVideoPipeline(): Promise<HealthComponentResult> {
     const startedAt = Date.now();
-    const libraryId = this.config.get<string>('BUNNY_STREAM_LIBRARY_ID') ?? '';
-    const apiKey =
-      this.config.get<string>('BUNNY_STREAM_API_KEY') ??
-      this.config.get<string>('BUNNY_API_KEY') ??
-      '';
-    if (libraryId === '' && apiKey === '') {
-      return this.misconfigured(
-        'bunny-stream',
-        'Bunny Stream',
-        'provider',
-        startedAt,
-        'Bunny Stream is installed but not configured; video operations are unavailable.',
-        false,
-      );
+    const get = (key: string): string => this.config.get<string>(key)?.trim() ?? '';
+    const required = [
+      'VIDEO_SOURCE_BUCKET',
+      'VIDEO_OUTPUT_BUCKET',
+      'MEDIACONVERT_ROLE_ARN',
+      'CLOUDFRONT_KEY_PAIR_ID',
+      'VIDEO_PUBLIC_ORIGIN',
+    ].filter((key) => get(key) === '');
+    if (get('CLOUDFRONT_PRIVATE_KEY_B64') === '' && get('CLOUDFRONT_PRIVATE_KEY') === '') {
+      required.push('CLOUDFRONT_PRIVATE_KEY_B64');
     }
-    if (libraryId === '' || apiKey === '') {
-      return this.misconfigured(
-        'bunny-stream',
-        'Bunny Stream',
-        'provider',
-        startedAt,
-        'Bunny Stream configuration is incomplete.',
-        false,
-      );
-    }
-    const probe = await this.probe(
-      `https://video.bunnycdn.com/library/${encodeURIComponent(libraryId)}/videos?page=1&itemsPerPage=1`,
-      { headers: { AccessKey: apiKey } },
-      true,
-    );
-    return this.fromProbe({
-      id: 'bunny-stream',
-      name: 'Bunny Stream',
-      category: 'provider',
-      purpose: 'Lesson video hosting and playback',
-      startedAt,
-      probe,
-      metadata: {
-        libraryId: this.maskIdentifier(libraryId),
-        signedPlaybackConfigured: Boolean(this.config.get<string>('BUNNY_STREAM_TOKEN_KEY')),
-        cdnHostConfigured: Boolean(
-          this.config.get<string>('BUNNY_STREAM_CDN_HOSTNAME') ??
-          this.config.get<string>('BUNNY_STREAM_PULL_ZONE'),
+    if (required.length > 0) {
+      return Promise.resolve(
+        this.misconfigured(
+          'aws-video',
+          'Lesson video (AWS)',
+          'provider',
+          startedAt,
+          `Video upload and playback are unavailable: ${required.join(', ')} not set.`,
+          false,
         ),
-      },
-      dependencies: ['backend-api'],
-      critical: false,
-    });
+      );
+    }
+    return Promise.resolve(
+      componentResult({
+        id: 'aws-video',
+        name: 'Lesson video (AWS)',
+        category: 'provider',
+        status: 'healthy',
+        startedAt,
+        message:
+          'Video pipeline settings are present (S3, MediaConvert, CloudFront signed cookies).',
+        metadata: {
+          configured: true,
+          probeExecuted: false,
+          eventsQueueConfigured: get('MEDIA_EVENTS_QUEUE_URL') !== '',
+        },
+        dependencies: ['backend-api'],
+        critical: false,
+      }),
+    );
   }
 
   private async checkSentry(): Promise<HealthComponentResult> {

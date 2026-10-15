@@ -1,0 +1,267 @@
+name: Terraform
+
+# THE one authoritative Terraform pipeline (learnix-infra/ lives inside this repository, so its workflows must too:
+# GitHub only reads the repository root). It never deploys the application and ci-cd.yml never applies
+# infrastructure, so one push cannot cause a duplicate deploy or apply.
+#
+#   pull_request (learnix-infra/**)  -> static checks + a STAGING plan (the plan role of the other accounts does not
+#                                       trust pull requests)
+#   push to main (learnix-infra/**)  -> static checks + plans of org, staging and production (read-only, no apply)
+#   schedule (daily)                 -> drift check of org, staging and production (`plan -detailed-exitcode`)
+#   workflow_dispatch                -> plan + conftest + APPLY of ONE target, in its `infra-*` GitHub environment
+#                                       (required reviewers), applying exactly the plan that was reviewed
+#
+# Role, state-bucket and tfvars values come from GitHub repository variables (non-secret outputs of
+# learnix-infra/bootstrap); a target whose plan role variable is empty is skipped. Architecture: docs/CI-CD-ARCHITECTURE.md.
+on:
+  pull_request:
+    paths: ['learnix-infra/**', '.github/workflows/terraform.yml']
+  push:
+    branches: [main]
+    paths: ['learnix-infra/**', '.github/workflows/terraform.yml']
+  schedule:
+    - cron: '0 4 * * *' # drift check, 04:00 UTC (branch-sync in ci-cd.yml runs at 03:00)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to plan and apply (applies need the matching infra-* environment approval)
+        type: choice
+        options: [staging, production, org]
+        default: staging
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: 1.12.2
+
+jobs:
+  control:
+    name: Execution control
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      static: ${{ steps.route.outputs.static }}
+      targets: ${{ steps.route.outputs.targets }}
+      mode: ${{ steps.route.outputs.mode }}
+    steps:
+      - name: Route this event
+        id: route
+        env:
+          EVENT: ${{ github.event_name }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          static=false mode=plan targets='[]'
+          # The matrix rows carry the NAMES of the repository variables each target uses.
+          staging='{"name":"staging","dir":"environments/staging","gh_env":"infra-staging","plan_role":"STAGING_PLAN_ROLE_ARN","apply_role":"STAGING_APPLY_ROLE_ARN","bucket":"STAGING_TF_STATE_BUCKET","kms":"STAGING_TF_STATE_KMS_KEY_ARN","tfvars":"STAGING_TFVARS_JSON"}'
+          production='{"name":"production","dir":"environments/production","gh_env":"infra-production","plan_role":"PRODUCTION_PLAN_ROLE_ARN","apply_role":"PRODUCTION_APPLY_ROLE_ARN","bucket":"PRODUCTION_TF_STATE_BUCKET","kms":"PRODUCTION_TF_STATE_KMS_KEY_ARN","tfvars":"PRODUCTION_TFVARS_JSON"}'
+          org='{"name":"org","dir":"org","gh_env":"infra-management","plan_role":"AWS_PLAN_ROLE_ARN","apply_role":"AWS_APPLY_ROLE_ARN","bucket":"TF_STATE_BUCKET","kms":"TF_STATE_KMS_KEY_ARN","tfvars":"ORG_TFVARS_JSON"}'
+          case "$EVENT" in
+            pull_request) static=true targets="[$staging]" ;;
+            push) static=true targets="[$org,$staging,$production]" ;;
+            schedule) mode=drift targets="[$org,$staging,$production]" ;;
+            workflow_dispatch)
+              mode=apply
+              case "$TARGET" in
+                staging) targets="[$staging]" ;;
+                production) targets="[$production]" ;;
+                org) targets="[$org]" ;;
+                *) echo "::error::unknown target '$TARGET'"; exit 1 ;;
+              esac ;;
+            *) echo "::error::unexpected event '$EVENT'"; exit 1 ;;
+          esac
+          { echo "static=$static"; echo "mode=$mode"; echo "targets=$targets"; } >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT mode=$mode static=$static" >> "$GITHUB_STEP_SUMMARY"
+
+  static:
+    name: Static checks (${{ matrix.dir }})
+    needs: control
+    if: ${{ needs.control.outputs.static == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [bootstrap, org, environments/staging, environments/production]
+    defaults:
+      run:
+        working-directory: learnix-infra/${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - name: Offline plan against mocked providers (cycles, count/for_each, validations)
+        if: ${{ startsWith(matrix.dir, 'environments/') }}
+        run: terraform test
+      - uses: terraform-linters/setup-tflint@90f302c255ef959cbfb4bd10581afecdb7ece3e6 # v4
+      - run: tflint --chdir=.
+      - uses: bridgecrewio/checkov-action@6f26dc90000b74feb589a906cdfae540f5119895 # v12
+        with:
+          directory: learnix-infra/${{ matrix.dir }}
+          framework: terraform
+          soft_fail: false
+
+  deploy-script:
+    name: ecs-deploy.sh against a fake AWS CLI
+    needs: control
+    if: ${{ needs.control.outputs.static == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: bash -n learnix-infra/scripts/ecs-deploy.sh
+      - run: |
+          docker run --rm -v "$PWD/learnix-infra/scripts/tests:/fake" -v "$PWD/learnix-infra/scripts:/src:ro" alpine:3.20 sh -c \
+            "apk add --no-cache bash jq >/dev/null && mkdir -p /work && install -m 755 /fake/fake-aws /usr/local/bin/aws && bash /fake/ecs-deploy.test.sh"
+
+  # Plan (pull request, push), drift check (schedule) or the reviewed plan of an apply (dispatch).
+  plan:
+    name: ${{ needs.control.outputs.mode == 'drift' && 'Drift' || 'Plan' }} (${{ matrix.name }})
+    needs: [control, static, deploy-script]
+    # A skipped static job (schedule, dispatch) must not block the plan; a FAILED one must.
+    if: ${{ always() && needs.control.result == 'success' && needs.static.result != 'failure' && needs.static.result != 'cancelled' && needs.deploy-script.result != 'failure' && needs.deploy-script.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.control.outputs.targets) }}
+    # One operation per target at a time, never cancelled midway (a cancelled apply can leave a stale lock).
+    concurrency:
+      group: terraform-${{ matrix.name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ROLE_ARN: ${{ vars[matrix.plan_role] }}
+      STATE_BUCKET: ${{ vars[matrix.bucket] }}
+      STATE_KMS_KEY_ARN: ${{ vars[matrix.kms] }}
+      TFVARS_JSON: ${{ vars[matrix.tfvars] }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      MODE: ${{ needs.control.outputs.mode }}
+    defaults:
+      run:
+        working-directory: learnix-infra/${{ matrix.dir }}
+    steps:
+      - name: Skip a target that is not configured yet
+        id: configured
+        working-directory: .
+        run: |
+          if [ -z "$ROLE_ARN" ]; then
+            echo "The plan role variable for ${{ matrix.name }} is not set: skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.configured.outputs.run == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        if: steps.configured.outputs.run == 'true'
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        if: steps.configured.outputs.run == 'true'
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Values reach the shell through the environment, never by interpolation into the script.
+      - name: Write backend and variable files
+        if: steps.configured.outputs.run == 'true'
+        run: |
+          {
+            echo "bucket       = \"$STATE_BUCKET\""
+            echo "region       = \"$AWS_REGION\""
+            echo "encrypt      = true"
+            echo "kms_key_id   = \"$STATE_KMS_KEY_ARN\""
+            echo "use_lockfile = true"
+          } > backend.hcl
+          if [ -n "$TFVARS_JSON" ]; then printf '%s' "$TFVARS_JSON" > ci.auto.tfvars.json; else echo '{}' > ci.auto.tfvars.json; fi
+      - run: terraform init -input=false -backend-config=backend.hcl
+        if: steps.configured.outputs.run == 'true'
+
+      - name: Drift check (exit code 2 = the real infrastructure differs from the code)
+        if: steps.configured.outputs.run == 'true' && env.MODE == 'drift'
+        run: terraform plan -input=false -lock=false -detailed-exitcode
+
+      - name: Plan
+        if: steps.configured.outputs.run == 'true' && env.MODE != 'drift'
+        run: terraform plan -input=false -lock-timeout=60s -out=tfplan
+
+      # The policies live in learnix-infra/policies; mounting learnix-infra keeps their path stable for every target.
+      - name: Policy check (conftest)
+        if: steps.configured.outputs.run == 'true' && env.MODE != 'drift'
+        working-directory: learnix-infra
+        run: |
+          terraform -chdir=${{ matrix.dir }} show -json tfplan > "${{ matrix.dir }}/tfplan.json"
+          docker run --rm -v "$PWD:/project" -w /project openpolicyagent/conftest:v0.56.0 \
+            test --policy policies --parser json "${{ matrix.dir }}/tfplan.json"
+
+      # The plan can contain resource attributes: keep it for the apply only (dispatch) and for a short time.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.configured.outputs.run == 'true' && env.MODE == 'apply'
+        with:
+          name: tfplan-${{ matrix.name }}
+          path: |
+            learnix-infra/${{ matrix.dir }}/tfplan
+            learnix-infra/${{ matrix.dir }}/backend.hcl
+            learnix-infra/${{ matrix.dir }}/ci.auto.tfvars.json
+          retention-days: 3
+
+  apply:
+    name: Apply (${{ matrix.name }})
+    needs: [control, plan]
+    if: ${{ needs.control.outputs.mode == 'apply' && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.control.outputs.targets) }}
+    # Required reviewers are configured on these GitHub environments (infra-staging, infra-production, infra-management).
+    environment: ${{ matrix.gh_env }}
+    concurrency:
+      group: terraform-${{ matrix.name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ROLE_ARN: ${{ vars[matrix.apply_role] }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    defaults:
+      run:
+        working-directory: learnix-infra/${{ matrix.dir }}
+    steps:
+      - run: '[ -n "$ROLE_ARN" ] || { echo "::error::the apply role variable for ${{ matrix.name }} is not set"; exit 1; }'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tfplan-${{ matrix.name }}
+          path: learnix-infra/${{ matrix.dir }}
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init -input=false -backend-config=backend.hcl
+      - run: terraform apply -input=false -lock-timeout=60s tfplan

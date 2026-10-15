@@ -32,6 +32,7 @@ const repos = {
 const baselinePath = join(here, 'provider-baseline.json');
 
 // Patterns per provider. Imports catch SDK use; hosts catch hand-written HTTP clients (Bunny has no SDK).
+// Bunny is fully retired: its baseline is EMPTY, so any new reference to it fails this audit.
 const PROVIDERS = {
   'bunny-stream': [/bunnycdn\.com/i, /mediadelivery\.net/i, /b-cdn\.net/i, /from ['"]tus-js-client['"]/, /BUNNY_[A-Z_]+/],
   'cloudflare-r2': [/r2\.cloudflarestorage\.com/i, /\bR2_[A-Z_]+/],
@@ -45,7 +46,8 @@ const PROVIDERS = {
 };
 
 const CODE_EXT = /\.(ts|tsx|js|mjs|cjs|json|toml|yml|yaml|sh)$/;
-const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'dist-test', 'coverage', '.git', 'tmp', 'docs', 'test', 'e2e', '__tests__', 'migrations']);
+// learnix-infra: this very script and the Terraform live in a subdirectory of learnix-back; they name every provider on purpose.
+const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'dist-test', 'coverage', '.git', 'tmp', 'docs', 'test', 'e2e', '__tests__', 'migrations', 'learnix-infra']);
 const SKIP_FILE = /(\.spec\.|\.test\.|\.e2e-spec\.|package-lock\.json$|tsbuildinfo|\.md$|\.example$)/;
 
 function walk(dir, out = []) {

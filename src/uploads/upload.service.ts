@@ -21,7 +21,7 @@ import { StorageService } from '../storage/storage.service';
  * delegated to the centralized {@link StorageService} (Cloudflare R2 in
  * production) — this service owns validation + image processing only, and never
  * touches the local filesystem. Lesson videos are handled separately by the
- * Bunny Stream pipeline and never pass through here.
+ * video pipeline (`src/video`) and never pass through here.
  */
 @Injectable()
 export class UploadService {

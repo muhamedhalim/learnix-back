@@ -16,7 +16,6 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { PUBLIC_MEDIA_FOLDERS } from '../common/constants';
-import { parsePublicOrigin } from '../config/public-url.util';
 import {
   StorageObjectNotFoundError,
   StorageProvider,
@@ -134,7 +133,9 @@ class ObjectStoreProvider implements StorageProvider {
     try {
       await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: path }));
     } catch (err) {
-      this.logger.warn(`${this.name} delete failed for ${path}: ${describeS3Error(err, this.name)}`);
+      this.logger.warn(
+        `${this.name} delete failed for ${path}: ${describeS3Error(err, this.name)}`,
+      );
     }
   }
 
@@ -165,7 +166,9 @@ class ObjectStoreProvider implements StorageProvider {
         throw new StorageObjectNotFoundError(path);
       }
       if (err instanceof StorageObjectNotFoundError) throw err;
-      this.logger.error(`${this.name} getObject failed for ${path}: ${describeS3Error(err, this.name)}`);
+      this.logger.error(
+        `${this.name} getObject failed for ${path}: ${describeS3Error(err, this.name)}`,
+      );
       throw err;
     }
   }
@@ -179,94 +182,6 @@ class ObjectStoreProvider implements StorageProvider {
     return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: path }), {
       expiresIn: expiresInSeconds ?? this.signedExpires,
     });
-  }
-}
-
-/**
- * Bunny.net *Storage* provider (file storage — NOT Bunny Stream video). Retained
- * as a fallback for deployments still configured against it. Objects are public
- * via the CDN pull-zone; it has no native pre-signing, so signed URLs fall back
- * to the public URL.
- */
-class BunnyStorageProvider implements StorageProvider {
-  public readonly name = 'bunny';
-  private readonly base: string;
-
-  constructor(
-    private readonly zone: string,
-    private readonly password: string,
-    private readonly cdnUrl: string,
-    region: string | undefined,
-    private readonly logger: Logger,
-  ) {
-    this.base =
-      region && region !== ''
-        ? `https://${region}.storage.bunnycdn.com`
-        : 'https://storage.bunnycdn.com';
-  }
-
-  public async upload({
-    buffer,
-    path,
-    contentType,
-    visibility = 'public',
-  }: UploadParams): Promise<StoredFile> {
-    const res = await fetch(`${this.base}/${this.zone}/${path}`, {
-      method: 'PUT',
-      headers: { AccessKey: this.password, 'Content-Type': contentType },
-      body: new Uint8Array(buffer),
-    });
-    if (!res.ok) {
-      this.logger.error(`Bunny upload failed (${res.status}) for ${path}`);
-      throw new Error('File upload failed');
-    }
-    return { url: this.getPublicUrl(path), path, size: buffer.length, visibility };
-  }
-
-  public async delete(path: string): Promise<void> {
-    const res = await fetch(`${this.base}/${this.zone}/${path}`, {
-      method: 'DELETE',
-      headers: { AccessKey: this.password },
-    });
-    if (!res.ok && res.status !== 404) {
-      this.logger.warn(`Bunny delete failed (${res.status}) for ${path}`);
-    }
-  }
-
-  public async exists(path: string): Promise<boolean> {
-    const res = await fetch(`${this.base}/${this.zone}/${path}`, {
-      method: 'HEAD',
-      headers: { AccessKey: this.password },
-    });
-    return res.ok;
-  }
-
-  public async getObject(path: string): Promise<StoredObject> {
-    const res = await fetch(`${this.base}/${this.zone}/${path}`, {
-      method: 'GET',
-      headers: { AccessKey: this.password },
-    });
-    if (res.status === 404) {
-      throw new StorageObjectNotFoundError(path);
-    }
-    if (!res.ok || !res.body) {
-      this.logger.error(`Bunny getObject failed (${res.status}) for ${path}`);
-      throw new Error(`Bunny getObject failed (${res.status}) for ${path}`);
-    }
-    const contentLengthHeader = res.headers.get('content-length');
-    return {
-      stream: Readable.fromWeb(res.body as unknown as import('stream/web').ReadableStream),
-      contentType: res.headers.get('content-type') ?? 'application/octet-stream',
-      contentLength: contentLengthHeader ? Number.parseInt(contentLengthHeader, 10) : undefined,
-    };
-  }
-
-  public getPublicUrl(path: string): string {
-    return `${this.cdnUrl.replace(/\/+$/, '')}/${path}`;
-  }
-
-  public getSignedUrl(path: string): Promise<string> {
-    return Promise.resolve(this.getPublicUrl(path));
   }
 }
 
@@ -354,8 +269,8 @@ class LocalStorageProvider implements StorageProvider {
 
 /**
  * Centralized storage facade. Every module persists non-video assets through
- * this service — no module talks to Cloudflare / Bunny / disk directly.
- * Provider selection (once, at construction): R2 → Bunny Storage → local disk.
+ * this service — no module talks to S3 / R2 / disk directly.
+ * Provider selection (once, at construction): S3 → R2 → local disk (never in production).
  */
 @Injectable()
 export class StorageService implements StorageProvider {
@@ -400,29 +315,12 @@ export class StorageService implements StorageProvider {
       );
     }
 
-    const zone = this.config.get<string>('BUNNY_STORAGE_ZONE');
-    const password = this.config.get<string>('BUNNY_STORAGE_PASSWORD');
-    const cdnUrl = this.config.get<string>('BUNNY_CDN_URL');
-    if (zone && password && cdnUrl) {
-      this.assertProductionPublicUrl(cdnUrl, 'BUNNY_CDN_URL');
-      if (this.config.get<string>('NODE_ENV') === 'production') {
-        throw new Error(
-          'Bunny public storage cannot protect paid/private objects; configure a private R2 bucket.',
-        );
-      }
-      return new BunnyStorageProvider(
-        zone,
-        password,
-        cdnUrl,
-        this.config.get<string>('BUNNY_STORAGE_REGION'),
-        this.logger,
+    if (this.config.get<string>('NODE_ENV') === 'production') {
+      throw new Error(
+        'Object storage (S3_BUCKET, or R2 until it is retired) must be configured in production',
       );
     }
-
-    if (this.config.get<string>('NODE_ENV') === 'production') {
-      throw new Error('S3 (S3_BUCKET), R2 or Bunny object storage must be configured in production');
-    }
-    this.logger.warn('No object storage configured (S3/R2/Bunny) - using local disk fallback.');
+    this.logger.warn('No object storage configured (S3/R2) - using local disk fallback.');
     return new LocalStorageProvider(
       this.config.get<string>('UPLOAD_DIR') ?? './uploads',
       this.config.get<string>('PRIVATE_UPLOAD_DIR') ?? './private-uploads',
@@ -450,8 +348,13 @@ export class StorageService implements StorageProvider {
       throw new Error('S3 objects must be private: S3_PUBLIC_BASE_URL is not supported.');
     }
     const client = new S3Client({
-      region: this.config.get<string>('S3_REGION') || this.config.get<string>('AWS_REGION') || 'eu-central-1',
-      ...(endpoint ? { endpoint, forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE') !== 'false' } : {}),
+      region:
+        this.config.get<string>('S3_REGION') ||
+        this.config.get<string>('AWS_REGION') ||
+        'eu-central-1',
+      ...(endpoint
+        ? { endpoint, forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE') !== 'false' }
+        : {}),
       ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
     });
     return new ObjectStoreProvider(
@@ -474,11 +377,6 @@ export class StorageService implements StorageProvider {
 
   public get name(): string {
     return this.provider.name;
-  }
-
-  private assertProductionPublicUrl(value: string, variableName: string): void {
-    if (this.config.get<string>('NODE_ENV') !== 'production') return;
-    parsePublicOrigin(value, variableName as 'R2_PUBLIC_BASE_URL' | 'BUNNY_CDN_URL', true);
   }
 
   public upload(params: UploadParams): Promise<StoredFile> {

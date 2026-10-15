@@ -5,7 +5,6 @@ import { In, IsNull, Repository } from 'typeorm';
 
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { biBody } from '../i18n/error-translator.util';
-import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { LessonAwsVideoService } from '../lessons/lesson-aws-video.service';
 import type { PlaybackGrant } from '../video/aws-video.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
@@ -20,9 +19,6 @@ import { CourseStatus } from './entities/course-status.enum';
 import { LessonPackage } from './entities/lesson-package.entity';
 import { LessonPackageItem } from './entities/lesson-package-item.entity';
 
-/** Free previews are unauthenticated, so the signed URL is kept intentionally short-lived. */
-const FREE_PREVIEW_SIGNED_URL_TTL_SECONDS = 10 * 60;
-
 /** Public, anonymous cache TTL for the unsigned half of the preview (T037 a). */
 const PREVIEW_CACHE_TTL_MS = 60_000;
 
@@ -34,28 +30,18 @@ interface PreviewLesson {
   locked: boolean;
   /**
    * Playable source — present only for free-preview lessons whose video has
-   * finished encoding. Never exposes bunny_video_id/bunny_library_id/the raw
-   * embed URL: this endpoint is public and unauthenticated, so only a
-   * short-lived signed URL is safe to hand out.
+   * finished transcoding. This endpoint is public and unauthenticated, so it
+   * only names the lesson; the playback grant (HLS URL and signed cookies) is
+   * fetched on demand from GET /packages/:id/preview/lessons/:lessonId/playback.
    */
-  video:
-    | { signed_url: string; expires_in: number }
-    // AWS video: fetch cookies on demand from GET /packages/:id/preview/lessons/:lessonId/playback
-    | { platform: 'aws'; lesson_id: string }
-    | null;
+  video: { platform: 'aws'; lesson_id: string } | null;
 }
 
 /**
- * Cached shape of one preview lesson (T037 a): the real `video` field is never
- * computed here — only whether the lesson qualifies for one — so the signed
- * URL is generated fresh on every request, after the cache read, and never
- * spends its 10-minute TTL sitting in Redis (rule 8: no cache family or
- * Cache-Control header stores a Bunny signed URL, `expires_in`, or signed
- * playback data). `signable_video_id` never reaches the HTTP body; it exists
- * only to let the post-read mapper sign without a second database round trip.
- * It is not secret (the same id is already observable inside `signed_url`
- * today, `gates/W1-C6d.md` section 3), so holding it in Redis is not a rule 8
- * violation — only the SIGNED value is prohibited from being cached.
+ * Cached shape of one preview lesson (T037 a): only whether the lesson
+ * qualifies for a playable video is cached, never a playback grant (rule 8: no
+ * cache family or Cache-Control header stores signed cookies, `expires_in`, or
+ * signed playback data); the grant is issued per request by the playback route.
  */
 interface CachedPreviewLesson {
   id: string;
@@ -63,7 +49,6 @@ interface CachedPreviewLesson {
   duration: number | null;
   is_free_preview: boolean;
   locked: boolean;
-  signable_video_id: string | null;
   /** Free-preview lesson whose video is an AWS asset (only the lesson id is cached, never a grant). */
   aws_playback_lesson_id: string | null;
 }
@@ -75,9 +60,8 @@ interface CachedPreviewSection {
 
 /**
  * Builds the public, pre-purchase course preview. Locked lessons are listed but
- * carry no playable source; free-preview lessons expose a short-lived signed
- * playback URL so a teaser plays without a purchase and without leaking any
- * Bunny Stream identifiers.
+ * carry no playable source; free-preview lessons point at the playback route so
+ * a teaser plays without a purchase and without leaking storage identifiers.
  */
 @Injectable()
 export class CoursePreviewService {
@@ -96,7 +80,6 @@ export class CoursePreviewService {
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
     private readonly reviewsService: ReviewsService,
     private readonly media: MediaService,
-    private readonly bunnyStream: BunnyStreamService,
     private readonly applicationCache: ApplicationCacheService,
     @Optional() private readonly lessonAwsVideo?: LessonAwsVideoService,
   ) {}
@@ -109,16 +92,28 @@ export class CoursePreviewService {
   public async getPreviewPlayback(packageId: string, lessonId: string): Promise<PlaybackGrant> {
     const notFound = new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull(), status: CourseStatus.PUBLISHED, is_active: true },
+      where: {
+        id: packageId,
+        deleted_at: IsNull(),
+        status: CourseStatus.PUBLISHED,
+        is_active: true,
+      },
     });
     if (!pkg || !this.lessonAwsVideo) throw notFound;
-    const item = await this.itemsRepository.findOne({ where: { package_id: packageId, lesson_id: lessonId } });
+    const item = await this.itemsRepository.findOne({
+      where: { package_id: packageId, lesson_id: lessonId },
+    });
     const lesson = item
       ? await this.lessonsRepository.findOne({
           where: { id: lessonId, deleted_at: IsNull(), status: LessonStatus.PUBLISHED },
         })
       : null;
-    if (!lesson || !lesson.is_free_preview || lesson.video_asset_id === null || lesson.bunny_video_status !== 'ready') {
+    if (
+      !lesson ||
+      !lesson.is_free_preview ||
+      lesson.video_asset_id === null ||
+      lesson.video_status !== 'ready'
+    ) {
       throw notFound;
     }
     return this.lessonAwsVideo.playback(lesson);
@@ -149,22 +144,12 @@ export class CoursePreviewService {
   } {
     return {
       chapter: section.chapter,
-      lessons: section.lessons.map(({ signable_video_id, aws_playback_lesson_id, ...lesson }) => {
-        const signedUrl = signable_video_id
-          ? this.bunnyStream.generateSignedEmbedUrl(
-              signable_video_id,
-              FREE_PREVIEW_SIGNED_URL_TTL_SECONDS,
-            )
-          : null;
-        return {
-          ...lesson,
-          video: signedUrl
-            ? { signed_url: signedUrl, expires_in: FREE_PREVIEW_SIGNED_URL_TTL_SECONDS }
-            : aws_playback_lesson_id
-              ? { platform: 'aws' as const, lesson_id: aws_playback_lesson_id }
-              : null,
-        };
-      }),
+      lessons: section.lessons.map(({ aws_playback_lesson_id, ...lesson }) => ({
+        ...lesson,
+        video: aws_playback_lesson_id
+          ? { platform: 'aws' as const, lesson_id: aws_playback_lesson_id }
+          : null,
+      })),
     };
   }
 
@@ -284,15 +269,13 @@ export class CoursePreviewService {
 
     const toPreview = (lesson: Lesson): CachedPreviewLesson => {
       const free = lesson.is_free_preview;
-      const videoReady = lesson.bunny_video_id !== null && lesson.bunny_video_status === 'ready';
-      const awsReady = lesson.video_asset_id !== null && lesson.bunny_video_status === 'ready';
+      const awsReady = lesson.video_asset_id !== null && lesson.video_status === 'ready';
       return {
         id: lesson.id,
         title: lesson.title,
         duration: lesson.duration,
         is_free_preview: free,
         locked: !free,
-        signable_video_id: free && videoReady ? (lesson.bunny_video_id as string) : null,
         aws_playback_lesson_id: free && awsReady ? lesson.id : null,
       };
     };

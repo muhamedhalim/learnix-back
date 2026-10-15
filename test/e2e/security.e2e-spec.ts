@@ -63,7 +63,7 @@ describe('Security (e2e)', () => {
   });
 
   describe('injection & data exposure', () => {
-    it("treats a SQL-injection login payload as invalid credentials", async () => {
+    it('treats a SQL-injection login payload as invalid credentials', async () => {
       await request(server)
         .post(`${API_PREFIX}/auth/login`)
         .send({ email: "admin' OR '1'='1", password: "' OR '1'='1" })
@@ -71,10 +71,7 @@ describe('Security (e2e)', () => {
     });
 
     it('never returns a password hash on login', async () => {
-      const { agent, credentials } = await createAuthenticatedUser(
-        ctx.app,
-        ctx.dataSource,
-      );
+      const { agent, credentials } = await createAuthenticatedUser(ctx.app, ctx.dataSource);
       const res = await agent
         .post(`${API_PREFIX}/auth/login`)
         .send({ email: credentials.email, password: credentials.password })
@@ -118,9 +115,7 @@ describe('Security (e2e)', () => {
     });
 
     it('rejects repeated pagination parameters instead of accepting an array', async () => {
-      await request(server)
-        .get(`${API_PREFIX}/teachers?page=1&page=2&limit=20`)
-        .expect(400);
+      await request(server).get(`${API_PREFIX}/teachers?page=1&page=2&limit=20`).expect(400);
     });
   });
 
@@ -135,9 +130,7 @@ describe('Security (e2e)', () => {
       });
 
       const list = await request(server).get(`${API_PREFIX}/teachers`).expect(200);
-      const detail = await request(server)
-        .get(`${API_PREFIX}/teachers/${profile.id}`)
-        .expect(200);
+      const detail = await request(server).get(`${API_PREFIX}/teachers/${profile.id}`).expect(200);
       for (const body of [list.body, detail.body]) {
         expect(JSON.stringify(body)).not.toMatch(
           /email|phone|password|refresh|rejection_reason|firebase_uid/i,
@@ -180,9 +173,8 @@ describe('Security (e2e)', () => {
           teacher_id: teacher.userId,
           subject_id: subject.id,
           thumbnail: 'images/lesson.jpg',
-          video_url: 'https://private-provider.example/video',
-          bunny_video_id: 'private-video-id',
-          bunny_library_id: 'private-library-id',
+          video_asset_id: '00000000-0000-4000-8000-0000000000a1',
+          video_status: 'ready',
           price: 10,
           duration: 60,
           status: LessonStatus.PUBLISHED,
@@ -226,7 +218,7 @@ describe('Security (e2e)', () => {
         const response = await request(server).get(`${API_PREFIX}/${endpoint}`).expect(200);
         const serialized = JSON.stringify(response.body);
         expect(serialized).not.toMatch(
-          /email|phone|password|refresh|rejection_reason|firebase_uid|book_file|video_url|bunny_library_id|r2\.cloudflarestorage\.com/i,
+          /email|phone|password|refresh|rejection_reason|firebase_uid|book_file|video_asset_id|video_status|0000000000a1|r2\.cloudflarestorage\.com/i,
         );
       }
     });

@@ -1,18 +1,14 @@
-import { Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
-import { BunnyStreamService } from '../../lessons/bunny-stream.service';
 import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
 import type { PlaybackCookie } from '../../video/playback-cookies';
 import { AccessService } from '../commerce/access.service';
 import { MarketplaceLessonProgress } from '../commerce/entities';
 import { LessonContentType } from '../common/enums';
 import { MarketplaceCourseLesson, MarketplaceCourseSection } from '../catalog/entities';
-
-/** A 5-minute signed-URL TTL, matching the academic player's own (`LessonsService.getSignedPlaybackUrl`). */
-const SIGNED_URL_TTL_SECONDS = 300;
 
 export interface PlayerLesson {
   id: string;
@@ -50,7 +46,7 @@ export interface SignedLessonContent {
   playback_url: string | null;
   expires_in: number | null;
   /** `aws` => `playback_url` is an absolute HLS URL on the API/CDN host authorised by `playback_cookies`. */
-  platform?: 'aws' | 'bunny';
+  platform?: 'aws';
   playback_cookies?: PlaybackCookie[];
 }
 
@@ -75,14 +71,16 @@ export class PlayerService {
     @InjectRepository(MarketplaceLessonProgress)
     private readonly progress: Repository<MarketplaceLessonProgress>,
     private readonly access: AccessService,
-    private readonly bunnyStream: BunnyStreamService,
     @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
   public async getPlayerData(learnerId: string, enrollmentId: string): Promise<PlayerData> {
     const enrollment = await this.access.verifyAccessByEnrollment(learnerId, enrollmentId);
 
-    const sections = await this.sections.find({ where: { course_id: enrollment.course_id }, order: { position: 'ASC' } });
+    const sections = await this.sections.find({
+      where: { course_id: enrollment.course_id },
+      order: { position: 'ASC' },
+    });
     const sectionIds = sections.map((s) => s.id);
     const lessons = sectionIds.length
       ? await this.lessons.find({
@@ -137,7 +135,11 @@ export class PlayerService {
   }
 
   /** FR-244: never a durable public address for video — a fresh, short-lived signed URL every request. */
-  public async getLessonContent(learnerId: string, enrollmentId: string, lessonId: string): Promise<SignedLessonContent> {
+  public async getLessonContent(
+    learnerId: string,
+    enrollmentId: string,
+    lessonId: string,
+  ): Promise<SignedLessonContent> {
     const enrollment = await this.access.verifyAccessByEnrollment(learnerId, enrollmentId);
     const lesson = await this.lessons
       .createQueryBuilder('l')
@@ -146,7 +148,9 @@ export class PlayerService {
       .andWhere('s.course_id = :courseId', { courseId: enrollment.course_id })
       .getOne();
     if (!lesson) {
-      throw new NotFoundException(biBody('Lesson not found in this course', 'الدرس غير موجود في هذه الدورة'));
+      throw new NotFoundException(
+        biBody('Lesson not found in this course', 'الدرس غير موجود في هذه الدورة'),
+      );
     }
 
     if (lesson.content_type !== LessonContentType.VIDEO) {
@@ -160,31 +164,25 @@ export class PlayerService {
     }
 
     if (!lesson.video_id) {
-      throw new NotFoundException(biBody('Video not yet available for this lesson', 'الفيديو غير متوفر بعد لهذا الدرس'));
+      throw new NotFoundException(
+        biBody('Video not yet available for this lesson', 'الفيديو غير متوفر بعد لهذا الدرس'),
+      );
     }
-    if (isAwsRef(lesson.video_id) && this.awsVideo) {
-      const grant = await this.awsVideo.grantPlayback(awsAssetId(lesson.video_id));
-      return {
-        lesson_id: lesson.id,
-        content_type: lesson.content_type,
-        content_html: null,
-        playback_url: grant.hls_url,
-        expires_in: Math.max(0, Math.round((Date.parse(grant.expires_at) - Date.now()) / 1000)),
-        platform: 'aws',
-        playback_cookies: grant.playback_cookies,
-      };
+    if (!isAwsRef(lesson.video_id) || !this.awsVideo) {
+      // A reference to a retired provider (or a deployment without video) has nothing to play.
+      throw new NotFoundException(
+        biBody('Video not yet available for this lesson', 'الفيديو غير متاح بعد لهذا الدرس'),
+      );
     }
-    const signedUrl = this.bunnyStream.generateSignedEmbedUrl(lesson.video_id, SIGNED_URL_TTL_SECONDS);
-    if (!signedUrl) {
-      throw new ServiceUnavailableException(biBody('Video playback is temporarily unavailable', 'تشغيل الفيديو غير متاح مؤقتًا'));
-    }
-
+    const grant = await this.awsVideo.grantPlayback(awsAssetId(lesson.video_id));
     return {
       lesson_id: lesson.id,
       content_type: lesson.content_type,
       content_html: null,
-      playback_url: signedUrl,
-      expires_in: SIGNED_URL_TTL_SECONDS,
+      playback_url: grant.hls_url,
+      expires_in: Math.max(0, Math.round((Date.parse(grant.expires_at) - Date.now()) / 1000)),
+      platform: 'aws',
+      playback_cookies: grant.playback_cookies,
     };
   }
 }

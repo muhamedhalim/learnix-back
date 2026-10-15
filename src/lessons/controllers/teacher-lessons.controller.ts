@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -12,29 +11,16 @@ import {
   Post,
   Put,
   Query,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBearerAuth,
-  ApiConsumes,
-  ApiOperation,
-  ApiQuery,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
-import { FILE_LIMITS } from '../../common/constants';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { biBody } from '../../i18n/error-translator.util';
 import {
-  CreateBunnyUploadDto,
   CreateLessonDto,
   SetLessonVisibilityDto,
   TeacherLessonFilterDto,
@@ -43,14 +29,6 @@ import {
 import { LessonsService } from '../lessons.service';
 import { IsInt, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { LessonAwsVideoService } from '../lesson-aws-video.service';
-
-/** Minimal shape of a multer in-memory file (mirrors teacher-uploads). */
-interface MulterFile {
-  originalname: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
-}
 
 export class StartAwsVideoUploadDto {
   @IsString()
@@ -256,24 +234,9 @@ export class TeacherLessonsController {
     };
   }
 
-  /**
-   * Short-lived credentials for direct resumable upload. These credentials are
-   * scoped to one already-created video and cannot be used as the Bunny API
-   * key or to inspect any other library asset.
-   */
-  @Post(':id/video/upload-session')
-  @ApiOperation({ summary: 'Create a direct Bunny TUS upload session' })
-  public async createUploadSession(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: CreateBunnyUploadDto,
-  ): Promise<unknown> {
-    return await this.lessonsService.createBunnyUploadSession(id, user.userId, dto.title);
-  }
-
   /* ===================== AWS video: direct-to-S3 upload ===================== */
 
-  /** Whether the AWS video pipeline is available (otherwise the UI falls back to the legacy uploader). */
+  /** Whether the AWS video pipeline is configured on this deployment (the UI hides uploads when it is not). */
   @Get('video/aws/capabilities')
   @ApiOperation({ summary: 'Is direct-to-S3 video upload available?' })
   public awsVideoCapabilities(): { enabled: boolean } {
@@ -307,115 +270,24 @@ export class TeacherLessonsController {
     return await this.lessonAwsVideo.completeUpload(id, user.userId, dto.upload_id);
   }
 
-  @Post(':id/video/upload-session/:sessionId/complete')
-  @ApiOperation({ summary: 'Verify and attach a completed direct upload' })
-  public async completeUploadSession(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
-  ): Promise<unknown> {
-    return await this.lessonsService.completeBunnyUploadSession(id, user.userId, sessionId);
-  }
-
-  /* ===================== Bunny Stream — backend-proxied upload =====================
-   * The only supported way to attach a video is POST :id/video below: the
-   * server creates the Bunny asset itself and streams the bytes, so a video
-   * is always one our own upload session produced. There is deliberately no
-   * endpoint that accepts a client-supplied video URL/ID — that would let a
-   * caller point a lesson at an arbitrary (possibly another library's or
-   * another teacher's) Bunny asset with no server-side verification. */
-
-  /**
-   * Upload a lesson video. The browser sends the local file to THIS backend
-   * (multipart), and the backend streams it on to Bunny Stream — the frontend
-   * never talks to Bunny and the API key never leaves the server. Replaces any
-   * existing video on the lesson.
-   */
-  @Post(':id/video')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: FILE_LIMITS.VIDEO_MAX_SIZE },
-    }),
-  )
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Upload a lesson video (proxied to Bunny Stream)',
-    description:
-      'Accepts a local video file, forwards it to the Bunny Stream library, and stores only Bunny metadata. Replaces any existing video. The Bunny API key never reaches the client.',
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'No file provided or unsupported/oversized video',
-  })
-  public async uploadVideo(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file?: MulterFile,
-  ): Promise<unknown> {
-    if (!file) {
-      throw new BadRequestException(biBody('No video file provided.', 'لم يتم توفير ملف فيديو.'));
-    }
-    if (!file.mimetype?.startsWith('video/')) {
-      throw new BadRequestException(
-        biBody(
-          'Unsupported file type. Please upload a video file (MP4, MOV, WebM, …).',
-          'نوع الملف غير مدعوم. يرجى رفع ملف فيديو (MP4، MOV، WebM، ...).',
-        ),
-      );
-    }
-    if (file.size > FILE_LIMITS.VIDEO_MAX_SIZE) {
-      const maxGb = Math.round(FILE_LIMITS.VIDEO_MAX_SIZE / (1024 * 1024 * 1024));
-      throw new BadRequestException(
-        biBody(
-          `Video is too large (max ${String(maxGb)} GB).`,
-          `حجم الفيديو كبير جدًا (الحد الأقصى ${String(maxGb)} جيجابايت).`,
-        ),
-      );
-    }
-    return await this.lessonsService.uploadBunnyVideo(id, user.userId, file);
-  }
-
-  /**
-   * Poll the encoding status of the lesson's Bunny video and persist the
-   * latest metadata (duration, resolution, poster, size, status).
-   */
+  /** Processing state of the lesson's video; poll until `ready` or `failed`. */
   @Get(':id/video/status')
-  @ApiOperation({
-    summary: 'Get Bunny Stream video status',
-    description:
-      "Fetches and stores the lesson video's encoding status and metadata from Bunny Stream.",
-  })
-  public async getBunnyStatus(
+  @ApiOperation({ summary: 'Get the lesson video processing status' })
+  public async getVideoStatus(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return await this.lessonsService.refreshBunnyStatus(id, user.userId);
+    return await this.lessonsService.refreshVideoStatus(id, user.userId);
   }
 
-  /**
-   * Delete the lesson's Bunny Stream video and clear stored video metadata.
-   */
+  /** Delete the lesson's video (stored objects and metadata). */
   @Delete(':id/video')
-  @ApiOperation({ summary: 'Delete the lesson video (any provider)' })
+  @ApiOperation({ summary: 'Delete the lesson video' })
   public async deleteVideo(
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    await this.lessonsService.removeBunnyVideo(id, user.userId);
-    return { message: 'Video removed successfully' };
-  }
-
-  @Delete(':id/video/bunny')
-  @ApiOperation({
-    summary: 'Delete the Bunny Stream video',
-    description:
-      'Removes the video from Bunny Stream and clears the stored video metadata on the lesson.',
-  })
-  public async deleteBunnyVideo(
-    @GetUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
-    await this.lessonsService.removeBunnyVideo(id, user.userId);
+    await this.lessonsService.removeVideo(id, user.userId);
     return { message: 'Video removed successfully' };
   }
 }

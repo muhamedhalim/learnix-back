@@ -91,7 +91,7 @@ export class HealthOrchestratorService {
           'firebase',
           'meta-whatsapp',
           'twilio-sms',
-          'bunny-stream',
+          'aws-video',
           'sentry',
         ].includes(componentId) &&
           candidate.id === 'external-providers'),

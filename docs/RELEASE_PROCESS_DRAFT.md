@@ -22,7 +22,7 @@ feature/<name>  →  PR  →  develop  →  (auto) staging deploy  →  smoke  �
 ```
 
 1. Branch `feature/<name>` off `develop`.
-2. Open a PR into `develop`. `ci-cd.yml`'s validation jobs (`ci-gate`) must pass (§ `CI_CD_SETUP.md` §1.1) before merge —
+2. Open a PR into `develop`. `ci-cd.yml`'s validation jobs (`ci-gate`) must pass (§ `CI-CD-ARCHITECTURE.md` §1.1) before merge —
    enforced by `develop`'s branch protection (§ `BRANCH_PROTECTION_SETUP.md` §3.2).
 3. Merging to `develop` pushes it; the same `ci-cd.yml` run validates it again, then its `deploy` job
    rolls it out to AWS staging (Vercel deploys the frontend on its own).
@@ -70,7 +70,7 @@ back.**
   proven. Phase 9's job is to run `THROTTLE.AUTH`'s restoration (finding R5) as the very first
   release through this exact pipeline and record what actually happens at each step, promoting
   this file to `RELEASE_PROCESS.md` once it has.
-- The Production approval gate does not yet control Railway's actual deploy timing (§ `CI_CD_SETUP.md`
+- The Production approval gate does not yet control Railway's actual deploy timing (§ `CI-CD-ARCHITECTURE.md`
   §5) — until that's resolved, step 9 above is real (backup, health check, smoke test all
   genuinely run and gate the workflow) but Railway itself may have already deployed the merge
   commit before the workflow even starts, per Phase 4's finding.

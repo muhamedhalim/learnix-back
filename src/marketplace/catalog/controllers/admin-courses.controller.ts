@@ -1,4 +1,15 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, ServiceUnavailableException, UseGuards, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
@@ -8,7 +19,6 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { biBody } from '../../../i18n/error-translator.util';
-import { BunnyStreamService } from '../../../lessons/bunny-stream.service';
 import { AwsVideoService, awsAssetId, isAwsRef } from '../../../video/aws-video.service';
 import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { MarketplaceReasonDto } from '../../common/dto/reason.dto';
@@ -16,7 +26,11 @@ import { CourseAuthoringService } from '../course-authoring.service';
 import { CourseLifecycleService } from '../course-lifecycle.service';
 import { CourseStatusQueryDto } from '../dto/course-query.dto';
 import { RejectCourseDto } from '../dto/reject-course.dto';
-import type { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection } from '../entities';
+import type {
+  MarketplaceCourse,
+  MarketplaceCourseLesson,
+  MarketplaceCourseSection,
+} from '../entities';
 
 /** Contracts §5 course block (T070's scope). Permanent removal (FR-054a, T142) and featuring (FR-284, T191) are separate later tasks. */
 @ApiTags('Marketplace / Admin — Courses')
@@ -28,33 +42,40 @@ export class AdminCoursesController {
   constructor(
     private readonly authoring: CourseAuthoringService,
     private readonly lifecycle: CourseLifecycleService,
-    private readonly bunnyStream: BunnyStreamService,
     private readonly awsVideo: AwsVideoService,
   ) {}
 
   @Get()
-  @ApiOperation({ summary: 'Every course, any state, any instructor, ordered by waiting time (FR-282)' })
+  @ApiOperation({
+    summary: 'Every course, any state, any instructor, ordered by waiting time (FR-282)',
+  })
   public async list(@Query() query: CourseStatusQueryDto): Promise<MarketplaceCourse[]> {
     return this.authoring.listAllCourses(query.status);
   }
 
   @Get(':id/content')
-  @ApiOperation({ summary: 'Full curriculum exactly as a buyer would see it — every lesson, not just previews (FR-065)' })
-  public async getContent(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ course: MarketplaceCourse; sections: (MarketplaceCourseSection & { lessons: MarketplaceCourseLesson[] })[] }> {
+  @ApiOperation({
+    summary:
+      'Full curriculum exactly as a buyer would see it — every lesson, not just previews (FR-065)',
+  })
+  public async getContent(@Param('id', ParseUUIDPipe) id: string): Promise<{
+    course: MarketplaceCourse;
+    sections: (MarketplaceCourseSection & { lessons: MarketplaceCourseLesson[] })[];
+  }> {
     return this.authoring.getCourseWithCurriculum(id);
   }
 
   /**
    * Not in contracts §5's endpoint table. `getContent` returns bare
    * `video_id`s, which a reviewer cannot actually play — "full content
-   * playable" (FR-065, T077's AC) needs a Bunny playback/embed URL, not
+   * playable" (FR-065, T077's AC) needs a signed playback grant, not
    * just the id. Added during T077 alongside the other read-only gaps this
    * phase surfaced; see the discrepancy note in tasks.md.
    */
   @Get(':id/lessons/:lessonId/video')
-  @ApiOperation({ summary: 'Bunny playback metadata for one lesson video, so a reviewer can actually play it (FR-065)' })
+  @ApiOperation({
+    summary: 'Playback grant for one lesson video, so a reviewer can actually play it (FR-065)',
+  })
   @UseInterceptors(PlaybackCookiesInterceptor)
   public async getLessonVideo(
     @Param('id', ParseUUIDPipe) id: string,
@@ -63,31 +84,27 @@ export class AdminCoursesController {
     const { sections } = await this.authoring.getCourseWithCurriculum(id);
     const lesson = sections.flatMap((section) => section.lessons).find((l) => l.id === lessonId);
     if (!lesson?.video_id) {
-      throw new NotFoundException(biBody('No video has been uploaded for this lesson yet', 'لم يتم رفع فيديو لهذا الدرس بعد'));
-    }
-    if (isAwsRef(lesson.video_id)) {
-      const assetId = awsAssetId(lesson.video_id);
-      const asset = await this.awsVideo.getStatus(assetId);
-      if (asset.status !== 'ready') return { status: asset.status, platform: 'aws' };
-      const grant = await this.awsVideo.grantPlayback(assetId);
-      return {
-        status: 'ready',
-        platform: 'aws',
-        hls_url: grant.hls_url,
-        expires_at: grant.expires_at,
-        playback_cookies: grant.playback_cookies,
-      };
-    }
-    // The reviewer is an authorised viewer, but the raw Bunny metadata carries unsigned embed and
-    // playback URLs that anyone could reuse. Return only what the player needs, signed.
-    const { embedUrl: _embed, playbackUrl: _playback, ...meta } = await this.bunnyStream.getVideo(lesson.video_id);
-    const signed = this.bunnyStream.generateSignedEmbedUrl(lesson.video_id, 15 * 60);
-    if (signed === null) {
-      throw new ServiceUnavailableException(
-        biBody('Secure video playback is not configured on the server.', 'التشغيل الآمن للفيديو غير مُهيَّأ على الخادم.'),
+      throw new NotFoundException(
+        biBody('No video has been uploaded for this lesson yet', 'لم يتم رفع فيديو لهذا الدرس بعد'),
       );
     }
-    return { ...meta, platform: 'bunny', signed_url: signed };
+    if (!isAwsRef(lesson.video_id)) {
+      // A reference to a retired provider: there is nothing to play until the instructor re-uploads.
+      throw new NotFoundException(
+        biBody('No video has been uploaded for this lesson yet', 'لم يتم رفع فيديو لهذا الدرس بعد'),
+      );
+    }
+    const assetId = awsAssetId(lesson.video_id);
+    const asset = await this.awsVideo.getStatus(assetId);
+    if (asset.status !== 'ready') return { status: asset.status, platform: 'aws' };
+    const grant = await this.awsVideo.grantPlayback(assetId);
+    return {
+      status: 'ready',
+      platform: 'aws',
+      hls_url: grant.hls_url,
+      expires_at: grant.expires_at,
+      playback_cookies: grant.playback_cookies,
+    };
   }
 
   @Post(':id/approve')
@@ -95,14 +112,19 @@ export class AdminCoursesController {
   // (recordAuditEvent); `admin_dashboard` reads recent audit logs (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
   @ApiOperation({ summary: 'submitted_for_review → approved (FR-060)' })
-  public async approve(@Param('id', ParseUUIDPipe) id: string, @GetUser() admin: JwtPayload): Promise<void> {
+  public async approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() admin: JwtPayload,
+  ): Promise<void> {
     await this.lifecycle.approve(admin.userId, id);
   }
 
   @Post(':id/reject')
   // Same write set as approve: course row, review decision, `audit_logs` (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
-  @ApiOperation({ summary: 'submitted_for_review → rejected; reasons plus per-item notes (FR-066)' })
+  @ApiOperation({
+    summary: 'submitted_for_review → rejected; reasons plus per-item notes (FR-066)',
+  })
   public async reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectCourseDto,
@@ -114,7 +136,9 @@ export class AdminCoursesController {
   @Post(':id/unpublish')
   // Writes `marketplace_courses` and `audit_logs` (adminUnpublish -> recordAuditEvent) (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
-  @ApiOperation({ summary: 'published → unpublished; reason mandatory, and audited (FR-068, FR-290)' })
+  @ApiOperation({
+    summary: 'published → unpublished; reason mandatory, and audited (FR-068, FR-290)',
+  })
   public async unpublish(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MarketplaceReasonDto,

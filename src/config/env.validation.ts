@@ -60,20 +60,61 @@ export function validateTlsBackends(config: Record<string, unknown>): void {
 
   const redisUrl = resolveRedisUrl(read);
   if (redisUrl !== undefined && !redisUrl.toLowerCase().startsWith('rediss://')) {
-    throw new Error(
-      'REQUIRE_TLS_BACKENDS=true: the Redis URL must use rediss:// (TLS).',
-    );
+    throw new Error('REQUIRE_TLS_BACKENDS=true: the Redis URL must use rediss:// (TLS).');
   }
   if (read('SSL_REJECT_UNAUTHORIZED') === 'false') {
-    throw new Error(
-      'REQUIRE_TLS_BACKENDS=true: SSL_REJECT_UNAUTHORIZED=false is not allowed.',
-    );
+    throw new Error('REQUIRE_TLS_BACKENDS=true: SSL_REJECT_UNAUTHORIZED=false is not allowed.');
   }
   const databaseUrl = read('DATABASE_URL');
   if (databaseUrl !== undefined && resolveDatabaseSsl(databaseUrl, read) === false) {
     throw new Error(
       'REQUIRE_TLS_BACKENDS=true: DATABASE_URL points at a loopback host, which is not TLS-protected.',
     );
+  }
+}
+
+/**
+ * AWS runtime profile (staging and production on ECS, recognised by S3_BUCKET + APP_ENV). These variables are
+ * read ad hoc by their modules, where a typo silently disables a feature or falls back to a legacy provider.
+ * Failing the boot is cheaper than discovering it from a missing e-mail or an SMS that never left.
+ */
+export function validateAwsRuntimeProfile(config: Record<string, unknown>): void {
+  const read = recordReader(config);
+  const appEnv = read('APP_ENV')?.trim().toLowerCase();
+  if (!read('S3_BUCKET') || (appEnv !== 'staging' && appEnv !== 'production')) return;
+
+  const oneOf = (key: string, allowed: string[]): void => {
+    const value = read(key)?.trim().toLowerCase();
+    if (value && !allowed.includes(value)) {
+      throw new Error(
+        `Environment validation failed: ${key}=${value} is not one of ${allowed.join(', ')}.`,
+      );
+    }
+  };
+  oneOf('MAIL_PROVIDER', ['ses', 'mailersend']);
+  oneOf('SMS_PROVIDER', ['aws', 'twilio']);
+  // Anything but "webpush" silently selects FCM in the notifications module.
+  oneOf('PUSH_PROVIDER', ['webpush', 'fcm']);
+
+  for (const key of ['MEDIA_EVENTS_QUEUE_URL', 'MAIL_EVENTS_QUEUE_URL', 'SMS_EVENTS_QUEUE_URL']) {
+    const value = read(key);
+    if (
+      value &&
+      !/^https:\/\/sqs\.[a-z0-9-]+\.amazonaws\.com\/\d{12}\/[A-Za-z0-9_.-]+$/.test(value)
+    ) {
+      throw new Error(`Environment validation failed: ${key} must be an SQS queue URL.`);
+    }
+  }
+
+  // Legacy storage providers stay selectable in code for rollback until the parity window ends; production on
+  // AWS must not pick one up by accident from a stale variable.
+  if (appEnv === 'production' && read('LEGACY_PROVIDERS_ALLOWED') !== 'true') {
+    const legacy = ['R2_ACCOUNT_ID', 'R2_BUCKET'].filter((key) => read(key));
+    if (legacy.length > 0) {
+      throw new Error(
+        `Environment validation failed: ${legacy.join(', ')} select a legacy storage provider; unset them or set LEGACY_PROVIDERS_ALLOWED=true.`,
+      );
+    }
   }
 }
 
@@ -495,39 +536,6 @@ export class EnvironmentVariables {
   @IsOptional()
   public TWILIO_PHONE_NUMBER?: string;
 
-  // Bunny.net Stream (video hosting)
-  @IsString()
-  @IsOptional()
-  public BUNNY_STREAM_LIBRARY_ID?: string;
-
-  // Library API key for Stream operations (create/upload/delete video). Accepts
-  // either name; BUNNY_API_KEY is used when BUNNY_STREAM_API_KEY is unset.
-  @IsString()
-  @IsOptional()
-  public BUNNY_STREAM_API_KEY?: string;
-
-  @IsString()
-  @IsOptional()
-  public BUNNY_API_KEY?: string;
-
-  // Pull-zone hostname for Bunny Stream HLS playback + posters,
-  // e.g. "vz-xxxxxxxx-xxx.b-cdn.net". Optional: when unset, the iframe embed
-  // URL is used for playback and Bunny posters are not stored.
-  @IsString()
-  @IsOptional()
-  public BUNNY_STREAM_CDN_HOSTNAME?: string;
-
-  @IsString()
-  @IsOptional()
-  public BUNNY_STREAM_PULL_ZONE?: string;
-
-  // Library "Token Authentication Key" used to sign short-lived playback URLs
-  // (distinct from the API key). Required for secure video streaming; when
-  // unset, the signed-url endpoint returns 503.
-  @IsString()
-  @IsOptional()
-  public BUNNY_STREAM_TOKEN_KEY?: string;
-
   // Paymob payment gateway (optional until payment features go live).
   @IsString()
   @IsOptional()
@@ -782,6 +790,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   resolveLogFormat(read);
   validateTlsBackends(config);
   validateProductionPublicOrigins(config);
+  validateAwsRuntimeProfile(config);
   validatePaymobBaseUrl(validatedConfig.PAYMOB_BASE_URL);
   if (validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY) {
     try {
@@ -794,7 +803,10 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   }
   if (validatedConfig.PAYOUT_ACCOUNT_ENCRYPTION_KEY) {
     try {
-      decodeSecretBoxKey(validatedConfig.PAYOUT_ACCOUNT_ENCRYPTION_KEY, 'PAYOUT_ACCOUNT_ENCRYPTION_KEY');
+      decodeSecretBoxKey(
+        validatedConfig.PAYOUT_ACCOUNT_ENCRYPTION_KEY,
+        'PAYOUT_ACCOUNT_ENCRYPTION_KEY',
+      );
     } catch (error) {
       throw new Error(
         `Environment validation failed: ${error instanceof SecretBoxKeyError ? error.message : 'PAYOUT_ACCOUNT_ENCRYPTION_KEY is invalid.'}`,

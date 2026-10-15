@@ -37,7 +37,6 @@ const stagingConfig: Record<string, unknown> = {
   PUBLIC_MEDIA_BASE_URL: 'https://api-staging.learnix.school',
   CORS_ORIGINS: 'https://staging.learnix.school',
   R2_BUCKET: 'learnix-staging',
-  BUNNY_STREAM_LIBRARY_ID: '999999',
   PAYMOB_API_KEY: 'sandbox-key',
   PAYMOB_EXPECTED_MODE: 'test',
   MAIL_PROVIDER: 'mailersend',
@@ -217,15 +216,6 @@ describe('staging isolation — production storage', () => {
     );
   });
 
-  it('fails when the Bunny video library is the production one', () => {
-    const config = {
-      ...stagingConfig,
-      PROD_IDENTIFIER_DENYLIST: '123456',
-      BUNNY_STREAM_LIBRARY_ID: '123456',
-    };
-    expect(codesFor(config)).toContain('STAGING_PRODUCTION_VIDEO_LIBRARY');
-  });
-
   it('fails when R2_PUBLIC_BASE_URL is set, mirroring the production rule', () => {
     const config = {
       ...stagingConfig,
@@ -329,7 +319,6 @@ describe('staging isolation — production webhook secrets', () => {
     'COOKIE_SECRET',
     'MAILERSEND_API_KEY',
     'R2_SECRET_ACCESS_KEY',
-    'BUNNY_STREAM_TOKEN_KEY',
     'TWILIO_AUTH_TOKEN',
   ])('fails when the production %s is reused on staging', (variable) => {
     const secret = `production-value-for-${variable}-padded-to-length`;

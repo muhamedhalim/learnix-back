@@ -8,7 +8,13 @@ import { EnrollmentService } from '../../src/marketplace/commerce/enrollment.ser
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { Certificate } from '../../src/certificates/entities/certificate.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 
 /**
  * Phase 8's independent test (tasks.md): complete a short and a long
@@ -30,7 +36,9 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
   afterAll(async () => app.close());
 
   async function seedInstructor(userId: string) {
-    return dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: userId }));
+    return dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: userId }));
   }
 
   async function seedCategory() {
@@ -80,30 +88,62 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
 
     const preview = await opts.instructorAgent
       .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons`)
-      .send({ section_id: sectionId, title: 'Welcome (preview)', content_type: LessonContentType.TEXT, content_html: '<p>Welcome</p>', duration_seconds: 30, is_free_preview: true })
+      .send({
+        section_id: sectionId,
+        title: 'Welcome (preview)',
+        content_type: LessonContentType.TEXT,
+        content_html: '<p>Welcome</p>',
+        duration_seconds: 30,
+        is_free_preview: true,
+      })
       .expect(201);
 
     const shortLesson = await opts.instructorAgent
       .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons`)
-      .send({ section_id: sectionId, title: 'Short required lesson', content_type: LessonContentType.TEXT, content_html: '<p>Short</p>', duration_seconds: 60, is_required_for_completion: true })
+      .send({
+        section_id: sectionId,
+        title: 'Short required lesson',
+        content_type: LessonContentType.TEXT,
+        content_html: '<p>Short</p>',
+        duration_seconds: 60,
+        is_required_for_completion: true,
+      })
       .expect(201);
 
     // Deliberately TEXT, not VIDEO: course submission's readiness check
-    // (`CourseReadinessService.allVideoLessonsReady`) makes a real Bunny API
-    // call for any video lesson, which this e2e environment cannot satisfy
-    // (no reachable Bunny credentials) — the same constraint documented for
+    // (`CourseReadinessService.allVideoLessonsReady`) needs a transcoded AWS
+    // video asset for any video lesson, which this e2e environment has no
+    // MediaConvert to produce — the same constraint documented for
     // T077/T065/T074. Duration is the only thing this lesson varies from
     // the short one; content type is irrelevant to what's being proven.
     const longLesson = await opts.instructorAgent
       .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons`)
-      .send({ section_id: sectionId, title: 'Long required lesson', content_type: LessonContentType.TEXT, content_html: '<p>Long</p>', duration_seconds: 36_000, is_required_for_completion: true })
+      .send({
+        section_id: sectionId,
+        title: 'Long required lesson',
+        content_type: LessonContentType.TEXT,
+        content_html: '<p>Long</p>',
+        duration_seconds: 36_000,
+        is_required_for_completion: true,
+      })
       .expect(201);
 
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await opts.adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await opts.adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
-    const course = await dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } });
+    const course = await dataSource
+      .getRepository(MarketplaceCourse)
+      .findOneOrFail({ where: { id: courseId } });
     return {
       course,
       previewLessonId: preview.body.id as string,
@@ -119,9 +159,23 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
     await setUserRole(dataSource, admin.userId, 'admin');
     const learner = await createAuthenticatedUser(app, dataSource);
     const category = await seedCategory();
-    const fixtures = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id, certificateEnabled });
-    const enrollRes = await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: fixtures.course.id }).expect(201);
-    return { instructorUser, admin, learner, ...fixtures, enrollmentOrderId: enrollRes.body.id as string };
+    const fixtures = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+      certificateEnabled,
+    });
+    const enrollRes = await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: fixtures.course.id })
+      .expect(201);
+    return {
+      instructorUser,
+      admin,
+      learner,
+      ...fixtures,
+      enrollmentOrderId: enrollRes.body.id as string,
+    };
   }
 
   /** enroll-free returns the *order*; resolve the actual enrollment row from it. */
@@ -135,27 +189,40 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
   }
 
   it('progresses by the same amount for a short and a long required lesson, ignores an optional lesson, and reaches exactly 100% (FR-240 – FR-242)', async () => {
-    const { learner, shortLessonId, longLessonId, previewLessonId, enrollmentOrderId } = await actors();
+    const { learner, shortLessonId, longLessonId, previewLessonId, enrollmentOrderId } =
+      await actors();
     const enrollment = await getEnrollment(enrollmentOrderId);
 
     const afterPreview = await learner.agent
-      .put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${previewLessonId}/progress`)
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${previewLessonId}/progress`,
+      )
       .send({ is_completed: true })
       .expect(200);
     expect(afterPreview.body.is_completed).toBe(true);
-    await expect(dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id })).resolves.toMatchObject({ progress_bps: 0 });
+    await expect(
+      dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
+    ).resolves.toMatchObject({ progress_bps: 0 });
 
     await learner.agent
-      .put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`)
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
       .send({ is_completed: true })
       .expect(200);
-    await expect(dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id })).resolves.toMatchObject({ progress_bps: 5000 });
+    await expect(
+      dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
+    ).resolves.toMatchObject({ progress_bps: 5000 });
 
     await learner.agent
-      .put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`)
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`,
+      )
       .send({ is_completed: true })
       .expect(200);
-    const completed = await dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id });
+    const completed = await dataSource
+      .getRepository(MarketplaceEnrollment)
+      .findOneByOrFail({ id: enrollment.id });
     expect(completed.progress_bps).toBe(10000);
     expect(completed.completed_at).not.toBeNull();
   });
@@ -164,47 +231,107 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
     const { learner, shortLessonId, longLessonId, enrollmentOrderId } = await actors(true);
     const enrollment = await getEnrollment(enrollmentOrderId);
 
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`).send({ is_completed: true }).expect(200);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`).send({ is_completed: true }).expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
     await waitForListeners();
 
-    const certificate = await dataSource.getRepository(Certificate).findOneByOrFail({ student_id: learner.userId, marketplace_course_id: enrollment.course_id });
-    expect(certificate).toMatchObject({ source: 'marketplace', package_id: null, status: 'issued' });
+    const certificate = await dataSource
+      .getRepository(Certificate)
+      .findOneByOrFail({ student_id: learner.userId, marketplace_course_id: enrollment.course_id });
+    expect(certificate).toMatchObject({
+      source: 'marketplace',
+      package_id: null,
+      status: 'issued',
+    });
 
-    const verify = await learner.agent.get(`${API_PREFIX}/certificates/verify/${certificate.verification_code}`).expect(200);
-    expect(verify.body).toMatchObject({ valid: true, certificate: expect.objectContaining({ course_title: expect.any(String) }) });
+    const verify = await learner.agent
+      .get(`${API_PREFIX}/certificates/verify/${certificate.verification_code}`)
+      .expect(200);
+    expect(verify.body).toMatchObject({
+      valid: true,
+      certificate: expect.objectContaining({ course_title: expect.any(String) }),
+    });
   });
 
   it('lists the certificate on GET /marketplace/me/certificates — the role-agnostic route a non-student marketplace learner needs (FR-252)', async () => {
     const { learner, shortLessonId, longLessonId, enrollmentOrderId } = await actors(true);
     const enrollment = await getEnrollment(enrollmentOrderId);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`).send({ is_completed: true }).expect(200);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`).send({ is_completed: true }).expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
     await waitForListeners();
 
     const mine = await learner.agent.get(`${API_PREFIX}/marketplace/me/certificates`).expect(200);
     expect(mine.body.data).toHaveLength(1);
-    expect(mine.body.data[0]).toMatchObject({ source: 'marketplace', marketplace_course_id: enrollment.course_id });
+    expect(mine.body.data[0]).toMatchObject({
+      source: 'marketplace',
+      marketplace_course_id: enrollment.course_id,
+    });
   });
 
   it('never issues a certificate for a course without certificates enabled', async () => {
     const { learner, shortLessonId, longLessonId, enrollmentOrderId } = await actors(false);
     const enrollment = await getEnrollment(enrollmentOrderId);
 
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`).send({ is_completed: true }).expect(200);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`).send({ is_completed: true }).expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
     await waitForListeners();
 
-    expect(await dataSource.getRepository(Certificate).countBy({ student_id: learner.userId, marketplace_course_id: enrollment.course_id })).toBe(0);
+    expect(
+      await dataSource
+        .getRepository(Certificate)
+        .countBy({ student_id: learner.userId, marketplace_course_id: enrollment.course_id }),
+    ).toBe(0);
   });
 
   it('revokes the certificate when the enrollment is revoked, visible on public verification (FR-251)', async () => {
     const { learner, shortLessonId, longLessonId, enrollmentOrderId } = await actors(true);
     const enrollment = await getEnrollment(enrollmentOrderId);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`).send({ is_completed: true }).expect(200);
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`).send({ is_completed: true }).expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${longLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
     await waitForListeners();
-    const certificate = await dataSource.getRepository(Certificate).findOneByOrFail({ student_id: learner.userId, marketplace_course_id: enrollment.course_id });
+    const certificate = await dataSource
+      .getRepository(Certificate)
+      .findOneByOrFail({ student_id: learner.userId, marketplace_course_id: enrollment.course_id });
 
     // No admin/refund HTTP endpoint drives enrollment revocation yet (Phase 9/12) —
     // invoked directly here, matching the established e2e precedent of calling a
@@ -214,8 +341,13 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
     await enrollmentService.revoke(enrollment.id, 'Refund completed');
     await waitForListeners();
 
-    const verify = await learner.agent.get(`${API_PREFIX}/certificates/verify/${certificate.verification_code}`).expect(200);
-    expect(verify.body).toMatchObject({ valid: false, certificate: expect.objectContaining({ status: 'revoked' }) });
+    const verify = await learner.agent
+      .get(`${API_PREFIX}/certificates/verify/${certificate.verification_code}`)
+      .expect(200);
+    expect(verify.body).toMatchObject({
+      valid: false,
+      certificate: expect.objectContaining({ status: 'revoked' }),
+    });
   });
 
   it("lists the learner's own enrollments with the course eager-loaded for title/slug/cover display (FR-107, T129)", async () => {
@@ -223,22 +355,36 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
 
     const list = await learner.agent.get(`${API_PREFIX}/marketplace/me/enrollments`).expect(200);
     expect(list.body).toHaveLength(1);
-    expect(list.body[0]).toMatchObject({ course_id: course.id, course: expect.objectContaining({ id: course.id, title: course.title, slug: course.slug }) });
+    expect(list.body[0]).toMatchObject({
+      course_id: course.id,
+      course: expect.objectContaining({ id: course.id, title: course.title, slug: course.slug }),
+    });
   });
 
   it('gives the player curriculum with completion state, and 404s a lesson from another course (T125)', async () => {
     const { learner, shortLessonId, enrollmentOrderId } = await actors();
     const enrollment = await getEnrollment(enrollmentOrderId);
 
-    await learner.agent.put(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`).send({ is_completed: true }).expect(200);
+    await learner.agent
+      .put(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}/progress`,
+      )
+      .send({ is_completed: true })
+      .expect(200);
 
-    const player = await learner.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`).expect(200);
+    const player = await learner.agent
+      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`)
+      .expect(200);
     expect(player.body.progress_bps).toBe(5000);
-    const shortLessonInPlayer = player.body.sections[0].lessons.find((l: { id: string }) => l.id === shortLessonId);
+    const shortLessonInPlayer = player.body.sections[0].lessons.find(
+      (l: { id: string }) => l.id === shortLessonId,
+    );
     expect(shortLessonInPlayer).toMatchObject({ is_completed: true });
 
     await learner.agent
-      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/00000000-0000-4000-8000-000000000099`)
+      .get(
+        `${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/00000000-0000-4000-8000-000000000099`,
+      )
       .expect(404);
   });
 
@@ -247,18 +393,19 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
     const enrollment = await getEnrollment(enrollmentOrderId);
     const other = await createAuthenticatedUser(app, dataSource);
 
-    await other.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`).expect(404);
+    await other.agent
+      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`)
+      .expect(404);
   });
 
-  // T125's signed-video-URL AC (a fresh, short-lived URL every request; a
-  // fail-closed 503 rather than ever leaking an unsigned/durable address
-  // when Bunny signing isn't configured) is proven at the unit level in
-  // `player.service.spec.ts` instead of here: course *submission* itself
-  // makes a real Bunny readiness call for any video-type lesson
-  // (`CourseReadinessService.allVideoLessonsReady`), which this e2e
-  // environment's Bunny credentials cannot satisfy (matching the
-  // T065/T074/T077 precedent) — there is no way to get a video lesson
-  // through instructor authoring here at all, let alone to its player.
+  // T125's playback AC (a fresh, short-lived grant every request; a 404 rather
+  // than ever returning a durable address for a video that is not an AWS
+  // asset) is proven at the unit level in `player.service.spec.ts` instead of
+  // here: course *submission* itself needs a ready AWS video asset for any
+  // video-type lesson (`CourseReadinessService.allVideoLessonsReady`), which
+  // this e2e environment cannot produce (matching the T065/T074/T077
+  // precedent) — there is no way to get a video lesson through instructor
+  // authoring here at all, let alone to its player.
 
   it('serves text lesson content directly through the signed-content endpoint (FR-084)', async () => {
     const { learner, shortLessonId, enrollmentOrderId } = await actors();
@@ -267,6 +414,10 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
     const textContent = await learner.agent
       .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${shortLessonId}`)
       .expect(200);
-    expect(textContent.body).toMatchObject({ content_type: 'text', playback_url: null, content_html: expect.stringContaining('Short') });
+    expect(textContent.body).toMatchObject({
+      content_type: 'text',
+      playback_url: null,
+      content_html: expect.stringContaining('Short'),
+    });
   });
 });

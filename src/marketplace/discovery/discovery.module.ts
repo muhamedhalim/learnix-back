@@ -21,9 +21,8 @@ import { PreviewAccessService } from './preview-access.service';
  * `CourseVersionService` (immutable snapshots, FR-074/075) and, via its own
  * exported `TypeOrmModule`, every catalog + `MarketplaceEnrollment`
  * repository; `ReviewsModule` gives the review repository for rating
- * aggregates; `LessonsModule` gives `BunnyStreamService` for signed preview
- * playback (FR-048) — the same reuse `CatalogModule` itself already
- * establishes, never a second integration.
+ * aggregates; `VideoModule` gives `AwsVideoService` for free-preview
+ * playback grants (FR-048).
  */
 @Module({
   imports: [
@@ -34,7 +33,13 @@ import { PreviewAccessService } from './preview-access.service';
     VideoModule,
   ],
   controllers: [PublicCategoriesController, PublicCatalogController],
-  providers: [CategoriesReadService, CatalogQueryService, CatalogSearchService, CourseDetailService, PreviewAccessService],
+  providers: [
+    CategoriesReadService,
+    CatalogQueryService,
+    CatalogSearchService,
+    CourseDetailService,
+    PreviewAccessService,
+  ],
   // `MarketplaceOrderService` (CommerceModule) reuses `baseVisibleQuery()` for
   // FR-103's published-course purchase gate rather than re-deriving it.
   exports: [CatalogQueryService],

@@ -94,8 +94,7 @@ export class LessonsController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get my note for a lesson',
-    description:
-      "Returns the caller's private study note for this lesson, or null.",
+    description: "Returns the caller's private study note for this lesson, or null.",
   })
   public async getNote(
     @GetUser() user: JwtPayload,
@@ -122,11 +121,7 @@ export class LessonsController {
     @Body() dto: UpsertNoteDto,
   ): Promise<unknown> {
     await this.lessonsService.assertViewerAccess(id, user.userId, user.role);
-    const note = await this.lessonContentService.upsertNote(
-      user.userId,
-      id,
-      dto.content,
-    );
+    const note = await this.lessonContentService.upsertNote(user.userId, id, dto.content);
     return { data: note };
   }
 
@@ -137,7 +132,7 @@ export class LessonsController {
   @ApiOperation({
     summary: 'Get a signed playback URL for a lesson video',
     description:
-      'Returns a short-lived Bunny Stream token-signed URL. Restricted to the owning teacher, admins, or enrolled students.',
+      'Returns the HLS playback URL and the signed CloudFront cookies for it. Restricted to the owning teacher, admins, or enrolled students.',
   })
   @ApiResponse({ status: HttpStatus.OK, description: 'Signed playback URL' })
   @ApiResponse({
@@ -148,11 +143,7 @@ export class LessonsController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ signedUrl: string; expiresIn: number; platform?: 'aws' }> {
-    return await this.lessonsService.getSignedPlaybackUrl(
-      id,
-      user.userId,
-      user.role,
-    );
+    return await this.lessonsService.getSignedPlaybackUrl(id, user.userId, user.role);
   }
 
   @Get()
@@ -236,9 +227,7 @@ export class LessonsController {
     status: HttpStatus.NOT_FOUND,
     description: 'Lesson not found',
   })
-  public async findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<unknown> {
+  public async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
     return await this.lessonsService.findOnePublic(id);
   }
 

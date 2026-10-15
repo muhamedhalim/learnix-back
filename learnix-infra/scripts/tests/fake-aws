@@ -13,10 +13,11 @@ case "$1 $2" in
   "ecs describe-task-definition")
     td=$(echo "$*" | sed -E 's/.*--task-definition ([^ ]+).*/\1/'); name=$(basename "${td%%:*}" | sed 's/.*-//')
     [ "$name" = "$td" ] && name=migrate
+    EXTRA=""; case "$td" in *:*) ;; *) [ -n "${LATEST_NEWER:-}" ] && EXTRA=',{"name":"TF_NEW","value":"1"}' ;; esac
     fam=$(echo "$td" | sed -E 's#.*task-definition/##; s#:[0-9]+$##')
     cat <<J
 {"taskDefinition":{"taskDefinitionArn":"$td","family":"$fam","revision":7,"status":"ACTIVE","requiresAttributes":[],"compatibilities":["FARGATE"],"registeredAt":"x","registeredBy":"y",
-"containerDefinitions":[{"name":"$name","image":"old:1","essential":true,"environment":[{"name":"GIT_SHA","value":"old"}]},{"name":"otel-init","image":"adot","essential":false}],
+"containerDefinitions":[{"name":"$name","image":"old:1","essential":true,"environment":[{"name":"GIT_SHA","value":"old"}$EXTRA]},{"name":"otel-init","image":"adot","essential":false}],
 "cpu":"512","memory":"1024","networkMode":"awsvpc"},"tags":[{"key":"Project","value":"learnix"}]}
 J
     ;;
@@ -30,6 +31,10 @@ J
     svc=$(echo "$*" | sed -E 's/.*--service ([^ ]+).*/\1/'); td=$(echo "$*" | sed -E 's/.*--task-definition ([^ ]+).*/\1/')
     echo "$td" > /work/td-$svc; echo "$td"
     case "$td" in *:7) touch /work/rolledback ;; esac ;;
-  "cloudwatch describe-alarms") echo "${ALARMS:-}" ;;
+  "cloudwatch describe-alarms")
+    # PRE_ALARMS before any service was updated, ALARMS afterwards.
+    if ls /work/td-* >/dev/null 2>&1; then firing="${ALARMS:-}"; else firing="${PRE_ALARMS:-}"; fi
+    # Like the real CLI, only the alarms asked for with --alarm-names can be returned.
+    for a in $firing; do case " $* " in *" $a "*) echo "$a" ;; esac; done ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
 esac

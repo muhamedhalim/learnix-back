@@ -6,16 +6,16 @@ with 0 failed). Applying it needs the `learnix-production` account, the Phase 2 
 
 ## How production differs from staging
 
-| | Staging | Production |
-|---|---|---|
-| Account / VPC | `learnix-staging`, 10.10.0.0/16 | `learnix-production`, 10.20.0.0/16 |
-| Tasks | public subnets, public IPs, no NAT | private app subnets behind NAT (static egress IP in `nat_egress_ips`) |
-| Services | `api` (`PROCESS_ROLE=all`), optional `worker` | `api` x2..6 (`api` role), `worker` (always split). No `web`: the frontend stays on Vercel |
-| Database | single-AZ micro, no deletion protection | Multi-AZ `db.t4g.small`, deletion protection, final snapshot, 14-day PITR, **automated backups replicated to eu-west-1** (own KMS key) |
-| Valkey | 1 node | primary + replica with automatic failover |
-| Edge | allowlist gate, managed rules in COUNT | public; managed and per-IP rate rules (general 6000 and auth 100 per 5 min) in COUNT until `waf_block = true` |
-| App flags | `APP_ENV=staging`, `MAIL_ALLOWLIST`, `SMS_MODE=sandbox`, Paymob TEST | `APP_ENV=production`; none of those (the isolation guard refuses a production boot that has an allowlist) |
-| Safety | `force_destroy`, short key deletion windows | deletion protection on RDS and ALB, `prevent_destroy` on the DNS zone, no `force_destroy`, 30-day key and secret windows |
+|               | Staging                                                              | Production                                                                                                                             |
+| ------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Account / VPC | `learnix-staging`, 10.10.0.0/16                                      | `learnix-production`, 10.20.0.0/16                                                                                                     |
+| Tasks         | public subnets, public IPs, no NAT                                   | private app subnets behind NAT (static egress IP in `nat_egress_ips`)                                                                  |
+| Services      | `api` (`PROCESS_ROLE=all`), optional `worker`                        | `api` x2..6 (`api` role), `worker` (always split). No `web`: the frontend stays on Vercel                                              |
+| Database      | single-AZ micro, no deletion protection                              | Multi-AZ `db.t4g.small`, deletion protection, final snapshot, 14-day PITR, **automated backups replicated to eu-west-1** (own KMS key) |
+| Valkey        | 1 node                                                               | primary + replica with automatic failover                                                                                              |
+| Edge          | allowlist gate, managed rules in COUNT                               | public; managed and per-IP rate rules (general 6000 and auth 100 per 5 min) in COUNT until `waf_block = true`                          |
+| App flags     | `APP_ENV=staging`, `MAIL_ALLOWLIST`, `SMS_MODE=sandbox`, Paymob TEST | `APP_ENV=production`; none of those (the isolation guard refuses a production boot that has an allowlist)                              |
+| Safety        | `force_destroy`, short key deletion windows                          | deletion protection on RDS and ALB, `prevent_destroy` on the DNS zone, no `force_destroy`, 30-day key and secret windows               |
 
 ## Steps
 
@@ -27,7 +27,7 @@ with 0 failed). Applying it needs the `learnix-production` account, the Phase 2 
    **except** any `_dmarc` record (Terraform manages that one for SES). The apex and `www` records that point at
    Vercel **are** copied (take the targets from Vercel's domain settings; they never move to AWS). Keep the
    Cloudflare zone untouched. Lower the TTLs of the important records to 300 s a day ahead.
-3. **Apply** with `tf-apply-production`. First apply creates everything with all service counts at 0 and the
+3. **Apply** with the `Terraform` workflow (`target=production`). First apply creates everything with all service counts at 0 and the
    Route 53 zone holding the copied records, still pointing at today's Vercel targets (and still not delegated).
 4. **Subscribe the CloudFront flat-rate Business plan** to the distribution in the console
    (`cloudfront_distribution_id` output). Terraform support for the plan subscription is unverified. Confirm the
@@ -43,6 +43,7 @@ with 0 failed). Applying it needs the `learnix-production` account, the Phase 2 
 
    `records.json` lists `{name, type}` for every exported record. Zero differences is required. Also send a test
    email to and from the domain.
+
 7. **Change the name servers at Name.com** to the `name_servers` output (the registrar change is yours; the domain
    is `clientTransferProhibited`, which blocks transfers, not NS edits). Turn DNSSEC off at the registrar first if it
    is on. Watch resolution for a day; rollback is setting the Cloudflare name servers back (bounded by record TTL).
@@ -64,10 +65,10 @@ with 0 failed). Applying it needs the `learnix-production` account, the Phase 2 
 
 ## Notes and limits
 
-* The ALB is internal and CloudFront reaches it over HTTP inside the VPC; adding an origin certificate
+- The ALB is internal and CloudFront reaches it over HTTP inside the VPC; adding an origin certificate
   (`certificate_arn` on the `alb` module plus `https-only` on the VPC origin) is a hardening item.
-* SES stays in the sandbox until production access is granted (a separate AWS-account request), so production
+- SES stays in the sandbox until production access is granted (a separate AWS-account request), so production
   email cannot go out to arbitrary recipients yet; SMS needs the approved Egypt sender ID.
-* A second NAT gateway, S3 cross-region replication, AWS Config and Security Hub are Stage 2 items (plan section 7).
-* Destroying the zone or the database is blocked on purpose (`prevent_destroy`, deletion protection); the conftest
+- A second NAT gateway, S3 cross-region replication, AWS Config and Security Hub are Stage 2 items (plan section 7).
+- Destroying the zone or the database is blocked on purpose (`prevent_destroy`, deletion protection); the conftest
   policy also fails a plan that deletes protected resource types.

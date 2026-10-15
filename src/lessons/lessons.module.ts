@@ -23,9 +23,7 @@ import {
 import { TeacherLessonContentController } from './controllers/teacher-lesson-content.controller';
 import { StudentHomeworkController } from './controllers/student-homework.controller';
 import { TeacherHomeworkController } from './controllers/teacher-homework.controller';
-import { BunnyStreamService } from './bunny-stream.service';
 import { Lesson } from './entities/lesson.entity';
-import { LessonVideoUploadSession } from './entities/lesson-video-upload-session.entity';
 import { LessonAttachment } from './entities/lesson-attachment.entity';
 import { LessonHomework } from './entities/lesson-homework.entity';
 import { HomeworkSubmission } from './entities/homework-submission.entity';
@@ -42,7 +40,6 @@ import { ProgressService } from './progress.service';
   imports: [
     TypeOrmModule.forFeature([
       Lesson,
-      LessonVideoUploadSession,
       LessonProgress,
       LessonAttachment,
       LessonHomework,
@@ -78,10 +75,9 @@ import { ProgressService } from './progress.service';
     ProgressService,
     LessonContentService,
     TeacherHomeworkService,
-    BunnyStreamService,
     LessonAwsVideoService,
   ],
-  exports: [LessonsService, ProgressService, BunnyStreamService, LessonAwsVideoService, TypeOrmModule],
+  exports: [LessonsService, ProgressService, LessonAwsVideoService, TypeOrmModule],
 })
 export class LessonsModule implements OnModuleInit {
   public onModuleInit(): void {

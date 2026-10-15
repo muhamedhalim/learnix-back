@@ -73,13 +73,13 @@ DNS, Vercel or production.
 
 Dashboard items needing attention (none block the API):
 
-| Item                                               | Meaning                                                                                                                      |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Backend API `degraded`                             | Dashboard cites latency or memory; the process was a few minutes old with ADOT cold start. Re-check after a few hours of use |
-| Payment gateway `misconfigured`                    | Paymob test credentials not loaded (secret `paymob` empty)                                                                   |
-| Bunny Stream `misconfigured`                       | Legacy provider, replaced by MediaConvert + CloudFront; the dashboard probe still looks for it                               |
-| Learnix frontend `warning`                         | `staging.learnix.school` does not resolve yet                                                                                |
-| Firebase, Meta WhatsApp, Twilio, Sentry `disabled` | Not configured on purpose (see `AWS-SERVICE-DECISIONS.md`)                                                                   |
+| Item                                               | Meaning                                                                                                                                                 |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend API `degraded`                             | Dashboard cites latency or memory; the process was a few minutes old with ADOT cold start. Re-check after a few hours of use                            |
+| Payment gateway `misconfigured`                    | Paymob test credentials not loaded (secret `paymob` empty)                                                                                              |
+| Bunny Stream (no longer listed)                    | Removed from the code 2026-10-15; the dashboard now reports "Lesson video (AWS)", which is `misconfigured` until the CloudFront signing key is injected |
+| Learnix frontend `warning`                         | `staging.learnix.school` does not resolve yet                                                                                                           |
+| Firebase, Meta WhatsApp, Twilio, Sentry `disabled` | Not configured on purpose (see `AWS-SERVICE-DECISIONS.md`)                                                                                              |
 
 ## 4. Issues found and fixed during deployment
 

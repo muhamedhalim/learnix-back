@@ -43,10 +43,13 @@ locals {
   app_environment = merge(
     local.origin_environment,
     {
-      NODE_ENV             = "production"
-      APP_ENV              = "production"
-      PORT                 = "3000"
-      RUN_MIGRATIONS       = "false"
+      NODE_ENV       = "production"
+      APP_ENV        = "production"
+      PORT           = "3000"
+      RUN_MIGRATIONS = "false"
+      # SIGTERM: report not-ready and wait this long (ms) for the load balancer to stop routing before closing.
+      # Delay + SHUTDOWN_TIMEOUT_MS (default 40 s) must stay under the 60 s task stopTimeout.
+      SHUTDOWN_DELAY_MS    = "10000"
       TRUST_PROXY_HOPS     = "2"
       LOG_FORMAT           = "json"
       REQUIRE_TLS_BACKENDS = "true"
@@ -73,6 +76,8 @@ locals {
       PAYMENT_CAPTURE_GRACE_SECONDS       = "300"
       PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS = "120"
       PAYMOB_EXPECTED_MODE                = "live"
+      # No default in the backend: without it checkout cannot start. The backend only accepts the two Paymob hosts.
+      PAYMOB_BASE_URL = "https://accept.paymob.com"
 
       MAIL_PROVIDER         = "ses"
       SES_REGION            = var.region
@@ -235,6 +240,8 @@ module "api" {
 
 module "worker" {
   source = "../../modules/ecs-service"
+
+  container_health_check = { port = 3000, path = "/api/v1/health" }
 
   name         = "worker"
   cluster_arn  = module.ecs.cluster_arn

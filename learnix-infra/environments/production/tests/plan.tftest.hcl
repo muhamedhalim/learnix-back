@@ -60,6 +60,7 @@ run "dns_zone_copy_keeps_vercel_records" {
   command = plan
 
   variables {
+    dns_provider = "route53"
     dns_records = [
       { name = "learnix.school", type = "MX", ttl = 300, records = ["10 mx.example.test"] },
       { name = "www.learnix.school", type = "CNAME", ttl = 300, records = ["cname.vercel-dns.com"] },
@@ -69,7 +70,7 @@ run "dns_zone_copy_keeps_vercel_records" {
   # The backend's production-mode env validation refuses to boot without these (learnix-back
   # src/config/env.validation.ts); keep this list in sync with it.
   assert {
-    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "PAYMOB_EXPECTED_MODE", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
+    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "PAYMOB_EXPECTED_MODE", "PAYMOB_BASE_URL", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
     error_message = "A variable the backend requires in production mode is missing from the task environment."
   }
 
@@ -127,6 +128,7 @@ run "api_host_live_with_everything_on" {
   command = plan
 
   variables {
+    dns_provider          = "route53"
     certificate_enabled   = true
     cors_extra_origins    = ["https://www.learnix.school"]
     api_desired_count     = 2
@@ -156,6 +158,11 @@ run "api_host_live_with_everything_on" {
   assert {
     condition     = length(aws_route53_record.api) == 2 && aws_route53_record.api["A"].name == "api.learnix.school"
     error_message = "With the certificate enabled the API host gets A and AAAA aliases (only this name is new in the zone)."
+  }
+
+  assert {
+    condition     = strcontains(output.deploy_health_alarms, "-alb-elb-5xx") && strcontains(output.deploy_health_alarms, "-application-errors") && !strcontains(output.deploy_health_alarms, "canary") && !strcontains(output.deploy_health_alarms, "backlog")
+    error_message = "The deploy watches release-sensitive alarms only; alarms that breach on missing data (canary, backlog) would roll back every deploy."
   }
 
   assert {
@@ -197,4 +204,52 @@ run "rejects_wildcard_origin" {
   }
 
   expect_failures = [var.cors_extra_origins]
+}
+
+# Default: Cloudflare stays authoritative (the apex and www are proxied to Vercel there).
+run "cloudflare_default_creates_no_zone" {
+  command = plan
+
+  variables {
+    dns_records = [
+      { name = "learnix.school", type = "MX", ttl = 300, records = ["10 mx.example.test"] },
+    ]
+  }
+
+  assert {
+    condition     = length(aws_route53_zone.this) == 0 && length(aws_route53_record.existing) == 0
+    error_message = "With dns_provider = cloudflare Terraform must not create or fill a Route 53 zone."
+  }
+
+  assert {
+    condition     = length(aws_acm_certificate.api) == 0 && length(aws_acm_certificate_validation.api) == 0
+    error_message = "No certificate is requested until certificate_enabled."
+  }
+}
+
+run "cloudflare_certificate_waits_for_the_operators_record" {
+  command = plan
+
+  variables {
+    certificate_enabled = true
+  }
+
+  assert {
+    condition     = length(aws_acm_certificate.api) == 1 && length(aws_acm_certificate_validation.api) == 0 && length(aws_route53_record.api_validation) == 0
+    error_message = "The certificate is requested, but nothing waits for validation (or attaches the alias) until certificate_validated."
+  }
+}
+
+run "cloudflare_certificate_validated_attaches_alias" {
+  command = plan
+
+  variables {
+    certificate_enabled   = true
+    certificate_validated = true
+  }
+
+  assert {
+    condition     = length(aws_acm_certificate_validation.api) == 1 && length(aws_route53_record.api) == 0
+    error_message = "Once validated the alias is attached; the api CNAME is published through cloudflare_dns_records, not Route 53."
+  }
 }

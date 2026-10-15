@@ -20,17 +20,34 @@ import { ProgressService } from './progress.service';
  * `Repository<MarketplaceEnrollment>`/`Repository<MarketplaceLessonProgress>`,
  * `AccessService` and `EnrollmentService`; `CatalogModule` supplies
  * `Repository<MarketplaceCourseSection>`/`Repository<MarketplaceCourseLesson>`/
- * `Repository<MarketplaceCourse>`; `LessonsModule` supplies
- * `BunnyStreamService` — the same signing service the academic player
- * already uses, reused here rather than a second Bunny integration
- * (matching `LessonVideoService`'s own precedent); `CertificatesModule`
+ * `Repository<MarketplaceCourse>`; `VideoModule` supplies `AwsVideoService`
+ * (playback grants); `CertificatesModule`
  * supplies `CertificatesService`'s subject-agnostic issuance/revocation
  * primitives, reused rather than a second certificates table.
  */
 @Module({
-  imports: [CommerceModule, CatalogModule, LessonsModule, VideoModule, CertificatesModule, TypeOrmModule.forFeature([User])],
+  imports: [
+    CommerceModule,
+    CatalogModule,
+    LessonsModule,
+    VideoModule,
+    CertificatesModule,
+    TypeOrmModule.forFeature([User]),
+  ],
   controllers: [LearnerPlayerController, LearnerCertificatesController],
-  providers: [ProgressService, CompletionService, LessonProgressService, PlayerService, MarketplaceCertificateIssuanceService],
-  exports: [ProgressService, CompletionService, LessonProgressService, PlayerService, MarketplaceCertificateIssuanceService],
+  providers: [
+    ProgressService,
+    CompletionService,
+    LessonProgressService,
+    PlayerService,
+    MarketplaceCertificateIssuanceService,
+  ],
+  exports: [
+    ProgressService,
+    CompletionService,
+    LessonProgressService,
+    PlayerService,
+    MarketplaceCertificateIssuanceService,
+  ],
 })
 export class LearningModule {}

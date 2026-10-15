@@ -1,7 +1,12 @@
 import { generateKeyPairSync } from 'node:crypto';
 
 import { CreateJobCommand, GetJobCommand, MediaConvertClient } from '@aws-sdk/client-mediaconvert';
-import { CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { mockClient } from 'aws-sdk-client-mock';
 import { lastValueFrom, of } from 'rxjs';
@@ -70,7 +75,9 @@ describe('job outcomes', () => {
           { durationInMs: 125_400, videoDetails: { widthInPx: 1280, heightInPx: 720 } },
         ],
       },
-      { outputDetails: [{ outputFilePaths: [`s3://out/video/${ASSET}/thumb/poster.0000000.jpg`] }] },
+      {
+        outputDetails: [{ outputFilePaths: [`s3://out/video/${ASSET}/thumb/poster.0000000.jpg`] }],
+      },
     ],
   };
 
@@ -87,7 +94,9 @@ describe('job outcomes', () => {
   });
 
   it('classifies errors and ignores progress states', () => {
-    expect(outcomeFromEvent({ status: 'ERROR', jobId: 'j', errorMessage: 'bad input' })).toMatchObject({
+    expect(
+      outcomeFromEvent({ status: 'ERROR', jobId: 'j', errorMessage: 'bad input' }),
+    ).toMatchObject({
       status: 'ERROR',
       errorMessage: 'bad input',
     });
@@ -101,7 +110,11 @@ describe('job outcomes', () => {
       Status: 'COMPLETE',
       UserMetadata: { assetId: ASSET },
       OutputGroupDetails: [
-        { OutputDetails: [{ DurationInMs: 60_000, VideoDetails: { WidthInPx: 960, HeightInPx: 540 } }] },
+        {
+          OutputDetails: [
+            { DurationInMs: 60_000, VideoDetails: { WidthInPx: 960, HeightInPx: 540 } },
+          ],
+        },
       ],
     } as never);
     expect(outcome).toMatchObject({ jobId: 'job-2', durationSeconds: 60, height: 540 });
@@ -113,7 +126,7 @@ describe('aws video refs', () => {
     expect(toAwsRef(ASSET)).toBe(`aws:${ASSET}`);
     expect(isAwsRef(toAwsRef(ASSET))).toBe(true);
     expect(awsAssetId(toAwsRef(ASSET))).toBe(ASSET);
-    expect(isAwsRef('0b5c7e1a-legacy-bunny-guid')).toBe(false);
+    expect(isAwsRef('0b5c7e1a-legacy-provider-guid')).toBe(false);
     expect(isAwsRef(null)).toBe(false);
   });
 });
@@ -128,7 +141,13 @@ describe('playback cookies', () => {
   const now = new Date('2026-10-10T12:00:00Z');
 
   it('signs a policy scoped to ONE asset path and sets a short expiry', () => {
-    const { cookies, expiresAt } = buildPlaybackCookies(creds, 'https://learnix.school', ASSET, 900, now);
+    const { cookies, expiresAt } = buildPlaybackCookies(
+      creds,
+      'https://learnix.school',
+      ASSET,
+      900,
+      now,
+    );
     expect(expiresAt.toISOString()).toBe('2026-10-10T12:15:00.000Z');
     const names = cookies.map((c) => c.name).sort();
     expect(names).toEqual(['CloudFront-Key-Pair-Id', 'CloudFront-Policy', 'CloudFront-Signature']);
@@ -136,8 +155,13 @@ describe('playback cookies', () => {
 
     const policyB64 = cookies.find((c) => c.name === 'CloudFront-Policy')!.value;
     const policy = JSON.parse(
-      Buffer.from(policyB64.replace(/-/g, '+').replace(/_/g, '=').replace(/~/g, '/'), 'base64').toString('utf8'),
-    ) as { Statement: Array<{ Resource: string; Condition: { DateLessThan: Record<string, number> } }> };
+      Buffer.from(
+        policyB64.replace(/-/g, '+').replace(/_/g, '=').replace(/~/g, '/'),
+        'base64',
+      ).toString('utf8'),
+    ) as {
+      Statement: Array<{ Resource: string; Condition: { DateLessThan: Record<string, number> } }>;
+    };
     expect(policy.Statement[0]!.Resource).toBe(`https://learnix.school/video/${ASSET}/*`);
     expect(policy.Statement[0]!.Condition.DateLessThan['AWS:EpochTime']).toBe(
       Math.floor(expiresAt.getTime() / 1000),
@@ -146,18 +170,29 @@ describe('playback cookies', () => {
 
   it('a different asset gets a different policy (no cross-lesson access)', () => {
     const a = buildPlaybackCookies(creds, 'https://learnix.school', ASSET, 900, now).cookies;
-    const b = buildPlaybackCookies(creds, 'https://learnix.school', 'other-asset', 900, now).cookies;
+    const b = buildPlaybackCookies(
+      creds,
+      'https://learnix.school',
+      'other-asset',
+      900,
+      now,
+    ).cookies;
     const pol = (cs: typeof a) => cs.find((c) => c.name === 'CloudFront-Policy')!.value;
     expect(pol(a)).not.toBe(pol(b));
   });
 
   it('interceptor moves cookies into Set-Cookie and strips them from the body', async () => {
     const res = { cookie: jest.fn() };
-    const context = { switchToHttp: () => ({ getResponse: () => res }) } as unknown as ExecutionContext;
+    const context = {
+      switchToHttp: () => ({ getResponse: () => res }),
+    } as unknown as ExecutionContext;
     const expires = new Date(Date.now() + 1000);
     const next: CallHandler = {
       handle: () =>
-        of({ hls_url: '/x', playback_cookies: [{ name: 'CloudFront-Policy', value: 'v', path: '/video/a/', expires }] }),
+        of({
+          hls_url: '/x',
+          playback_cookies: [{ name: 'CloudFront-Policy', value: 'v', path: '/video/a/', expires }],
+        }),
     };
     const body = await lastValueFrom(new PlaybackCookiesInterceptor().intercept(context, next));
     expect(body).toEqual({ hls_url: '/x' });
@@ -172,7 +207,9 @@ describe('playback cookies', () => {
 
   it('interceptor leaves other responses untouched', async () => {
     const res = { cookie: jest.fn() };
-    const context = { switchToHttp: () => ({ getResponse: () => res }) } as unknown as ExecutionContext;
+    const context = {
+      switchToHttp: () => ({ getResponse: () => res }),
+    } as unknown as ExecutionContext;
     const out = await lastValueFrom(
       new PlaybackCookiesInterceptor().intercept(context, { handle: () => of({ a: 1 }) }),
     );
@@ -226,7 +263,8 @@ describe('AwsVideoService', () => {
       findOneByOrFail: ({ id }: { id: string }) => Promise.resolve(rows.get(id)),
       findOneBy: (where: Record<string, unknown>) =>
         Promise.resolve(
-          [...rows.values()].find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null,
+          [...rows.values()].find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ??
+            null,
         ),
       update: (id: string, patch: Partial<Row>) => {
         Object.assign(rows.get(id)!, patch);
@@ -241,16 +279,36 @@ describe('AwsVideoService', () => {
       },
     };
     const storage = {
-      getDirectUploadBackend: () => ({ client: new S3Client({ region: 'eu-central-1' }), bucket: 'files' }),
+      getDirectUploadBackend: () => ({
+        client: new S3Client({ region: 'eu-central-1' }),
+        bucket: 'files',
+      }),
     };
-    const media = { buildPublicUrl: (key: string) => `https://learnix.school/api/v1/media/public/${key}` };
-    service = new AwsVideoService(repo as never, dataSource as never, cfg as never, storage as never, media as never);
-    (service as unknown as { mediaConvert: MediaConvertClient }).mediaConvert = new MediaConvertClient({
-      region: 'eu-central-1',
-    });
+    const media = {
+      buildPublicUrl: (key: string) => `https://learnix.school/api/v1/media/public/${key}`,
+    };
+    service = new AwsVideoService(
+      repo as never,
+      dataSource as never,
+      cfg as never,
+      storage as never,
+      media as never,
+    );
+    (service as unknown as { mediaConvert: MediaConvertClient }).mediaConvert =
+      new MediaConvertClient({
+        region: 'eu-central-1',
+      });
   });
 
-  const upload = { id: 'up', purpose: 'lesson_video', bucket: 'src', key: `source/up/original.mp4`, name: 'a.mp4', contentType: 'video/mp4', size: 1000 };
+  const upload = {
+    id: 'up',
+    purpose: 'lesson_video',
+    bucket: 'src',
+    key: `source/up/original.mp4`,
+    name: 'a.mp4',
+    contentType: 'video/mp4',
+    size: 1000,
+  };
 
   it('creates the asset and submits a MediaConvert job', async () => {
     mc.on(CreateJobCommand).resolves({ Job: { Id: 'job-9' } });
@@ -289,7 +347,10 @@ describe('AwsVideoService', () => {
       thumbnail_key: `thumbnails/videos/${asset.id}.jpg`,
     });
     const copy = s3.commandCalls(CopyObjectCommand)[0]!.args[0].input;
-    expect(copy).toMatchObject({ Bucket: 'files', CopySource: `out/video/${asset.id}/thumb/poster.0000000.jpg` });
+    expect(copy).toMatchObject({
+      Bucket: 'files',
+      CopySource: `out/video/${asset.id}/thumb/poster.0000000.jpg`,
+    });
     const lessonUpdate = queries.find((q) => q.sql.includes('"lessons"'))!;
     expect(lessonUpdate.params.slice(0, 3)).toEqual([asset.id, 'ready', 125]);
     expect(queries.some((q) => q.sql.includes('marketplace_course_lessons'))).toBe(true);
@@ -298,11 +359,24 @@ describe('AwsVideoService', () => {
   it('on ERROR: marks failed with the reason; late or duplicate events are ignored', async () => {
     mc.on(CreateJobCommand).resolves({ Job: { Id: 'job-9' } });
     const asset = await service.registerUpload(upload as never, 'teacher-1');
-    await service.applyOutcome({ jobId: 'job-9', assetId: asset.id, status: 'ERROR', errorMessage: 'No video stream' });
-    expect(rows.get(asset.id)).toMatchObject({ status: 'failed', error_message: 'No video stream' });
+    await service.applyOutcome({
+      jobId: 'job-9',
+      assetId: asset.id,
+      status: 'ERROR',
+      errorMessage: 'No video stream',
+    });
+    expect(rows.get(asset.id)).toMatchObject({
+      status: 'failed',
+      error_message: 'No video stream',
+    });
 
     queries.length = 0;
-    await service.applyOutcome({ jobId: 'job-9', assetId: asset.id, status: 'COMPLETE', durationSeconds: 5 });
+    await service.applyOutcome({
+      jobId: 'job-9',
+      assetId: asset.id,
+      status: 'COMPLETE',
+      durationSeconds: 5,
+    });
     expect(rows.get(asset.id)!.status).toBe('failed');
     expect(queries).toHaveLength(0);
   });
@@ -322,7 +396,12 @@ describe('AwsVideoService', () => {
     mc.on(CreateJobCommand).resolves({ Job: { Id: 'job-9' } });
     const asset = await service.registerUpload(upload as never, 'teacher-1');
     mc.on(GetJobCommand).resolves({
-      Job: { Id: 'job-9', Status: 'ERROR', ErrorMessage: 'bad file', UserMetadata: { assetId: asset.id } },
+      Job: {
+        Id: 'job-9',
+        Status: 'ERROR',
+        ErrorMessage: 'bad file',
+        UserMetadata: { assetId: asset.id },
+      },
     } as never);
     s3.on(ListObjectsV2Command).resolves({});
 
@@ -343,13 +422,21 @@ describe('AwsVideoService', () => {
 
 describe('MediaEventsConsumer.handle', () => {
   const make = (apply: jest.Mock) =>
-    new MediaEventsConsumer({ eventsQueueUrl: '', region: 'x' } as never, { applyOutcome: apply } as never);
+    new MediaEventsConsumer(
+      { eventsQueueUrl: '', region: 'x' } as never,
+      { applyOutcome: apply } as never,
+    );
 
   it('applies the EventBridge envelope detail and allows deletion', async () => {
     const apply = jest.fn().mockResolvedValue(undefined);
-    const body = JSON.stringify({ source: 'aws.mediaconvert', detail: { status: 'COMPLETE', jobId: 'j1', userMetadata: { assetId: ASSET } } });
+    const body = JSON.stringify({
+      source: 'aws.mediaconvert',
+      detail: { status: 'COMPLETE', jobId: 'j1', userMetadata: { assetId: ASSET } },
+    });
     expect(await make(apply).handle({ Body: body })).toBe(true);
-    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'j1', status: 'COMPLETE' }));
+    expect(apply).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 'j1', status: 'COMPLETE' }),
+    );
   });
 
   it('keeps the message for redelivery when applying fails', async () => {

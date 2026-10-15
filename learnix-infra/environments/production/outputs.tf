@@ -49,8 +49,21 @@ output "cloudfront_distribution_id" {
 }
 
 output "name_servers" {
-  description = "Set these as the domain's name servers at the registrar (Name.com) in Phase 6, after the dig diff is clean."
-  value       = aws_route53_zone.this.name_servers
+  description = "dns_provider = route53 only: set these as the domain's name servers at the registrar (Name.com) after the dig diff is clean. Null with cloudflare."
+  value       = one(aws_route53_zone.this[*].name_servers)
+}
+
+# Everything DNS has to contain for AWS, when Cloudflare stays authoritative. Add each as DNS only (grey cloud,
+# never proxied). Records already in the zone (MX, DMARC with its rua, Vercel's apex and www) are not touched,
+# and Terraform deliberately publishes no DMARC record here: keep the existing one.
+output "cloudflare_dns_records" {
+  description = "Records to add in Cloudflare when dns_provider = cloudflare: ACM validation (after certificate_enabled), the api CNAME (after certificate_validated) and the SES DKIM / MAIL FROM records."
+  value = local.route53 ? [] : concat(
+    [for o in(var.certificate_enabled ? aws_acm_certificate.api[0].domain_validation_options : []) : { name = o.resource_record_name, type = o.resource_record_type, value = o.resource_record_value, note = "ACM validation for the API certificate" }],
+    local.certificate_issued ? [{ name = local.api_host, type = "CNAME", value = module.cdn.domain_name, note = "API host: CloudFront (DNS only)" }] : [],
+    module.messaging.dns_records_required,
+    [{ name = var.domain_name, type = "CAA", value = "0 issue \"amazon.com\"", note = "Only if the zone has CAA records: ACM cannot issue otherwise (add alongside the existing issuers)" }],
+  )
 }
 
 output "ecr_repositories" {
@@ -59,6 +72,11 @@ output "ecr_repositories" {
 
 output "ecs_cluster" {
   value = module.ecs.cluster_name
+}
+
+output "deploy_health_alarms" {
+  description = "GitHub environment variable DEPLOY_ALARMS: comma-separated alarms ecs-deploy.sh watches around a release."
+  value       = join(",", module.observability.deploy_health_alarms)
 }
 
 output "migrate_task_definition_family" {

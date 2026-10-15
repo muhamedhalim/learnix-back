@@ -72,14 +72,16 @@ export class StorageHealthIndicator implements HealthIndicator {
         ...(production && provider === 'local'
           ? ['Local disk storage is not suitable for a multi-instance production deployment.']
           : []),
-        ...(provider === 'bunny'
-          ? ['Bunny public storage cannot enforce private paid-object access in production.']
-          : []),
       ];
 
       return componentResult({
         id: this.id,
-        name: provider === 'r2' ? 'Cloudflare R2' : provider === 's3' ? 'Amazon S3' : `${provider} storage`,
+        name:
+          provider === 'r2'
+            ? 'Cloudflare R2'
+            : provider === 's3'
+              ? 'Amazon S3'
+              : `${provider} storage`,
         category: 'storage',
         status: policyWarnings.length > 0 && status === 'healthy' ? 'warning' : status,
         startedAt,
@@ -91,10 +93,7 @@ export class StorageHealthIndicator implements HealthIndicator {
           configured: provider !== 'local' || !production,
           provider,
           bucket:
-            this.config.get<string>('S3_BUCKET') ??
-            this.config.get<string>('R2_BUCKET') ??
-            this.config.get<string>('BUNNY_STORAGE_ZONE') ??
-            null,
+            this.config.get<string>('S3_BUCKET') ?? this.config.get<string>('R2_BUCKET') ?? null,
           uploadTest: uploaded,
           readTest: read,
           deleteTest: deleted,

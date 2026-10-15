@@ -60,6 +60,11 @@ output "ecs_cluster" {
   value = module.ecs.cluster_name
 }
 
+output "deploy_health_alarms" {
+  description = "GitHub environment variable DEPLOY_ALARMS: comma-separated alarms ecs-deploy.sh watches around a release."
+  value       = join(",", module.observability.deploy_health_alarms)
+}
+
 output "migrate_task_definition_family" {
   value = module.migrate.task_definition_family
 }

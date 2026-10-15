@@ -1,5 +1,7 @@
 # Phase 2 Railway Checklist — Database and Redis
 
+> **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
+
 Everything in this document requires Railway dashboard access this session does not have. Nothing
 here has been created. Perform these steps in order; each step lists what to verify before moving
 to the next. No secret values are written down anywhere in this document — only variable **names**
@@ -80,15 +82,15 @@ actual staging instance until this step.
 Only the Database-and-Redis-relevant variables are listed here — the full variable set is Phase 4's
 job. Set on the `learnix-staging` API service once it exists:
 
-| Variable | Value |
-|---|---|
-| `APP_ENV` | `staging` |
-| `DATABASE_URL` | The Step 2 private network URL |
-| `REDIS_URL` | The Step 3 private network URL |
-| `REDIS_NAMESPACE` | Leave unset (defaults to `learnix:staging` automatically) unless you have a specific reason to override it |
+| Variable                                                                                    | Value                                                                                                                                    |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                                                                                   | `staging`                                                                                                                                |
+| `DATABASE_URL`                                                                              | The Step 2 private network URL                                                                                                           |
+| `REDIS_URL`                                                                                 | The Step 3 private network URL                                                                                                           |
+| `REDIS_NAMESPACE`                                                                           | Leave unset (defaults to `learnix:staging` automatically) unless you have a specific reason to override it                               |
 | `DB_POOL_MAX` / `DB_POOL_MIN` / `DB_POOL_IDLE_TIMEOUT_MS` / `DB_POOL_CONNECTION_TIMEOUT_MS` | Only if staging's Postgres plan has a materially different connection limit than production's defaults (10/2/30000/10000) already assume |
-| `RUN_MIGRATIONS` | Leave unset (migrations run automatically on boot, advisory-locked) |
-| `ALLOW_STAGING_SEED` | Leave unset until Phase 7, when the seed is actually meant to be run |
+| `RUN_MIGRATIONS`                                                                            | Leave unset (migrations run automatically on boot, advisory-locked)                                                                      |
+| `ALLOW_STAGING_SEED`                                                                        | Leave unset until Phase 7, when the seed is actually meant to be run                                                                     |
 
 **Two-person review before the first deploy:** have a second person independently confirm
 `DATABASE_URL` and `REDIS_URL` both resolve to the `learnix-staging` project's own services, not

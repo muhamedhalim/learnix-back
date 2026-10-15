@@ -1,5 +1,7 @@
 # Learnix pre-launch data reset
 
+> **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
+
 This maintenance command resets application data while preserving the migrated
 schema and TypeORM migration history. It is a CLI task, not an HTTP endpoint.
 
@@ -57,7 +59,7 @@ transaction through `AdminInitializationService`, using only
 4. Review the printed non-secret host/database/environment, all table classes and
    row counts, R2/local storage-reference counts, Redis key-category counts and
    the BullMQ queue/repeatable-job inventory. The command always prints `Bunny
-   cleanup: SKIPPED BY USER REQUEST` and does not contact Bunny Stream.
+cleanup: SKIPPED BY USER REQUEST` and does not contact Bunny Stream.
 5. Execute with all guards set. `RESET_PRELAUNCH_TARGET` must exactly match the
    dry-run host/database string. Never put credentials in these variables.
 

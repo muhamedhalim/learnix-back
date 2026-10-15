@@ -31,9 +31,9 @@ export interface UploadParams {
 
 /**
  * Storage provider abstraction. Business logic depends ONLY on this interface,
- * never on Cloudflare R2 / Bunny / local specifics — so the backing store can
- * change without touching callers. Non-video assets are backed by Cloudflare R2
- * in production; lesson VIDEOS are out of scope here and remain on Bunny Stream.
+ * never on S3 / R2 / local specifics — so the backing store can change without
+ * touching callers. Non-video assets are backed by Amazon S3 in production;
+ * lesson VIDEOS have their own pipeline (`src/video`: S3, MediaConvert, CloudFront).
  */
 export interface StorageProvider {
   readonly name: string;

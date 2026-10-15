@@ -192,7 +192,7 @@ module "messaging" {
   name               = local.name
   kms_key_arn        = module.kms.arn
   domain             = var.domain_name
-  zone_id            = aws_route53_zone.this.zone_id
-  manage_dns_records = true
+  zone_id            = one(aws_route53_zone.this[*].zone_id)
+  manage_dns_records = local.route53
   dmarc_policy       = var.dmarc_policy
 }

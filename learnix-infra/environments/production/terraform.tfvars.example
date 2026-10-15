@@ -28,7 +28,7 @@ worker_desired_count = 0
 
 # --- Application pipelines ---------------------------------------------------------------------------
 app_repositories = {
-  api = "OWNER/learnix-back" # the frontend deploys through Vercel and needs no AWS role
+  api = "muhamedhalim/learnix-back" # the frontend deploys through Vercel and needs no AWS role
 }
 
 # --- Secrets injected as environment variables (after the operator fills the secret values) -----------

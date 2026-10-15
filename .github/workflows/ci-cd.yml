@@ -2,13 +2,16 @@ name: CI/CD
 
 # THE one authoritative pipeline for this repository: validation, security checks, tests, image build and
 # the AWS (ECS) rollout, plus the nightly branch-sync check and the manual rollback. Nothing else under
-# .github/workflows may trigger on push / pull_request or deploy. Architecture and rules: docs/CI_CD_SETUP.md.
+# .github/workflows may trigger on push / pull_request or deploy. Architecture and rules: docs/CI-CD-ARCHITECTURE.md.
 #
 #   pull_request                -> `control` -> every validation job + `ci-gate`. Never deploys.
 #   push to develop             -> validation -> `ci-gate` -> promotion gates -> deploy STAGING (this same run)
-#   push to main                -> validation + branch-sync only. Production is a manual, approval-gated dispatch
+#   push to main                -> validation -> `ci-gate` -> promotion gates -> deploy PRODUCTION (this same run), which waits
+#                                  for the `production` environment's required reviewers. Skipped when the push changed
+#                                  nothing the image contains (docs / learnix-infra only).
 #   schedule (nightly)          -> branch-sync only
-#   workflow_dispatch           -> `action`: deploy (staging|production) | rollback | branch-sync
+#   workflow_dispatch           -> `action`: deploy (staging|production) | rollback | branch-sync (manual production
+#                                  deploys need the same green staging tree and the same approvals)
 #
 # `push` is limited to the long-lived branches: every other branch is covered by its pull request, and running
 # both for the same commit doubled every job. The deploy is a job of THIS run (not a second workflow reacting
@@ -64,6 +67,34 @@ jobs:
       environment: ${{ steps.route.outputs.environment }}
       manual: ${{ steps.route.outputs.manual }}
     steps:
+      - name: Checkout (to see what the push changed)
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Did the push change anything the image contains?
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Only a push can be a no-op for the image. Everything else (PR, manual) counts as a change.
+          app_changed=true
+          if [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # NUL-delimited so file names are never interpreted by the shell; the image only contains what
+            # is NOT docs, markdown, learnix-infra or the repo's own meta files.
+            app_changed=false
+            while IFS= read -r -d '' f; do
+              case "$f" in
+                learnix-infra/*|docs/*|*.md|.github/dependabot.yml) ;;
+                *) app_changed=true; break ;;
+              esac
+            done < <(git diff -z --name-only "$BEFORE" "$GITHUB_SHA")
+          fi
+          echo "app_changed=$app_changed" >> "$GITHUB_OUTPUT"
+
       - name: Route this event
         id: route
         env:
@@ -71,13 +102,20 @@ jobs:
           REF: ${{ github.ref }}
           ACTION: ${{ inputs.action }}
           ENVIRONMENT: ${{ inputs.environment }}
+          APP_CHANGED: ${{ steps.changes.outputs.app_changed }}
         run: |
           ci=false deploy=false rollback=false branch_sync=false manual=false target=''
           case "$EVENT" in
             pull_request) ci=true ;;
             push)
               ci=true branch_sync=true
-              if [ "$REF" = refs/heads/develop ]; then deploy=true target=staging; fi ;;
+              # A push that changed neither code nor dependencies would rebuild an identical image.
+              if [ "$APP_CHANGED" = true ]; then
+                case "$REF" in
+                  refs/heads/develop) deploy=true target=staging ;;
+                  refs/heads/main) deploy=true target=production ;;
+                esac
+              fi ;;
             schedule) branch_sync=true ;;
             workflow_dispatch)
               manual=true
@@ -103,12 +141,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -129,7 +167,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-coverage
           path: coverage/
@@ -169,12 +207,12 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -243,17 +281,14 @@ jobs:
       REDIS_URL: redis://localhost:6379/15
       MEETING_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       PAYOUT_ACCOUNT_ENCRYPTION_KEY: ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=
-      # Signed-embed URLs for free-preview lessons are only produced when a token key exists
-      # (public-academic-cache suite); this one signs fixture URLs for a fake video id.
-      BUNNY_STREAM_TOKEN_KEY: e2e-synthetic-bunny-token-key
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -305,7 +340,7 @@ jobs:
 
       - name: Upload E2E results (shard ${{ matrix.shard }}/4)
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-shard-${{ matrix.shard }}
           path: e2e-results/
@@ -322,12 +357,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -339,7 +374,7 @@ jobs:
       # below, so a failed download must not hide the verdict step.
       - name: Download shard results
         if: ${{ always() }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: e2e-shard-*
           path: shard-results
@@ -377,7 +412,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -402,13 +437,13 @@ jobs:
     # silently exempted forever.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -475,12 +510,12 @@ jobs:
       REDIS_NAMESPACE: learnix:staging
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -535,13 +570,13 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -563,12 +598,12 @@ jobs:
     # that have no upstream fix yet), so a *new* advisory can no longer join silently.
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -586,7 +621,7 @@ jobs:
     # shell mistakes in `run:` via shellcheck). Pinned by digest (actionlint v1.7.7).
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -630,7 +665,7 @@ jobs:
   # ---------------------------------------------------------------------------------------------------------
   # AWS release. One image (linux/arm64) serves the api, worker and migrate task definitions. It is built with
   # the Amazon RDS CA bundle baked in, scanned, pushed to the target account's ECR under the commit SHA
-  # (immutable), then scripts/aws/ecs-deploy.sh (source of truth: learnix-infra/scripts/ecs-deploy.sh) runs
+  # (immutable), then learnix-infra/scripts/ecs-deploy.sh runs
   # the migrate task first (must exit 0), then api + worker, rolling back automatically when a deployment
   # fails or alarms fire.
   #
@@ -642,7 +677,7 @@ jobs:
   #   AWS_REGION, AWS_DEPLOY_ROLE_ARN (deploy_roles.api), ECR_REPOSITORY_URL (ecr_repositories.api),
   #   ECS_CLUSTER (ecs_cluster), ECS_SERVICES ("api,worker" or "api" on single-role staging),
   #   MIGRATE_FAMILY (migrate_task_definition_family), TASK_NETWORK (task_network, JSON),
-  #   ALARM_PREFIX (learnix-<env>), API_URL (api_url), DB_INSTANCE_ID (production only)
+  #   DEPLOY_ALARMS (deploy_health_alarms), API_URL (api_url), DB_INSTANCE_ID (production only)
   # Nothing secret is stored here: the deploy job assumes the deploy role through GitHub OIDC.
   # ---------------------------------------------------------------------------------------------------------
   gates:
@@ -663,26 +698,34 @@ jobs:
     outputs:
       classification: ${{ steps.classify.outputs.classification }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Production needs a green staging deploy of this commit
+      - name: Production needs a green staging deploy of the same code
         if: env.TARGET == 'production'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         # Staging is deployed by the `deploy` job of a push run on develop, so a successful CI/CD push run on
-        # develop for this exact commit means the checks AND the staging rollout both succeeded.
+        # develop means the checks AND the staging rollout both succeeded. A merge into main creates a new
+        # commit, so the comparison is on the TREE (the file contents), not the commit id: the same code
+        # that ran green on develop is what production receives.
         run: |
-          staging=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-cd.yml/runs?head_sha=${{ github.sha }}&branch=develop&event=push&status=success&per_page=5" \
-            --jq '.total_count')
-          if [ "${staging:-0}" -lt 1 ]; then
-            echo "::error::No successful staging deploy of ${{ github.sha }}; deploy it to staging first."
+          git fetch --quiet origin develop
+          want=$(git rev-parse "${GITHUB_SHA}^{tree}")
+          found=false
+          for sha in $(gh api "repos/${REPOSITORY}/actions/workflows/ci-cd.yml/runs?branch=develop&event=push&status=success&per_page=50" --jq '.workflow_runs[].head_sha'); do
+            tree=$(git rev-parse "${sha}^{tree}" 2>/dev/null) || continue
+            if [ "$tree" = "$want" ]; then found=true; echo "Staging deployed this exact tree in run for $sha."; break; fi
+          done
+          if [ "$found" != true ]; then
+            echo "::error::No successful staging deploy of this code (tree $want). Merge it into develop and let staging deploy first."
             exit 1
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -690,9 +733,15 @@ jobs:
 
       - name: Classify migration changes
         id: classify
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
+          # Migrations new since the previous tip of the branch being deployed (the push's `before`), or
+          # since the previous commit of main for manual runs and first pushes.
+          base="origin/main~1"
+          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base="$BEFORE"; fi
           set +e
-          npx ts-node scripts/migration-safety-check.ts --base "origin/main~1"
+          npx ts-node scripts/migration-safety-check.ts --base "$base"
           code=$?
           set -e
           case "$code" in
@@ -729,7 +778,7 @@ jobs:
       TARGET: ${{ needs.control.outputs.environment }}
       IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -798,19 +847,19 @@ jobs:
           ECS_SERVICES: ${{ vars.ECS_SERVICES }}
           MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
           TASK_NETWORK: ${{ vars.TASK_NETWORK }}
-          ALARM_PREFIX: ${{ vars.ALARM_PREFIX }}
+          DEPLOY_ALARMS: ${{ vars.DEPLOY_ALARMS }}
         run: |
-          bash scripts/aws/ecs-deploy.sh \
+          bash learnix-infra/scripts/ecs-deploy.sh \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICES" \
             --image "$IMAGE" \
             --migrate-family "$MIGRATE_FAMILY" \
             --network "$TASK_NETWORK" \
-            --alarm-prefix "$ALARM_PREFIX"
+            --alarm-names "$DEPLOY_ALARMS"
 
       - name: Keep the rollback point
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}
           path: previous-task-definitions.json
@@ -845,7 +894,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
@@ -862,7 +911,7 @@ jobs:
             || { echo "::error::previous_task_definitions must map service names to task definition ARNs"; exit 1; }
           echo "$PREVIOUS" > rollback.json
           services=$(jq -r 'keys | join(",")' rollback.json)
-          bash scripts/aws/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$services" --rollback --to-file rollback.json
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$services" --rollback --to-file rollback.json
 
   # Read-only: never pushes, merges, or modifies either branch itself. Catches long-term divergence between
   # the production branch and the staging integration branch before it becomes a painful merge
@@ -879,7 +928,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false

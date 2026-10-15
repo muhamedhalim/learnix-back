@@ -40,8 +40,7 @@ import {
       MarketplaceCourseReviewDecision,
       MarketplaceEnrollment,
     ]),
-    // FR-051: reuses the platform's existing Bunny Stream signing service
-    // rather than a second video integration. One-way dependency only —
+    // FR-051: lesson video upload and status go through VideoModule (S3, MediaConvert, CloudFront). One-way dependency only —
     // LessonsModule has no knowledge of marketplace code.
     LessonsModule,
     VideoModule,
@@ -52,7 +51,12 @@ import {
     // — a sibling under MarketplaceModule does not share its DI container.
     InstructorsModule,
   ],
-  controllers: [AdminCategoriesController, AdminCoursesController, InstructorCoursesController, InstructorCurriculumController],
+  controllers: [
+    AdminCategoriesController,
+    AdminCoursesController,
+    InstructorCoursesController,
+    InstructorCurriculumController,
+  ],
   providers: [
     CategoryService,
     CourseAuthoringService,

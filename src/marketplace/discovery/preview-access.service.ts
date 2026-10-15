@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 
 import { biBody } from '../../i18n/error-translator.util';
-import { BunnyStreamService } from '../../lessons/bunny-stream.service';
 import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.service';
 import type { PlaybackCookie } from '../../video/playback-cookies';
 import type { CourseSnapshot } from '../catalog/course-version.service';
@@ -13,8 +12,6 @@ export interface PreviewLessonContent {
   title_ar: string | null;
   content_type: string;
   duration_seconds: number;
-  /** Present for a Bunny video lesson: a short-lived signed embed URL. Null when signing is not configured, so a free preview never falls back to an unsigned URL. */
-  embed_url: string | null;
   /** AWS video: absolute HLS URL on the API/CDN host, authorised by the `playback_cookies` the route turns into Set-Cookie. */
   hls_url?: string | null;
   expires_at?: string;
@@ -34,7 +31,6 @@ export interface PreviewLessonContent {
 export class PreviewAccessService {
   constructor(
     private readonly courseDetail: CourseDetailService,
-    private readonly bunnyStream: BunnyStreamService,
     @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
@@ -60,12 +56,12 @@ export class PreviewAccessService {
       title_ar: lesson.title_ar,
       content_type: lesson.content_type,
       duration_seconds: lesson.duration_seconds,
-      embed_url:
-        videoId && aws === null && !isAwsRef(videoId)
-          ? this.bunnyStream.generateSignedEmbedUrl(videoId)
-          : null,
       ...(aws !== null
-        ? { hls_url: aws.hls_url, expires_at: aws.expires_at, playback_cookies: aws.playback_cookies }
+        ? {
+            hls_url: aws.hls_url,
+            expires_at: aws.expires_at,
+            playback_cookies: aws.playback_cookies,
+          }
         : {}),
       content_html: lesson.content_type === 'text' ? lesson.content_html : null,
     };

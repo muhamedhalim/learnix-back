@@ -40,7 +40,7 @@ import {
  * Phase 9's independent test (tasks.md): an eligible request refunds fully
  * and reverses everything; an ineligible one names the failed condition and
  * changes nothing. This e2e environment has no reachable Paymob credentials
- * (`.env.test` sets none — same constraint as Bunny Stream for video
+ * (`.env.test` sets none — same constraint as AWS MediaConvert for video
  * lessons, T065/T074/T077), so `RefundProcessingService.callGateway()`
  * fails fast and deterministically for ANY eligible refund attempted here —
  * the "eligible → fully reversed" success path is proven at the unit level
@@ -489,8 +489,12 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .expect(201);
       expect(failed.body.status).toBe(RefundRequestStatus.FAILED);
 
-      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`).expect(403);
+      await dataSource
+        .getRepository(User)
+        .update({ id: admin.userId }, { finance_permissions: [] });
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`)
+        .expect(403);
 
       await grantRefundPermission(admin.userId);
       const retried = await admin.agent
@@ -554,7 +558,10 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       const { learner, order, course, payment } = await actors();
       const server = app.getHttpServer() as Server;
 
-      const readCounts = async (): Promise<{ list: number | undefined; detail: number | undefined }> => {
+      const readCounts = async (): Promise<{
+        list: number | undefined;
+        detail: number | undefined;
+      }> => {
         const list = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
         const item = (list.body.items as Array<{ id: string; enrollment_count: number }>).find(
           (i) => i.id === course.id,

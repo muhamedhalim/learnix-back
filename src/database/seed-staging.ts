@@ -451,9 +451,9 @@ async function seedCatalog(
             description: 'Synthetic lesson content for staging.',
             teacher_id: teacher.id,
             subject_id: subject.id,
-            // No video is attached: a staging Bunny library ID is environment
-            // configuration, not seed data, and a fabricated ID would surface
-            // as a broken player rather than as an obvious gap.
+            // No video is attached: a video needs a real upload and transcode, and a
+            // fabricated asset would surface as a broken player rather than as an
+            // obvious gap.
             price: 50 + lessonIndex * 10,
             duration: 1800,
             available_for_days: 30,

@@ -99,9 +99,6 @@ const FINGERPRINTED_SECRETS: readonly string[] = Object.freeze([
   'MAILERSEND_API_KEY',
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY',
-  'BUNNY_STREAM_API_KEY',
-  'BUNNY_STREAM_TOKEN_KEY',
-  'BUNNY_API_KEY',
   'TWILIO_AUTH_TOKEN',
   'META_WHATSAPP_ACCESS_TOKEN',
   'META_WHATSAPP_APP_SECRET',
@@ -322,7 +319,7 @@ function checkS3Buckets(context: RuleContext): void {
       context,
       variable,
       'STAGING_PRODUCTION_STORAGE_BUCKET',
-      'Use the staging account\'s own bucket. The orphan-cleanup crons DELETE objects, so a shared ' +
+      "Use the staging account's own bucket. The orphan-cleanup crons DELETE objects, so a shared " +
         'bucket means staging deletes production files.',
     );
     const bucket = context.get(variable);
@@ -371,19 +368,6 @@ function checkStorage(context: RuleContext): void {
         '"learnix-staging".',
     });
   }
-
-  assertNotProductionIdentifier(
-    context,
-    'BUNNY_STREAM_LIBRARY_ID',
-    'STAGING_PRODUCTION_VIDEO_LIBRARY',
-    'Create a separate Bunny Stream library for staging; lesson replacement DELETES videos.',
-  );
-  assertNotProductionHost(
-    context,
-    'BUNNY_STREAM_CDN_HOSTNAME',
-    'STAGING_PRODUCTION_VIDEO_CDN',
-    'Use the staging library pull zone.',
-  );
 
   // Parity with the production rule in storage.service.ts:392 — R2 objects
   // include paid books and OMR sheets and must never be publicly addressable.

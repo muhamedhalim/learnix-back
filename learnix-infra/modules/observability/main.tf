@@ -44,6 +44,24 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
   ok_actions          = local.alarm_actions
 }
 
+# 502/503/504 produced by the load balancer itself (no healthy target, connection reset): invisible to the
+# target-5xx alarm above, and exactly what a broken release looks like.
+resource "aws_cloudwatch_metric_alarm" "alb_elb_5xx" {
+  alarm_name          = "${var.name}-alb-elb-5xx"
+  alarm_description   = "The load balancer itself is returning 5xx (no healthy targets, resets or timeouts)"
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HTTPCode_ELB_5XX_Count"
+  dimensions          = { LoadBalancer = var.alb_arn_suffix }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = var.alb_5xx_threshold
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
+}
+
 resource "aws_cloudwatch_metric_alarm" "unhealthy_targets" {
   for_each = var.target_group_arn_suffixes
 

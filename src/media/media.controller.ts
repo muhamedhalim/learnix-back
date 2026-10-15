@@ -10,7 +10,7 @@ import { MediaService } from './media.service';
 
 /**
  * Public media proxy. The ONLY way the frontend ever loads a "public" stored
- * asset (lesson/course thumbnails, generic images) — it never sees an R2/Bunny
+ * asset (lesson/course thumbnails, generic images) — it never sees a raw storage
  * URL, signed or otherwise. Streams bytes straight from `StorageService`, so
  * changing storage providers never requires a frontend change.
  *

@@ -1,6 +1,9 @@
-import type { BunnyStreamService } from '../../lessons/bunny-stream.service';
 import { LessonVideoService } from './lesson-video.service';
-import type { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection } from './entities';
+import type {
+  MarketplaceCourse,
+  MarketplaceCourseLesson,
+  MarketplaceCourseSection,
+} from './entities';
 
 function buildService(
   course: MarketplaceCourse | null,
@@ -9,7 +12,9 @@ function buildService(
 ) {
   const courses = {
     findOne: jest.fn(async ({ where }: { where: { id: string; instructor_id: string } }) =>
-      course && course.id === where.id && course.instructor_id === where.instructor_id ? course : null,
+      course && course.id === where.id && course.instructor_id === where.instructor_id
+        ? course
+        : null,
     ),
   };
   const lessons = {
@@ -27,70 +32,119 @@ function buildService(
           return qb;
         }),
         getOne: jest.fn(async () => {
-          const courseSectionIds = sectionRows.filter((s) => s.course_id === params['courseId']).map((s) => s.id);
-          return lessonRows.find((l) => l.id === params['lessonId'] && courseSectionIds.includes(l.section_id)) ?? null;
+          const courseSectionIds = sectionRows
+            .filter((s) => s.course_id === params['courseId'])
+            .map((s) => s.id);
+          return (
+            lessonRows.find(
+              (l) => l.id === params['lessonId'] && courseSectionIds.includes(l.section_id),
+            ) ?? null
+          );
         }),
       };
       return qb;
     }),
   };
-  const bunnyStream = {
-    createVideo: jest.fn().mockResolvedValue({ videoId: 'bunny-video-1', libraryId: 'lib-1' }),
-    createTusAuthorization: jest.fn().mockReturnValue({
-      endpoint: 'https://video.bunnycdn.com/tusupload',
-      headers: {},
-      expiresAt: new Date(),
+  const awsVideo = {
+    isEnabled: jest.fn().mockReturnValue(true),
+    getStatus: jest.fn().mockResolvedValue({
+      status: 'processing',
+      duration_seconds: null,
+      width: null,
+      height: null,
+      size_bytes: null,
     }),
-    getVideo: jest.fn().mockResolvedValue({ status: 'processing', progress: 40 }),
-  } as unknown as jest.Mocked<BunnyStreamService>;
+  };
+  const directUploads = { init: jest.fn().mockResolvedValue({ upload_id: 'upload-1' }) };
 
-  const service = new LessonVideoService(courses as never, lessons as never, bunnyStream);
-  return { service, courses, lessons, bunnyStream };
+  const service = new LessonVideoService(
+    courses as never,
+    lessons as never,
+    awsVideo as never,
+    directUploads as never,
+  );
+  return { service, courses, lessons, awsVideo, directUploads };
 }
 
 function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCourse {
   return { id: 'course-1', instructor_id: 'instr-1', ...overrides } as unknown as MarketplaceCourse;
 }
 function buildSection(overrides: Partial<MarketplaceCourseSection> = {}): MarketplaceCourseSection {
-  return { id: 'section-1', course_id: 'course-1', ...overrides } as unknown as MarketplaceCourseSection;
+  return {
+    id: 'section-1',
+    course_id: 'course-1',
+    ...overrides,
+  } as unknown as MarketplaceCourseSection;
 }
 function buildLesson(overrides: Partial<MarketplaceCourseLesson> = {}): MarketplaceCourseLesson {
-  return { id: 'lesson-1', section_id: 'section-1', title: 'Intro', video_id: null, ...overrides } as unknown as MarketplaceCourseLesson;
+  return {
+    id: 'lesson-1',
+    section_id: 'section-1',
+    title: 'Intro',
+    video_id: null,
+    ...overrides,
+  } as unknown as MarketplaceCourseLesson;
 }
 
-describe('LessonVideoService', () => {
-  describe('createUploadAuthorization', () => {
-    it('creates a Bunny video, stamps video_id on the lesson, and returns TUS credentials', async () => {
-      const lesson = buildLesson();
-      const { service, lessons, bunnyStream } = buildService(buildCourse(), [buildSection()], [lesson]);
-      const result = await service.createUploadAuthorization('instr-1', 'course-1', 'lesson-1');
+const UPLOAD = { filename: 'intro.mp4', contentType: 'video/mp4', size: 1024 };
 
-      expect(bunnyStream.createVideo).toHaveBeenCalledWith('Intro');
-      expect(lesson.video_id).toBe('bunny-video-1');
-      expect(lessons.save).toHaveBeenCalledWith(lesson);
-      expect(result.videoId).toBe('bunny-video-1');
-      expect(result.tusAuthorization.endpoint).toContain('bunnycdn.com');
+describe('LessonVideoService', () => {
+  describe('startAwsUpload', () => {
+    it('starts a direct upload for the signed-in user', async () => {
+      const { service, directUploads } = buildService(
+        buildCourse(),
+        [buildSection()],
+        [buildLesson()],
+      );
+      await service.startAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', UPLOAD);
+
+      expect(directUploads.init).toHaveBeenCalledWith('user-1', {
+        purpose: 'lesson_video',
+        ...UPLOAD,
+      });
     });
 
     it('refuses when the course belongs to a different instructor (no IDOR)', async () => {
-      const { service } = buildService(buildCourse({ instructor_id: 'instr-1' }), [buildSection()], [buildLesson()]);
-      await expect(service.createUploadAuthorization('instr-2', 'course-1', 'lesson-1')).rejects.toThrow();
+      const { service, directUploads } = buildService(
+        buildCourse({ instructor_id: 'instr-1' }),
+        [buildSection()],
+        [buildLesson()],
+      );
+      await expect(
+        service.startAwsUpload('instr-2', 'user-2', 'course-1', 'lesson-1', UPLOAD),
+      ).rejects.toThrow();
+      expect(directUploads.init).not.toHaveBeenCalled();
     });
 
     it('refuses when the lesson belongs to a section in a different course', async () => {
       const otherSection = buildSection({ id: 'other-section', course_id: 'other-course' });
       const lesson = buildLesson({ section_id: 'other-section' });
       const { service } = buildService(buildCourse(), [otherSection], [lesson]);
-      await expect(service.createUploadAuthorization('instr-1', 'course-1', 'lesson-1')).rejects.toThrow();
+      await expect(
+        service.startAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', UPLOAD),
+      ).rejects.toThrow();
+    });
+
+    it('refuses when the AWS video pipeline is not enabled on this deployment', async () => {
+      const { service, awsVideo, directUploads } = buildService(
+        buildCourse(),
+        [buildSection()],
+        [buildLesson()],
+      );
+      awsVideo.isEnabled.mockReturnValue(false);
+      await expect(
+        service.startAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', UPLOAD),
+      ).rejects.toThrow();
+      expect(directUploads.init).not.toHaveBeenCalled();
     });
   });
 
   describe('getVideoStatus', () => {
-    it('reports the Bunny processing status for an uploaded lesson', async () => {
-      const lesson = buildLesson({ video_id: 'bunny-video-1' });
-      const { service, bunnyStream } = buildService(buildCourse(), [buildSection()], [lesson]);
+    it('reports the processing status of an uploaded AWS video', async () => {
+      const lesson = buildLesson({ video_id: 'aws:asset-1' });
+      const { service, awsVideo } = buildService(buildCourse(), [buildSection()], [lesson]);
       const result = await service.getVideoStatus('instr-1', 'course-1', 'lesson-1');
-      expect(bunnyStream.getVideo).toHaveBeenCalledWith('bunny-video-1');
+      expect(awsVideo.getStatus).toHaveBeenCalledWith('asset-1');
       expect(result.status).toBe('processing');
     });
 
@@ -98,6 +152,13 @@ describe('LessonVideoService', () => {
       const lesson = buildLesson({ video_id: null });
       const { service } = buildService(buildCourse(), [buildSection()], [lesson]);
       await expect(service.getVideoStatus('instr-1', 'course-1', 'lesson-1')).rejects.toThrow();
+    });
+
+    it('treats a reference that is not an AWS asset as no video', async () => {
+      const lesson = buildLesson({ video_id: 'f3a8-legacy-provider-guid' });
+      const { service, awsVideo } = buildService(buildCourse(), [buildSection()], [lesson]);
+      await expect(service.getVideoStatus('instr-1', 'course-1', 'lesson-1')).rejects.toThrow();
+      expect(awsVideo.getStatus).not.toHaveBeenCalled();
     });
   });
 });

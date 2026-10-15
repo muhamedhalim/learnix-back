@@ -3,7 +3,7 @@
  * preserving object keys (folder/filename) so they line up with the new
  * StorageService key scheme.
  *
- * Videos are NOT touched — they live on Bunny Stream, never on local disk.
+ * Videos are NOT touched — they never live on local disk.
  *
  * Usage (from learning-center-backend/):
  *   npx ts-node scripts/migrate-uploads-to-r2.ts [--dry-run]
@@ -33,8 +33,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.pdf': 'application/pdf',
   '.zip': 'application/zip',
   '.doc': 'application/msword',
-  '.docx':
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.txt': 'text/plain',
   '.csv': 'text/csv',
   '.json': 'application/json',

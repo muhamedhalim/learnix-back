@@ -59,7 +59,19 @@ locals {
     local.signals ? [{ sourceVolume = local.otel_volume, containerPath = local.otel_path, readOnly = true }] : [],
   )
 
-  app_container = {
+  # Container-level health check, for services with no load balancer in front (the worker): ECS replaces a task
+  # whose process stops answering. Absent (not null) when unset, because ECS rejects an empty healthCheck.
+  app_health_check = var.container_health_check == null ? {} : {
+    healthCheck = {
+      command     = ["CMD", "node", "-e", "fetch('http://127.0.0.1:${var.container_health_check.port}${var.container_health_check.path}').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval    = var.container_health_check.interval
+      timeout     = var.container_health_check.timeout
+      retries     = var.container_health_check.retries
+      startPeriod = var.container_health_check.start_period
+    }
+  }
+
+  app_container = merge(local.app_health_check, {
     name                   = var.name
     image                  = var.image
     essential              = true
@@ -73,7 +85,7 @@ locals {
     mountPoints            = local.app_mounts
     dependsOn              = local.signals ? [{ containerName = "otel-init", condition = "SUCCESS" }] : []
     logConfiguration       = local.log_configuration
-  }
+  })
 
   # Copies the instrumentation into the shared volume, then exits.
   init_container = {

@@ -111,7 +111,6 @@ export interface VideoObjectRef {
 /** Code exports finished after the S3 move are stored as object keys under this prefix. */
 const CODE_EXPORT_KEY_PREFIX = 'code-exports/';
 
-export const BUNNY_CLEANUP_STATUS = 'SKIPPED BY USER REQUEST';
 export const BACKUP_WAIVER_STATUS = 'WAIVED BY OPERATOR FOR THIS EXECUTION';
 
 export class UnsafePrelaunchResetError extends Error {
@@ -347,7 +346,6 @@ async function cleanupStorage(
 ): Promise<{
   objectsDeleted: number;
   videoObjectsDeleted: number;
-  bunnyCleanup: typeof BUNNY_CLEANUP_STATUS;
   localFilesDeleted: number;
 }> {
   const objectsDeleted = await cleanupObjectKeys(manifest.objectKeys, storage, config);
@@ -373,7 +371,6 @@ async function cleanupStorage(
   return {
     objectsDeleted,
     videoObjectsDeleted,
-    bunnyCleanup: BUNNY_CLEANUP_STATUS,
     localFilesDeleted,
   };
 }
@@ -719,7 +716,6 @@ export async function runPrelaunchReset(options: {
       localExports: manifest.localExportFiles.length,
       unresolvedReferences: manifest.unresolvedReferences,
     });
-    printSection('Bunny cleanup', BUNNY_CLEANUP_STATUS);
 
     const redisUrl = resolveRedisUrl((key) => process.env[key]);
     if (redisUrl) {

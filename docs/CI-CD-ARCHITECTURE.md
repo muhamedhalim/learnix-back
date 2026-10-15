@@ -1,4 +1,8 @@
-# CI/CD Setup — Backend and Frontend
+# CI/CD Architecture — Backend, Infrastructure and Frontend
+
+> Authoritative description of every pipeline. Two workflows own AWS: `ci-cd.yml` (application) and
+> `terraform.yml` (infrastructure). The frontend deploys through Vercel. Audit and remediation status:
+> `AWS-PRODUCTION-AUDIT.md` and `AWS-PRODUCTION-IMPLEMENTATION-PLAN.md`.
 
 Phase 5 of `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md`. Describes every workflow file that exists
 after this phase, what each job does, and — honestly, not optimistically — what each job cannot
@@ -21,15 +25,15 @@ deploy was a third, reusable workflow whose own triggers had to be kept in step 
 ran CI on both `push` and `pull_request` for the same commit, and deployed from separate `push` workflows
 racing CI. All of that is now one run per event, with the deploy a _job_ of that run:
 
-| Event                                    | What runs (all in one `CI/CD` run)                                                       |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                      |
-| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`) |
-| push to `main`                           | validation -> `ci-gate` (+ advisory `branch-sync`). No deploy.                           |
-| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                       |
-| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                   |
-| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                       |
-| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                       |
+| Event                                    | What runs (all in one `CI/CD` run)                                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                       |
+| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`)                                                                                                  |
+| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; skipped when the push only touched docs / `learnix-infra` / markdown) |
+| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                                                                                                                        |
+| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                                                                                                                    |
+| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                                                                                                                        |
+| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                                                                                                                        |
 
 `control` is the single place that maps an event to these paths (outputs `ci`, `deploy`, `rollback`,
 `branch_sync`, `environment`, `manual`).
@@ -41,7 +45,7 @@ control -+- build-test -+- migration-chain ---+
          |              +- e2e-shard x4 -> e2e +
          +- format-check, env-validation, secret-scan,
          |  dependency-audit, workflow-lint -----+--> ci-gate -> gates -> [db-owner-approval] -> deploy
-         |  (migration-safety-check: advisory)        (staging: push to develop; production: dispatch only)
+         |  (migration-safety-check: advisory)        (staging: push to develop; production: push to main or dispatch)
          +- rollback      (dispatch action=rollback)
          +- branch-sync   (push / nightly / dispatch)
 ```
@@ -79,13 +83,17 @@ Each `e2e-shard` job runs `npm run e2e:preflight` first (Node major, `SELECT ver
 
 One linux/arm64 image serves the `api`, `worker` and `migrate` task definitions. `deploy` builds it with the RDS
 CA bundle, scans it (Trivy, fixable HIGH/CRITICAL fail), pushes it to ECR under the commit SHA, then runs
-`scripts/aws/ecs-deploy.sh`: migrate task first (must exit 0), then api + worker, with automatic rollback when a
-deployment fails or alarms fire. Credentials come from GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`); nothing secret is
+`learnix-infra/scripts/ecs-deploy.sh` (the only copy): each new task definition is built from the LATEST revision of
+the service family (so Terraform changes to environment, secrets and sidecars ship with the release), the migrate
+task runs first (must exit 0), then api + worker, with automatic rollback when a deployment fails or one of the
+`DEPLOY_ALARMS` fires. The deploy refuses to start while one of those alarms is already firing. Credentials come from GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`); nothing secret is
 stored in the workflow. Required environment variables are listed in the comment above the `gates` job.
 
 - **Staging**: automatic on push to `develop`, only after `ci-gate` passed, in the same run.
-- **Production**: only by `workflow_dispatch` (`action=deploy`, `environment=production`). Requires a successful
-  push run of `ci-cd.yml` on `develop` for the exact commit (which includes its staging rollout), the migration
+- **Production**: automatic on push to `main` (after `ci-gate`), or by `workflow_dispatch`
+  (`action=deploy`, `environment=production`). Requires a successful push run of `ci-cd.yml` on `develop` whose
+  git TREE equals the tree being deployed (a merge commit on `main` has a new SHA, so the comparison is on
+  content; that run includes its staging rollout), the migration
   classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
   `production` environment's reviewers, and an RDS snapshot taken before migrating.
 - Post-deploy verification is `ecs-deploy.sh`'s wait for steady state plus its alarm watch (automatic rollback),
@@ -100,13 +108,23 @@ not merged back, plan section 11) and warns when `develop` drifts over 100 commi
 (`continue-on-error`) so that, as before the merge, it cannot turn the run red and block the production gate;
 nightly and manual runs fail normally.
 
-### 1.4 Terraform lives in `learnix-infra`, deliberately not here
+### 1.4 Terraform: `terraform.yml`
 
-The Terraform workflows (`tf-ci`, `tf-apply*`, `drift`) belong to the separate `OWNER/learnix-infra` repository:
-the IAM OIDC trust policies are pinned to that repository's name. The copy of `learnix-infra/` inside this
-repository is a nested directory, and GitHub only reads `.github/workflows` at the repository root, so those
-files never run here. Moving them would change the OIDC subject and therefore IAM trust, which is outside the scope
-of CI consolidation. Applies stay manual (`workflow_dispatch`) behind the `infra-*` environments' required reviewers.
+`learnix-infra/` lives inside this repository, and GitHub only reads `.github/workflows` at the repository root,
+so the Terraform pipeline is the root workflow `terraform.yml`. It never deploys the application, and `ci-cd.yml`
+never applies infrastructure: one push cannot start a duplicate deploy or apply.
+
+| Event                                   | What runs                                                                                                                |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pull_request` touching `learnix-infra` | `static` (fmt, validate, `terraform test`, tflint, checkov for all 4 roots), `deploy-script` test, **staging plan** only |
+| push to `main` touching `learnix-infra` | the same static checks, then a plan of org, staging and production (read-only)                                           |
+| nightly 04:00 UTC                       | drift: `plan -detailed-exitcode -lock=false` of org, staging, production (a diff fails the run so GitHub notifies)       |
+| `workflow_dispatch` `target`            | plan -> conftest policies -> **apply of exactly that plan** in the `infra-<target>` environment (required reviewers)     |
+
+Targets whose plan-role variable is empty are skipped, so the workflow is safe before an account exists. Each target
+has its own lock (`terraform-<name>`), never cancelled. Values reach the shell through environment variables, never by
+interpolation. Trust: the plan role trusts `main` (and, in the staging account only, pull requests); the apply role
+trusts only the `infra-<env>` GitHub environment. Both are pinned to `muhamedhalim/learnix-back` in `bootstrap/`.
 
 ## 2. Why `prettier --check .` is not a blanket CI gate
 
@@ -151,7 +169,29 @@ fallback-to-current-literal pattern was applied to `NEXT_PUBLIC_SITE_URL` and th
 `environment` tag in Phase 1 (§30 of the plan) — every one of these is additive and inert until a
 value is explicitly set.
 
-## 5. What is not yet true, stated plainly
+## 5. GitHub settings that cannot be read from the repository
+
+Nothing below is verified: the audit had no GitHub access. Each must be created by a repository admin.
+
+| Setting                               | Value                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Environments                          | `staging`, `production` (required reviewers), `production-db-approval` (DB owners), `infra-staging`, `infra-production`, `infra-management` (required reviewers). Restrict deployment branches: `develop`/`main` only                                                                                                                         |
+| Variables of `staging` / `production` | `AWS_REGION` (eu-central-1), `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL`, `ECS_CLUSTER`, `ECS_SERVICES`, `MIGRATE_FAMILY`, `TASK_NETWORK`, `DEPLOY_ALARMS`, `API_URL`, `SMOKE_FROM_RUNNER`; production also `DB_INSTANCE_ID`                                                                                                                  |
+| Repository variables (Terraform)      | `AWS_REGION`, `STAGING_PLAN_ROLE_ARN`, `STAGING_APPLY_ROLE_ARN`, `STAGING_TF_STATE_BUCKET`, `STAGING_TF_STATE_KMS_KEY_ARN`, `STAGING_TFVARS_JSON`, the same with `PRODUCTION_`, and for `org/`: `AWS_PLAN_ROLE_ARN`, `AWS_APPLY_ROLE_ARN`, `TF_STATE_BUCKET`, `TF_STATE_KMS_KEY_ARN`, `ORG_TFVARS_JSON`. All are outputs or non-secret values |
+| Branch protection (`main`, `develop`) | Require PRs and the checks `CI gate` and `E2E tests (Postgres + Redis)`; see `BRANCH_PROTECTION_SETUP.md`. Terraform static checks are required for changes under `learnix-infra`                                                                                                                                                             |
+| AWS side                              | OIDC provider and roles from `learnix-infra/bootstrap` with `github_repository = muhamedhalim/learnix-back`; the per-environment deploy roles from `modules/deploy-role`                                                                                                                                                                      |
+| Other automation on the same branches | Railway's GitHub integration (retired) must be disconnected; Vercel's Git integration deploys the frontend (intended, a separate target)                                                                                                                                                                                                      |
+
+### Why one push used to start several deployments, and how it is prevented now
+
+1. Separate workflows reacted to the same `push` (CI, a deploy workflow, a secret-scan workflow): merged into
+   `ci-cd.yml` (commits `c9807a9`, `cbb3686`).
+2. A push that changed only docs or `learnix-infra` rebuilt and redeployed an identical image: `control` computes
+   `app_changed` and skips the deploy; `terraform.yml` handles the infra change.
+3. Infra and application pipelines are separate workflows with separate locks and disjoint triggers.
+4. Remaining outside this repository (verify in the Railway dashboard): a Railway GitHub integration that still builds `main`.
+
+## 6. What is not yet true, stated plainly
 
 - No workflow in this document has been executed by real GitHub Actions from this session — no
   `gh` CLI, no authenticated Actions API access. Every claim above is "this is what the YAML says

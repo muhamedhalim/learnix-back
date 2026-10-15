@@ -68,8 +68,25 @@ variable "dns_records" {
   default = []
 }
 
+variable "dns_provider" {
+  description = "Who answers DNS for the domain. \"cloudflare\" (default, the audited live setup: the apex and www are proxied to Vercel there): Terraform creates NO Route 53 zone and publishes every record it needs as the output cloudflare_dns_records for an operator to add (DNS only, not proxied). \"route53\": Terraform owns the zone, copies var.dns_records into it and writes the records itself (requires the registrar name-server change)."
+  type        = string
+  default     = "cloudflare"
+
+  validation {
+    condition     = contains(["cloudflare", "route53"], var.dns_provider)
+    error_message = "dns_provider must be cloudflare or route53."
+  }
+}
+
 variable "certificate_enabled" {
-  description = "Request the us-east-1 certificate for the API host, attach the alias to the distribution and create the api.<domain> records. The validation record resolves only once the zone is authoritative (after the registrar NS change) or if you create it in the live zone yourself."
+  description = "Request the us-east-1 certificate for the API host. With dns_provider = route53 it is validated and attached in the same apply (needs the zone to be authoritative). With cloudflare, apply once, add the validation record from the cloudflare_dns_records output (and a CAA record allowing amazon.com if the zone has CAA records), then set certificate_validated."
+  type        = bool
+  default     = false
+}
+
+variable "certificate_validated" {
+  description = "dns_provider = cloudflare only: the ACM validation record exists in Cloudflare. Waits for issuance, attaches the alias to the distribution and outputs the api.<domain> CNAME to add (DNS only)."
   type        = bool
   default     = false
 }

@@ -100,8 +100,8 @@ module "cdn" {
   alb_dns_name = module.alb.dns_name
   alb_https    = module.alb.https
 
-  aliases             = var.certificate_enabled ? [local.api_host] : []
-  acm_certificate_arn = var.certificate_enabled ? aws_acm_certificate_validation.api[0].certificate_arn : null
+  aliases             = local.certificate_issued ? [local.api_host] : []
+  acm_certificate_arn = local.certificate_issued ? aws_acm_certificate_validation.api[0].certificate_arn : null
 
   video_bucket         = module.media.output_bucket
   video_public_key_pem = var.video_public_key_pem
@@ -120,7 +120,15 @@ module "cdn" {
 # The zone holds copies of every existing record (var.dns_records), including the apex and www records that
 # point at Vercel, so resolution is identical before and after the name-server change at the registrar.
 # Terraform adds exactly one new name: the API host (api.<domain>), brand new, so it needs no cutover.
+locals {
+  route53 = var.dns_provider == "route53"
+  # Route 53 validates in the same apply; Cloudflare needs the operator to add the record first.
+  certificate_issued = var.certificate_enabled && (local.route53 || var.certificate_validated)
+}
+
 resource "aws_route53_zone" "this" {
+  count = local.route53 ? 1 : 0
+
   #checkov:skip=CKV2_AWS_38:DNSSEC is enabled after stabilisation (plan section 2.2); the registrar must publish the DS record first
   #checkov:skip=CKV2_AWS_39:Query logging needs a us-east-1 log group; added with the DNS hardening step
   name = var.domain_name
@@ -131,9 +139,9 @@ resource "aws_route53_zone" "this" {
 }
 
 resource "aws_route53_record" "existing" {
-  for_each = { for r in var.dns_records : "${r.name}|${r.type}" => r }
+  for_each = local.route53 ? { for r in var.dns_records : "${r.name}|${r.type}" => r } : {}
 
-  zone_id = aws_route53_zone.this.zone_id
+  zone_id = aws_route53_zone.this[0].zone_id
   name    = each.value.name
   type    = each.value.type
   ttl     = each.value.ttl
@@ -159,9 +167,9 @@ locals {
 # The validation record lives in the Route 53 zone, which only answers once the registrar's name servers
 # point at it (or earlier if you validate from the zone directly); enable var.certificate_enabled after that.
 resource "aws_route53_record" "api_validation" {
-  count = var.certificate_enabled ? 1 : 0
+  count = var.certificate_enabled && local.route53 ? 1 : 0
 
-  zone_id         = aws_route53_zone.this.zone_id
+  zone_id         = aws_route53_zone.this[0].zone_id
   name            = local.api_validation.resource_record_name
   type            = local.api_validation.resource_record_type
   records         = [local.api_validation.resource_record_value]
@@ -170,18 +178,19 @@ resource "aws_route53_record" "api_validation" {
 }
 
 resource "aws_acm_certificate_validation" "api" {
-  count    = var.certificate_enabled ? 1 : 0
+  count    = local.certificate_issued ? 1 : 0
   provider = aws.us_east_1
 
-  certificate_arn         = aws_acm_certificate.api[0].arn
-  validation_record_fqdns = aws_route53_record.api_validation[*].fqdn
+  certificate_arn = aws_acm_certificate.api[0].arn
+  # Cloudflare: no record resource to wait on; ACM itself reports when the operator's record resolves.
+  validation_record_fqdns = local.route53 ? aws_route53_record.api_validation[*].fqdn : null
 }
 
 # The API host. Created together with the certificate and the distribution alias; nothing else in the zone changes.
 resource "aws_route53_record" "api" {
-  for_each = var.certificate_enabled ? toset(["A", "AAAA"]) : toset([])
+  for_each = local.certificate_issued && local.route53 ? toset(["A", "AAAA"]) : toset([])
 
-  zone_id = aws_route53_zone.this.zone_id
+  zone_id = aws_route53_zone.this[0].zone_id
   name    = local.api_host
   type    = each.value
 

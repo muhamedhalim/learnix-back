@@ -4,7 +4,6 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
-import { BunnyStreamService } from '../lessons/bunny-stream.service';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { MediaService } from '../media/media.service';
 import { PackagePurchase } from '../payments/entities/package-purchase.entity';
@@ -26,11 +25,10 @@ describe('CoursePreviewService.getPreview', () => {
   const purchases = { count: jest.fn() };
   const reviews = { getPackageAggregates: jest.fn() };
   const media = { resolveThumbnailUrl: jest.fn().mockReturnValue(null) };
-  const bunnyStream = {
-    generateSignedEmbedUrl: jest.fn().mockReturnValue('https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1'),
-  };
   const applicationCache = {
-    getOrCompute: jest.fn(async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute()),
+    getOrCompute: jest.fn(
+      async (_descriptor: unknown, compute: () => Promise<unknown>) => await compute(),
+    ),
   };
 
   const relatedQb = {
@@ -57,7 +55,6 @@ describe('CoursePreviewService.getPreview', () => {
         { provide: getRepositoryToken(PackagePurchase), useValue: purchases },
         { provide: ReviewsService, useValue: reviews },
         { provide: MediaService, useValue: media },
-        { provide: BunnyStreamService, useValue: bunnyStream },
         { provide: ApplicationCacheService, useValue: applicationCache },
       ],
     }).compile();
@@ -97,16 +94,26 @@ describe('CoursePreviewService.getPreview', () => {
     ]);
     lessons.find.mockResolvedValue([
       {
-        id: 'L1', title: 'Free intro', duration: 60, is_free_preview: true,
-        video_platform: 'bunny', bunny_video_id: 'b1', bunny_library_id: 'lib', bunny_video_status: 'ready', video_url: null,
+        id: 'L1',
+        title: 'Free intro',
+        duration: 60,
+        is_free_preview: true,
+        video_asset_id: 'asset-1',
+        video_status: 'ready',
       },
       {
-        id: 'L2', title: 'Paid lesson', duration: 120, is_free_preview: false,
-        video_platform: 'bunny', bunny_video_id: 'b2', bunny_library_id: 'lib', bunny_video_status: 'ready', video_url: null,
+        id: 'L2',
+        title: 'Paid lesson',
+        duration: 120,
+        is_free_preview: false,
+        video_asset_id: 'asset-2',
+        video_status: 'ready',
       },
     ]);
     reviews.getPackageAggregates.mockResolvedValue({
-      average_rating: 4, total_reviews: 2, rating_distribution: { 1: 0, 2: 0, 3: 0, 4: 2, 5: 0 },
+      average_rating: 4,
+      total_reviews: 2,
+      rating_distribution: { 1: 0, 2: 0, 3: 0, 4: 2, 5: 0 },
     });
     purchases.count.mockResolvedValue(5);
 
@@ -123,13 +130,10 @@ describe('CoursePreviewService.getPreview', () => {
     const locked = flat.find((l) => l.id === 'L2')!;
     expect(free.locked).toBe(false);
     expect(free.video).not.toBeNull();
-    expect(free.video).toEqual({
-      signed_url: 'https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1',
-      expires_in: 600,
-    });
-    expect(bunnyStream.generateSignedEmbedUrl).toHaveBeenCalledWith('b1', 600);
-    // The unauthenticated preview must never leak Bunny asset identifiers.
-    expect(JSON.stringify(free.video)).not.toMatch(/bunny_video_id|bunny_library_id|"b1"|"lib"/);
+    // The unauthenticated preview only names the lesson; the grant comes from the playback route.
+    expect(free.video).toEqual({ platform: 'aws', lesson_id: 'L1' });
+    // ...and never leaks storage identifiers.
+    expect(JSON.stringify(free.video)).not.toMatch(/video_asset_id|asset-1/);
     expect(locked.locked).toBe(true);
     expect(locked.video).toBeNull();
   });
@@ -151,14 +155,21 @@ describe('CoursePreviewService.getPreview', () => {
       );
     });
 
-    it('the cached value itself carries no signed_url or expires_in (only a signable marker); signing happens after the read', async () => {
+    it('the cached value itself carries no grant or expiry (only the lesson id of a playable free preview)', async () => {
       const cachedValue = {
         id: 'P1',
         curriculum: [
           {
             chapter: null,
             lessons: [
-              { id: 'L1', title: 'Free', duration: 60, is_free_preview: true, locked: false, signable_video_id: 'b1' },
+              {
+                id: 'L1',
+                title: 'Free',
+                duration: 60,
+                is_free_preview: true,
+                locked: false,
+                aws_playback_lesson_id: 'L1',
+              },
             ],
           },
         ],
@@ -167,17 +178,12 @@ describe('CoursePreviewService.getPreview', () => {
 
       applicationCache.getOrCompute.mockResolvedValue(cachedValue);
       const result = (await service.getPreview('P1')) as {
-        curriculum: { lessons: { video: { signed_url: string; expires_in: number } | null }[] }[];
+        curriculum: { lessons: { video: { platform: 'aws'; lesson_id: string } | null }[] }[];
       };
 
-      // The HTTP response, produced fresh from the cached marker, does carry a per-request signed URL.
-      expect(result.curriculum[0]!.lessons[0]!.video).toEqual({
-        signed_url: 'https://iframe.mediadelivery.net/embed/lib/b1?token=t&expires=1',
-        expires_in: 600,
-      });
-      expect(bunnyStream.generateSignedEmbedUrl).toHaveBeenCalledWith('b1', 600);
+      expect(result.curriculum[0]!.lessons[0]!.video).toEqual({ platform: 'aws', lesson_id: 'L1' });
       // The raw cached shape (as stored) is never re-exposed with the marker still on it.
-      expect(JSON.stringify(result)).not.toContain('signable_video_id');
+      expect(JSON.stringify(result)).not.toContain('aws_playback_lesson_id');
     });
 
     it('a hit runs no database query at all', async () => {

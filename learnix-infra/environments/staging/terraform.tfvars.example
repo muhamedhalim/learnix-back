@@ -28,7 +28,7 @@ api_desired_count = 0
 
 # Application pipelines (GitHub OIDC deploy roles). Must match the repositories' GitHub environment "staging".
 app_repositories = {
-  api = "OWNER/learnix-back" # the frontend deploys through Vercel and needs no AWS role
+  api = "muhamedhalim/learnix-back" # the frontend deploys through Vercel and needs no AWS role
 }
 
 # Observability and hardening (defaults shown).

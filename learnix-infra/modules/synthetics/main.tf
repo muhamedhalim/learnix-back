@@ -161,7 +161,8 @@ resource "aws_cloudwatch_metric_alarm" "failed" {
   datapoints_to_alarm = 2
   threshold           = 100
   comparison_operator = "LessThanThreshold"
-  treat_missing_data  = "breaching"
-  alarm_actions       = [var.alarm_topic_arn]
-  ok_actions          = [var.alarm_topic_arn]
+  # A stopped canary publishes nothing: that must not look like an outage (it would also roll back deploys).
+  treat_missing_data = var.start ? "breaching" : "notBreaching"
+  alarm_actions      = [var.alarm_topic_arn]
+  ok_actions         = [var.alarm_topic_arn]
 }

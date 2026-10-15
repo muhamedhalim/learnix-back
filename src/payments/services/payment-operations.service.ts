@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronSingleRunner } from '../../common/utils/cron-lock.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -277,6 +278,8 @@ export class PaymentOperationsService {
   }
 
   @Cron(CronExpression.EVERY_30_MINUTES)
+  // Re-queries the provider and transitions payments: one replica per tick, like the other financial crons.
+  @CronSingleRunner('payments.gateway_reconciliation')
   public async reconcileGatewayAttempts(): Promise<void> {
     // Same financial flag as runMaintenance: this re-queries the provider for
     // pending/processing/expired payments and can transition them.
@@ -1502,10 +1505,10 @@ export class PaymentOperationsService {
       !want('summary')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
-        const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
-        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-        return this.dataSource.query(
-          `
+            const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+            const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+            return this.dataSource.query(
+              `
           WITH ${current}, ${previous},
           sales AS (
             SELECT currency, COUNT(*)::text AS order_count,
@@ -1572,20 +1575,20 @@ export class PaymentOperationsService {
           LEFT JOIN ledger USING (currency) LEFT JOIN reserved USING (currency) LEFT JOIN paid USING (currency)
           ORDER BY currency ASC
         `,
-          params,
-        );
-      }),
+              params,
+            );
+          }),
       !want('teacher_receivables')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ current, previous, params }) => {
-        const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
-        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-        const limitIndex = params.push(Math.min(filter.limit ?? 20, 100));
-        const offsetIndex = params.push(
-          ((filter.page ?? 1) - 1) * Math.min(filter.limit ?? 20, 100),
-        );
-        return this.dataSource.query(
-          `
+            const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+            const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+            const limitIndex = params.push(Math.min(filter.limit ?? 20, 100));
+            const offsetIndex = params.push(
+              ((filter.page ?? 1) - 1) * Math.min(filter.limit ?? 20, 100),
+            );
+            return this.dataSource.query(
+              `
           WITH ${current}, ${previous},
           sales AS (
             SELECT teacher_id, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
@@ -1638,15 +1641,15 @@ export class PaymentOperationsService {
           ORDER BY COALESCE(sales.gross_sales_minor::bigint,0) DESC, teacher.name ASC
           LIMIT $${limitIndex} OFFSET $${offsetIndex}
         `,
-          params,
-        );
-      }),
+              params,
+            );
+          }),
       !want('revenue_trends')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
-        const bucket = filter.group_by ?? 'day';
-        return this.dataSource.query(
-          `
+            const bucket = filter.group_by ?? 'day';
+            return this.dataSource.query(
+              `
           WITH ${current}
           SELECT date_trunc('${bucket}', paid_at) AS period, currency, COUNT(*)::text AS order_count,
             COALESCE(SUM(final_amount_minor),0)::text AS gross_revenue_minor,
@@ -1654,14 +1657,14 @@ export class PaymentOperationsService {
             COALESCE(SUM(teacher_earning_minor),0)::text AS teacher_earnings_minor
           FROM current_orders GROUP BY date_trunc('${bucket}', paid_at), currency ORDER BY period ASC, currency ASC
         `,
-          params,
-        );
-      }),
+              params,
+            );
+          }),
       !want('product_breakdown')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
-        this.dataSource.query(
-          `
+            this.dataSource.query(
+              `
         WITH ${current}
         SELECT item_type, currency, COUNT(*)::text AS order_count, COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor,
           COALESCE(SUM(platform_commission_minor),0)::text AS platform_revenue_minor,
@@ -1670,29 +1673,29 @@ export class PaymentOperationsService {
           (COALESCE(SUM(final_amount_minor),0)-COALESCE(SUM(refunded_amount_minor),0))::text AS net_revenue_minor
         FROM current_orders GROUP BY item_type,currency ORDER BY SUM(final_amount_minor) DESC
       `,
-          params,
-        ),
-      ),
+              params,
+            ),
+          ),
       !want('top_products')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
-        this.dataSource.query(
-          `
+            this.dataSource.query(
+              `
         WITH ${current}
         SELECT item_type, item_id, product_title_snapshot, currency, COUNT(*)::text AS order_count,
           COALESCE(SUM(final_amount_minor),0)::text AS gross_sales_minor
         FROM current_orders GROUP BY item_type, item_id, product_title_snapshot, currency
         ORDER BY SUM(final_amount_minor) DESC LIMIT 50
       `,
-          params,
-        ),
-      ),
+              params,
+            ),
+          ),
       !want('settlement_analytics')
         ? Promise.resolve([])
         : this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
-        const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-        return this.dataSource.query(
-          `
+            const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+            return this.dataSource.query(
+              `
           SELECT settlement.currency, settlement.status, COUNT(*)::text AS settlement_count,
             COALESCE(SUM(settlement.payout_amount_minor),0)::text AS payout_minor,
             COALESCE(ROUND(AVG(settlement.payout_amount_minor)),0)::text AS average_payout_minor,
@@ -1700,41 +1703,41 @@ export class PaymentOperationsService {
           FROM teacher_settlements settlement WHERE ${settlementWhere}
           GROUP BY settlement.currency, settlement.status ORDER BY settlement.currency, settlement.status
         `,
-          params,
-        );
-      }),
+              params,
+            );
+          }),
       !want('ledger_movements')
         ? Promise.resolve([])
         : filter.teacher_id
-        ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
-            const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
-            return this.dataSource.query(
-              `
+          ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+              const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
+              return this.dataSource.query(
+                `
             SELECT entry.id, entry.currency, entry.account, entry.direction, entry.amount_minor::text AS amount_minor,
               entry.entry_type, entry.reference, entry.created_at
             FROM financial_ledger_entries entry WHERE ${ledgerWhere}
             ORDER BY entry.created_at DESC, entry.id DESC LIMIT 50
           `,
-              params,
-            );
-          })
-        : Promise.resolve([]),
+                params,
+              );
+            })
+          : Promise.resolve([]),
       !want('settlement_history')
         ? Promise.resolve([])
         : filter.teacher_id
-        ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
-            const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
-            return this.dataSource.query(
-              `
+          ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+              const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
+              return this.dataSource.query(
+                `
             SELECT settlement.id, settlement.settlement_number, settlement.currency, settlement.status,
               settlement.payout_amount_minor::text AS payout_amount_minor, settlement.paid_at, settlement.created_at
             FROM teacher_settlements settlement WHERE ${settlementWhere}
             ORDER BY settlement.created_at DESC, settlement.id DESC LIMIT 50
           `,
-              params,
-            );
-          })
-        : Promise.resolve([]),
+                params,
+              );
+            })
+          : Promise.resolve([]),
     ]);
     const value = <T>(index: number, fallback: T): T => {
       const result = results[index];

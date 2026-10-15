@@ -154,6 +154,19 @@ variable "queue_scaling" {
   default = null
 }
 
+variable "container_health_check" {
+  description = "HTTP liveness check run inside the container by ECS (services without a load balancer, e.g. the worker). Use the liveness path, not readiness: a Redis or database blip must not make ECS kill every worker."
+  type = object({
+    port         = number
+    path         = string
+    interval     = optional(number, 30)
+    timeout      = optional(number, 10)
+    retries      = optional(number, 3)
+    start_period = optional(number, 90)
+  })
+  default = null
+}
+
 variable "stop_timeout_seconds" {
   description = "Time to drain in-flight requests and jobs before SIGKILL (Fargate maximum is 120)."
   type        = number

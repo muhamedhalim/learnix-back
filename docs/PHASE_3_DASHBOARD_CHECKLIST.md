@@ -1,5 +1,7 @@
 # Phase 3 Dashboard Checklist — Storage and Third-Party Integrations
 
+> **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
+
 Everything in this document requires dashboard access (Cloudflare, Bunny, MailerSend, Paymob,
 Meta, Firebase) this session does not have. **Nothing here has been created.** No secret values are
 written down anywhere in this document — only variable **names** and where to find the **values**

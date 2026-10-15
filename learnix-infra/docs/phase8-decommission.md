@@ -18,20 +18,20 @@ was executed and no provider code was removed: the old providers are still the r
 
 The CloudWatch replacement is **built in code and Terraform (2026-10-13)** and awaits its first live run:
 
-| Piece | Where | Live check still needed |
-|---|---|---|
-| ADOT auto-instrumentation + CloudWatch agent sidecar (X-Ray traces, Application Signals) on api and worker | `modules/ecs-service` (`application_signals`), enabled by `application_signals_enabled` | Traces and service map appear; Sentry steps aside automatically (`skipOpenTelemetrySetup`) |
-| CloudWatch RUM alongside Vercel Analytics (which stays) and as the candidate to replace Sentry browser capture | `modules/rum`, `learnix-front` `CloudWatchRum` component (`NEXT_PUBLIC_RUM_*`, set in Vercel) | Events arrive from the Vercel-hosted app; JS error alarm fires on a test error |
-| Synthetics heartbeat canary (API readiness and catalogue on the API host; home and login page on the Vercel site) | `modules/synthetics`, started by `canary_enabled` at launch | Canary green; alarm on a forced failure |
-| Saved Logs Insights queries, error anomaly detection, SMS/SES feedback metrics, queue backlog, dashboard | `modules/observability` | Queries return rows; alarms reach the topic |
-| Source maps for RUM stack traces | **not built**: RUM shows minified frames | Optional; Next.js server errors are readable in CloudWatch Logs |
+| Piece                                                                                                             | Where                                                                                         | Live check still needed                                                                    |
+| ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| ADOT auto-instrumentation + CloudWatch agent sidecar (X-Ray traces, Application Signals) on api and worker        | `modules/ecs-service` (`application_signals`), enabled by `application_signals_enabled`       | Traces and service map appear; Sentry steps aside automatically (`skipOpenTelemetrySetup`) |
+| CloudWatch RUM alongside Vercel Analytics (which stays) and as the candidate to replace Sentry browser capture    | `modules/rum`, `learnix-front` `CloudWatchRum` component (`NEXT_PUBLIC_RUM_*`, set in Vercel) | Events arrive from the Vercel-hosted app; JS error alarm fires on a test error             |
+| Synthetics heartbeat canary (API readiness and catalogue on the API host; home and login page on the Vercel site) | `modules/synthetics`, started by `canary_enabled` at launch                                   | Canary green; alarm on a forced failure                                                    |
+| Saved Logs Insights queries, error anomaly detection, SMS/SES feedback metrics, queue backlog, dashboard          | `modules/observability`                                                                       | Queries return rows; alarms reach the topic                                                |
+| Source maps for RUM stack traces                                                                                  | **not built**: RUM shows minified frames                                                      | Optional; Next.js server errors are readable in CloudWatch Logs                            |
 
 Acceptance for removal: **every error class Sentry reported during the window also raised a CloudWatch alarm or
 matches a saved query.** Keep this table during the window:
 
 | Date | Sentry issue (title, count) | CloudWatch alarm / query that caught it | Gap? |
-|---|---|---|---|
-| | | | |
+| ---- | --------------------------- | --------------------------------------- | ---- |
+|      |                             |                                         |      |
 
 Remove `@sentry/*` only when a full 30 days show no row with a gap.
 
@@ -41,15 +41,15 @@ Remove `@sentry/*` only when a full 30 days show no row with a gap.
 reference is `scripts/provider-baseline.json`. Shrink it with `--write-baseline` after each removal (the
 audit fails on stale entries, so the baseline cannot drift).
 
-| Provider | Backend files referencing it | Frontend files | Packages | Notes |
-|---|---|---|---|---|
-| Bunny Stream | 60 | 28 | none in the backend (own HTTP client); `tus-js-client` in the frontend | Keep the legacy-embed branch in `VideoPlayer` only if old Bunny embeds remain in data; with a fresh start none do |
-| MailerSend | 28 | 2 | `mailersend` | Keep `MailTransport`, delete the MailerSend transport, templates and env |
-| Twilio | 21 | 1 | `twilio` | Delete after the Egypt sender ID is live and OTP delivery is proven on all four carriers |
-| Firebase / FCM | 35 | 8 | `firebase-admin`, `firebase` | Includes the **ID-token login path (needs your approval, plan decision 5)** and the old FCM push provider |
-| Sentry | 3 | 10 | `@sentry/node`, `@sentry/nextjs` | Only after section 1 |
-| Cloudflare R2 | 9 (`R2_*` variables, `prelaunch-reset.ts`, the R2 provider branch) | 0 | none | `prelaunch-reset.ts` now handles S3 (object keys, code exports, video assets); delete its R2 branch with the provider |
-| Vercel | not a removal item | | `@vercel/analytics` | **Stays**: Vercel remains the frontend host (decision 2026-10-13), so its analytics and `VERCEL_GIT_COMMIT_SHA` release fallback stay |
+| Provider       | Backend files referencing it                                       | Frontend files | Packages                         | Notes                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------ | -------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bunny Stream   | DONE 2026-10-15 (code)                                             | 0              | none                             | Code, config, tests and the frontend dependency are removed; `provider-baseline.json` has no `bunny-stream` entries, so any new reference fails the audit. Remaining: the Bunny account itself (see AWS-OPEN-ITEMS) |
+| MailerSend     | 28                                                                 | 2              | `mailersend`                     | Keep `MailTransport`, delete the MailerSend transport, templates and env                                                                                                                                            |
+| Twilio         | 21                                                                 | 1              | `twilio`                         | Delete after the Egypt sender ID is live and OTP delivery is proven on all four carriers                                                                                                                            |
+| Firebase / FCM | 35                                                                 | 8              | `firebase-admin`, `firebase`     | Includes the **ID-token login path (needs your approval, plan decision 5)** and the old FCM push provider                                                                                                           |
+| Sentry         | 3                                                                  | 10             | `@sentry/node`, `@sentry/nextjs` | Only after section 1                                                                                                                                                                                                |
+| Cloudflare R2  | 9 (`R2_*` variables, `prelaunch-reset.ts`, the R2 provider branch) | 0              | none                             | `prelaunch-reset.ts` now handles S3 (object keys, code exports, video assets); delete its R2 branch with the provider                                                                                               |
+| Vercel         | not a removal item                                                 |                | `@vercel/analytics`              | **Stays**: Vercel remains the frontend host (decision 2026-10-13), so its analytics and `VERCEL_GIT_COMMIT_SHA` release fallback stay                                                                               |
 
 Do each provider as its own change: delete the code, its env validation, its tests and docs, run the full backend
 and frontend suites and the clean-boot script, deploy to staging, then production.
@@ -64,15 +64,15 @@ guard rules that name Railway or R2 hosts.
 Suggested order from the plan: **Bunny -> R2 -> MailerSend -> Twilio -> Firebase project -> Cloudflare zone
 -> Railway.** Vercel is no longer on this list: it stays as the frontend host.
 
-| Resource | Before you delete | Taking a backup? |
-|---|---|---|
-| Vercel project | **Do not delete.** It hosts the production frontend | n/a |
-| Bunny library | Nothing in AWS references it | None taken (fresh start) |
-| R2 bucket | Same | None taken (fresh start) |
-| MailerSend / Twilio | Their sending domains and numbers are not used elsewhere | Export delivery logs if accounting needs them |
-| Firebase project | Web push and login on AWS proven | Not needed |
-| Cloudflare zone | Route 53 has been authoritative for 30 days; export the zone one last time | Zone export |
-| Railway (prod and staging, DB, Redis) | You confirmed no data is wanted | **No dump is taken by this plan.** If you change your mind, take it *before* deleting |
+| Resource                              | Before you delete                                                          | Taking a backup?                                                                                                    |
+| ------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Vercel project                        | **Do not delete.** It hosts the production frontend                        | n/a                                                                                                                 |
+| Bunny library                         | Nothing references it                                                      | None taken; nothing deleted at Bunny. Links to Bunny assets, if any existed, are in `legacy_bunny_video_references` |
+| R2 bucket                             | Same                                                                       | None taken (fresh start)                                                                                            |
+| MailerSend / Twilio                   | Their sending domains and numbers are not used elsewhere                   | Export delivery logs if accounting needs them                                                                       |
+| Firebase project                      | Web push and login on AWS proven                                           | Not needed                                                                                                          |
+| Cloudflare zone                       | Route 53 has been authoritative for 30 days; export the zone one last time | Zone export                                                                                                         |
+| Railway (prod and staging, DB, Redis) | You confirmed no data is wanted                                            | **No dump is taken by this plan.** If you change your mind, take it _before_ deleting                               |
 
 I will not delete any of these myself; each needs your explicit yes in the moment.
 

@@ -1,5 +1,7 @@
 # Staging Storage Setup — R2 and Bunny Stream
 
+> **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
+
 Phase 3 of `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md`. Companion to
 [`STAGING_DATABASE_SETUP.md`](STAGING_DATABASE_SETUP.md) and
 [`STAGING_REDIS_SETUP.md`](STAGING_REDIS_SETUP.md).

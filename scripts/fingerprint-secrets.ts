@@ -95,21 +95,6 @@ const SECRETS: readonly SecretDescriptor[] = [
     service: 'Cloudflare R2',
   },
   {
-    variable: 'BUNNY_STREAM_API_KEY',
-    usedAt: 'src/lessons/bunny-stream.service.ts',
-    service: 'Bunny.net',
-  },
-  {
-    variable: 'BUNNY_STREAM_TOKEN_KEY',
-    usedAt: 'src/lessons/bunny-stream.service.ts',
-    service: 'Bunny.net',
-  },
-  {
-    variable: 'BUNNY_API_KEY',
-    usedAt: 'src/lessons/bunny-stream.service.ts',
-    service: 'Bunny.net',
-  },
-  {
     variable: 'TWILIO_AUTH_TOKEN',
     usedAt: 'src/notifications/channels/sms.channel.ts',
     service: 'Twilio',

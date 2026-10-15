@@ -13,7 +13,7 @@ import { Lesson } from './lesson.entity';
 /**
  * A downloadable/previewable resource attached to a lesson
  * (PDF, DOCX, ZIP, image, PowerPoint, audio, …).
- * The file itself lives in storage (Bunny Storage / local); we keep its URL.
+ * The file itself lives in storage (object storage / local); we keep its URL.
  */
 @Entity('lesson_attachments')
 @Index('IDX_lesson_attachments_lesson_id', ['lesson_id'])

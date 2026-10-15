@@ -21,9 +21,9 @@ variable "kms_key_arn" {
 }
 
 variable "engine_version" {
-  description = "PostgreSQL 16 minor. Extensions used by the migrations (uuid-ossp, pg_trgm, pgcrypto) ship with RDS."
+  description = "PostgreSQL major version only. With auto_minor_version_upgrade on, AWS moves the minor version by itself; pinning a minor (e.g. 16.9) makes the next plan try to downgrade it. Extensions used by the migrations (uuid-ossp, pg_trgm, pgcrypto) ship with RDS."
   type        = string
-  default     = "16.9"
+  default     = "16"
 }
 
 variable "instance_class" {

@@ -1,12 +1,12 @@
-﻿terraform {
+terraform {
   required_version = ">= 1.10.0"
 
-  
+
   # Partial configuration: bucket, region, kms_key_id and use_lockfile come from backend.hcl (outputs of this stack).
   backend "s3" {
     key = "bootstrap/terraform.tfstate"
   }
-required_providers {
+  required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
@@ -193,7 +193,7 @@ locals {
   )
 }
 
-# Plan role: read-only plus state access. Trusted for PRs and main-branch plans/drift.
+# Plan role: read-only plus state access. Trusted for main-branch plans/drift, the dispatch plan job, and (staging only) PRs.
 data "aws_iam_policy_document" "plan_trust" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -212,10 +212,14 @@ data "aws_iam_policy_document" "plan_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_host}:sub"
-      values = [
-        "repo:${var.github_repository}:pull_request",
-        "repo:${var.github_repository}:ref:refs/heads/main",
-      ]
+      # Pull-request plans run untrusted branch code with read access: only the staging account allows them.
+      # Production and the management account are planned from main only (push, drift, dispatch).
+      values = concat(
+        var.environment == "staging" ? ["repo:${var.github_repository}:pull_request"] : [],
+        [
+          "repo:${var.github_repository}:ref:refs/heads/main",
+        ],
+      )
     }
   }
 }

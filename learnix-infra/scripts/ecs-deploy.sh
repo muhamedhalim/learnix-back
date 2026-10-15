@@ -3,25 +3,29 @@
 #
 #   ecs-deploy.sh --cluster learnix-production --image <ecr-url>:<sha> \
 #       --services api,worker [--migrate-family learnix-production-migrate] \
-#       [--network '<awsvpcConfiguration JSON>'] [--alarm-prefix learnix-production] [--timeout 900]
+#       [--network '<awsvpcConfiguration JSON>'] [--alarm-names a,b,c] [--timeout 900]
 #   ecs-deploy.sh --cluster learnix-production --rollback --services api,worker --to-file previous.json
 #
 # Steps (deploy):
-#   1. Read each service's CURRENT task definition (Terraform owns the shape; the pipeline only swaps the
-#      app container's image) and register a new revision with --image. Record the previous ARNs in
+#   1. Register a new revision per service from the LATEST ACTIVE revision of the service's task family
+#      (Terraform owns the shape and registers a new revision when it changes; the pipeline only swaps the
+#      app container's image). The service's currently running ARN is recorded in
 #      ./previous-task-definitions.json (the rollback input, kept as a workflow artifact).
 #   2. If --migrate-family is given: register it with the same image, run it once (awsvpc config from
 #      --network = terraform output task_network), wait, and require exit code 0. Migrations are
 #      advisory-locked, so a concurrent run cannot race.
 #   3. update-service for each service, then wait until every deployment reaches COMPLETED. ECS's
 #      circuit breaker rolls a failing deployment back by itself; this script detects that as FAILED.
-#   4. Optional: no CloudWatch alarm whose name starts with --alarm-prefix may be in ALARM afterwards.
+#   4. Optional --alarm-names: the deploy refuses to start while one of these alarms is already in ALARM
+#      (it could not tell a regression from an old problem), and rolls back if one is in ALARM afterwards.
+#      Only name alarms that react to a bad release (5xx, unhealthy targets, error logs), never ones that
+#      treat missing data as breaching.
 #   Any failure after step 3 started -> every service is pointed back at its previous revision.
 #
 # Needs: aws CLI v2, jq. Credentials: the GitHub OIDC deploy role (modules/deploy-role).
 set -euo pipefail
 
-CLUSTER="" IMAGE="" SERVICES="" MIGRATE_FAMILY="" NETWORK="" ALARM_PREFIX="" TIMEOUT=900
+CLUSTER="" IMAGE="" SERVICES="" MIGRATE_FAMILY="" NETWORK="" ALARM_NAMES="" TIMEOUT=900
 ROLLBACK=false TO_FILE="" STATE_FILE="previous-task-definitions.json"
 
 die() { echo "::error::$*" >&2; exit 1; }
@@ -34,7 +38,7 @@ while [ $# -gt 0 ]; do
     --services) SERVICES="$2"; shift 2 ;;
     --migrate-family) MIGRATE_FAMILY="$2"; shift 2 ;;
     --network) NETWORK="$2"; shift 2 ;;
-    --alarm-prefix) ALARM_PREFIX="$2"; shift 2 ;;
+    --alarm-names) ALARM_NAMES="$2"; shift 2 ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
     --rollback) ROLLBACK=true; shift ;;
     --to-file) TO_FILE="$2"; shift 2 ;;
@@ -118,15 +122,29 @@ fi
 [ -n "$IMAGE" ] || die "--image is required"
 case "$IMAGE" in *:latest|*:) die "refusing a mutable or empty tag: $IMAGE" ;; esac
 
-# 1. Record current revisions and register new ones.
+# 0. Do not deploy on top of an alarm that is already firing.
+firing_alarms() {
+  [ -n "$ALARM_NAMES" ] || return 0
+  # shellcheck disable=SC2046
+  aws cloudwatch describe-alarms --alarm-names $(echo "$ALARM_NAMES" | tr ',' ' ') --state-value ALARM     --query 'MetricAlarms[].AlarmName' --output text
+}
+if [ -n "$ALARM_NAMES" ]; then
+  already=$(firing_alarms)
+  [ -z "$already" ] || die "alarms already firing before the deploy: $already. Resolve them first; nothing was changed."
+fi
+
+# 1. Register new revisions (previous running ones are recorded for rollback).
 echo '{}' > "$STATE_FILE"
 declare -A NEW_TD
 for svc in "${SERVICE_LIST[@]}"; do
   current=$(current_task_definition "$svc")
   [ "$current" != "None" ] || die "service $svc not found in $CLUSTER"
   jq --arg s "$svc" --arg td "$current" '.[$s] = $td' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
-  NEW_TD[$svc]=$(register_with_image "$current" "$IMAGE")
-  log "$svc: $current -> ${NEW_TD[$svc]}"
+  # The service ignores task_definition changes in Terraform, so its running revision can be older than
+  # the family's latest one. Build from the latest, or Terraform's env/secret/sidecar changes never ship.
+  family="${current##*/}"; family="${family%%:*}"
+  NEW_TD[$svc]=$(register_with_image "$family" "$IMAGE")
+  log "$svc: $current -> ${NEW_TD[$svc]} (from the latest revision of $family)"
 done
 
 # 2. Migrations (one-shot task, must exit 0).
@@ -157,10 +175,9 @@ if ! wait_for_services; then
 fi
 
 # 4. Post-deploy alarm check.
-if [ -n "$ALARM_PREFIX" ]; then
+if [ -n "$ALARM_NAMES" ]; then
   sleep "${ALARM_SETTLE_SECONDS:-60}"
-  firing=$(aws cloudwatch describe-alarms --alarm-name-prefix "$ALARM_PREFIX" --state-value ALARM \
-    --query 'MetricAlarms[].AlarmName' --output text)
+  firing=$(firing_alarms)
   if [ -n "$firing" ]; then
     log "alarms firing after deploy: $firing"
     rollback_to "$STATE_FILE"

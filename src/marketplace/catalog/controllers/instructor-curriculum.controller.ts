@@ -1,18 +1,42 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
 import { CurrentInstructor } from '../../common/decorators/current-instructor.decorator';
 import type { MarketplaceInstructor } from '../../instructors/entities/marketplace-instructor.entity';
-import type { BunnyVideoMetadata } from '../../../lessons/bunny-stream.service';
 import { CourseAuthoringService } from '../course-authoring.service';
 import { CourseEditClassifierService } from '../course-edit-classifier.service';
-import { CreateSectionDto, ReorderDto, ReorderLessonsDto, UpdateSectionDto } from '../dto/course.dto';
+import {
+  CreateSectionDto,
+  ReorderDto,
+  ReorderLessonsDto,
+  UpdateSectionDto,
+} from '../dto/course.dto';
 import { CreateLessonDto, UpdateLessonDto } from '../dto/lesson.dto';
 import type { MarketplaceCourseLesson, MarketplaceCourseSection } from '../entities';
-import type { LessonUploadAuthorization } from '../lesson-video.service';
+import type { LessonVideoStatus } from '../lesson-video.service';
 import { LessonVideoService } from '../lesson-video.service';
 
 export class StartInstructorVideoUploadDto {
@@ -176,20 +200,6 @@ export class InstructorCurriculumController {
     await this.editClassifier.handleCurriculumEdit(courseId);
   }
 
-  @Post('lessons/:lessonId/video-upload')
-  // Stamps `video_id` on a `marketplace_course_lessons` row only. The catalogue serves lessons from the
-  // published version snapshot, so no family reads it today; declared conservatively rather than left
-  // on the global bump (a skip candidate). No audit log (T031).
-  @InvalidatesCache(['marketplace_catalog'])
-  @ApiOperation({ summary: 'Bunny TUS signing — reuses the existing signing service' })
-  public async createVideoUpload(
-    @CurrentInstructor() instructor: MarketplaceInstructor,
-    @Param('courseId', ParseUUIDPipe) courseId: string,
-    @Param('lessonId', ParseUUIDPipe) lessonId: string,
-  ): Promise<LessonUploadAuthorization> {
-    return this.lessonVideo.createUploadAuthorization(instructor.id, courseId, lessonId);
-  }
-
   @Get('video-upload/capabilities')
   @ApiOperation({ summary: 'Is direct-to-S3 video upload available?' })
   public awsVideoCapabilities(): { enabled: boolean } {
@@ -243,7 +253,13 @@ export class InstructorCurriculumController {
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
   ): Promise<{ parts: Array<{ part_number: number; size: number }> }> {
     return {
-      parts: await this.lessonVideo.awsListParts(instructor.id, instructor.user_id, courseId, lessonId, uploadId),
+      parts: await this.lessonVideo.awsListParts(
+        instructor.id,
+        instructor.user_id,
+        courseId,
+        lessonId,
+        uploadId,
+      ),
     };
   }
 
@@ -256,29 +272,43 @@ export class InstructorCurriculumController {
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Param('uploadId', ParseUUIDPipe) uploadId: string,
   ): Promise<void> {
-    await this.lessonVideo.abortAwsUpload(instructor.id, instructor.user_id, courseId, lessonId, uploadId);
+    await this.lessonVideo.abortAwsUpload(
+      instructor.id,
+      instructor.user_id,
+      courseId,
+      lessonId,
+      uploadId,
+    );
   }
 
   @Post('lessons/:lessonId/video-upload/aws/complete')
   @HttpCode(200)
   @InvalidatesCache(['marketplace_catalog'])
-  @ApiOperation({ summary: 'Verify the uploaded video, start processing and attach it to the lesson' })
+  @ApiOperation({
+    summary: 'Verify the uploaded video, start processing and attach it to the lesson',
+  })
   public async completeAwsVideoUpload(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('courseId', ParseUUIDPipe) courseId: string,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Body() dto: CompleteInstructorVideoUploadDto,
   ): Promise<unknown> {
-    return this.lessonVideo.completeAwsUpload(instructor.id, instructor.user_id, courseId, lessonId, dto.upload_id);
+    return this.lessonVideo.completeAwsUpload(
+      instructor.id,
+      instructor.user_id,
+      courseId,
+      lessonId,
+      dto.upload_id,
+    );
   }
 
   @Get('lessons/:lessonId/video-status')
-  @ApiOperation({ summary: 'Poll Bunny processing status for an uploaded lesson video (FR-053)' })
+  @ApiOperation({ summary: 'Poll processing status for an uploaded lesson video (FR-053)' })
   public async getVideoStatus(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('courseId', ParseUUIDPipe) courseId: string,
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
-  ): Promise<BunnyVideoMetadata> {
+  ): Promise<LessonVideoStatus> {
     return this.lessonVideo.getVideoStatus(instructor.id, courseId, lessonId);
   }
 }

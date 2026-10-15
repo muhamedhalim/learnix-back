@@ -1,7 +1,12 @@
 import { LessonContentType } from '../common/enums';
 import { PlayerService } from './player.service';
 
-const ENROLLMENT = { id: 'enrollment-1', course_id: 'course-1', progress_bps: 5000, completed_at: null };
+const ENROLLMENT = {
+  id: 'enrollment-1',
+  course_id: 'course-1',
+  progress_bps: 5000,
+  completed_at: null,
+};
 
 function buildLessonQueryBuilder(lesson: Record<string, unknown> | null) {
   return {
@@ -12,14 +17,15 @@ function buildLessonQueryBuilder(lesson: Record<string, unknown> | null) {
   };
 }
 
-function buildService(opts: {
-  enrollment?: Record<string, unknown> | Error;
-  sections?: Record<string, unknown>[];
-  lessons?: Record<string, unknown>[];
-  progress?: Record<string, unknown>[];
-  lessonLookup?: Record<string, unknown> | null;
-  bunnySignedUrl?: string | null;
-} = {}) {
+function buildService(
+  opts: {
+    enrollment?: Record<string, unknown> | Error;
+    sections?: Record<string, unknown>[];
+    lessons?: Record<string, unknown>[];
+    progress?: Record<string, unknown>[];
+    lessonLookup?: Record<string, unknown> | null;
+  } = {},
+) {
   const enrollment = 'enrollment' in opts ? opts.enrollment : ENROLLMENT;
   const access = {
     verifyAccessByEnrollment: jest.fn(async () => {
@@ -30,17 +36,27 @@ function buildService(opts: {
   const sections = { find: jest.fn().mockResolvedValue(opts.sections ?? []) };
   const lessons = {
     find: jest.fn().mockResolvedValue(opts.lessons ?? []),
-    createQueryBuilder: jest.fn(() => buildLessonQueryBuilder('lessonLookup' in opts ? opts.lessonLookup! : null)),
-  };
-  const progress = { find: jest.fn().mockResolvedValue(opts.progress ?? []) };
-  const bunnyStream = {
-    generateSignedEmbedUrl: jest.fn().mockReturnValue(
-      'bunnySignedUrl' in opts ? opts.bunnySignedUrl : 'https://signed.example/video',
+    createQueryBuilder: jest.fn(() =>
+      buildLessonQueryBuilder('lessonLookup' in opts ? opts.lessonLookup! : null),
     ),
   };
+  const progress = { find: jest.fn().mockResolvedValue(opts.progress ?? []) };
+  const awsVideo = {
+    grantPlayback: jest.fn().mockResolvedValue({
+      hls_url: 'https://api.example.test/video/asset-1/master.m3u8',
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+      playback_cookies: [{ name: 'CloudFront-Policy', value: 'p' }],
+    }),
+  };
 
-  const service = new PlayerService(sections as never, lessons as never, progress as never, access as never, bunnyStream as never);
-  return { service, access, sections, lessons, progress, bunnyStream };
+  const service = new PlayerService(
+    sections as never,
+    lessons as never,
+    progress as never,
+    access as never,
+    awsVideo as never,
+  );
+  return { service, access, sections, lessons, progress, awsVideo };
 }
 
 describe('PlayerService (T125)', () => {
@@ -49,8 +65,28 @@ describe('PlayerService (T125)', () => {
       const { service, access } = buildService({
         sections: [{ id: 's1', title: 'Intro', title_ar: null, position: 0 }],
         lessons: [
-          { id: 'l1', section_id: 's1', title: 'L1', title_ar: null, position: 0, content_type: LessonContentType.TEXT, duration_seconds: 60, is_free_preview: true, is_required_for_completion: false },
-          { id: 'l2', section_id: 's1', title: 'L2', title_ar: null, position: 1, content_type: LessonContentType.VIDEO, duration_seconds: 300, is_free_preview: false, is_required_for_completion: true },
+          {
+            id: 'l1',
+            section_id: 's1',
+            title: 'L1',
+            title_ar: null,
+            position: 0,
+            content_type: LessonContentType.TEXT,
+            duration_seconds: 60,
+            is_free_preview: true,
+            is_required_for_completion: false,
+          },
+          {
+            id: 'l2',
+            section_id: 's1',
+            title: 'L2',
+            title_ar: null,
+            position: 1,
+            content_type: LessonContentType.VIDEO,
+            duration_seconds: 300,
+            is_free_preview: false,
+            is_required_for_completion: true,
+          },
         ],
         progress: [{ lesson_id: 'l2', is_completed: true, last_position_seconds: 42 }],
       });
@@ -106,46 +142,78 @@ describe('PlayerService (T125)', () => {
   });
 
   describe('getLessonContent', () => {
-    it('signs a fresh, short-lived URL for a video lesson — never returns a durable address (FR-244)', async () => {
-      const { service, bunnyStream } = buildService({
-        lessonLookup: { id: 'l1', content_type: LessonContentType.VIDEO, video_id: 'bunny-video-1', content_html: null },
+    it('grants fresh, short-lived playback for a video lesson — never returns a durable address (FR-244)', async () => {
+      const { service, awsVideo } = buildService({
+        lessonLookup: {
+          id: 'l1',
+          content_type: LessonContentType.VIDEO,
+          video_id: 'aws:asset-1',
+          content_html: null,
+        },
       });
 
       const content = await service.getLessonContent('learner-1', 'enrollment-1', 'l1');
 
-      expect(bunnyStream.generateSignedEmbedUrl).toHaveBeenCalledWith('bunny-video-1', 300);
-      expect(content).toMatchObject({ content_type: LessonContentType.VIDEO, playback_url: 'https://signed.example/video', expires_in: 300 });
+      expect(awsVideo.grantPlayback).toHaveBeenCalledWith('asset-1');
+      expect(content).toMatchObject({
+        content_type: LessonContentType.VIDEO,
+        platform: 'aws',
+        playback_url: 'https://api.example.test/video/asset-1/master.m3u8',
+        playback_cookies: [{ name: 'CloudFront-Policy', value: 'p' }],
+      });
+      expect(content.expires_in).toBeGreaterThan(0);
     });
 
     it('returns content_html directly for a text lesson, no signing involved', async () => {
-      const { service, bunnyStream } = buildService({
-        lessonLookup: { id: 'l1', content_type: LessonContentType.TEXT, video_id: null, content_html: '<p>Hi</p>' },
+      const { service, awsVideo } = buildService({
+        lessonLookup: {
+          id: 'l1',
+          content_type: LessonContentType.TEXT,
+          video_id: null,
+          content_html: '<p>Hi</p>',
+        },
       });
 
       const content = await service.getLessonContent('learner-1', 'enrollment-1', 'l1');
 
-      expect(bunnyStream.generateSignedEmbedUrl).not.toHaveBeenCalled();
-      expect(content).toMatchObject({ content_type: LessonContentType.TEXT, content_html: '<p>Hi</p>', playback_url: null });
+      expect(awsVideo.grantPlayback).not.toHaveBeenCalled();
+      expect(content).toMatchObject({
+        content_type: LessonContentType.TEXT,
+        content_html: '<p>Hi</p>',
+        playback_url: null,
+      });
     });
 
     it('404s for a lesson that does not belong to the enrolled course (IDOR-shaped input)', async () => {
       const { service } = buildService({ lessonLookup: null });
-      await expect(service.getLessonContent('learner-1', 'enrollment-1', 'lesson-from-elsewhere')).rejects.toThrow();
+      await expect(
+        service.getLessonContent('learner-1', 'enrollment-1', 'lesson-from-elsewhere'),
+      ).rejects.toThrow();
     });
 
     it('404s a video lesson whose video has not finished uploading yet', async () => {
       const { service } = buildService({
-        lessonLookup: { id: 'l1', content_type: LessonContentType.VIDEO, video_id: null, content_html: null },
+        lessonLookup: {
+          id: 'l1',
+          content_type: LessonContentType.VIDEO,
+          video_id: null,
+          content_html: null,
+        },
       });
       await expect(service.getLessonContent('learner-1', 'enrollment-1', 'l1')).rejects.toThrow();
     });
 
-    it('fails closed (503) rather than leaking an unsigned URL when Bunny signing is not configured', async () => {
-      const { service } = buildService({
-        lessonLookup: { id: 'l1', content_type: LessonContentType.VIDEO, video_id: 'bunny-video-1', content_html: null },
-        bunnySignedUrl: null,
+    it('404s a video reference that is not an AWS asset instead of returning any URL', async () => {
+      const { service, awsVideo } = buildService({
+        lessonLookup: {
+          id: 'l1',
+          content_type: LessonContentType.VIDEO,
+          video_id: 'f3a8-legacy-provider-guid',
+          content_html: null,
+        },
       });
       await expect(service.getLessonContent('learner-1', 'enrollment-1', 'l1')).rejects.toThrow();
+      expect(awsVideo.grantPlayback).not.toHaveBeenCalled();
     });
   });
 });

@@ -48,7 +48,7 @@ describe('StorageService legacy media URL normalization', () => {
 
   it('does not allow the local-disk provider in production', () => {
     expect(() => new StorageService(config({ NODE_ENV: 'production' }))).toThrow(
-      'R2 or Bunny object storage must be configured in production',
+      'Object storage (S3_BUCKET, or R2 until it is retired) must be configured in production',
     );
   });
 
