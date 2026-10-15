@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: backend-coverage
           path: coverage/
@@ -340,7 +340,7 @@ jobs:
 
       - name: Upload E2E results (shard ${{ matrix.shard }}/4)
         if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-shard-${{ matrix.shard }}
           path: e2e-results/
@@ -859,7 +859,7 @@ jobs:
 
       - name: Keep the rollback point
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}
           path: previous-task-definitions.json
