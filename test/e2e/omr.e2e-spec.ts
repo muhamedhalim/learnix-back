@@ -1,6 +1,4 @@
-
 import { getRepositoryToken } from '@nestjs/typeorm';
-
 
 import { JOB_TYPES } from '../../src/queues/queues.constants';
 import { OmrProcessor } from '../../src/exams/processors/omr.processor';
@@ -499,9 +497,7 @@ describe('Teacher OMR workflow (e2e)', () => {
     // only id + name of the student are exposed
     expect(Object.keys(body.data[0]!.student!).sort()).toEqual(['id', 'name']);
 
-    await otherTeacher.agent
-      .get(`${API_PREFIX}/teacher/exams/${examId}/omr-sheets`)
-      .expect(404);
+    await otherTeacher.agent.get(`${API_PREFIX}/teacher/exams/${examId}/omr-sheets`).expect(404);
   });
 
   it('is idempotent under retry: confirming twice never creates a second Attempt', async () => {

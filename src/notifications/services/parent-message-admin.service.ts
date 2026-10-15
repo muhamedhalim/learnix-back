@@ -86,7 +86,9 @@ export class ParentMessageAdminService {
       qb.andWhere('m.body ILIKE :q', { q: `%${filter.search}%` });
     }
 
+    // Messages queued in one transaction share created_at; `id` keeps pages stable.
     qb.orderBy('m.created_at', 'DESC')
+      .addOrderBy('m.id', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 

@@ -9,7 +9,10 @@ import { CreateMarketplacePayouts2097000000000 } from '../../src/migrations/2097
 import { CreateMarketplaceReviews2098000000000 } from '../../src/migrations/2098000000000-CreateMarketplaceReviews';
 import { SeedMarketplaceCategories2099000000000 } from '../../src/migrations/2099000000000-SeedMarketplaceCategories';
 import { ExtendCertificatesForMarketplace2100000000000 } from '../../src/migrations/2100000000000-ExtendCertificatesForMarketplace';
-import { MarketplaceLedgerDirection, MarketplaceLedgerEntryType } from '../../src/marketplace/common/enums';
+import {
+  MarketplaceLedgerDirection,
+  MarketplaceLedgerEntryType,
+} from '../../src/marketplace/common/enums';
 import { MarketplaceMoneyService } from '../../src/marketplace/common/money.service';
 import { BalanceService } from '../../src/marketplace/earnings/balance.service';
 import { LedgerService } from '../../src/marketplace/earnings/ledger.service';
@@ -484,371 +487,405 @@ describe('marketplace money PostgreSQL guarantees', () => {
     }
 
     async function seedEarning(
-    instructorId: string,
-    status: string,
-    netAmountMinor: number,
-    currency = 'EGP',
-  ): Promise<void> {
-    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const [category] = (await dataSource.query(`SELECT id FROM marketplace_categories LIMIT 1`)) as Array<{
-      id: string;
-    }>;
-    const [course] = (await dataSource.query(
-      `INSERT INTO marketplace_courses
-        (instructor_id, category_id, slug, title, summary, description, level, language, currency, cover_image_key)
-       VALUES ($1, $2, $3, 'Course', 'Summary', 'Description', 'beginner', 'en', $4, 'key') RETURNING id`,
-      [instructorId, category!.id, `course-${suffix}`, currency],
-    )) as Array<{ id: string }>;
-    const [version] = (await dataSource.query(
-      `INSERT INTO marketplace_course_versions (course_id, version_number, snapshot, published_by)
-       VALUES ($1, 1, '{}', $2) RETURNING id`,
-      [course!.id, adminId],
-    )) as Array<{ id: string }>;
-    const grossAmountMinor = netAmountMinor + 300;
-    const [order] = (await dataSource.query(
-      `INSERT INTO marketplace_orders (order_number, learner_id, course_id, course_version_id, instructor_id,
-        gross_amount_minor, net_amount_minor, currency, commission_bps, commission_amount_minor,
-        instructor_earning_minor, refund_window_days, consumption_cap_bps, course_title_snapshot, instructor_name_snapshot)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 3000, 300, $8, 14, 3000, 'C', 'I') RETURNING id`,
-      [`MP-BAL-${suffix}`, adminId, course!.id, version!.id, instructorId, grossAmountMinor, currency, netAmountMinor],
-    )) as Array<{ id: string }>;
-    await dataSource.query(
-      `INSERT INTO marketplace_instructor_earnings
-        (instructor_id, order_id, gross_amount_minor, commission_amount_minor, net_amount_minor, currency, commission_bps, status, available_at)
-       VALUES ($1, $2, $3, 300, $4, $5, 3000, $6, now())`,
-      [instructorId, order!.id, grossAmountMinor, netAmountMinor, currency, status],
-    );
-  }
-
-  it('sums pending, clearing and requested earnings by status, scoped to one currency', async () => {
-    const instructorId = await seedInstructor();
-    await seedEarning(instructorId, 'pending_earnings', 1000);
-    await seedEarning(instructorId, 'pending_earnings', 2000);
-    await seedEarning(instructorId, 'refund_clearance', 500);
-    await seedEarning(instructorId, 'payout_requested', 700);
-    await seedEarning(instructorId, 'processing', 300);
-    await seedEarning(instructorId, 'available_balance', 900);
-
-    const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
-
-    expect(balance.pendingMinor).toBe(3000);
-    expect(balance.clearingMinor).toBe(500);
-    expect(balance.requestedMinor).toBe(1000); // payout_requested + processing
-    expect(balance.availableMinor).toBe(900);
-  });
-
-  it('adds manual_adjustment ledger entries on top of the available_balance earnings sum', async () => {
-    const instructorId = await seedInstructor();
-    await seedEarning(instructorId, 'available_balance', 1000);
-    await ledgerService.post({
-      instructorId,
-      orderId: null,
-      entryType: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
-      amountMinor: 200,
-      currency: 'EGP',
-      direction: MarketplaceLedgerDirection.CREDIT,
-      reference: `manual_adjustment:${instructorId}:1`,
-      createdBy: adminId,
-      metadata: { reason: 'goodwill credit' },
-    });
-    await ledgerService.post({
-      instructorId,
-      orderId: null,
-      entryType: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
-      amountMinor: 50,
-      currency: 'EGP',
-      direction: MarketplaceLedgerDirection.DEBIT,
-      reference: `manual_adjustment:${instructorId}:2`,
-      createdBy: adminId,
-      metadata: { reason: 'correction' },
-    });
-
-    const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
-
-    expect(balance.availableMinor).toBe(1000 + 200 - 50);
-  });
-
-  it('derives paid-out as PAYOUT credits less PAYOUT_REVERSAL debits', async () => {
-    const instructorId = await seedInstructor();
-    await ledgerService.post({
-      instructorId,
-      orderId: null,
-      entryType: MarketplaceLedgerEntryType.PAYOUT,
-      amountMinor: 5000,
-      currency: 'EGP',
-      direction: MarketplaceLedgerDirection.DEBIT,
-      reference: `payout:${instructorId}:1`,
-    });
-    await ledgerService.post({
-      instructorId,
-      orderId: null,
-      entryType: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
-      amountMinor: 1200,
-      currency: 'EGP',
-      direction: MarketplaceLedgerDirection.CREDIT,
-      reference: `payout_reversal:${instructorId}:1`,
-    });
-
-    const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
-
-    expect(balance.paidOutMinor).toBe(5000 - 1200);
-  });
-
-  it('derives reversed as the sum of REFUND ledger entries', async () => {
-    const instructorId = await seedInstructor();
-    await ledgerService.post({
-      instructorId,
-      orderId: null,
-      entryType: MarketplaceLedgerEntryType.REFUND,
-      amountMinor: 800,
-      currency: 'EGP',
-      direction: MarketplaceLedgerDirection.DEBIT,
-      reference: `refund:${instructorId}:1`,
-    });
-
-    const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
-
-    expect(balance.reversedMinor).toBe(800);
-  });
-
-  it('never mixes currencies in one balance figure', async () => {
-    const instructorId = await seedInstructor();
-    await seedEarning(instructorId, 'pending_earnings', 1000, 'EGP');
-    await seedEarning(instructorId, 'pending_earnings', 500, 'KWD');
-
-    const egpBalance = await ledgerService.deriveBalance(instructorId, 'EGP');
-    const kwdBalance = await ledgerService.deriveBalance(instructorId, 'KWD');
-
-    expect(egpBalance.pendingMinor).toBe(1000);
-    expect(kwdBalance.pendingMinor).toBe(500);
-  });
-
-  /**
-   * T067 (W4-C5): the grouped derivation must equal the per-pair derivation for every
-   * (instructor, currency) pair, in two statements, without ever joining earnings to the
-   * ledger before summing. The fixture carries every bucket: all earning statuses,
-   * manual adjustments in both directions, payouts in both directions, a payout reversal,
-   * refunds, refund shortfall, a ledger-only currency (must stay excluded), a negative
-   * available balance, and a second instructor in a shared currency.
-   */
-  describe('grouped balances (T067)', () => {
-    const E = MarketplaceLedgerEntryType;
-    const D = MarketplaceLedgerDirection;
-    let referenceCounter = 0;
-
-    async function seedInstructorWithUser(tag: string): Promise<string> {
-      const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const [user] = (await dataSource.query(
-        `INSERT INTO "users" (username, name, email, phone, role)
-         VALUES ($1, $2, $3, $4, 'student') RETURNING id`,
-        [
-          `t067-${tag}-${suffix}`,
-          `T067 ${tag}`,
-          `t067-${tag}-${suffix}@example.com`,
-          `0122${String(40_000_000 + (referenceCounter += 1))}`,
-        ],
-      )) as Array<{ id: string }>;
-      const [application] = (await dataSource.query(
-        `INSERT INTO marketplace_instructor_applications (user_id, display_name, years_of_experience)
-         VALUES ($1, 'T067 Instructor', 3) RETURNING id`,
-        [user!.id],
-      )) as Array<{ id: string }>;
-      const [instructor] = (await dataSource.query(
-        `INSERT INTO marketplace_instructors (user_id, application_id, slug, display_name, approved_by)
-         VALUES ($1, $2, $3, 'T067 Instructor', $4) RETURNING id`,
-        [user!.id, application!.id, `t067-${tag}-${suffix}`, adminId],
-      )) as Array<{ id: string }>;
-      return instructor!.id;
-    }
-
-    async function earning(
       instructorId: string,
       status: string,
       netAmountMinor: number,
-      currency: string,
+      currency = 'EGP',
     ): Promise<void> {
       const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const [category] = (await dataSource.query(`SELECT id FROM marketplace_categories LIMIT 1`)) as Array<{
+      const [category] = (await dataSource.query(
+        `SELECT id FROM marketplace_categories LIMIT 1`,
+      )) as Array<{
         id: string;
       }>;
       const [course] = (await dataSource.query(
         `INSERT INTO marketplace_courses
-          (instructor_id, category_id, slug, title, summary, description, level, language, currency, cover_image_key)
-         VALUES ($1, $2, $3, 'Course', 'Summary', 'Description', 'beginner', 'en', $4, 'key') RETURNING id`,
+        (instructor_id, category_id, slug, title, summary, description, level, language, currency, cover_image_key)
+       VALUES ($1, $2, $3, 'Course', 'Summary', 'Description', 'beginner', 'en', $4, 'key') RETURNING id`,
         [instructorId, category!.id, `course-${suffix}`, currency],
       )) as Array<{ id: string }>;
       const [version] = (await dataSource.query(
         `INSERT INTO marketplace_course_versions (course_id, version_number, snapshot, published_by)
-         VALUES ($1, 1, '{}', $2) RETURNING id`,
+       VALUES ($1, 1, '{}', $2) RETURNING id`,
         [course!.id, adminId],
       )) as Array<{ id: string }>;
-      const gross = netAmountMinor + 300;
+      const grossAmountMinor = netAmountMinor + 300;
       const [order] = (await dataSource.query(
         `INSERT INTO marketplace_orders (order_number, learner_id, course_id, course_version_id, instructor_id,
-          gross_amount_minor, net_amount_minor, currency, commission_bps, commission_amount_minor,
-          instructor_earning_minor, refund_window_days, consumption_cap_bps, course_title_snapshot, instructor_name_snapshot)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 3000, 300, $8, 14, 3000, 'C', 'I') RETURNING id`,
-        [`MP-GRP-${suffix}`, adminId, course!.id, version!.id, instructorId, gross, currency, netAmountMinor],
+        gross_amount_minor, net_amount_minor, currency, commission_bps, commission_amount_minor,
+        instructor_earning_minor, refund_window_days, consumption_cap_bps, course_title_snapshot, instructor_name_snapshot)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 3000, 300, $8, 14, 3000, 'C', 'I') RETURNING id`,
+        [
+          `MP-BAL-${suffix}`,
+          adminId,
+          course!.id,
+          version!.id,
+          instructorId,
+          grossAmountMinor,
+          currency,
+          netAmountMinor,
+        ],
       )) as Array<{ id: string }>;
       await dataSource.query(
         `INSERT INTO marketplace_instructor_earnings
-          (instructor_id, order_id, gross_amount_minor, commission_amount_minor, net_amount_minor, currency, commission_bps, status, available_at)
-         VALUES ($1, $2, $3, 300, $4, $5, 3000, $6, now())`,
-        [instructorId, order!.id, gross, netAmountMinor, currency, status],
+        (instructor_id, order_id, gross_amount_minor, commission_amount_minor, net_amount_minor, currency, commission_bps, status, available_at)
+       VALUES ($1, $2, $3, 300, $4, $5, 3000, $6, now())`,
+        [instructorId, order!.id, grossAmountMinor, netAmountMinor, currency, status],
       );
     }
 
-    async function ledger(
-      ledgerService: LedgerService,
-      instructorId: string,
-      entryType: MarketplaceLedgerEntryType,
-      direction: MarketplaceLedgerDirection,
-      amountMinor: number,
-      currency: string,
-    ): Promise<void> {
-      referenceCounter += 1;
+    it('sums pending, clearing and requested earnings by status, scoped to one currency', async () => {
+      const instructorId = await seedInstructor();
+      await seedEarning(instructorId, 'pending_earnings', 1000);
+      await seedEarning(instructorId, 'pending_earnings', 2000);
+      await seedEarning(instructorId, 'refund_clearance', 500);
+      await seedEarning(instructorId, 'payout_requested', 700);
+      await seedEarning(instructorId, 'processing', 300);
+      await seedEarning(instructorId, 'available_balance', 900);
+
+      const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
+
+      expect(balance.pendingMinor).toBe(3000);
+      expect(balance.clearingMinor).toBe(500);
+      expect(balance.requestedMinor).toBe(1000); // payout_requested + processing
+      expect(balance.availableMinor).toBe(900);
+    });
+
+    it('adds manual_adjustment ledger entries on top of the available_balance earnings sum', async () => {
+      const instructorId = await seedInstructor();
+      await seedEarning(instructorId, 'available_balance', 1000);
       await ledgerService.post({
         instructorId,
         orderId: null,
-        entryType,
-        amountMinor,
-        currency,
-        direction,
-        reference: `t067:${instructorId}:${String(referenceCounter)}`,
-        ...(entryType === E.MANUAL_ADJUSTMENT ? { createdBy: adminId, metadata: { reason: 't067' } } : {}),
+        entryType: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
+        amountMinor: 200,
+        currency: 'EGP',
+        direction: MarketplaceLedgerDirection.CREDIT,
+        reference: `manual_adjustment:${instructorId}:1`,
+        createdBy: adminId,
+        metadata: { reason: 'goodwill credit' },
       });
-    }
-
-    it('equals the per-pair derivation for every pair, in 2 statements, excluding ledger-only currencies', async () => {
-      const ledgerService = new LedgerService(
-        dataSource.getRepository(MarketplaceLedgerEntry),
-        dataSource.getRepository(InstructorEarning),
-        new MarketplaceMoneyService({ resolve: jest.fn() } as never),
-      );
-      const balanceService = new BalanceService(
-        ledgerService,
-        dataSource.getRepository(MarketplaceLedgerEntry),
-      );
-      const reconciliation = new ReconciliationService(
-        dataSource.getRepository(InstructorEarning),
-        dataSource.getRepository(MarketplaceLedgerEntry),
-        balanceService,
-      );
-
-      const i1 = await seedInstructorWithUser('one');
-      const i2 = await seedInstructorWithUser('two');
-
-      // Instructor 1, EGP: every earning status plus every ledger bucket.
-      for (const [status, amount] of [
-        ['pending_earnings', 1000],
-        ['pending_earnings', 2000],
-        ['refund_clearance', 500],
-        ['payout_requested', 700],
-        ['processing', 300],
-        ['available_balance', 900],
-        ['available_balance', 100],
-        ['paid_out', 250],
-        ['reversed', 111],
-      ] as const) {
-        await earning(i1, status, amount, 'EGP');
-      }
-      await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 400, 'EGP');
-      await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 25, 'EGP');
-      await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.DEBIT, 150, 'EGP');
-      await ledger(ledgerService, i1, E.PAYOUT, D.DEBIT, 5000, 'EGP');
-      await ledger(ledgerService, i1, E.PAYOUT, D.CREDIT, 70, 'EGP'); // direction-insensitive
-      await ledger(ledgerService, i1, E.PAYOUT_REVERSAL, D.CREDIT, 1200, 'EGP');
-      await ledger(ledgerService, i1, E.REFUND, D.DEBIT, 800, 'EGP');
-      await ledger(ledgerService, i1, E.REFUND, D.CREDIT, 33, 'EGP'); // direction-insensitive
-      await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 75, 'EGP');
-      await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 25, 'EGP');
-      await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.CREDIT, 9999, 'EGP'); // not a shortfall
-      // Instructor 1, KWD: earnings and a debit only.
-      await earning(i1, 'pending_earnings', 500, 'KWD');
-      await earning(i1, 'available_balance', 300, 'KWD');
-      await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.DEBIT, 100, 'KWD');
-      // Instructor 1, GBP: ledger entries but NO earnings -> not a pair, must stay excluded.
-      await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 999, 'GBP');
-      await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 11, 'GBP');
-      // Instructor 2: a negative available balance in EGP, only earnings in KWD, nothing in the ledger for KWD.
-      await earning(i2, 'available_balance', 100, 'EGP');
-      await ledger(ledgerService, i2, E.MANUAL_ADJUSTMENT, D.DEBIT, 400, 'EGP');
-      await earning(i2, 'pending_earnings', 50, 'KWD');
-
-      const pairs = (await dataSource.query(
-        `SELECT DISTINCT instructor_id, currency FROM marketplace_instructor_earnings`,
-      )) as Array<{ instructor_id: string; currency: string }>;
-      expect(pairs).toHaveLength(4);
-
-      const grouped = await balanceService.getBalancesGrouped();
-
-      expect(grouped).toHaveLength(pairs.length);
-      for (const pair of pairs) {
-        const perPair = await balanceService.getBalance(pair.instructor_id, pair.currency);
-        const match = grouped.find(
-          (row) => row.instructorId === pair.instructor_id && row.currency === pair.currency,
-        );
-        expect(match).toBeDefined();
-        const { instructorId: _instructorId, ...rest } = match!;
-        expect(rest).toEqual(perPair);
-      }
-      // Documented figures for instructor 1 EGP, so a shared bug in both paths cannot hide.
-      const one = grouped.find((row) => row.instructorId === i1 && row.currency === 'EGP')!;
-      expect(one).toMatchObject({
-        pendingMinor: 3000,
-        clearingMinor: 500,
-        requestedMinor: 1000,
-        availableMinor: 900 + 100 + 400 + 25 - 150,
-        paidOutMinor: 5000 + 70 - 1200,
-        reversedMinor: 800 + 33,
-        shortfallMinor: 100,
+      await ledgerService.post({
+        instructorId,
+        orderId: null,
+        entryType: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
+        amountMinor: 50,
+        currency: 'EGP',
+        direction: MarketplaceLedgerDirection.DEBIT,
+        reference: `manual_adjustment:${instructorId}:2`,
+        createdBy: adminId,
+        metadata: { reason: 'correction' },
       });
-      expect(grouped.some((row) => row.currency === 'GBP')).toBe(false);
 
-      // getAllBalances: the instructor's own pairs only, in the original (instructor-less) shape.
-      const all = await balanceService.getAllBalances(i1);
-      const byCurrency = (rows: Array<{ currency: string }>) =>
-        [...rows].sort((a, b) => a.currency.localeCompare(b.currency));
-      expect(byCurrency(all)).toEqual(
-        byCurrency(await Promise.all(['EGP', 'KWD'].map(async (c) => balanceService.getBalance(i1, c)))),
-      );
-      expect(all.every((row) => !('instructorId' in row))).toBe(true);
-      expect(await balanceService.getAllBalances('00000000-0000-4000-8000-000000000000')).toEqual([]);
+      const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
 
-      // Reconciliation reports exactly the negative pairs the per-pair loop would.
-      const expectedNegative: Array<{ instructor_id: string; currency: string; available_minor: number }> = [];
-      for (const pair of pairs) {
-        const derived = await balanceService.getBalance(pair.instructor_id, pair.currency);
-        if (derived.availableMinor < 0) {
-          expectedNegative.push({
-            instructor_id: pair.instructor_id,
-            currency: pair.currency,
-            available_minor: derived.availableMinor,
-          });
-        }
-      }
-      const report = await reconciliation.getDivergenceReport();
-      expect(report['negative_available_balances']).toEqual(expectedNegative);
-      expect(expectedNegative).toEqual([{ instructor_id: i2, currency: 'EGP', available_minor: -300 }]);
-
-      // Statement counts: 2 for the whole grouped derivation (was 9 per pair plus the pair list).
-      const counter = new StatementCounter(dataSource);
-      counter.start();
-      await balanceService.getBalancesGrouped();
-      counter.stop();
-      expect(counter.count()).toBe(2);
-      counter.start();
-      await balanceService.getAllBalances(i1);
-      counter.stop();
-      expect(counter.count()).toBe(2);
-      // Neither statement joins earnings to the ledger.
-      for (const statement of counter.statements()) {
-        const touchesBoth =
-          statement.sql.includes('marketplace_instructor_earnings') &&
-          statement.sql.includes('marketplace_ledger_entries');
-        expect(touchesBoth).toBe(false);
-      }
+      expect(balance.availableMinor).toBe(1000 + 200 - 50);
     });
-  });
+
+    it('derives paid-out as PAYOUT credits less PAYOUT_REVERSAL debits', async () => {
+      const instructorId = await seedInstructor();
+      await ledgerService.post({
+        instructorId,
+        orderId: null,
+        entryType: MarketplaceLedgerEntryType.PAYOUT,
+        amountMinor: 5000,
+        currency: 'EGP',
+        direction: MarketplaceLedgerDirection.DEBIT,
+        reference: `payout:${instructorId}:1`,
+      });
+      await ledgerService.post({
+        instructorId,
+        orderId: null,
+        entryType: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
+        amountMinor: 1200,
+        currency: 'EGP',
+        direction: MarketplaceLedgerDirection.CREDIT,
+        reference: `payout_reversal:${instructorId}:1`,
+      });
+
+      const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
+
+      expect(balance.paidOutMinor).toBe(5000 - 1200);
+    });
+
+    it('derives reversed as the sum of REFUND ledger entries', async () => {
+      const instructorId = await seedInstructor();
+      await ledgerService.post({
+        instructorId,
+        orderId: null,
+        entryType: MarketplaceLedgerEntryType.REFUND,
+        amountMinor: 800,
+        currency: 'EGP',
+        direction: MarketplaceLedgerDirection.DEBIT,
+        reference: `refund:${instructorId}:1`,
+      });
+
+      const balance = await ledgerService.deriveBalance(instructorId, 'EGP');
+
+      expect(balance.reversedMinor).toBe(800);
+    });
+
+    it('never mixes currencies in one balance figure', async () => {
+      const instructorId = await seedInstructor();
+      await seedEarning(instructorId, 'pending_earnings', 1000, 'EGP');
+      await seedEarning(instructorId, 'pending_earnings', 500, 'KWD');
+
+      const egpBalance = await ledgerService.deriveBalance(instructorId, 'EGP');
+      const kwdBalance = await ledgerService.deriveBalance(instructorId, 'KWD');
+
+      expect(egpBalance.pendingMinor).toBe(1000);
+      expect(kwdBalance.pendingMinor).toBe(500);
+    });
+
+    /**
+     * T067 (W4-C5): the grouped derivation must equal the per-pair derivation for every
+     * (instructor, currency) pair, in two statements, without ever joining earnings to the
+     * ledger before summing. The fixture carries every bucket: all earning statuses,
+     * manual adjustments in both directions, payouts in both directions, a payout reversal,
+     * refunds, refund shortfall, a ledger-only currency (must stay excluded), a negative
+     * available balance, and a second instructor in a shared currency.
+     */
+    describe('grouped balances (T067)', () => {
+      const E = MarketplaceLedgerEntryType;
+      const D = MarketplaceLedgerDirection;
+      let referenceCounter = 0;
+
+      async function seedInstructorWithUser(tag: string): Promise<string> {
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const [user] = (await dataSource.query(
+          `INSERT INTO "users" (username, name, email, phone, role)
+         VALUES ($1, $2, $3, $4, 'student') RETURNING id`,
+          [
+            `t067-${tag}-${suffix}`,
+            `T067 ${tag}`,
+            `t067-${tag}-${suffix}@example.com`,
+            `0122${String(40_000_000 + (referenceCounter += 1))}`,
+          ],
+        )) as Array<{ id: string }>;
+        const [application] = (await dataSource.query(
+          `INSERT INTO marketplace_instructor_applications (user_id, display_name, years_of_experience)
+         VALUES ($1, 'T067 Instructor', 3) RETURNING id`,
+          [user!.id],
+        )) as Array<{ id: string }>;
+        const [instructor] = (await dataSource.query(
+          `INSERT INTO marketplace_instructors (user_id, application_id, slug, display_name, approved_by)
+         VALUES ($1, $2, $3, 'T067 Instructor', $4) RETURNING id`,
+          [user!.id, application!.id, `t067-${tag}-${suffix}`, adminId],
+        )) as Array<{ id: string }>;
+        return instructor!.id;
+      }
+
+      async function earning(
+        instructorId: string,
+        status: string,
+        netAmountMinor: number,
+        currency: string,
+      ): Promise<void> {
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const [category] = (await dataSource.query(
+          `SELECT id FROM marketplace_categories LIMIT 1`,
+        )) as Array<{
+          id: string;
+        }>;
+        const [course] = (await dataSource.query(
+          `INSERT INTO marketplace_courses
+          (instructor_id, category_id, slug, title, summary, description, level, language, currency, cover_image_key)
+         VALUES ($1, $2, $3, 'Course', 'Summary', 'Description', 'beginner', 'en', $4, 'key') RETURNING id`,
+          [instructorId, category!.id, `course-${suffix}`, currency],
+        )) as Array<{ id: string }>;
+        const [version] = (await dataSource.query(
+          `INSERT INTO marketplace_course_versions (course_id, version_number, snapshot, published_by)
+         VALUES ($1, 1, '{}', $2) RETURNING id`,
+          [course!.id, adminId],
+        )) as Array<{ id: string }>;
+        const gross = netAmountMinor + 300;
+        const [order] = (await dataSource.query(
+          `INSERT INTO marketplace_orders (order_number, learner_id, course_id, course_version_id, instructor_id,
+          gross_amount_minor, net_amount_minor, currency, commission_bps, commission_amount_minor,
+          instructor_earning_minor, refund_window_days, consumption_cap_bps, course_title_snapshot, instructor_name_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, 3000, 300, $8, 14, 3000, 'C', 'I') RETURNING id`,
+          [
+            `MP-GRP-${suffix}`,
+            adminId,
+            course!.id,
+            version!.id,
+            instructorId,
+            gross,
+            currency,
+            netAmountMinor,
+          ],
+        )) as Array<{ id: string }>;
+        await dataSource.query(
+          `INSERT INTO marketplace_instructor_earnings
+          (instructor_id, order_id, gross_amount_minor, commission_amount_minor, net_amount_minor, currency, commission_bps, status, available_at)
+         VALUES ($1, $2, $3, 300, $4, $5, 3000, $6, now())`,
+          [instructorId, order!.id, gross, netAmountMinor, currency, status],
+        );
+      }
+
+      async function ledger(
+        ledgerService: LedgerService,
+        instructorId: string,
+        entryType: MarketplaceLedgerEntryType,
+        direction: MarketplaceLedgerDirection,
+        amountMinor: number,
+        currency: string,
+      ): Promise<void> {
+        referenceCounter += 1;
+        await ledgerService.post({
+          instructorId,
+          orderId: null,
+          entryType,
+          amountMinor,
+          currency,
+          direction,
+          reference: `t067:${instructorId}:${String(referenceCounter)}`,
+          ...(entryType === E.MANUAL_ADJUSTMENT
+            ? { createdBy: adminId, metadata: { reason: 't067' } }
+            : {}),
+        });
+      }
+
+      it('equals the per-pair derivation for every pair, in 2 statements, excluding ledger-only currencies', async () => {
+        const ledgerService = new LedgerService(
+          dataSource.getRepository(MarketplaceLedgerEntry),
+          dataSource.getRepository(InstructorEarning),
+          new MarketplaceMoneyService({ resolve: jest.fn() } as never),
+        );
+        const balanceService = new BalanceService(
+          ledgerService,
+          dataSource.getRepository(MarketplaceLedgerEntry),
+        );
+        const reconciliation = new ReconciliationService(
+          dataSource.getRepository(InstructorEarning),
+          dataSource.getRepository(MarketplaceLedgerEntry),
+          balanceService,
+        );
+
+        const i1 = await seedInstructorWithUser('one');
+        const i2 = await seedInstructorWithUser('two');
+
+        // Instructor 1, EGP: every earning status plus every ledger bucket.
+        for (const [status, amount] of [
+          ['pending_earnings', 1000],
+          ['pending_earnings', 2000],
+          ['refund_clearance', 500],
+          ['payout_requested', 700],
+          ['processing', 300],
+          ['available_balance', 900],
+          ['available_balance', 100],
+          ['paid_out', 250],
+          ['reversed', 111],
+        ] as const) {
+          await earning(i1, status, amount, 'EGP');
+        }
+        await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 400, 'EGP');
+        await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 25, 'EGP');
+        await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.DEBIT, 150, 'EGP');
+        await ledger(ledgerService, i1, E.PAYOUT, D.DEBIT, 5000, 'EGP');
+        await ledger(ledgerService, i1, E.PAYOUT, D.CREDIT, 70, 'EGP'); // direction-insensitive
+        await ledger(ledgerService, i1, E.PAYOUT_REVERSAL, D.CREDIT, 1200, 'EGP');
+        await ledger(ledgerService, i1, E.REFUND, D.DEBIT, 800, 'EGP');
+        await ledger(ledgerService, i1, E.REFUND, D.CREDIT, 33, 'EGP'); // direction-insensitive
+        await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 75, 'EGP');
+        await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 25, 'EGP');
+        await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.CREDIT, 9999, 'EGP'); // not a shortfall
+        // Instructor 1, KWD: earnings and a debit only.
+        await earning(i1, 'pending_earnings', 500, 'KWD');
+        await earning(i1, 'available_balance', 300, 'KWD');
+        await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.DEBIT, 100, 'KWD');
+        // Instructor 1, GBP: ledger entries but NO earnings -> not a pair, must stay excluded.
+        await ledger(ledgerService, i1, E.MANUAL_ADJUSTMENT, D.CREDIT, 999, 'GBP');
+        await ledger(ledgerService, i1, E.REFUND_SHORTFALL, D.DEBIT, 11, 'GBP');
+        // Instructor 2: a negative available balance in EGP, only earnings in KWD, nothing in the ledger for KWD.
+        await earning(i2, 'available_balance', 100, 'EGP');
+        await ledger(ledgerService, i2, E.MANUAL_ADJUSTMENT, D.DEBIT, 400, 'EGP');
+        await earning(i2, 'pending_earnings', 50, 'KWD');
+
+        const pairs = (await dataSource.query(
+          `SELECT DISTINCT instructor_id, currency FROM marketplace_instructor_earnings`,
+        )) as Array<{ instructor_id: string; currency: string }>;
+        expect(pairs).toHaveLength(4);
+
+        const grouped = await balanceService.getBalancesGrouped();
+
+        expect(grouped).toHaveLength(pairs.length);
+        for (const pair of pairs) {
+          const perPair = await balanceService.getBalance(pair.instructor_id, pair.currency);
+          const match = grouped.find(
+            (row) => row.instructorId === pair.instructor_id && row.currency === pair.currency,
+          );
+          expect(match).toBeDefined();
+          const { instructorId: _instructorId, ...rest } = match!;
+          expect(rest).toEqual(perPair);
+        }
+        // Documented figures for instructor 1 EGP, so a shared bug in both paths cannot hide.
+        const one = grouped.find((row) => row.instructorId === i1 && row.currency === 'EGP')!;
+        expect(one).toMatchObject({
+          pendingMinor: 3000,
+          clearingMinor: 500,
+          requestedMinor: 1000,
+          availableMinor: 900 + 100 + 400 + 25 - 150,
+          paidOutMinor: 5000 + 70 - 1200,
+          reversedMinor: 800 + 33,
+          shortfallMinor: 100,
+        });
+        expect(grouped.some((row) => row.currency === 'GBP')).toBe(false);
+
+        // getAllBalances: the instructor's own pairs only, in the original (instructor-less) shape.
+        const all = await balanceService.getAllBalances(i1);
+        const byCurrency = (rows: Array<{ currency: string }>) =>
+          [...rows].sort((a, b) => a.currency.localeCompare(b.currency));
+        expect(byCurrency(all)).toEqual(
+          byCurrency(
+            await Promise.all(['EGP', 'KWD'].map(async (c) => balanceService.getBalance(i1, c))),
+          ),
+        );
+        expect(all.every((row) => !('instructorId' in row))).toBe(true);
+        expect(await balanceService.getAllBalances('00000000-0000-4000-8000-000000000000')).toEqual(
+          [],
+        );
+
+        // Reconciliation reports exactly the negative pairs the per-pair loop would.
+        const expectedNegative: Array<{
+          instructor_id: string;
+          currency: string;
+          available_minor: number;
+        }> = [];
+        for (const pair of pairs) {
+          const derived = await balanceService.getBalance(pair.instructor_id, pair.currency);
+          if (derived.availableMinor < 0) {
+            expectedNegative.push({
+              instructor_id: pair.instructor_id,
+              currency: pair.currency,
+              available_minor: derived.availableMinor,
+            });
+          }
+        }
+        const report = await reconciliation.getDivergenceReport();
+        expect(report['negative_available_balances']).toEqual(expectedNegative);
+        expect(expectedNegative).toEqual([
+          { instructor_id: i2, currency: 'EGP', available_minor: -300 },
+        ]);
+
+        // Statement counts: 2 for the whole grouped derivation (was 9 per pair plus the pair list).
+        const counter = new StatementCounter(dataSource);
+        counter.start();
+        await balanceService.getBalancesGrouped();
+        counter.stop();
+        expect(counter.count()).toBe(2);
+        counter.start();
+        await balanceService.getAllBalances(i1);
+        counter.stop();
+        expect(counter.count()).toBe(2);
+        // Neither statement joins earnings to the ledger.
+        for (const statement of counter.statements()) {
+          const touchesBoth =
+            statement.sql.includes('marketplace_instructor_earnings') &&
+            statement.sql.includes('marketplace_ledger_entries');
+          expect(touchesBoth).toBe(false);
+        }
+      });
+    });
   });
 });

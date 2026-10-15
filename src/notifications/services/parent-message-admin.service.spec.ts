@@ -18,6 +18,7 @@ describe('ParentMessageAdminService scope', () => {
     where: jest.Mock;
     andWhere: jest.Mock;
     orderBy: jest.Mock;
+    addOrderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
     select: jest.Mock;
@@ -39,6 +40,7 @@ describe('ParentMessageAdminService scope', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
@@ -71,6 +73,13 @@ describe('ParentMessageAdminService scope', () => {
       expect(qb.andWhere).toHaveBeenCalledWith('m.student_id IN (:...scopeStudentIds)', {
         scopeStudentIds: ['s1', 's2'],
       });
+    });
+
+    it('orders newest first with the id as a unique tie-breaker so pages stay stable', async () => {
+      await service.list({});
+
+      expect(qb.orderBy).toHaveBeenCalledWith('m.created_at', 'DESC');
+      expect(qb.addOrderBy).toHaveBeenCalledWith('m.id', 'DESC');
     });
 
     it('returns an empty page for an empty array without touching the database', async () => {

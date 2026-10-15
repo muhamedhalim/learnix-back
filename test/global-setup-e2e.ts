@@ -42,6 +42,13 @@ import { assertTestDatabaseIsSafe } from '../src/config/environment-isolation.gu
 import { CreateMarketplaceMoney2096000000000 } from '../src/migrations/2096000000000-CreateMarketplaceMoney';
 
 export default async function globalSetup(): Promise<void> {
+  // Same clock as CI and the deployed containers. Most timestamp columns are `timestamp without time
+  // zone`: node-postgres reads them as LOCAL time, so on a developer machine in another zone every
+  // such instant moved by the UTC offset, ties between fixture instants disappeared, and goldens
+  // captured there (teacher-follow-up-ownership) failed on the UTC runners. Set here, in the process
+  // that spawns the jest workers, before any Date is formatted.
+  process.env['TZ'] = 'UTC';
+
   config({ path: join(__dirname, '..', '.env.test') });
 
   // Same guard the per-suite setup applies: never build a schema over a
@@ -94,10 +101,23 @@ export default async function globalSetup(): Promise<void> {
   // (`CREATE OR REPLACE FUNCTION` + `DROP TRIGGER IF EXISTS`), so a
   // long-lived local Docker Postgres whose schema was already built by an
   // earlier run (before this trigger was added here) still gets it.
-  const triggerSetup = new DataSource({ type: 'postgres', url, synchronize: false, logging: false });
+  const triggerSetup = new DataSource({
+    type: 'postgres',
+    url,
+    synchronize: false,
+    logging: false,
+  });
   await triggerSetup.initialize();
   try {
     await triggerSetup.query(CreateMarketplaceMoney2096000000000.ledgerTriggerSql());
+    // Like the trigger, a free-standing sequence is not part of any entity. Migration
+    // 2059000000000-ExtendComplaintsForCallCenterTickets creates it and ComplaintsService.nextTicketNumber()
+    // calls nextval() on it; without it every ticket took the "relation does not exist" fallback (one
+    // Postgres ERROR per ticket) and the production numbering path was never exercised. Same DDL as the
+    // migration, made repeatable. TRUNCATE ... RESTART IDENTITY leaves it alone, so numbers keep rising.
+    await triggerSetup.query(
+      'CREATE SEQUENCE IF NOT EXISTS "complaint_ticket_number_seq" START WITH 1 INCREMENT BY 1',
+    );
   } finally {
     await triggerSetup.destroy();
   }

@@ -28,12 +28,7 @@ import { PaymentOperationsService } from '../../src/payments/services/payment-op
 import { PaymentProviderRegistry } from '../../src/payments/services/payment-provider-registry.service';
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import {
-  API_PREFIX,
-  createAuthenticatedUser,
-  createE2EApp,
-  resetDatabase,
-} from './fixtures';
+import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
 
 /**
  * Phase 9's independent test (tasks.md): an eligible request refunds fully

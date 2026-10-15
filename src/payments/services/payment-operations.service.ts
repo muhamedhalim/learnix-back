@@ -1646,7 +1646,7 @@ export class PaymentOperationsService {
           }),
       !want('revenue_trends')
         ? Promise.resolve([])
-        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) => {
+        : this.runCurrentFinancialReportQuery(filter, bounds, async ({ current, params }) => {
             const bucket = filter.group_by ?? 'day';
             return this.dataSource.query(
               `
@@ -1662,7 +1662,7 @@ export class PaymentOperationsService {
           }),
       !want('product_breakdown')
         ? Promise.resolve([])
-        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+        : this.runCurrentFinancialReportQuery(filter, bounds, async ({ current, params }) =>
             this.dataSource.query(
               `
         WITH ${current}
@@ -1678,7 +1678,7 @@ export class PaymentOperationsService {
           ),
       !want('top_products')
         ? Promise.resolve([])
-        : this.runFinancialReportQuery(filter, bounds, async ({ current, params }) =>
+        : this.runCurrentFinancialReportQuery(filter, bounds, async ({ current, params }) =>
             this.dataSource.query(
               `
         WITH ${current}
@@ -1692,7 +1692,10 @@ export class PaymentOperationsService {
           ),
       !want('settlement_analytics')
         ? Promise.resolve([])
-        : this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+        : (async () => {
+            // No orders CTE here, so the parameter list starts empty: sharing the CTE's list made these
+            // filters `$9`/`$10` with `$1..$8` unreferenced ("could not determine data type of parameter $1").
+            const params: unknown[] = [];
             const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
             return this.dataSource.query(
               `
@@ -1705,11 +1708,12 @@ export class PaymentOperationsService {
         `,
               params,
             );
-          }),
+          })(),
       !want('ledger_movements')
         ? Promise.resolve([])
         : filter.teacher_id
-          ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+          ? (async () => {
+              const params: unknown[] = [];
               const ledgerWhere = this.reportLedgerWhere(filter, params, 'entry');
               return this.dataSource.query(
                 `
@@ -1720,12 +1724,13 @@ export class PaymentOperationsService {
           `,
                 params,
               );
-            })
+            })()
           : Promise.resolve([]),
       !want('settlement_history')
         ? Promise.resolve([])
         : filter.teacher_id
-          ? this.runFinancialReportQuery(filter, bounds, async ({ params }) => {
+          ? (async () => {
+              const params: unknown[] = [];
               const settlementWhere = this.reportSettlementWhere(filter, params, 'settlement');
               return this.dataSource.query(
                 `
@@ -1736,7 +1741,7 @@ export class PaymentOperationsService {
           `,
                 params,
               );
-            })
+            })()
           : Promise.resolve([]),
     ]);
     const value = <T>(index: number, fallback: T): T => {

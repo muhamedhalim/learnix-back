@@ -45,10 +45,22 @@ describe('LeaderboardService public-practice policy', () => {
   it('uses the transactional game profile for the all-time public-practice board', async () => {
     const { qb, countQb } = queryBuilder([
       {
-        user_id: 'student-1', username: 'learner', name: 'Learner', avatar_url: null,
-        score: '1234.5', rating: '1234.5', xp: '80', level: 2, current_streak: 1,
-        governorate: null, school: null,
-        tier_slug: null, tier_name: null, tier_icon: null, tier_color: null, attempts: '2',
+        user_id: 'student-1',
+        username: 'learner',
+        name: 'Learner',
+        avatar_url: null,
+        score: '1234.5',
+        rating: '1234.5',
+        xp: '80',
+        level: 2,
+        current_streak: 1,
+        governorate: null,
+        school: null,
+        tier_slug: null,
+        tier_name: null,
+        tier_icon: null,
+        tier_color: null,
+        attempts: '2',
       },
     ]);
     const profiles = {
@@ -66,7 +78,12 @@ describe('LeaderboardService public-practice policy', () => {
     expect(qb['where']).toHaveBeenCalledWith('gp.total_solved > 0');
     expect(qb['addSelect']).toHaveBeenCalledWith('gp.global_rating', 'score');
     expect(countQb.select).toHaveBeenCalledWith('COUNT(DISTINCT gp.user_id)', 'count');
-    expect(page.rows[0]).toMatchObject({ user_id: 'student-1', score: 1234.5, xp: 80, attempts: 2 });
+    expect(page.rows[0]).toMatchObject({
+      user_id: 'student-1',
+      score: 1234.5,
+      xp: 80,
+      attempts: 2,
+    });
   });
 
   it('uses only public, active practice solves for a weekly board', async () => {

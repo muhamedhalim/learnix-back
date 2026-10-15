@@ -167,8 +167,12 @@ export class TeacherFollowUpService {
 
   /** Throws 403 unless `studentId` has ever purchased something from `teacherId`. */
   public async assertOwnsStudent(teacherId: string, studentId: string): Promise<void> {
-    const viaLessons = this.ownedViaLessonsQuery().andWhere('lp.student_id = :studentId').getQuery();
-    const viaPackages = this.ownedViaPackagesQuery().andWhere('pp.student_id = :studentId').getQuery();
+    const viaLessons = this.ownedViaLessonsQuery()
+      .andWhere('lp.student_id = :studentId')
+      .getQuery();
+    const viaPackages = this.ownedViaPackagesQuery()
+      .andWhere('pp.student_id = :studentId')
+      .getQuery();
     const [sql, values] = this.users.manager.connection.driver.escapeQueryWithParameters(
       `SELECT (EXISTS(${viaLessons}) OR EXISTS(${viaPackages})) AS owned`,
       { ownerTeacherId: teacherId, studentId },
@@ -235,7 +239,9 @@ export class TeacherFollowUpService {
       });
     }
 
+    // `id` makes the order total: students sharing a name would otherwise swap or repeat across pages.
     qb.orderBy('u.name', 'ASC')
+      .addOrderBy('u.id', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -620,10 +626,7 @@ export class TeacherFollowUpService {
         average_score: string | null;
         last_submitted_at: Date | string | null;
       }>
-    >(
-      homeworkStatsSql('$1', 'student.id = ANY($2::uuid[])'),
-      [teacherId, studentIds],
-    );
+    >(homeworkStatsSql('$1', 'student.id = ANY($2::uuid[])'), [teacherId, studentIds]);
 
     return new Map(
       rows.map((row) => {
@@ -683,6 +686,7 @@ export class TeacherFollowUpService {
       ])
       .orderBy('sg.is_primary', 'DESC')
       .addOrderBy('sg.created_at', 'ASC')
+      .addOrderBy('sg.id', 'ASC')
       .getRawMany<{
         student_id: string;
         isPrimary: boolean;
@@ -724,6 +728,7 @@ export class TeacherFollowUpService {
       // exam/attendance record, not another teacher's, for a shared student.
       .andWhere("split_part(m.idempotency_key, ':', 2) = ANY(:subjectIds)", { subjectIds })
       .orderBy('m.created_at', 'DESC')
+      .addOrderBy('m.id', 'DESC')
       .getMany();
 
     return groupBy(rows, (r) => r.student_id);

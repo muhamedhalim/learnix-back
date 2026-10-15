@@ -10,7 +10,14 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, EntityManager, IsNull, LessThanOrEqual, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  IsNull,
+  LessThanOrEqual,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { PaginationMeta } from '../common/interfaces/pagination.interface';
@@ -194,7 +201,10 @@ export class CertificatesService {
         : [];
     const currentVersion = new Map(current.map((row) => [row.id, row.current_version_id]));
     const versionOf = new Map<string, string | null>(
-      purchases.map((p) => [p.package_id, p.course_version_id ?? currentVersion.get(p.package_id) ?? null]),
+      purchases.map((p) => [
+        p.package_id,
+        p.course_version_id ?? currentVersion.get(p.package_id) ?? null,
+      ]),
     );
     const versionIds = [...new Set([...versionOf.values()].filter((v): v is string => v !== null))];
 
@@ -216,8 +226,12 @@ export class CertificatesService {
             ),
           ])
         : [[], []];
-    const lockedTotal = new Map(totals.map((row) => [row.version_id, Number.parseInt(row.total, 10)]));
-    const lockedDone = new Map(done.map((row) => [row.version_id, Number.parseInt(row.completed, 10)]));
+    const lockedTotal = new Map(
+      totals.map((row) => [row.version_id, Number.parseInt(row.total, 10)]),
+    );
+    const lockedDone = new Map(
+      done.map((row) => [row.version_id, Number.parseInt(row.completed, 10)]),
+    );
 
     const apply = (packageId: string, total: number, completed: number): void => {
       result[packageId] =
@@ -237,7 +251,9 @@ export class CertificatesService {
 
     // (5) only for those draft packages.
     if (draftPackages.length > 0) {
-      const rows = await manager.query<Array<{ package_id: string; total: string; completed: string }>>(
+      const rows = await manager.query<
+        Array<{ package_id: string; total: string; completed: string }>
+      >(
         `SELECT p.id AS package_id,
                 (SELECT COUNT(*) FROM lesson_package_items i WHERE i.package_id = p.id)::text AS total,
                 (SELECT COUNT(DISTINCT lp.id) FROM lesson_progress lp
@@ -589,14 +605,21 @@ export class CertificatesService {
     error: unknown,
     current?: CertificateAutoIssuanceFailure,
   ): Promise<void> {
-    const failure = current ?? (await this.autoIssuanceFailuresRepository.findOne({
-      where: { student_id: studentId, lesson_id: lessonId, package_id: packageId },
-    }));
+    const failure =
+      current ??
+      (await this.autoIssuanceFailuresRepository.findOne({
+        where: { student_id: studentId, lesson_id: lessonId, package_id: packageId },
+      }));
     const attempts = (failure?.attempts ?? 0) + 1;
     const retryDelayMs = Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7));
     await this.autoIssuanceFailuresRepository.save(
       Object.assign(
-        failure ?? this.autoIssuanceFailuresRepository.create({ student_id: studentId, lesson_id: lessonId, package_id: packageId }),
+        failure ??
+          this.autoIssuanceFailuresRepository.create({
+            student_id: studentId,
+            lesson_id: lessonId,
+            package_id: packageId,
+          }),
         {
           attempts,
           last_error: error instanceof Error ? error.message : 'Unknown issuance error',
@@ -799,7 +822,10 @@ export class CertificatesService {
       // MarketplaceCertificateIssuanceService owns reissue (if any), reading
       // solely marketplace-owned eligibility data (FR-324).
       throw new BadRequestException(
-        biBody('This certificate is not an academic certificate', 'هذه الشهادة ليست شهادة أكاديمية'),
+        biBody(
+          'This certificate is not an academic certificate',
+          'هذه الشهادة ليست شهادة أكاديمية',
+        ),
       );
     }
     await this.eligibility.assertEligible(certificate.student_id, packageId);
@@ -852,7 +878,9 @@ export class CertificatesService {
    * so the "certificate ready" notification is reused for free rather than
    * re-implemented for marketplace.
    */
-  public async issueMarketplaceCertificate(input: MarketplaceCertificateInput): Promise<Certificate> {
+  public async issueMarketplaceCertificate(
+    input: MarketplaceCertificateInput,
+  ): Promise<Certificate> {
     const existing = await this.certificatesRepository.findOne({
       where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
     });
@@ -861,45 +889,49 @@ export class CertificatesService {
     let certificate: Certificate;
     let created: boolean;
     try {
-      ({ certificate, created } = await this.dataSource.transaction<{ certificate: Certificate; created: boolean }>(
-        async (manager) => {
-          const raced = await manager.findOne(Certificate, {
-            where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
-          });
-          if (raced) return { certificate: raced, created: false };
+      ({ certificate, created } = await this.dataSource.transaction<{
+        certificate: Certificate;
+        created: boolean;
+      }>(async (manager) => {
+        const raced = await manager.findOne(Certificate, {
+          where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
+        });
+        if (raced) return { certificate: raced, created: false };
 
-          const template = await this.findDefaultTemplate();
-          this.assertTemplateCanBeIssued(template);
+        const template = await this.findDefaultTemplate();
+        this.assertTemplateCanBeIssued(template);
 
-          const record = manager.create(Certificate, {
-            certificate_number: await this.uniqueNumber(),
-            verification_code: await this.uniqueCode(),
-            student_id: input.studentId,
-            package_id: null,
-            marketplace_course_id: input.marketplaceCourseId,
-            source: 'marketplace',
-            student_name: input.studentName,
-            course_title: input.courseTitle,
-            teacher_name: input.instructorName,
-            completion_percentage: 100,
-            template_id: template?.id ?? null,
-            template_snapshot: this.snapshotOf(template),
-            status: CertificateStatus.ISSUED,
-            revoked_at: null,
-            revoke_reason: null,
-            revoked_by: null,
-            revocation_context: null,
-            issued_at: new Date(),
-          });
-          const saved = await manager.save(Certificate, record);
-          this.logger.log(
-            `Marketplace certificate ${saved.certificate_number} issued to student ${input.studentId} for course ${input.marketplaceCourseId}`,
-          );
-          return { certificate: saved, created: true };
-        },
-      ));
+        const record = manager.create(Certificate, {
+          certificate_number: await this.uniqueNumber(),
+          verification_code: await this.uniqueCode(),
+          student_id: input.studentId,
+          package_id: null,
+          marketplace_course_id: input.marketplaceCourseId,
+          source: 'marketplace',
+          student_name: input.studentName,
+          course_title: input.courseTitle,
+          teacher_name: input.instructorName,
+          completion_percentage: 100,
+          template_id: template?.id ?? null,
+          template_snapshot: this.snapshotOf(template),
+          status: CertificateStatus.ISSUED,
+          revoked_at: null,
+          revoke_reason: null,
+          revoked_by: null,
+          revocation_context: null,
+          issued_at: new Date(),
+        });
+        const saved = await manager.save(Certificate, record);
+        this.logger.log(
+          `Marketplace certificate ${saved.certificate_number} issued to student ${input.studentId} for course ${input.marketplaceCourseId}`,
+        );
+        return { certificate: saved, created: true };
+      }));
     } catch (error) {
-      if (error instanceof QueryFailedError && (error as unknown as { code?: string }).code === '23505') {
+      if (
+        error instanceof QueryFailedError &&
+        (error as unknown as { code?: string }).code === '23505'
+      ) {
         const raced = await this.certificatesRepository.findOne({
           where: { student_id: input.studentId, marketplace_course_id: input.marketplaceCourseId },
         });
@@ -919,8 +951,13 @@ export class CertificatesService {
   }
 
   /** Read-only lookup for the marketplace revocation trigger (T127) — never throws; a missing certificate is simply nothing to revoke. */
-  public async getMarketplaceCertificateForCourse(studentId: string, marketplaceCourseId: string): Promise<Certificate | null> {
-    return this.certificatesRepository.findOne({ where: { student_id: studentId, marketplace_course_id: marketplaceCourseId } });
+  public async getMarketplaceCertificateForCourse(
+    studentId: string,
+    marketplaceCourseId: string,
+  ): Promise<Certificate | null> {
+    return this.certificatesRepository.findOne({
+      where: { student_id: studentId, marketplace_course_id: marketplaceCourseId },
+    });
   }
 
   /** Read an issued certificate, asserting teacher course-ownership when scoped. */
@@ -991,7 +1028,11 @@ export class CertificatesService {
         family: 'public_catalog',
         endpoint: 'certificates.public',
         scope: 'public',
-        parts: [options.page ?? 1, options.limit ?? 12, (options.search ?? '').trim().toLowerCase()],
+        parts: [
+          options.page ?? 1,
+          options.limit ?? 12,
+          (options.search ?? '').trim().toLowerCase(),
+        ],
         ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
       },
       async () => await this.computePublicCertificates(options),
@@ -1311,7 +1352,9 @@ export class CertificatesService {
     // incidental join side effect.
     const base = this.certificatesRepository.createQueryBuilder('c').where("c.source = 'academic'");
     if (teacherId) {
-      base.innerJoin('lesson_packages', 'pkg', 'pkg.id = c.package_id').andWhere('pkg.teacher_id = :teacherId', { teacherId });
+      base
+        .innerJoin('lesson_packages', 'pkg', 'pkg.id = c.package_id')
+        .andWhere('pkg.teacher_id = :teacherId', { teacherId });
     }
 
     const total = await base.getCount();

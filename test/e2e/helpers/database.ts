@@ -53,6 +53,27 @@ async function reseedReferenceData(dataSource: DataSource): Promise<void> {
   `);
 }
 
+/**
+ * Gives post-commit listeners that are still writing a chance to finish before `TRUNCATE` takes its
+ * ACCESS EXCLUSIVE locks. Bounded: it returns after `timeoutMs` whatever the state, and the deadlock retry
+ * below still covers a session that starts after this look.
+ */
+async function waitForOtherSessionsToSettle(
+  dataSource: DataSource,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [{ busy }] = (await dataSource.query(
+      `SELECT count(*)::int AS busy FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid()
+          AND (state = 'active' OR state LIKE 'idle in transaction%')`,
+    )) as [{ busy: number }];
+    if (busy === 0 || Date.now() >= deadline) return;
+    await pause(25);
+  }
+}
+
 export async function resetDatabase(dataSource: DataSource, attempts = 3): Promise<void> {
   const tables = dataSource.entityMetadatas
     .map((entity) => `"${entity.tableName}"`)
@@ -64,12 +85,14 @@ export async function resetDatabase(dataSource: DataSource, attempts = 3): Promi
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
+      await waitForOtherSessionsToSettle(dataSource);
       await dataSource.query(statement);
       await reseedReferenceData(dataSource);
       return;
     } catch (error: unknown) {
-      const code = (error as { code?: string; driverError?: { code?: string } }).code
-        ?? (error as { driverError?: { code?: string } }).driverError?.code;
+      const code =
+        (error as { code?: string; driverError?: { code?: string } }).code ??
+        (error as { driverError?: { code?: string } }).driverError?.code;
 
       if (code !== DEADLOCK_DETECTED || attempt === attempts) throw error;
 
@@ -104,10 +127,7 @@ export async function setUserStatus(
   userId: string,
   status: string,
 ): Promise<void> {
-  await dataSource.query('UPDATE users SET status = $1 WHERE id = $2', [
-    status,
-    userId,
-  ]);
+  await dataSource.query('UPDATE users SET status = $1 WHERE id = $2', [status, userId]);
 }
 
 /** Promote a user to a given role (used to exercise role-guarded routes). */

@@ -2,7 +2,38 @@ import { Injectable } from '@nestjs/common';
 
 import type { ParentMessage } from '../notifications/entities';
 import { TeacherFollowUpService } from './teacher-follow-up.service';
-import type { TimelineEntry } from './teacher-follow-up.types';
+import type { TimelineEntry, TimelineEntryType } from './teacher-follow-up.types';
+
+/**
+ * Position of an entry type when two entries happened at the same instant: the later lifecycle
+ * stage comes first (the feed is newest-first), e.g. "Read" above "Delivered" above "Sent".
+ */
+const TIE_ORDER: readonly TimelineEntryType[] = [
+  'notification_read',
+  'notification_delivered',
+  'notification_sent',
+  'notification_queued',
+  'homework_graded',
+  'homework_submitted',
+  'exam_graded',
+  'exam_submitted',
+  'exam_started',
+  'attendance_recorded',
+];
+
+/**
+ * Newest first, with a total order: entries are drawn from several independent sources and many
+ * share an instant (a message is queued, sent and delivered by one provider callback; attendance
+ * is marked when an exam closes). A comparator that never returns 0 made those ties depend on the
+ * order the sources happened to be read in.
+ */
+export function compareTimelineEntries(a: TimelineEntry, b: TimelineEntry): number {
+  if (a.at !== b.at) return a.at < b.at ? 1 : -1;
+  const byType = TIE_ORDER.indexOf(a.type) - TIE_ORDER.indexOf(b.type);
+  if (byType !== 0) return byType;
+  if (a.label === b.label) return 0;
+  return a.label < b.label ? -1 : 1;
+}
 
 /**
  * One merged, chronological feed per student: exams, attendance, homework,
@@ -77,7 +108,7 @@ export class TeacherTimelineService {
       entries.push(...this.messageEntries(message));
     }
 
-    return entries.sort((a, b) => (a.at < b.at ? 1 : -1));
+    return entries.sort(compareTimelineEntries);
   }
 
   private messageEntries(message: ParentMessage): TimelineEntry[] {

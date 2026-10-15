@@ -118,7 +118,10 @@ describe('product & learning metrics (PostgreSQL)', () => {
     return { user, profile };
   }
 
-  async function makeTeacherProfile(user: User, subjectIds: string[] = []): Promise<TeacherProfile> {
+  async function makeTeacherProfile(
+    user: User,
+    subjectIds: string[] = [],
+  ): Promise<TeacherProfile> {
     const repo = dataSource.getRepository(TeacherProfile);
     const profile = await repo.save(
       repo.create({

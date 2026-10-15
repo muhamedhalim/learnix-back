@@ -1,9 +1,6 @@
 import { CourseLevel, LessonContentType } from '../common/enums';
 import { CourseReadinessService } from './course-readiness.service';
-import type {
-  MarketplaceCourse,
-  MarketplaceCourseLesson,
-} from './entities';
+import type { MarketplaceCourse, MarketplaceCourseLesson } from './entities';
 
 function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCourse {
   return {

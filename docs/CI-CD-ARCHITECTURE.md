@@ -60,24 +60,28 @@ in-flight rollout is never cancelled.
 
 Triggered by `pull_request` and by pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
 
-| Job                                    | What it does                                                                                                                                                                                    | New this phase? |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `build-test`                           | Typecheck, lint, build, unit tests with coverage                                                                                                                                                | No              |
-| `migration-chain`                      | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                     | No (Phase 0)    |
-| `e2e`                                  | Full E2E suite against Postgres 16 + Redis 7 service containers, split over 4 parallel shards (`e2e-shard`); `e2e` is the single aggregate check that fails unless every shard passed           | No              |
-| `secret-scan`                          | Gitleaks                                                                                                                                                                                        | No              |
-| `format-check`                         | **New.** `prettier --check` scoped to files changed since the merge-base only — not the whole repo. See §2 for why                                                                              |
-| `env-validation`                       | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                         |
-| `migration-safety-check`               | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED |
-| `dependency-audit`                     | **Blocking.** `npm audit --audit-level=high` (zero high/critical advisories today; remaining moderates are listed in `CI-CD-AUDIT-REPORT.md`)                                                   |
-| `workflow-lint`                        | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts                                |
-| `ci-gate`                              | Fails unless every required validation job above succeeded (skipped or cancelled counts as failure). The only thing `gates`/`deploy` wait for                                                   |
-| `gates`, `db-owner-approval`, `deploy` | Release path, see 1.2                                                                                                                                                                           |
-| `rollback`, `branch-sync`              | Manual rollback and the nightly/push divergence check, see 1.3                                                                                                                                  |
+| Job                                    | What it does                                                                                                                                                                                                                                      | New this phase? |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `build-test`                           | Typecheck, lint, build, unit tests with coverage                                                                                                                                                                                                  | No              |
+| `migration-chain`                      | Runs every migration against a genuinely empty Postgres (closes finding R1)                                                                                                                                                                       | No (Phase 0)    |
+| `e2e`                                  | Full E2E suite against Postgres 16 + Redis 7 service containers, split over 4 parallel shards (`e2e-shard`); `e2e` is the single aggregate check that fails unless every shard passed                                                             | No              |
+| `secret-scan`                          | Gitleaks                                                                                                                                                                                                                                          | No              |
+| `format-check`                         | **New.** `prettier --check` scoped to the files the event changed — not the whole repo. The file list comes from `scripts/ci/changed-files.sh` (NUL-safe, fails instead of reporting "no files" when the diff cannot be trusted). See §2 and §1.5 |
+| `env-validation`                       | **New.** Runs `scripts/validate-env.ts` (calls the real `validate()` from `src/config/env.validation.ts`) against a synthetic, staging-shaped, non-secret configuration                                                                           |
+| `migration-safety-check`               | **New**, `continue-on-error: true`. Runs `scripts/migration-safety-check.ts` against any migration files changed relative to `origin/main`, classifying each SAFE / NEEDS_DB_APPROVAL / BLOCKED                                                   |
+| `dependency-audit`                     | **Blocking.** `npm audit --audit-level=high` (zero high/critical advisories today; remaining moderates are listed in `CI-CD-AUDIT-REPORT.md`)                                                                                                     |
+| `workflow-lint`                        | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts; then shellcheck and the tests of `scripts/ci/`                                  |
+| `ci-gate`                              | `scripts/ci/ci-gate.mjs`: fails unless every required validation job above reported `success` (skipped, cancelled, missing or an empty result list all fail; the failing jobs are named). The only thing `gates`/`deploy` wait for                |
+| `gates`, `db-owner-approval`, `deploy` | Release path, see 1.2                                                                                                                                                                                                                             |
+| `rollback`, `branch-sync`              | Manual rollback and the nightly/push divergence check, see 1.3                                                                                                                                                                                    |
 
 #### E2E diagnostics (what to open when `e2e` is red)
 
-Each `e2e-shard` job runs `npm run e2e:preflight` first (Node major, `SELECT version()` on Postgres, Redis `PING`; versions only, no connection strings), then `npm run test:e2e:ci`, which keeps the **full** console output (`jest-output.log`, via `tee`, with jest's own exit status preserved), a JSON result file (`results.json`) and a JUnit file (`junit.xml`, `jest-junit`), and logs the heap used per suite (`--logHeapUsage`). After the tests, with `if: always()`, the shard publishes a result table to the run summary, collects the Postgres/Redis container logs, and uploads everything under `e2e-results/` as the artifact `e2e-shard-N` (14 days; nothing else is uploaded, and the job's values are synthetic). The aggregate `e2e` job downloads all shard artifacts, writes a per-shard table (failed suite and test names, copied from jest's JSON) to its summary and then fails unless `needs.e2e-shard.result` is `success`. Reproduce a shard locally with `npm run test:e2e:ci -- --shard=N/4` (against a disposable Postgres/Redis, never a shared dev database).
+Each `e2e-shard` job runs `npm run e2e:preflight` first (Node major, `SELECT version()` on Postgres, Redis `PING`; versions only, no connection strings), then `npm run test:e2e:ci`, which keeps the **full** console output (`jest-output.log`, via `tee`), a JSON result file (`results.json`) and a JUnit file (`junit.xml`, `jest-junit`), and logs the heap used per suite (`--logHeapUsage`). jest's own exit status is taken from `PIPESTATUS` (never `tee`'s) and written to `exit-code.txt` before the step exits. After the tests, with `if: always()`, the shard publishes a result table to the run summary, collects the Postgres/Redis container logs (and groups the Postgres `ERROR` lines in the summary), masks credentials in the text files (`scripts/ci/redact.mjs`; a file that cannot be masked is deleted, not uploaded) and uploads everything under `e2e-results/` as the artifact `e2e-shard-N` (14 days).
+
+The aggregate `e2e` job needs no `npm ci`. It downloads all shard artifacts and runs `scripts/ci/e2e-verdict.mjs --shards 4`, which passes only when **every** shard 1..4 has a parsable `results.json` with at least one suite and no failed test, suite or runtime error, **and** an `exit-code.txt` of `0`, **and** `needs.e2e-shard.result` is `success`. A missing artifact, malformed JSON, zero suites, a non-zero jest status (even with `success: true`), a cancelled or skipped matrix are all failures. The summary separates `FAILED (assertions)` from `FAILED (infrastructure)` and lists the failed suites and tests with the first lines of their (masked) error. Keep the `4` in the verdict step equal to the matrix and the `--shard=N/4` argument. Reproduce a shard locally with `npm run test:e2e:ci -- --shard=N/4` (against a disposable Postgres/Redis, never a shared dev database).
+
+Postgres `ERROR` lines in a green shard are not necessarily failures: a migration that re-adds a constraint (`already exists`, caught by the migration itself, see `2054000000000-HardenTeacherPayoutStageOne`) and unique violations that a test provokes are logged by the server and handled by the application. A `deadlock detected` is a test-isolation race (post-commit listener vs. `resetDatabase()`), see `E2E_KNOWN_FAILURES.md`.
 
 ### 1.2 AWS release (`gates` -> `db-owner-approval` -> `deploy`)
 
@@ -103,8 +107,11 @@ stored in the workflow. Required environment variables are listed in the comment
 ### 1.3 `rollback` and `branch-sync`
 
 `rollback` (`workflow_dispatch`, `action=rollback`) re-points ECS services at earlier task-definition revisions;
-database changes are not reverted. `branch-sync` fails if `main` has a commit not in `develop` (a hotfix that was
-not merged back, plan section 11) and warns when `develop` drifts over 100 commits ahead. On a push it is advisory
+database changes are not reverted. `branch-sync` (`scripts/ci/branch-sync-check.sh`) fails if `main` has a
+non-merge commit whose change is not in `develop` (a hotfix that was not merged back, plan section 11; a release
+merge commit alone, or a cherry-picked merge-back, is fine) and warns when `develop` drifts over 100 commits
+ahead. It reads the refs that `fetch-depth: 0` already fetched and needs no credentials, so `persist-credentials:
+false` stays; it fails closed when a ref or the full history is missing. On a push it is advisory
 (`continue-on-error`) so that, as before the merge, it cannot turn the run red and block the production gate;
 nightly and manual runs fail normally.
 
@@ -126,6 +133,22 @@ has its own lock (`terraform-<name>`), never cancelled. Values reach the shell t
 interpolation. Trust: the plan role trusts `main` (and, in the staging account only, pull requests); the apply role
 trusts only the `infra-<env>` GitHub environment. Both are pinned to `muhamedhalim/learnix-back` in `bootstrap/`.
 
+### 1.5 `scripts/ci/`: the logic that decides pass/fail is in tested scripts
+
+| Script                 | Used by                              | What it guarantees                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm-ci.sh`            | every job that installs dependencies | `npm ci` (deterministic) with at most 3 attempts, only for network errors (`ECONNRESET`, `ETIMEDOUT`, registry 5xx ...); lockfile, auth, 404, integrity and engine errors fail at once. npm's own status is preserved, credentials are masked, the runner's npm log path is printed (the log itself never is). Sets `fetch-retries`, `fetch-timeout`, `--no-audit --no-fund --prefer-offline`. |
+| `changed-files.sh`     | `format-check`                       | NUL-delimited changed `.ts/.tsx/.js/.jsx/.json/.md` files, no deletions; base = event base, else merge-base, else first parent, else the empty tree; fails on unknown head, shallow clone or a git error                                                                                                                                                                                       |
+| `branch-sync-check.sh` | `branch-sync`                        | See 1.3                                                                                                                                                                                                                                                                                                                                                                                        |
+| `ci-gate.mjs`          | `ci-gate`                            | See the job table                                                                                                                                                                                                                                                                                                                                                                              |
+| `e2e-verdict.mjs`      | `e2e`                                | See "E2E diagnostics"                                                                                                                                                                                                                                                                                                                                                                          |
+| `redact.mjs`           | `e2e-shard`, `e2e-verdict.mjs`       | Masks connection strings, bearer tokens, key=value secrets and known token shapes                                                                                                                                                                                                                                                                                                              |
+
+`bash scripts/ci/run-tests.sh` runs their tests (throwaway git repositories, a fake `npm`, `node --test`); the
+`workflow-lint` job runs them and shellchecks the scripts on every change. A retry wrapper cannot confirm that the
+GitHub-hosted runners' connectivity is fixed: it bounds the damage of a transient failure, and a persistent one still
+fails with the attempt count and the npm log path.
+
 ## 2. Why `prettier --check .` is not a blanket CI gate
 
 `npm run lint` already includes `prettier --check .` across the whole repository. Running that
@@ -134,8 +157,8 @@ baseline of unformatted files from before this check existed (~315 files, per th
 `Prettier formatting practice` note carried over from earlier phases). Per this phase's explicit
 instruction ("don't let the Prettier gate fail because of 300 outdated files without a phased
 approach — gate only modified files, record separate debt, or fix the baseline in a separate PR"),
-`format-check` diffs against the merge-base and only checks files the current change actually
-touches. The baseline itself is unaddressed — recorded as debt, not hidden, and not fixed in this
+`format-check` diffs against the event's base (PR base tip, or the push's previous tip) and only checks files
+the current change actually touches. `npm run format:changed` applies the same scope locally (`--write` fixes them). The baseline itself is unaddressed — recorded as debt, not hidden, and not fixed in this
 phase (a repo-wide reformat is its own separate, reviewable PR, not bundled into staging
 infrastructure work).
 

@@ -24,7 +24,14 @@ function buildAccount(overrides: Record<string, unknown> = {}) {
 }
 
 describe('PayoutAccountService (T166)', () => {
-  let accountsRepo: { create: jest.Mock; save: jest.Mock; find: jest.Mock; findOne: jest.Mock; softRemove: jest.Mock; manager: { transaction: jest.Mock } };
+  let accountsRepo: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+    findOne: jest.Mock;
+    softRemove: jest.Mock;
+    manager: { transaction: jest.Mock };
+  };
   let payoutRequestsRepo: { exist: jest.Mock };
   let service: PayoutAccountService;
   const originalKey = process.env['PAYOUT_ACCOUNT_ENCRYPTION_KEY'];
@@ -45,7 +52,9 @@ describe('PayoutAccountService (T166)', () => {
       find: jest.fn(),
       findOne: jest.fn(),
       softRemove: jest.fn().mockResolvedValue(undefined),
-      manager: { transaction: jest.fn(async (fn: (m: unknown) => unknown) => fn({ update: jest.fn() })) },
+      manager: {
+        transaction: jest.fn(async (fn: (m: unknown) => unknown) => fn({ update: jest.fn() })),
+      },
     };
     payoutRequestsRepo = { exist: jest.fn().mockResolvedValue(false) };
     service = new PayoutAccountService(accountsRepo as never, payoutRequestsRepo as never);
@@ -87,19 +96,29 @@ describe('PayoutAccountService (T166)', () => {
   describe('update', () => {
     it('404s an account that does not belong to the caller (IDOR-safe)', async () => {
       accountsRepo.findOne.mockResolvedValue(null);
-      await expect(service.update('instructor-1', 'account-1', { bankName: 'New Bank' })).rejects.toThrow(NotFoundException);
+      await expect(
+        service.update('instructor-1', 'account-1', { bankName: 'New Bank' }),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('re-verifies from PENDING when the identifier changes', async () => {
-      accountsRepo.findOne.mockResolvedValue(buildAccount({ verification_status: PayoutAccountVerificationStatus.VERIFIED }));
-      const summary = await service.update('instructor-1', 'account-1', { accountIdentifier: 'EG9999999999999999999999999999' });
+      accountsRepo.findOne.mockResolvedValue(
+        buildAccount({ verification_status: PayoutAccountVerificationStatus.VERIFIED }),
+      );
+      const summary = await service.update('instructor-1', 'account-1', {
+        accountIdentifier: 'EG9999999999999999999999999999',
+      });
       expect(summary.verification_status).toBe(PayoutAccountVerificationStatus.PENDING);
       expect(summary.account_identifier_last4).toBe('9999');
     });
 
     it('leaves verification untouched when only the holder name changes', async () => {
-      accountsRepo.findOne.mockResolvedValue(buildAccount({ verification_status: PayoutAccountVerificationStatus.VERIFIED }));
-      const summary = await service.update('instructor-1', 'account-1', { accountHolderName: 'New Name' });
+      accountsRepo.findOne.mockResolvedValue(
+        buildAccount({ verification_status: PayoutAccountVerificationStatus.VERIFIED }),
+      );
+      const summary = await service.update('instructor-1', 'account-1', {
+        accountHolderName: 'New Name',
+      });
       expect(summary.verification_status).toBe(PayoutAccountVerificationStatus.VERIFIED);
     });
   });

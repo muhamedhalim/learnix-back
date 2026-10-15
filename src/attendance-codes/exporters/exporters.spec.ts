@@ -18,8 +18,7 @@ function makeContext(rows: ExportableCode[]): {
   const progress: number[] = [];
   const ctx: ExportContext = {
     total: rows.length,
-    fetchChunk: (offset, limit) =>
-      Promise.resolve(rows.slice(offset, offset + limit)),
+    fetchChunk: (offset, limit) => Promise.resolve(rows.slice(offset, offset + limit)),
     onProgress: (p) => progress.push(p),
   };
   return { ctx, progress };
@@ -58,9 +57,7 @@ describe('attendance-code exporters', () => {
       expect(buildQrPayload('ABC123', 'https://x.io/redeem')).toBe(
         'https://x.io/redeem?code=ABC123',
       );
-      expect(buildQrPayload('ABC123', 'https://x.io/r?a=1')).toBe(
-        'https://x.io/r?a=1&code=ABC123',
-      );
+      expect(buildQrPayload('ABC123', 'https://x.io/r?a=1')).toBe('https://x.io/r?a=1&code=ABC123');
     });
 
     it('produces a valid PNG buffer', async () => {
@@ -80,7 +77,10 @@ describe('attendance-code exporters', () => {
       expect(written).toBe(3);
       const content = readFileSync(file, 'utf8');
       expect(content.charCodeAt(0)).toBe(0xfeff); // BOM
-      const lines = content.replace(/^\uFEFF/, '').trim().split('\r\n');
+      const lines = content
+        .replace(/^\uFEFF/, '')
+        .trim()
+        .split('\r\n');
       expect(lines).toHaveLength(4); // header + 3
       expect(lines[0]).toContain('code');
       expect(lines[1]).toContain('CODE0000');
@@ -132,12 +132,7 @@ describe('attendance-code exporters', () => {
   });
 
   describe('PDF export', () => {
-    it.each([
-      PdfLayout.A4_GRID,
-      PdfLayout.LABELS,
-      PdfLayout.CARDS,
-      PdfLayout.QR_SHEET,
-    ])(
+    it.each([PdfLayout.A4_GRID, PdfLayout.LABELS, PdfLayout.CARDS, PdfLayout.QR_SHEET])(
       'produces a valid PDF for the %s layout',
       async (layout) => {
         const { ctx } = makeContext(sampleRows(3));
@@ -151,18 +146,12 @@ describe('attendance-code exporters', () => {
       30_000,
     );
 
-    it(
-      'paginates when rows exceed one page (QR sheet = 12/page)',
-      async () => {
-        const { ctx } = makeContext(sampleRows(15));
-        const file = join(dir, 'multi.pdf');
-        const written = await exportPdf(file, PdfLayout.QR_SHEET, ctx);
-        expect(written).toBe(15);
-        expect(readFileSync(file).subarray(0, 5).toString('ascii')).toBe(
-          '%PDF-',
-        );
-      },
-      30_000,
-    );
+    it('paginates when rows exceed one page (QR sheet = 12/page)', async () => {
+      const { ctx } = makeContext(sampleRows(15));
+      const file = join(dir, 'multi.pdf');
+      const written = await exportPdf(file, PdfLayout.QR_SHEET, ctx);
+      expect(written).toBe(15);
+      expect(readFileSync(file).subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    }, 30_000);
   });
 });

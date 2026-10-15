@@ -1,5 +1,3 @@
-
-
 import { ApplicationCacheService } from '../../src/common/cache/application-cache.service';
 import {
   API_PREFIX,
@@ -60,7 +58,11 @@ describe('Student lesson progress routing (e2e)', () => {
    */
   /** T089 (additive): `my/progress?packageId=` narrows the caller's own progress to one course. */
   describe('my/progress scoped to a course (spec 004 T089)', () => {
-    async function seedLessonIn(teacherId: string, subjectId: string, title: string): Promise<string> {
+    async function seedLessonIn(
+      teacherId: string,
+      subjectId: string,
+      title: string,
+    ): Promise<string> {
       const [{ id }] = (await ctx.dataSource.query(
         `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version) VALUES (gen_random_uuid(), $1, $2, $3, 100, 1) RETURNING id`,
         [title, teacherId, subjectId],
@@ -68,7 +70,12 @@ describe('Student lesson progress routing (e2e)', () => {
       return id;
     }
 
-    async function seedPackage(teacherId: string, subjectId: string, title: string, lessonIds: string[]): Promise<string> {
+    async function seedPackage(
+      teacherId: string,
+      subjectId: string,
+      title: string,
+      lessonIds: string[],
+    ): Promise<string> {
       const [{ id }] = (await ctx.dataSource.query(
         `INSERT INTO lesson_packages (id, title, title_ar, teacher_id, subject_id, price) VALUES (gen_random_uuid(), $1, $1, $2, $3, 100) RETURNING id`,
         [title, teacherId, subjectId],
@@ -134,7 +141,9 @@ describe('Student lesson progress routing (e2e)', () => {
       expect(lessonIds(courseA.body)).toEqual([l1, l2].sort());
       // Same row shape as the unscoped call.
       const sample = (all.body.data as { lessonId: string }[]).find((row) => row.lessonId === l1);
-      expect((courseA.body.data as { lessonId: string }[]).find((row) => row.lessonId === l1)).toEqual(sample);
+      expect(
+        (courseA.body.data as { lessonId: string }[]).find((row) => row.lessonId === l1),
+      ).toEqual(sample);
 
       const courseB = await student.agent
         .get(`${API_PREFIX}/student/lessons/my/progress`)

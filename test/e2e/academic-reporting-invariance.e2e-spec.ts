@@ -15,7 +15,11 @@ import {
   PaymentChannel,
 } from '../../src/payments/entities';
 import { FinancialLedgerEntry } from '../../src/payments/entities/financial-ledger-entry.entity';
-import { LedgerDirection, LedgerEntryStatus, LedgerEntryType } from '../../src/payments/entities/ledger.enums';
+import {
+  LedgerDirection,
+  LedgerEntryStatus,
+  LedgerEntryType,
+} from '../../src/payments/entities/ledger.enums';
 import { Payment } from '../../src/payments/entities/payment.entity';
 import { PaymentMethod } from '../../src/payments/entities/payment-method.enum';
 import { PaymentStatus } from '../../src/payments/entities/payment-status.enum';
@@ -60,11 +64,18 @@ describe('academic reporting invariance — report figures never move when marke
 
   async function financeAdmin() {
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
-    await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
+    await dataSource
+      .getRepository(User)
+      .update({ id: admin.userId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
     return admin;
   }
 
-  async function seedAcademicOrder(teacherId: string, studentId: string, suffix: string, paidAt: Date) {
+  async function seedAcademicOrder(
+    teacherId: string,
+    studentId: string,
+    suffix: string,
+    paidAt: Date,
+  ) {
     const orders = dataSource.getRepository(Order);
     const order = await orders.save(
       orders.create({
@@ -140,7 +151,10 @@ describe('academic reporting invariance — report figures never move when marke
     return rest;
   }
 
-  async function teacherBalances(admin: Awaited<ReturnType<typeof createAuthenticatedUser>>, teacherId: string) {
+  async function teacherBalances(
+    admin: Awaited<ReturnType<typeof createAuthenticatedUser>>,
+    teacherId: string,
+  ) {
     const res = await admin.agent
       .get(`${API_PREFIX}/admin/finance/settlements/teacher-balances`)
       .query({ teacher_id: teacherId })
@@ -152,7 +166,9 @@ describe('academic reporting invariance — report figures never move when marke
   async function seedMarketplaceEarningFor(
     instructorUser: Awaited<ReturnType<typeof createAuthenticatedUser>>,
   ): Promise<void> {
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const marketplaceAdmin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     await dataSource
       .getRepository(User)
@@ -199,16 +215,27 @@ describe('academic reporting invariance — report figures never move when marke
         })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await marketplaceAdmin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await marketplaceAdmin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     const orderRes = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
       .set('Idempotency-Key', `repinv-order-${Date.now()}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -288,7 +315,12 @@ describe('academic reporting invariance — report figures never move when marke
         password_hash: null,
       }),
     );
-    await seedAcademicOrder(teacher.id, student.id, 'bounded', new Date('2026-02-15T10:00:00.000Z'));
+    await seedAcademicOrder(
+      teacher.id,
+      student.id,
+      'bounded',
+      new Date('2026-02-15T10:00:00.000Z'),
+    );
 
     const admin = await financeAdmin();
     const range = { from: '2026-02-01', to: '2026-03-01' };
@@ -304,9 +336,9 @@ describe('academic reporting invariance — report figures never move when marke
     expect(reportAfter).toEqual(reportBefore);
     expect(balancesAfter).toEqual(balancesBefore);
     // Sanity: this compared real, non-zero figures, not two empty reports.
-    const egpBalanceAfter = (balancesAfter as { data: Array<{ currency: string; available_minor: string }> }).data.find(
-      (row) => row.currency === 'EGP',
-    );
+    const egpBalanceAfter = (
+      balancesAfter as { data: Array<{ currency: string; available_minor: string }> }
+    ).data.find((row) => row.currency === 'EGP');
     expect(Number(egpBalanceAfter?.available_minor)).toBe(84_000);
   }, 60_000);
 
@@ -340,7 +372,12 @@ describe('academic reporting invariance — report figures never move when marke
         password_hash: null,
       }),
     );
-    await seedAcademicOrder(teacher.id, student.id, 'wide-range', new Date('2020-01-01T00:00:00.000Z'));
+    await seedAcademicOrder(
+      teacher.id,
+      student.id,
+      'wide-range',
+      new Date('2020-01-01T00:00:00.000Z'),
+    );
 
     const admin = await financeAdmin();
     const wideRange = { from: '2000-01-01', to: '2099-01-01' };
@@ -354,13 +391,13 @@ describe('academic reporting invariance — report figures never move when marke
     const balancesAfter = await teacherBalances(admin, teacher.id);
     expect(reportAfter).toEqual(reportBefore);
     expect(balancesAfter).toEqual(balancesBefore);
-    const egpBalanceAfter = (balancesAfter as { data: Array<{ currency: string; available_minor: string }> }).data.find(
-      (row) => row.currency === 'EGP',
-    );
+    const egpBalanceAfter = (
+      balancesAfter as { data: Array<{ currency: string; available_minor: string }> }
+    ).data.find((row) => row.currency === 'EGP');
     expect(Number(egpBalanceAfter?.available_minor)).toBe(84_000);
   }, 60_000);
 
-  it('a dual-capability person\'s own academic figures are unaffected by their own marketplace earnings', async () => {
+  it("a dual-capability person's own academic figures are unaffected by their own marketplace earnings", async () => {
     const dualUser = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
     const student = await dataSource.getRepository(User).save(
       dataSource.getRepository(User).create({
@@ -376,7 +413,12 @@ describe('academic reporting invariance — report figures never move when marke
         password_hash: null,
       }),
     );
-    await seedAcademicOrder(dualUser.userId, student.id, 'dual', new Date('2026-04-01T00:00:00.000Z'));
+    await seedAcademicOrder(
+      dualUser.userId,
+      student.id,
+      'dual',
+      new Date('2026-04-01T00:00:00.000Z'),
+    );
 
     const admin = await financeAdmin();
     const dualRange = { from: '2000-01-01', to: '2099-01-01' };
@@ -391,9 +433,9 @@ describe('academic reporting invariance — report figures never move when marke
 
     expect(reportAfter).toEqual(reportBefore);
     expect(balancesAfter).toEqual(balancesBefore);
-    const egpBalanceAfter = (balancesAfter as { data: Array<{ currency: string; available_minor: string }> }).data.find(
-      (row) => row.currency === 'EGP',
-    );
+    const egpBalanceAfter = (
+      balancesAfter as { data: Array<{ currency: string; available_minor: string }> }
+    ).data.find((row) => row.currency === 'EGP');
     expect(Number(egpBalanceAfter?.available_minor)).toBe(84_000);
   }, 60_000);
 
@@ -421,6 +463,9 @@ describe('academic reporting invariance — report figures never move when marke
     const admin = await financeAdmin();
     // No explicit range: ledger rows are dated at insert time, inside the default window.
     const full = await financialReport(admin, teacher.id);
+    // Every widget must run: a widget whose SQL fails is swallowed into `widget_errors` and renders empty
+    // (the teacher/currency filter used to break six of them with bind-parameter errors).
+    expect(full['widget_errors']).toEqual([]);
     const subsetRes = await admin.agent
       .get(`${API_PREFIX}/admin/finance/reports`)
       .query({
@@ -429,7 +474,11 @@ describe('academic reporting invariance — report figures never move when marke
         widgets: 'summary,teacher_receivables',
       })
       .expect(200);
-    const { generated_at: _g, filters: _f, ...subset } = subsetRes.body.data as Record<string, unknown>;
+    const {
+      generated_at: _g,
+      filters: _f,
+      ...subset
+    } = subsetRes.body.data as Record<string, unknown>;
     const { filters: _ff, ...fullRest } = full;
 
     // Selected widgets carry real data for this fixture and match the full report exactly.
@@ -437,9 +486,15 @@ describe('academic reporting invariance — report figures never move when marke
     expect((fullRest['teachers'] as { data: unknown[] }).data.length).toBeGreaterThan(0);
     expect(subset['summary']).toEqual(fullRest['summary']);
     expect(subset['teachers']).toEqual(fullRest['teachers']);
-    // Unselected widgets are empty, not computed, and not reported as errors (some of them
-    // fail in the full report on this database for reasons unrelated to selection).
-    for (const key of ['trends', 'product_breakdown', 'top_products', 'settlement_analytics', 'ledger_movements', 'settlement_history']) {
+    // Unselected widgets are empty, not computed, and not reported as errors.
+    for (const key of [
+      'trends',
+      'product_breakdown',
+      'top_products',
+      'settlement_analytics',
+      'ledger_movements',
+      'settlement_history',
+    ]) {
       expect(subset[key]).toEqual([]);
     }
     expect(subset['widget_errors']).toEqual([]);

@@ -1,6 +1,5 @@
 import { Readable } from 'node:stream';
 
-
 import {
   API_PREFIX,
   createAuthenticatedUser,
@@ -117,7 +116,9 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
   it('enforces optimistic lifecycle transitions, valid support assignment, and audit history', async () => {
     const student = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const support = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
-    const otherSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource, { role: 'call_center' });
+    const otherSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource, {
+      role: 'call_center',
+    });
     const nonSupport = await createAuthenticatedUser(ctx.app, ctx.dataSource);
     const created = await student.agent
       .post(`${API_PREFIX}/student/complaints`)
@@ -137,9 +138,7 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       .send({ agent_id: support.userId, version: 1 })
       .expect(200);
     expect(assigned.body).toMatchObject({ assigned_agent_id: support.userId, version: 2 });
-    await otherSupport.agent
-      .get(`${API_PREFIX}/callcenter/tickets/${created.body.id}`)
-      .expect(403);
+    await otherSupport.agent.get(`${API_PREFIX}/callcenter/tickets/${created.body.id}`).expect(403);
 
     const transitioned = await support.agent
       .patch(`${API_PREFIX}/callcenter/tickets/${created.body.id}/status`)
@@ -184,9 +183,7 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
 
     const agents = await admin.agent.get(`${API_PREFIX}/callcenter/agents`).expect(200);
     expect(agents.body).toHaveLength(1);
-    await admin.agent
-      .get(`${API_PREFIX}/callcenter/tickets/${teacherTicket.body.id}`)
-      .expect(200);
+    await admin.agent.get(`${API_PREFIX}/callcenter/tickets/${teacherTicket.body.id}`).expect(200);
 
     await student.agent
       .get(`${API_PREFIX}/teacher/complaints/${teacherTicket.body.id}`)
