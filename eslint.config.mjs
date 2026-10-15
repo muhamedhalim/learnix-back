@@ -1,3 +1,53 @@
+// @ts-check
+// Active baseline: ESLint recommended + typescript-eslint recommended (no type-checking, so it stays fast in CI).
+// The commented strict configuration that follows is the target; rules move up from here in separate,
+// reviewable steps instead of landing as one change that touches every file.
+import eslint from '@eslint/js';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  {
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'coverage/**',
+      'logs/**',
+      'src/metadata.ts',
+      'learnix-infra/**',
+      'eslint.config.mjs',
+    ],
+  },
+  eslint.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    languageOptions: {
+      globals: { ...globals.node, ...globals.jest },
+      sourceType: 'module',
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+  {
+    // Operator scripts and test doubles: CommonJS and loosely typed fixtures are normal here.
+    files: ['scripts/**', '**/*.cjs', '**/*.spec.ts', 'test/**'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+);
+
+// ---- Target strict configuration (not active) ----
 // // @ts-check
 // import eslint from '@eslint/js';
 // import nestjsTyped from '@darraghor/eslint-plugin-nestjs-typed';
@@ -706,18 +756,3 @@
 //     },
 //   },
 // );
-
-// The full type-checked ruleset above is currently disabled. Until it is
-// re-enabled, export an active config that at least ignores build output and
-// vendored code so `eslint .` does not fail on compiled JS in `dist/`.
-export default [
-  {
-    ignores: [
-      'dist/**',
-      'node_modules/**',
-      'coverage/**',
-      'logs/**',
-      'eslint.config.mjs',
-    ],
-  },
-];

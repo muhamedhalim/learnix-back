@@ -49,17 +49,18 @@ would stop staging from booting.
    enforces this for protected types).
    `terraform -chdir=learnix-infra/environments/staging plan -var-file=terraform.tfvars` with the operator profile.
 5. **Mandatory before the first production deploy:** F-04 operator check, and F-12 (non-master application database
-   role; medium risk, grants only; staging first, needs approval).
+   role; implemented, apply to staging first and deploy through the pipeline).
 6. **First deploy to staging through the pipeline**, then `scripts/smoke-test.sh <staging api>` from the allowlisted
    address, then watch `deploy_health_alarms` for an hour. This is the first real run of `control`, the arm64
    runner, `ecs-deploy.sh` against real ECS, and the tree-match gate.
 7. **Production account and stack** (decision outside this plan): `terraform.yml` with `target=production`, all counts
    at 0 first. Cloudflare records from `terraform output cloudflare_dns_records`; CAA `0 issue "amazon.com"` if the
    zone has CAA records.
-8. **Later, separate changes:** F-17 (documented), F-18/F-19 on measured triggers, F-22 ESLint baseline, F-23 read-only
-   filesystem default, F-24 legacy removal after the parity window and `provider-audit.mjs --write-baseline`, F-26
-   digest pin and Dependabot docker ecosystem, a report-only CSP on the Vercel responses, digest promotion between ECR
-   repositories.
+8. **Implemented after the first pass:** F-12 application role, F-17 pinned scalable target, F-22 ESLint baseline (0
+   errors; the strict configuration stays commented as the target), F-23 read-only filesystem default, F-26 image digest
+   pin plus Dependabot docker. **Still later, separate changes:** F-18/F-19 on measured triggers, F-24 legacy removal
+   after the parity window and `provider-audit.mjs --write-baseline`, a report-only CSP on the Vercel responses, digest
+   promotion between ECR repositories.
 
 ## Bunny retirement
 

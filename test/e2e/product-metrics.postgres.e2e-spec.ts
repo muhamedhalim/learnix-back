@@ -14,15 +14,12 @@ import { ProductFinancialMetricsService } from '../../src/common/metrics/product
 import { LessonsService } from '../../src/lessons/lessons.service';
 import { CourseStatus } from '../../src/packages/entities/course-status.enum';
 import { LessonPackage } from '../../src/packages/entities/lesson-package.entity';
-import { LessonPackageItem } from '../../src/packages/entities/lesson-package-item.entity';
 import { PackagesService } from '../../src/packages/packages.service';
 import {
   CollectionParty,
   ItemType,
-  LessonPurchase,
   Order,
   OrderStatus,
-  PackagePurchase,
   Payment,
   PaymentChannel,
   PaymentMethod,

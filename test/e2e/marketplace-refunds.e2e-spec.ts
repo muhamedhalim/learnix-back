@@ -33,7 +33,6 @@ import {
   createAuthenticatedUser,
   createE2EApp,
   resetDatabase,
-  setUserRole,
 } from './fixtures';
 
 /**

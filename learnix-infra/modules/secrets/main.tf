@@ -78,6 +78,11 @@ ephemeral "random_password" "metrics" {
   special = false
 }
 
+ephemeral "random_password" "db_app" {
+  length  = 40
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "core" {
   #checkov:skip=CKV2_AWS_57:JWT and encryption keys are rotated as a planned event (var.core_version), never automatically: the two encryption keys protect stored data
   name                    = "${var.prefix}/core"
@@ -99,4 +104,25 @@ resource "aws_secretsmanager_secret_version" "core" {
     METRICS_BEARER_TOKEN          = ephemeral.random_password.metrics.result
   })
   secret_string_wo_version = var.core_version
+}
+
+# Credentials of the least-privilege database role (DML only). The migrate task, which holds the RDS
+# master credentials, creates the role and sets this password on every run; api and worker connect with it.
+# No automatic rotation: to rotate, bump db_app_version, apply, then deploy (migrate re-syncs the role
+# before the services restart with the new value).
+resource "aws_secretsmanager_secret" "db_app" {
+  #checkov:skip=CKV2_AWS_57:Rotated as a planned event (var.db_app_version); the migrate task re-syncs the database role on the next deploy
+  name                    = "${var.prefix}/db-app"
+  description             = "Application database role {username, password}; created by the migrate task, used by api and worker"
+  kms_key_id              = var.kms_key_arn
+  recovery_window_in_days = var.recovery_window_in_days
+}
+
+resource "aws_secretsmanager_secret_version" "db_app" {
+  secret_id = aws_secretsmanager_secret.db_app.id
+  secret_string_wo = jsonencode({
+    username = var.db_app_username
+    password = ephemeral.random_password.db_app.result
+  })
+  secret_string_wo_version = var.db_app_version
 }

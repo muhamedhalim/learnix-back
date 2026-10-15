@@ -7,7 +7,6 @@ import type { Cache } from 'cache-manager';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
 
-import { ApplicationCacheService } from '../../src/common/cache/application-cache.service';
 import { RedisKeyvStore } from '../../src/common/cache/redis-keyv.store';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
 import { StatementCounter } from './helpers/statement-counter';

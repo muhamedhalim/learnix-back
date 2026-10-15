@@ -1,8 +1,6 @@
-import type { Server } from 'node:http';
 
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import request from 'supertest';
 
 import { JOB_TYPES } from '../../src/queues/queues.constants';
 import { OmrProcessor } from '../../src/exams/processors/omr.processor';
@@ -42,7 +40,6 @@ jest.setTimeout(30000); // image recognition (sharp decode + jsQR + homography) 
 
 describe('Teacher OMR workflow (e2e)', () => {
   let ctx: E2EContext;
-  let server: Server;
   let processor: OmrProcessor;
 
   let teacher: AuthenticatedUser;
@@ -52,7 +49,6 @@ describe('Teacher OMR workflow (e2e)', () => {
 
   beforeAll(async () => {
     ctx = await createE2EApp();
-    server = ctx.app.getHttpServer() as Server;
     processor = new OmrProcessor(
       ctx.app.get(getRepositoryToken(OmrSheet)),
       ctx.app.get(getRepositoryToken(OmrTemplate)),

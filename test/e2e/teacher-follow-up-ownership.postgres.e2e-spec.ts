@@ -732,7 +732,7 @@ describe('Teacher follow-up ownership (golden + authorization, postgres)', () =>
   });
 
   it('owns revoked purchases and package students, hides deleted students/lessons/packages', async () => {
-    const { a, ids, labels } = await seed();
+    const { a, labels } = await seed();
     const res = await a.agent.get(`${API_PREFIX}/teacher/students?limit=100`);
     const names = roster(res.body as { data: { id: string }[] }, labels);
     // Owned: direct (s1), package (s2, s9 once), revoked (s3). Not owned / not listed:

@@ -80,7 +80,7 @@ describe('attendance-code exporters', () => {
       expect(written).toBe(3);
       const content = readFileSync(file, 'utf8');
       expect(content.charCodeAt(0)).toBe(0xfeff); // BOM
-      const lines = content.replace(/^﻿/, '').trim().split('\r\n');
+      const lines = content.replace(/^\uFEFF/, '').trim().split('\r\n');
       expect(lines).toHaveLength(4); // header + 3
       expect(lines[0]).toContain('code');
       expect(lines[1]).toContain('CODE0000');

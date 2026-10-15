@@ -17,3 +17,15 @@ variable "recovery_window_in_days" {
   type    = number
   default = 7
 }
+
+variable "db_app_username" {
+  description = "Name of the least-privilege application database role."
+  type        = string
+  default     = "learnix_app"
+}
+
+variable "db_app_version" {
+  description = "Bump to generate a new application database password (then apply and deploy)."
+  type        = number
+  default     = 1
+}

@@ -3,7 +3,6 @@ import { CourseReadinessService } from './course-readiness.service';
 import type {
   MarketplaceCourse,
   MarketplaceCourseLesson,
-  MarketplaceCourseSection,
 } from './entities';
 
 function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCourse {

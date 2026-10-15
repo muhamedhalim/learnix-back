@@ -57,7 +57,7 @@ function main(): void {
   const details: string[] = [];
 
   for (const file of files) {
-    const label = file.split(/[\/]/u).slice(-2, -1)[0] ?? file;
+    const label = file.split(/[/]/u).slice(-2, -1)[0] ?? file;
     const result = load(file);
     if (result === undefined) {
       ok = false;

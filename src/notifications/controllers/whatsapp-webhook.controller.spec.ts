@@ -81,7 +81,7 @@ describe('WhatsAppWebhookController — signature verification with fake data', 
     it('rejects a tampered body whose signature no longer matches', async () => {
       const { controller } = makeController();
       const signedBody = { entry: [] };
-      const request = signedRequest(signedBody);
+      signedRequest(signedBody);
       const tamperedBody = { entry: [{ changes: [{ value: { statuses: [] } }] }] };
 
       // Signature was computed over `signedBody`'s bytes; the raw body on the

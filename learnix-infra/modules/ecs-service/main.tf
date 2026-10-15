@@ -114,7 +114,11 @@ locals {
     logConfiguration = local.log_configuration
   }
 
-  autoscaling = var.create_service && var.desired_count > 0 && var.max_count > var.min_count
+  # A scalable target exists whenever the service runs, so tfvars changes to desired_count take effect
+  # (lifecycle ignores desired_count on the service itself). Without a min..max range the target is
+  # pinned to desired_count; target-tracking policies only attach when there is a range to scale in.
+  scalable    = var.create_service && var.desired_count > 0
+  autoscaling = local.scalable && var.max_count > var.min_count
 
   containers = concat([jsonencode(local.app_container)], local.signals ? [jsonencode(local.init_container), jsonencode(local.agent_container)] : [])
 }
@@ -269,13 +273,13 @@ resource "aws_ecs_service" "this" {
 # Created only once the service is scaled up (desired_count > 0): a scalable target with min_capacity >= 1
 # would otherwise start tasks before the first image exists in ECR.
 resource "aws_appautoscaling_target" "this" {
-  count = local.autoscaling ? 1 : 0
+  count = local.scalable ? 1 : 0
 
   service_namespace  = "ecs"
   resource_id        = "service/${var.cluster_name}/${aws_ecs_service.this[0].name}"
   scalable_dimension = "ecs:service:DesiredCount"
-  min_capacity       = var.min_count
-  max_capacity       = var.max_count
+  min_capacity       = local.autoscaling ? var.min_count : var.desired_count
+  max_capacity       = local.autoscaling ? var.max_count : var.desired_count
 }
 
 resource "aws_appautoscaling_policy" "cpu" {

@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 
-import { PayoutAccountVerificationStatus, PayoutRequestStatus } from '../common/enums';
+import { PayoutAccountVerificationStatus } from '../common/enums';
 import { PayoutAccountService } from './payout-account.service';
 
 const FULL_IDENTIFIER = 'EG1234567890123456789012345678';

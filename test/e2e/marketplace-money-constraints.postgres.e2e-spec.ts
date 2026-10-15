@@ -9,7 +9,6 @@ import { CreateMarketplacePayouts2097000000000 } from '../../src/migrations/2097
 import { CreateMarketplaceReviews2098000000000 } from '../../src/migrations/2098000000000-CreateMarketplaceReviews';
 import { SeedMarketplaceCategories2099000000000 } from '../../src/migrations/2099000000000-SeedMarketplaceCategories';
 import { ExtendCertificatesForMarketplace2100000000000 } from '../../src/migrations/2100000000000-ExtendCertificatesForMarketplace';
-import { AddEarningsAmountPositiveConstraint2104000000000 } from '../../src/migrations/2104000000000-AddEarningsAmountPositiveConstraint';
 import { MarketplaceLedgerDirection, MarketplaceLedgerEntryType } from '../../src/marketplace/common/enums';
 import { MarketplaceMoneyService } from '../../src/marketplace/common/money.service';
 import { BalanceService } from '../../src/marketplace/earnings/balance.service';

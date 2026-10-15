@@ -25,7 +25,7 @@ variable "memory" {
 }
 
 variable "desired_count" {
-  description = "Initial count. 0 until the first image is pushed; autoscaling (min_count..max_count) is attached only when this is above 0."
+  description = "Desired count, 0 until the first image is pushed. Above 0 a scalable target holds it (pinned to this value, or min_count..max_count with CPU tracking when max_count > min_count), so changing it in tfvars takes effect."
   type        = number
   default     = 0
 }

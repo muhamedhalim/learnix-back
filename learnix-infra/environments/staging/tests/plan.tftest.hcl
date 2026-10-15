@@ -47,6 +47,17 @@ variables {
 run "default_stage_one" {
   command = plan
 
+  # F-12: only migrate receives the application role's credentials (it creates the role); api and worker
+  # use the role through DB_USER / DB_PASSWORD and never see APP_DB_*. Values are unknown until apply.
+  assert {
+    condition     = contains(keys(module.migrate.secret_refs), "APP_DB_USER") && contains(keys(module.migrate.secret_refs), "APP_DB_PASSWORD")
+    error_message = "migrate must receive the application database role credentials."
+  }
+  assert {
+    condition     = !contains(keys(module.api.secret_refs), "APP_DB_PASSWORD")
+    error_message = "api and worker must not receive APP_DB_PASSWORD."
+  }
+
   # Vercel hosts the staging frontend; AWS serves the API on the distribution's own name until the custom
   # domain exists. CORS is exactly the frontend origin.
   assert {

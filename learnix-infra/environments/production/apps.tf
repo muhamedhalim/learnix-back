@@ -27,7 +27,19 @@ locals {
     { for k, v in var.extra_secrets : k => "${module.secrets.external_arns[v.secret]}:${v.key}::" },
   )
 
-  app_secret_arns = distinct([for ref in values(local.app_secrets) : join(":", slice(split(":", ref), 0, 7))])
+  # api and worker connect as the DML-only application role; only migrate holds the master credentials and
+  # receives the application role's credentials so it can create and grant that role after the migrations.
+  runtime_secrets = merge(local.app_secrets, {
+    DB_USER     = "${module.secrets.db_app_arn}:username::"
+    DB_PASSWORD = "${module.secrets.db_app_arn}:password::"
+  })
+  migrate_secrets = merge(local.app_secrets, {
+    APP_DB_USER     = "${module.secrets.db_app_arn}:username::"
+    APP_DB_PASSWORD = "${module.secrets.db_app_arn}:password::"
+  })
+
+  runtime_secret_arns = distinct([for ref in values(local.runtime_secrets) : join(":", slice(split(":", ref), 0, 7))])
+  migrate_secret_arns = distinct([for ref in values(local.migrate_secrets) : join(":", slice(split(":", ref), 0, 7))])
 
   # Vercel hosts the frontend (FRONTEND_URL); the API is its own public origin (BACKEND_URL) and also serves the
   # signed video playback (VIDEO_PUBLIC_ORIGIN). CORS is an exact-origin credentialed allowlist: the frontend plus
@@ -220,8 +232,8 @@ module "api" {
   target_group_arn = module.alb.target_group_arns["api"]
 
   environment = merge(local.app_environment, { PROCESS_ROLE = "api" })
-  secrets     = local.app_secrets
-  secret_arns = local.app_secret_arns
+  secrets     = local.runtime_secrets
+  secret_arns = local.runtime_secret_arns
 
   attach_task_policy = true
   task_policy_json   = data.aws_iam_policy_document.api.json
@@ -257,8 +269,8 @@ module "worker" {
   queue_scaling = merge(local.queue_metric, { backlog_per_task = var.worker_backlog_per_task })
 
   environment = merge(local.app_environment, { PROCESS_ROLE = "worker" })
-  secrets     = local.app_secrets
-  secret_arns = local.app_secret_arns
+  secrets     = local.runtime_secrets
+  secret_arns = local.runtime_secret_arns
 
   attach_task_policy = true
   task_policy_json   = data.aws_iam_policy_document.worker.json
@@ -289,8 +301,8 @@ module "migrate" {
   command        = ["node", "dist/src/database/migrate-cli.js", "run"]
 
   environment = local.app_environment
-  secrets     = local.app_secrets
-  secret_arns = local.app_secret_arns
+  secrets     = local.migrate_secrets
+  secret_arns = local.migrate_secret_arns
 
   kms_key_arn        = module.kms.arn
   subnet_ids         = module.network.app_subnet_ids

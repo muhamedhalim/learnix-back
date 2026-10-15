@@ -208,9 +208,9 @@ variable "application_signals_enabled" {
 }
 
 variable "read_only_root_filesystem" {
-  description = "Read-only root filesystem for api and worker. Enable after staging has run with it (staging default is true)."
+  description = "Read-only root filesystem for api and worker. Staging has run with it since 2026-10-13; set false only to debug."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "worker_max_count" {

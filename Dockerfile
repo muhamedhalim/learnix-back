@@ -4,8 +4,10 @@
 #   migrate task : override command -> node dist/src/database/migrate-cli.js run
 # Build: docker build -t learnix-api .
 ARG NODE_VERSION=24
+# Pinned by digest so every build uses the same base; Dependabot (docker ecosystem) proposes updates.
+ARG NODE_DIGEST=sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
 
-FROM node:${NODE_VERSION}-slim AS build
+FROM node:${NODE_VERSION}-slim@${NODE_DIGEST} AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev
@@ -13,12 +15,12 @@ COPY nest-cli.json tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:${NODE_VERSION}-slim AS prod-deps
+FROM node:${NODE_VERSION}-slim@${NODE_DIGEST} AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:${NODE_VERSION}-slim AS runtime
+FROM node:${NODE_VERSION}-slim@${NODE_DIGEST} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000

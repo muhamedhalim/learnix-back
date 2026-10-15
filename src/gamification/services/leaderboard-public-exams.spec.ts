@@ -1,4 +1,4 @@
-import type { Repository, SelectQueryBuilder } from 'typeorm';
+import type { Repository } from 'typeorm';
 
 import {
   LeaderboardQueryDto,

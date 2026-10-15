@@ -1,6 +1,4 @@
-import type { Server } from 'node:http';
 
-import request from 'supertest';
 
 import { ApplicationCacheService } from '../../src/common/cache/application-cache.service';
 import {
@@ -24,11 +22,9 @@ type AuthenticatedAgent = AuthenticatedUser['agent'];
  */
 describe('Student lesson progress routing (e2e)', () => {
   let ctx: E2EContext;
-  let server: Server;
 
   beforeAll(async () => {
     ctx = await createE2EApp();
-    server = ctx.app.getHttpServer() as Server;
   });
 
   beforeEach(async () => {

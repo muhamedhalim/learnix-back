@@ -1,7 +1,5 @@
-import type { Server } from 'node:http';
 import { Readable } from 'node:stream';
 
-import request from 'supertest';
 
 import {
   API_PREFIX,
@@ -21,7 +19,6 @@ const ticketPayload = {
 
 describe('Call Center Phase 2 ticket foundation (e2e)', () => {
   let ctx: E2EContext;
-  let server: Server;
 
   beforeAll(async () => {
     const objects = new Map<string, { buffer: Buffer; contentType: string }>();
@@ -44,7 +41,6 @@ describe('Call Center Phase 2 ticket foundation (e2e)', () => {
       },
     };
     ctx = await createE2EApp({ storageService: storage });
-    server = ctx.app.getHttpServer() as Server;
   });
 
   beforeEach(async () => resetDatabase(ctx.dataSource));

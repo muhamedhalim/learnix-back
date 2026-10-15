@@ -26,3 +26,8 @@ output "autoscaling_policies" {
   description = "Kinds of scaling attached: cpu, queue."
   value       = concat(length(aws_appautoscaling_policy.cpu) > 0 ? ["cpu"] : [], length(aws_appautoscaling_policy.queue) > 0 ? ["queue"] : [])
 }
+
+output "secret_refs" {
+  description = "Environment variable name to Secrets Manager reference (ARN:key::) injected into the container. References only, never values."
+  value       = var.secrets
+}

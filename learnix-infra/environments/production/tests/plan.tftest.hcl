@@ -59,6 +59,17 @@ variables {
 run "dns_zone_copy_keeps_vercel_records" {
   command = plan
 
+  # F-12: only migrate receives the application role's credentials (it creates the role); api and worker
+  # use the role through DB_USER / DB_PASSWORD and never see APP_DB_*. Values are unknown until apply.
+  assert {
+    condition     = contains(keys(module.migrate.secret_refs), "APP_DB_USER") && contains(keys(module.migrate.secret_refs), "APP_DB_PASSWORD")
+    error_message = "migrate must receive the application database role credentials."
+  }
+  assert {
+    condition     = !contains(keys(module.api.secret_refs), "APP_DB_PASSWORD") && !contains(keys(module.worker.secret_refs), "APP_DB_PASSWORD")
+    error_message = "api and worker must not receive APP_DB_PASSWORD."
+  }
+
   variables {
     dns_provider = "route53"
     dns_records = [

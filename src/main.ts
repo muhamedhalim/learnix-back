@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { NextFunction, Request, Response } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import compression from 'compression';
@@ -250,42 +251,21 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  app.use(
-    (
-      req: { method: string; url: string },
-      res: {
-        status: (arg0: number) => {
-          (): any;
-          new (): any;
-          json: {
-            (arg0: {
-              status: string;
-              service: string;
-              version: string;
-              docs: string;
-              health: string;
-              timestamp: string;
-            }): any;
-            new (): any;
-          };
-        };
-      },
-      next: () => void,
-    ) => {
-      if (req.method === 'GET' && req.url === '/') {
-        return res.status(200).json({
-          status: 'ok',
-          service: 'E-Learning API',
-          version: '1.0',
-          docs: '/api',
-          health: '/api/v1/health',
-          timestamp: new Date().toISOString(),
-        });
-      }
+  app.use((req: Request, res: Response, next: NextFunction): void => {
+    if (req.method === 'GET' && req.url === '/') {
+      res.status(200).json({
+        status: 'ok',
+        service: 'E-Learning API',
+        version: '1.0',
+        docs: '/api',
+        health: '/api/v1/health',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
 
-      next();
-    },
-  );
+    next();
+  });
 
   const port = Number(process.env['PORT']) || 3000;
 
