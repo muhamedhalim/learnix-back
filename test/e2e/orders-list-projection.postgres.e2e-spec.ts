@@ -77,7 +77,7 @@ describe('Order list projection (postgres)', () => {
         refunded_amount_minor: 0,
         currency: 'EGP',
         payment_channel: PaymentChannel.GATEWAY,
-        payment_method: 'paymob',
+        payment_method: 'easykash',
         status: OrderStatus.PAID,
         discount_code_id: null,
         activation_code_id: null,

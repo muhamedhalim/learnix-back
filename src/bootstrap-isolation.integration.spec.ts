@@ -129,8 +129,8 @@ describe('bootstrap refuses to start on an environment isolation violation', () 
     'PAYMENT_CAPTURE_GRACE_SECONDS',
     'PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS',
     'PROD_HOST_DENYLIST',
-    'PAYMOB_API_KEY',
-    'PAYMOB_EXPECTED_MODE',
+    'EASYKASH_API_KEY',
+    'EASYKASH_HMAC_SECRET',
   ];
   const savedEnv: Record<string, string | undefined> = {};
 
@@ -177,10 +177,10 @@ describe('bootstrap refuses to start on an environment isolation violation', () 
     }
   });
 
-  it('rejects when the payment mode is not "test" on staging', async () => {
+  it('rejects EasyKash credentials on staging', async () => {
     validStagingConfig({
-      PAYMOB_API_KEY: 'sandbox-key',
-      PAYMOB_EXPECTED_MODE: 'live',
+      EASYKASH_API_KEY: 'live-key',
+      EASYKASH_HMAC_SECRET: 'live-secret',
     });
 
     let app: import('@nestjs/common').INestApplication | undefined;
@@ -197,7 +197,7 @@ describe('bootstrap refuses to start on an environment isolation violation', () 
     expect(app).toBeUndefined();
     expect(caught).toBeInstanceOf(EnvironmentIsolationError);
     expect((caught as EnvironmentIsolationError).violations.map((v) => v.code)).toContain(
-      'STAGING_PAYMENT_MODE_NOT_TEST',
+      'STAGING_PAYMENT_CREDENTIALS_SET',
     );
   });
 

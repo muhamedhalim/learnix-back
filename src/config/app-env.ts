@@ -12,8 +12,7 @@
  * (`main.ts`), whether stack traces (`http-exception.filter.ts`) and
  * password-reset tokens (`auth.service.ts`) are withheld from responses,
  * whether cookies get `Secure`/`SameSite=None`/`Partitioned`
- * (`cookie-security.util.ts`), and whether Paymob defaults to live mode
- * (`paymob.gateway.ts`).
+ * (`cookie-security.util.ts`).
  *
  * A staging deployment needs every one of those protections. So staging runs
  * `NODE_ENV=production` — which leaves it indistinguishable from production in

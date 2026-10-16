@@ -20,7 +20,13 @@ import type { ProviderWebhookEvent } from '../../src/payments/providers/payment-
 import { GatewayWebhookService } from '../../src/payments/services/gateway-webhook.service';
 import { PaymentOperationsService } from '../../src/payments/services/payment-operations.service';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 
 /**
  * T093 — contracts §4's payment-integrity guarantee end to end: a real
@@ -30,7 +36,7 @@ import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUs
  * that turns the durable `payment.marketplace_item_succeeded`/`_failed`
  * outbox fact into the real `MarketplaceSettlementListener` event, exactly
  * as it does in production — never called synchronously inline). Checkout
- * *initiation* (`POST .../orders/:id/pay`, which calls the real Paymob
+ * *initiation* (`POST .../orders/:id/pay`, which calls the real EasyKash
  * gateway) is deliberately not exercised here — this suite starts from a
  * `Payment` row shaped exactly as `MarketplaceCheckoutService.createCheckout()`
  * creates one, the same way `payment-financial-state-machine.postgres.e2e-spec.ts`
@@ -53,7 +59,9 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
   afterAll(async () => app.close());
 
   async function seedInstructor(userId: string) {
-    return dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: userId }));
+    return dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: userId }));
   }
 
   async function seedCategory() {
@@ -108,14 +116,23 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
         .expect(201);
     }
 
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await opts.adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await opts.adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     return dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } });
   }
 
-  /** Real order creation via T103's HTTP endpoint (no gateway involved), then a `Payment` row shaped exactly as `MarketplaceCheckoutService.createCheckout()` builds one — bypassing the live Paymob call that endpoint would otherwise make. */
+  /** Real order creation via T103's HTTP endpoint (no gateway involved), then a `Payment` row shaped exactly as `MarketplaceCheckoutService.createCheckout()` builds one — bypassing the live EasyKash call that endpoint would otherwise make. */
   async function createOrderAndPayment(
     learner: Awaited<ReturnType<typeof createAuthenticatedUser>>,
     courseId: string,
@@ -125,7 +142,9 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       .set('Idempotency-Key', `order-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .send({ courseId })
       .expect(201);
-    const order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: created.body.id as string });
+    const order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: created.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -138,9 +157,9 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-order-${order.id}`,
-        paymob_order_id: `provider-order-${order.id}`,
+        provider_order_reference: `provider-order-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -158,10 +177,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     overrides: Partial<ProviderWebhookEvent> = {},
   ): ProviderWebhookEvent {
     return {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `txn-${providerEventId}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -185,29 +204,47 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
 
   it('grants enrollment and earning exactly once for a duplicate webhook delivery (concurrent replay)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
     const incoming = webhookFor(payment, 'succeeded', 'duplicate-event');
 
     await Promise.all([webhooks.process(incoming), webhooks.process(incoming)]);
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.PAID,
     });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id })).toBe(1);
-    expect(await dataSource.getRepository(InstructorEarning).countBy({ order_id: order.id })).toBe(1);
-    expect(await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id })).toBe(2);
+    expect(
+      await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id }),
+    ).toBe(1);
+    expect(await dataSource.getRepository(InstructorEarning).countBy({ order_id: order.id })).toBe(
+      1,
+    );
+    expect(
+      await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
+    ).toBe(2);
   });
 
   it('a late "failed" webhook can never undo an order already settled by an earlier "succeeded" one (out-of-order delivery)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
 
     await webhooks.process(webhookFor(payment, 'succeeded', 'out-of-order-success'));
     await operations.publishOutbox();
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.PAID,
     });
 
@@ -215,51 +252,85 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     await webhooks.process(webhookFor(payment, 'failed', 'out-of-order-failure'));
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.PAID,
     });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id, status: 'active' as never })).toBe(1);
+    expect(
+      await dataSource
+        .getRepository(MarketplaceEnrollment)
+        .countBy({ order_id: order.id, status: 'active' as never }),
+    ).toBe(1);
   });
 
   it('grants nothing and records a discrepancy on an amount mismatch, never the order snapshot silently overridden (FR-104)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id, priceMinor: 5000 });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+      priceMinor: 5000,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
     // The gateway's own amount check only compares against `Payment.amount_minor`
     // (which mirrors the order snapshot at checkout time) — a provider capture
     // for a different amount is rejected before it ever reaches settlement.
-    const mismatched = webhookFor(payment, 'succeeded', 'amount-mismatch-event', { amountMinor: payment.amount_minor! - 1 });
+    const mismatched = webhookFor(payment, 'succeeded', 'amount-mismatch-event', {
+      amountMinor: payment.amount_minor! - 1,
+    });
 
     await expect(webhooks.process(mismatched)).rejects.toThrow();
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.AWAITING_PAYMENT,
     });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id })).toBe(0);
+    expect(
+      await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id }),
+    ).toBe(0);
   });
 
   it('grants nothing on a currency mismatch either (FR-104)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
-    const mismatched = webhookFor(payment, 'succeeded', 'currency-mismatch-event', { currency: 'USD' });
+    const mismatched = webhookFor(payment, 'succeeded', 'currency-mismatch-event', {
+      currency: 'USD',
+    });
 
     await expect(webhooks.process(mismatched)).rejects.toThrow();
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.AWAITING_PAYMENT,
     });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id })).toBe(0);
+    expect(
+      await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id }),
+    ).toBe(0);
   });
 
   it('settles normally and grants access against the purchased version even though the course was unpublished after checkout (FR-103, T100)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
 
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${course.id}/unpublish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${course.id}/unpublish`)
+      .send({})
+      .expect(201);
     await expect(
       dataSource.getRepository(MarketplaceCourse).findOneByOrFail({ id: course.id }),
     ).resolves.toMatchObject({ status: 'unpublished' });
@@ -267,7 +338,9 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     await webhooks.process(webhookFor(payment, 'succeeded', 'unpublished-mid-checkout'));
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.PAID,
     });
     await expect(
@@ -275,18 +348,26 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     ).resolves.toMatchObject({ status: 'active', course_version_id: order.course_version_id });
   });
 
-  it("a straightforward decline transitions the order to failed and never grants access (T105)", async () => {
+  it('a straightforward decline transitions the order to failed and never grants access (T105)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
     const { order, payment } = await createOrderAndPayment(learner, course.id);
 
     await webhooks.process(webhookFor(payment, 'failed', 'declined-event'));
     await operations.publishOutbox();
 
-    await expect(dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id })).resolves.toMatchObject({
+    await expect(
+      dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+    ).resolves.toMatchObject({
       status: MarketplaceOrderStatus.FAILED,
     });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id })).toBe(0);
+    expect(
+      await dataSource.getRepository(MarketplaceEnrollment).countBy({ order_id: order.id }),
+    ).toBe(0);
   });
 
   /**
@@ -303,8 +384,12 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
     ): Promise<{ list: number | undefined; detail: number | undefined }> {
       const server = app.getHttpServer() as Server;
       const list = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-      const item = (list.body.items as Array<{ id: string; enrollment_count: number }>).find((i) => i.id === courseId);
-      const detail = await request(server).get(`${API_PREFIX}/marketplace/courses/${slug}`).expect(200);
+      const item = (list.body.items as Array<{ id: string; enrollment_count: number }>).find(
+        (i) => i.id === courseId,
+      );
+      const detail = await request(server)
+        .get(`${API_PREFIX}/marketplace/courses/${slug}`)
+        .expect(200);
       return {
         list: item?.enrollment_count,
         detail: (detail.body as { enrollment_count?: number }).enrollment_count,
@@ -321,7 +406,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       });
 
       // Warm both cached reads: nobody is enrolled yet.
-      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({
+        list: 0,
+        detail: 0,
+      });
 
       await learner.agent
         .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
@@ -329,7 +417,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
         .expect(201);
 
       // No TTL wait: the declared marketplace_catalog invalidation already fired.
-      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({
+        list: 1,
+        detail: 1,
+      });
     }, 60_000);
 
     /**
@@ -359,7 +450,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       const { payment } = await createOrderAndPayment(learner, course.id);
 
       // Warm both cached reads: the order exists but is unpaid, so nobody is enrolled.
-      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({
+        list: 0,
+        detail: 0,
+      });
 
       await webhooks.process(webhookFor(payment, 'succeeded', 'catalogue-freshness-event'));
       await operations.publishOutbox();
@@ -370,7 +464,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
 
       // Accepted drift: the outbox-drain writer never invalidated
       // `marketplace_catalog`, so the cached count still reads stale.
-      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 0, detail: 0 });
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({
+        list: 0,
+        detail: 0,
+      });
 
       // A declared marketplace writer clears it (bounded drift, not a permanent gap).
       await instructorUser.agent
@@ -378,7 +475,10 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
         .send({ title: 'Cache-freshness probe edit' })
         .expect(200);
 
-      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({ list: 1, detail: 1 });
+      expect(await catalogueEnrollmentCounts(course.id, course.slug)).toEqual({
+        list: 1,
+        detail: 1,
+      });
     }, 60_000);
   });
 
@@ -407,7 +507,11 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
 
     it('returns { data, meta } pages of at most limit rows (default 20, max 100), newest first, scoped to the caller', async () => {
       const { instructorUser, admin, learner, category } = await actors();
-      const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+      const course = await publishCourse({
+        instructorAgent: instructorUser.agent,
+        adminAgent: admin.agent,
+        categoryId: category.id,
+      });
       const { order } = await createOrderAndPayment(learner, course.id);
       const older = await cloneOlderOrders(order.id, 24); // 25 orders in total for this learner
 
@@ -415,12 +519,22 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       await createOrderAndPayment(other, course.id);
 
       const first = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).expect(200);
-      expect(first.body.meta).toMatchObject({ total: 25, page: 1, limit: 20, totalPages: 2, hasNextPage: true, hasPrevPage: false });
+      expect(first.body.meta).toMatchObject({
+        total: 25,
+        page: 1,
+        limit: 20,
+        totalPages: 2,
+        hasNextPage: true,
+        hasPrevPage: false,
+      });
       expect(first.body.data).toHaveLength(20);
       // Newest first: the real order is newer than every clone.
       expect(first.body.data[0].id).toBe(order.id);
 
-      const second = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ page: 2 }).expect(200);
+      const second = await learner.agent
+        .get(`${API_PREFIX}/marketplace/me/orders`)
+        .query({ page: 2 })
+        .expect(200);
       expect(second.body.data).toHaveLength(5);
       expect(second.body.meta).toMatchObject({ page: 2, hasNextPage: false, hasPrevPage: true });
 
@@ -429,9 +543,15 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
       expect([...seen].sort()).toEqual([order.id, ...older].sort());
       expect(seen[seen.length - 1]).toBe(older[older.length - 1]);
 
-      const big = await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ limit: 100 }).expect(200);
+      const big = await learner.agent
+        .get(`${API_PREFIX}/marketplace/me/orders`)
+        .query({ limit: 100 })
+        .expect(200);
       expect(big.body.data).toHaveLength(25);
-      await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ limit: 101 }).expect(400);
+      await learner.agent
+        .get(`${API_PREFIX}/marketplace/me/orders`)
+        .query({ limit: 101 })
+        .expect(400);
       await learner.agent.get(`${API_PREFIX}/marketplace/me/orders`).query({ page: 0 }).expect(400);
 
       // The status filter composes with paging and the filtered total.

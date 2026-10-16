@@ -58,7 +58,7 @@ module "kms_dr" {
 }
 
 # --- Network -------------------------------------------------------------------------------------
-# Tasks run in the private app tier and reach providers (Paymob, Meta, AWS APIs) through NAT, which also
+# Tasks run in the private app tier and reach providers (EasyKash, Meta, AWS APIs) through NAT, which also
 # gives a static egress address to allowlist. The data tier has no internet route at all.
 module "network" {
   source = "../../modules/network"

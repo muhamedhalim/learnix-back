@@ -43,14 +43,14 @@ describe('PaymentsWebhookController', () => {
     );
   });
 
-  it('passes the raw payload and query signature through the central gateway', async () => {
+  it('passes the raw payload through the central gateway', async () => {
     const payload = { provider: 'specific-shape' };
 
-    await expect(controller.handleWebhook(payload, 'signature')).resolves.toEqual({
+    await expect(controller.handleWebhook(payload)).resolves.toEqual({
       status: 'success',
     });
 
-    const expectedRequest: ProviderWebhookRequest = { payload, signature: 'signature' };
+    const expectedRequest: ProviderWebhookRequest = { payload };
     expect(gateway.verifyWebhook).toHaveBeenCalledWith(expectedRequest);
     expect(gateway.parseWebhook).toHaveBeenCalledWith(expectedRequest);
     expect(webhooks.process).toHaveBeenCalledWith(normalizedEvent);
@@ -59,9 +59,7 @@ describe('PaymentsWebhookController', () => {
   it('rejects invalid signatures before parsing or processing', async () => {
     gateway.verifyWebhook.mockReturnValue(false);
 
-    await expect(controller.handleWebhook({}, 'invalid')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
+    await expect(controller.handleWebhook({})).rejects.toBeInstanceOf(UnauthorizedException);
     expect(gateway.parseWebhook).not.toHaveBeenCalled();
     expect(webhooks.process).not.toHaveBeenCalled();
   });
@@ -70,7 +68,7 @@ describe('PaymentsWebhookController', () => {
     const expected: GatewayWebhookResponse = { status: 'pending' };
     webhooks.process.mockResolvedValue(expected);
 
-    await expect(controller.handleCallback({}, 'signature')).resolves.toBe(expected);
+    await expect(controller.handleCallback({})).resolves.toBe(expected);
     expect(gateway.verifyWebhook).toHaveBeenCalledTimes(1);
   });
 });

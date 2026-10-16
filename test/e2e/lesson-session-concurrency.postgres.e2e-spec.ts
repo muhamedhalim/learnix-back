@@ -277,8 +277,8 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
           provider_reference: `e2e-refund-${suffix}`,
           status: PaymentStatus.COMPLETED,
           payment_method: PaymentMethod.MANUAL,
-          paymob_order_id: null,
-          paymob_transaction_id: null,
+          provider_order_reference: null,
+          provider_transaction_id: null,
           idempotency_key: `e2e-refund-payment-${suffix}`,
           failure_reason: null,
           completed_at: new Date(),
@@ -371,10 +371,14 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
 
     expect(await payments.hasLessonPlaybackAccess(student.id, lesson.id)).toBe(true);
     await expect(
-      dataSource.getRepository(LessonSessionBooking).findOneByOrFail({ order_id: purchaseA.order.id }),
+      dataSource
+        .getRepository(LessonSessionBooking)
+        .findOneByOrFail({ order_id: purchaseA.order.id }),
     ).resolves.toMatchObject({ status: LessonSessionBookingStatus.REFUNDED });
     await expect(
-      dataSource.getRepository(LessonSessionBooking).findOneByOrFail({ order_id: purchaseB.order.id }),
+      dataSource
+        .getRepository(LessonSessionBooking)
+        .findOneByOrFail({ order_id: purchaseB.order.id }),
     ).resolves.toMatchObject({ status: LessonSessionBookingStatus.CONFIRMED });
     await expect(
       dataSource.getRepository(Entitlement).findOneByOrFail({ order_id: purchaseA.order.id }),
@@ -641,7 +645,11 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
       const sessions = dataSource.getRepository(ScheduledLessonSession);
       const bookings = dataSource.getRepository(LessonSessionBooking);
       for (const [index, entry] of cases.entries()) {
-        const student = await makeUser(`s-${entry.key}`, UserRole.STUDENT, entry.arabic === true ? 'ar' : 'en');
+        const student = await makeUser(
+          `s-${entry.key}`,
+          UserRole.STUDENT,
+          entry.arabic === true ? 'ar' : 'en',
+        );
         userIds.set(entry.key, student.id);
         labels.set(student.id, `student:${entry.key}`);
         const startAt = new Date(frozen.getTime() + entry.offsetMs);
@@ -740,7 +748,9 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
         };
         if (run === 3) {
           // eslint-disable-next-line no-console
-          console.log(`T070 run3 statements: ${String(counter.count())} (${String(counter.statements().filter((s) => s.sql.startsWith('INSERT')).length)} inserts)`);
+          console.log(
+            `T070 run3 statements: ${String(counter.count())} (${String(counter.statements().filter((s) => s.sql.startsWith('INSERT')).length)} inserts)`,
+          );
         }
       }
       email.mockRestore();
@@ -771,7 +781,11 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
       // subset of the old emails, never one the old code would not have sent (the two bookings
       // that sit exactly inside the 1 ms slack stay candidates while the frozen clock does not
       // move, so their repeats are exempt) ...
-      const previous: Record<string, Run | undefined> = { run1: undefined, run2: actual['run1']!, run3: actual['run2']! };
+      const previous: Record<string, Run | undefined> = {
+        run1: undefined,
+        run2: actual['run1']!,
+        run3: actual['run2']!,
+      };
       for (const run of ['run1', 'run2', 'run3']) {
         const remaining = [...golden[run]!.emails];
         for (const email of actual[run]!.emails) {
@@ -785,15 +799,27 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
           if (at !== -1) remaining.splice(at, 1);
         }
         // ... and every notification inserted by THIS run still gets its email.
-        const before = new Set((previous[run]?.notifications ?? []).map((row) => (row as { key: string }).key));
+        const before = new Set(
+          (previous[run]?.notifications ?? []).map((row) => (row as { key: string }).key),
+        );
         const sentEmails = [...actual[run]!.emails];
-        for (const row of actual[run]!.notifications as Array<{ key: string; user: string; title: string }>) {
+        for (const row of actual[run]!.notifications as Array<{
+          key: string;
+          user: string;
+          title: string;
+        }>) {
           if (before.has(row.key) || row.title === 'seeded') continue;
           const bookingCase = row.key.split(':booking:')[1]?.split(':')[1] ?? '';
           const at = sentEmails.findIndex(
-            (email) => email.startsWith(`${row.user} :: ${row.title} :: `) && email.endsWith(`:: ${bookingCase}`),
+            (email) =>
+              email.startsWith(`${row.user} :: ${row.title} :: `) &&
+              email.endsWith(`:: ${bookingCase}`),
           );
-          expect({ run, key: row.key, emailed: at !== -1 }).toEqual({ run, key: row.key, emailed: true });
+          expect({ run, key: row.key, emailed: at !== -1 }).toEqual({
+            run,
+            key: row.key,
+            emailed: true,
+          });
           sentEmails.splice(at, 1);
         }
       }
@@ -838,10 +864,11 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
       const isLock = (sql: string) => /pg_(try_)?advisory_(un)?lock/.test(sql);
       expect(statements.filter((statement) => isLock(statement.sql))).toHaveLength(2);
       expect(
-        statements.filter((statement) => !isLock(statement.sql)).map((statement) => statement.sql.slice(0, 6)),
+        statements
+          .filter((statement) => !isLock(statement.sql))
+          .map((statement) => statement.sql.slice(0, 6)),
       ).toEqual(['SELECT', 'SELECT']);
       expect(writes).toEqual([]);
     });
   });
-
 });

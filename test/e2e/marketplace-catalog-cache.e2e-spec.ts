@@ -59,7 +59,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     slug: string;
   }> {
     const instructorUser = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const category = await dataSource.getRepository(MarketplaceCategory).save({
       name_en: 'Programming',
@@ -102,11 +104,22 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
         })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
-    const course = await dataSource.getRepository(MarketplaceCourse).findOneByOrFail({ id: courseId });
+    const course = await dataSource
+      .getRepository(MarketplaceCourse)
+      .findOneByOrFail({ id: courseId });
     return { instructorUser, admin, courseId, slug: course.slug };
   }
 
@@ -116,14 +129,18 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     const server = app.getHttpServer() as Server;
 
     const before = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-    const beforeItem = (before.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+    const beforeItem = (before.body.items as Array<{ id: string; price_minor: number }>).find(
+      (i) => i.id === courseId,
+    );
     expect(beforeItem?.price_minor).toBe(100000);
 
     // Bypasses the API entirely — no controller runs, so no invalidation fires either.
     await dataSource.getRepository(MarketplaceCourse).update(courseId, { price_minor: 999999 });
 
     const stillCached = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-    const stillCachedItem = (stillCached.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+    const stillCachedItem = (
+      stillCached.body.items as Array<{ id: string; price_minor: number }>
+    ).find((i) => i.id === courseId);
     expect(stillCachedItem?.price_minor).toBe(100000); // proves this came from cache, not a fresh read
   }, 60_000);
 
@@ -132,7 +149,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     const server = app.getHttpServer() as Server;
 
     const before = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-    const beforeItem = (before.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+    const beforeItem = (before.body.items as Array<{ id: string; price_minor: number }>).find(
+      (i) => i.id === courseId,
+    );
     expect(beforeItem?.price_minor).toBe(100000);
 
     await instructorUser.agent
@@ -141,11 +160,13 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
       .expect(200);
 
     const after = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-    const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+    const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find(
+      (i) => i.id === courseId,
+    );
     expect(afterItem?.price_minor).toBe(250000);
   }, 60_000);
 
-  it('the cached detail response never leaks one viewer\'s enrollment status to another — anonymous first, enrolled learner second', async () => {
+  it("the cached detail response never leaks one viewer's enrollment status to another — anonymous first, enrolled learner second", async () => {
     const { courseId, slug } = await publishCourse();
     const server = app.getHttpServer() as Server;
 
@@ -160,7 +181,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
       .set('Idempotency-Key', `cache-order-${Date.now()}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
       payments.create({
@@ -172,9 +195,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-cache-${order.id}`,
-        paymob_order_id: `provider-cache-${order.id}`,
+        provider_order_reference: `provider-cache-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -182,10 +205,10 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     );
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `cache-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `cache-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -197,18 +220,27 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     await webhooks.process(event);
     await operations.publishOutbox();
     order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id });
-    const enrollment = await dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ order_id: order.id });
+    const enrollment = await dataSource
+      .getRepository(MarketplaceEnrollment)
+      .findOneByOrFail({ order_id: order.id });
     expect(enrollment.status).toBe(MarketplaceEnrollmentStatus.ACTIVE);
 
     // Immediately after — the enrolled learner's OWN request, while the anonymous view above is still within its 60s cache window.
-    const enrolledView = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${slug}`).expect(200);
-    expect(enrolledView.body.viewer_enrollment).toEqual({ enrolled: true, enrollment_id: enrollment.id });
+    const enrolledView = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${slug}`)
+      .expect(200);
+    expect(enrolledView.body.viewer_enrollment).toEqual({
+      enrolled: true,
+      enrollment_id: enrollment.id,
+    });
     // The shared, cached half of the response is identical either way.
     expect(enrolledView.body.id).toBe(anon.body.id);
     expect(enrolledView.body.snapshot).toEqual(anon.body.snapshot);
 
     // And a THIRD, different anonymous visitor still sees no enrollment at all.
-    const anonAgain = await request(server).get(`${API_PREFIX}/marketplace/courses/${slug}`).expect(200);
+    const anonAgain = await request(server)
+      .get(`${API_PREFIX}/marketplace/courses/${slug}`)
+      .expect(200);
     expect(anonAgain.body.viewer_enrollment).toEqual({ enrolled: false, enrollment_id: null });
   }, 60_000);
 
@@ -216,8 +248,14 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     const { slug } = await publishCourse();
 
     const server = app.getHttpServer() as Server;
-    const curriculumRes = await request(server).get(`${API_PREFIX}/marketplace/courses/${slug}/curriculum`).expect(200);
-    const freeLesson = (curriculumRes.body.sections as Array<{ lessons: Array<{ id: string; is_free_preview: boolean }> }>)
+    const curriculumRes = await request(server)
+      .get(`${API_PREFIX}/marketplace/courses/${slug}/curriculum`)
+      .expect(200);
+    const freeLesson = (
+      curriculumRes.body.sections as Array<{
+        lessons: Array<{ id: string; is_free_preview: boolean }>;
+      }>
+    )
       .flatMap((s) => s.lessons)
       .find((l) => l.is_free_preview);
     expect(freeLesson).toBeDefined();
@@ -242,7 +280,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     async function warmListThenBypassPriceChange(courseId: string): Promise<void> {
       const server = app.getHttpServer() as Server;
       const warmed = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-      const warmedItem = (warmed.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      const warmedItem = (warmed.body.items as Array<{ id: string; price_minor: number }>).find(
+        (i) => i.id === courseId,
+      );
       expect(warmedItem?.price_minor).toBe(100000);
 
       // Bypasses the API entirely — no controller runs, so no invalidation fires either.
@@ -252,7 +292,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
     async function expectListStillServesCachedPrice(courseId: string): Promise<void> {
       const server = app.getHttpServer() as Server;
       const after = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find(
+        (i) => i.id === courseId,
+      );
       expect(afterItem?.price_minor).toBe(100000); // the DB now says 999999: only a surviving cache entry can answer 100000
     }
 
@@ -297,7 +339,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
       });
       const subject = await teacher.agent
         .post(`${API_PREFIX}/teacher/subjects`)
-        .send({ name: `Catalogue cache subject ${Date.now()}-${Math.random().toString(36).slice(2)}` })
+        .send({
+          name: `Catalogue cache subject ${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        })
         .expect(201);
       await warmListThenBypassPriceChange(courseId);
 
@@ -313,7 +357,9 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
 
       const server = app.getHttpServer() as Server;
       const after = await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(200);
-      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find((i) => i.id === courseId);
+      const afterItem = (after.body.items as Array<{ id: string; price_minor: number }>).find(
+        (i) => i.id === courseId,
+      );
       expect(afterItem?.price_minor).toBe(999999); // global bump: the cached entry is unreachable, the DB value is read fresh
     }, 60_000);
   });

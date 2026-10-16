@@ -33,7 +33,7 @@ import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from
 /**
  * Phase 9's independent test (tasks.md): an eligible request refunds fully
  * and reverses everything; an ineligible one names the failed condition and
- * changes nothing. This e2e environment has no reachable Paymob credentials
+ * changes nothing. This e2e environment has no reachable EasyKash credentials
  * (`.env.test` sets none — same constraint as AWS MediaConvert for video
  * lessons, T065/T074/T077), so `RefundProcessingService.callGateway()`
  * fails fast and deterministically for ANY eligible refund attempted here —
@@ -163,9 +163,9 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-order-${order.id}`,
-        paymob_order_id: `provider-order-${order.id}`,
+        provider_order_reference: `provider-order-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -174,10 +174,10 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -382,7 +382,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
     ).toBe(2);
   });
 
-  describe('provider-failure handling (T138) — this e2e environment has no reachable Paymob credentials', () => {
+  describe('provider-failure handling (T138) — this e2e environment has no reachable EasyKash credentials', () => {
     it('fails closed for an eligible request: no revocation, no reversal, no ledger entry — the learner is informed via the response', async () => {
       const { learner, order, enrollment } = await actors();
 

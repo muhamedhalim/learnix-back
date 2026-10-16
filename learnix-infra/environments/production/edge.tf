@@ -29,7 +29,7 @@ resource "aws_vpc_security_group_ingress_rule" "app_from_alb" {
   referenced_security_group_id = module.alb.security_group_id
 }
 
-# Egress: HTTPS out through NAT (image pulls, Paymob, Meta, AWS APIs) and the data stores.
+# Egress: HTTPS out through NAT (image pulls, EasyKash, Meta, AWS APIs) and the data stores.
 resource "aws_vpc_security_group_egress_rule" "app_https" {
   security_group_id = aws_security_group.app.id
   description       = "HTTPS out"

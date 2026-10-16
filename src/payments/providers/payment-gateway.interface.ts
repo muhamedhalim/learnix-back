@@ -9,6 +9,8 @@ export interface ProviderCheckoutInput {
   amountMinor: number;
   currency: string;
   billingData: BillingDataDto;
+  /** When the internal order stops being payable; bounds voucher expiry. */
+  expiresAt?: Date;
 }
 
 export interface ProviderCheckoutResult {
@@ -28,20 +30,14 @@ export interface ProviderRefundResult {
   status: 'processing' | 'succeeded';
 }
 
-export interface ProviderPaymentStatus {
-  status: 'pending' | 'succeeded' | 'failed' | 'refunded';
-  amountMinor?: number;
-  currency?: string;
-  providerReference?: string;
-}
-
 /** A provider-authoritative transaction record used for recovery and refunds. */
 export interface ProviderTransactionDetails {
   transactionId: string;
   status: 'pending' | 'succeeded' | 'failed' | 'refunded';
   amountMinor: number;
   currency: string;
-  occurredAt: Date;
+  /** Absent when the provider exposes no trusted transaction time. */
+  occurredAt?: Date;
   providerOrderReference: string;
   merchantReference: string;
   refundedAmountMinor: number;
@@ -94,8 +90,6 @@ export interface PaymentGateway {
     input: ProviderCheckoutInput,
     providerReference: string,
   ): Promise<ProviderCheckoutResult>;
-  createCheckout(input: ProviderCheckoutInput): Promise<ProviderCheckoutResult>;
-  getPaymentStatus(providerReference: string): Promise<ProviderPaymentStatus | null>;
   getTransactionByOrderReference(
     providerOrderReference: string,
     merchantReference: string,

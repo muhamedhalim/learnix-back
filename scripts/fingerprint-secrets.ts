@@ -69,19 +69,14 @@ const SECRETS: readonly SecretDescriptor[] = [
     service: 'none',
   },
   {
-    variable: 'PAYMOB_API_KEY',
-    usedAt: 'src/payments/providers/paymob/paymob.gateway.ts',
-    service: 'Paymob',
+    variable: 'EASYKASH_API_KEY',
+    usedAt: 'src/payments/providers/easykash/easykash.gateway.ts',
+    service: 'EasyKash',
   },
   {
-    variable: 'PAYMOB_SECRET_KEY',
-    usedAt: 'src/payments/providers/paymob/paymob.gateway.ts',
-    service: 'Paymob',
-  },
-  {
-    variable: 'PAYMOB_WEBHOOK_SECRET',
-    usedAt: 'src/payments/providers/paymob/paymob.gateway.ts',
-    service: 'Paymob',
+    variable: 'EASYKASH_HMAC_SECRET',
+    usedAt: 'src/payments/providers/easykash/easykash.gateway.ts',
+    service: 'EasyKash',
   },
   { variable: 'MAILERSEND_API_KEY', usedAt: 'src/mail/mail.service.ts', service: 'MailerSend' },
   {

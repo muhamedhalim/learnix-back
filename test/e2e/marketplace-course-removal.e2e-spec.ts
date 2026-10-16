@@ -23,7 +23,7 @@ import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from
  * logic (zero-value direct revoke vs. removal-driven refund, retry safety,
  * counter correctness) is proven exhaustively at the unit level instead
  * (`course-removal.service.spec.ts`), the same split already established for
- * video readiness (AWS MediaConvert) and the live Paymob gateway elsewhere in this
+ * video readiness (AWS MediaConvert) and the live EasyKash gateway elsewhere in this
  * suite.
  */
 describe('marketplace course removal — synchronous half (T142, FR-054a)', () => {

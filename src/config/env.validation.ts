@@ -12,7 +12,7 @@ import {
 } from 'class-validator';
 
 import { decodeSecretBoxKey, SecretBoxKeyError } from '../common/utils/secret-box.util';
-import { AppEnvironment, recordReader, resolveAppEnv } from './app-env';
+import { recordReader, resolveAppEnv } from './app-env';
 import { assertEnvironmentIsolation } from './environment-isolation.guard';
 import { validateProductionPublicOrigins } from './public-url.util';
 import { resolveDatabaseSsl } from '../common/utils/database-ssl.util';
@@ -25,16 +25,20 @@ enum Environment {
   Test = 'test',
 }
 
-const PAYMOB_ALLOWED_HOSTS = new Set(['accept.paymob.com', 'accept.paymobsolutions.com']);
+const EASYKASH_ALLOWED_HOSTS = new Set(['back.easykash.net']);
+const EASYKASH_PAYMENT_OPTION_IDS = new Set([
+  1, 2, 3, 4, 5, 6, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34,
+  35,
+]);
 
-export function validatePaymobBaseUrl(value: unknown): void {
+export function validateEasyKashBaseUrl(value: unknown): void {
   if (value === undefined || value === '') return;
-  if (typeof value !== 'string') throw new Error('PAYMOB_BASE_URL must be a URL.');
+  if (typeof value !== 'string') throw new Error('EASYKASH_API_BASE_URL must be a URL.');
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error('PAYMOB_BASE_URL must be a valid HTTPS Paymob URL.');
+    throw new Error('EASYKASH_API_BASE_URL must be a valid HTTPS EasyKash URL.');
   }
   if (
     url.protocol !== 'https:' ||
@@ -42,11 +46,53 @@ export function validatePaymobBaseUrl(value: unknown): void {
     url.password !== '' ||
     url.search !== '' ||
     url.hash !== '' ||
-    !PAYMOB_ALLOWED_HOSTS.has(url.hostname.toLowerCase())
+    (url.pathname !== '/' && url.pathname !== '') ||
+    !EASYKASH_ALLOWED_HOSTS.has(url.hostname.toLowerCase())
   ) {
     throw new Error(
-      'PAYMOB_BASE_URL must use an allowlisted HTTPS Paymob host without credentials, query, or fragment.',
+      'EASYKASH_API_BASE_URL must use an allowlisted HTTPS EasyKash host without credentials, path, query, or fragment.',
     );
+  }
+}
+
+export function validateEasyKashPaymentOptions(value: unknown): void {
+  if (value === undefined || value === '') return;
+  if (typeof value !== 'string') throw new Error('EASYKASH_PAYMENT_OPTIONS must be a list.');
+  for (const part of value.split(',')) {
+    const id = Number(part.trim());
+    if (!Number.isInteger(id) || !EASYKASH_PAYMENT_OPTION_IDS.has(id)) {
+      throw new Error(
+        'EASYKASH_PAYMENT_OPTIONS must be a comma-separated list of documented EasyKash payment option ids.',
+      );
+    }
+  }
+}
+
+/** When any EasyKash setting is present, the credentials and public origin must all be too. */
+export function validateEasyKashConfiguration(config: Record<string, unknown>): void {
+  const present = (key: string): boolean => {
+    const value = config[key];
+    return typeof value === 'string' && value.trim() !== '';
+  };
+  const gatewayKeys = ['EASYKASH_API_KEY', 'EASYKASH_HMAC_SECRET'];
+  const optionalKeys = [
+    'EASYKASH_API_BASE_URL',
+    'EASYKASH_PAYMENT_OPTIONS',
+    'EASYKASH_CASH_EXPIRY_HOURS',
+  ];
+  if (![...gatewayKeys, ...optionalKeys].some(present)) return;
+  for (const key of [...gatewayKeys, 'BACKEND_URL']) {
+    if (!present(key)) {
+      throw new Error(
+        `Environment validation failed: ${key} is required when EasyKash is configured.`,
+      );
+    }
+  }
+  if (present('EASYKASH_CASH_EXPIRY_HOURS')) {
+    const hours = Number(config['EASYKASH_CASH_EXPIRY_HOURS']);
+    if (!Number.isInteger(hours) || hours < 1 || hours > 72) {
+      throw new Error('EASYKASH_CASH_EXPIRY_HOURS must be an integer between 1 and 72.');
+    }
   }
 }
 
@@ -536,34 +582,28 @@ export class EnvironmentVariables {
   @IsOptional()
   public TWILIO_PHONE_NUMBER?: string;
 
-  // Paymob payment gateway (optional until payment features go live).
+  // EasyKash payment gateway (optional until payment features go live).
   @IsString()
   @IsOptional()
-  public PAYMOB_API_KEY?: string;
+  public EASYKASH_API_KEY?: string;
 
   @IsString()
   @IsOptional()
-  public PAYMOB_SECRET_KEY?: string;
+  public EASYKASH_HMAC_SECRET?: string;
 
   @IsString()
   @IsOptional()
-  public PAYMOB_CARD_INTEGRATION_ID?: string;
+  public EASYKASH_API_BASE_URL?: string;
 
+  /** Comma-separated EasyKash Pay API paymentOptions ids. */
   @IsString()
   @IsOptional()
-  public PAYMOB_IFRAME_ID?: string;
+  public EASYKASH_PAYMENT_OPTIONS?: string;
 
+  /** Cash voucher (Fawry/Aman) validity in hours. */
   @IsString()
   @IsOptional()
-  public PAYMOB_WEBHOOK_SECRET?: string;
-
-  @IsString()
-  @IsOptional()
-  public PAYMOB_BASE_URL?: string;
-
-  @IsIn(['test', 'live'])
-  @IsOptional()
-  public PAYMOB_EXPECTED_MODE?: 'test' | 'live';
+  public EASYKASH_CASH_EXPIRY_HOURS?: string;
 
   /** Trusted provider capture time may arrive shortly after local expiry. */
   @IsNumber()
@@ -791,7 +831,9 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   validateTlsBackends(config);
   validateProductionPublicOrigins(config);
   validateAwsRuntimeProfile(config);
-  validatePaymobBaseUrl(validatedConfig.PAYMOB_BASE_URL);
+  validateEasyKashBaseUrl(validatedConfig.EASYKASH_API_BASE_URL);
+  validateEasyKashPaymentOptions(validatedConfig.EASYKASH_PAYMENT_OPTIONS);
+  validateEasyKashConfiguration(config);
   if (validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY) {
     try {
       decodeSecretBoxKey(validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY);
@@ -821,25 +863,6 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
           `Environment validation failed: ${key} must be explicitly configured in production.`,
         );
       }
-    }
-    // Paymob live-mode is required for a genuine production deployment. Staging
-    // also runs NODE_ENV=production (it needs every protection that flag turns
-    // on), so this must key on deployment IDENTITY, not on NODE_ENV alone —
-    // otherwise staging could never use sandbox credentials.
-    //
-    // This does not weaken production: with APP_ENV unset or `production` the
-    // rule is byte-for-byte what it was. The only branch it opens is
-    // APP_ENV=staging, where the isolation guard below then REQUIRES
-    // PAYMOB_EXPECTED_MODE=test. Every deployment therefore ends up with a
-    // stricter, explicitly-stated mode than before.
-    if (
-      appEnv !== AppEnvironment.Staging &&
-      validatedConfig.PAYMOB_API_KEY &&
-      validatedConfig.PAYMOB_EXPECTED_MODE !== 'live'
-    ) {
-      throw new Error(
-        'Environment validation failed: production Paymob must explicitly use PAYMOB_EXPECTED_MODE=live.',
-      );
     }
   }
 

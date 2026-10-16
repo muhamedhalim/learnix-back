@@ -93,9 +93,8 @@ const FINGERPRINTED_SECRETS: readonly string[] = Object.freeze([
   // on-call channel with staging noise.
   'ALERT_WEBHOOK_URL',
   'BULL_BOARD_PASSWORD',
-  'PAYMOB_API_KEY',
-  'PAYMOB_SECRET_KEY',
-  'PAYMOB_WEBHOOK_SECRET',
+  'EASYKASH_API_KEY',
+  'EASYKASH_HMAC_SECRET',
   'MAILERSEND_API_KEY',
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY',
@@ -385,44 +384,20 @@ function checkStorage(context: RuleContext): void {
 }
 
 function checkPayments(context: RuleContext): void {
-  const configured = (context.get('PAYMOB_API_KEY') ?? '').trim() !== '';
-  const mode = (context.get('PAYMOB_EXPECTED_MODE') ?? '').trim().toLowerCase();
-
-  if (configured && mode !== 'test') {
-    deny(context, {
-      code: 'STAGING_PAYMENT_MODE_NOT_TEST',
-      rule: 'structural',
-      variable: 'PAYMOB_EXPECTED_MODE',
-      message:
-        'must be exactly "test" when Paymob credentials are configured on staging. ' +
-        `Received "${mode === '' ? '<unset>' : mode}". Without this, paymob.gateway.ts treats the ` +
-        'deployment as live and real charges become possible.',
-    });
+  // EasyKash documents no sandbox or test mode: any credential used here would
+  // move real money, so staging must run with the gateway unconfigured.
+  for (const variable of ['EASYKASH_API_KEY', 'EASYKASH_HMAC_SECRET']) {
+    if ((context.get(variable) ?? '').trim() !== '') {
+      deny(context, {
+        code: 'STAGING_PAYMENT_CREDENTIALS_SET',
+        rule: 'structural',
+        variable,
+        message:
+          'must be unset on staging. EasyKash has no documented test mode, so these credentials ' +
+          'would allow genuinely live charges. Leave the gateway unconfigured on staging.',
+      });
+    }
   }
-
-  // PAYMOB_EXPECTED_MODE is this application's OWN belief about the
-  // transaction; whether a transaction is actually live-money or sandbox is
-  // decided by Paymob, keyed off which INTEGRATION reference this deployment
-  // submits. A staging box using Production's real card-integration or
-  // iframe ID would submit genuinely live-capable transactions to Paymob
-  // regardless of what PAYMOB_EXPECTED_MODE says — `assertProviderMode`
-  // would only notice (and reject) the mismatch *after* Paymob has already
-  // processed it. These identifiers must therefore be checked independently
-  // of the mode flag, the same way a bucket or video-library ID is.
-  assertNotProductionIdentifier(
-    context,
-    'PAYMOB_CARD_INTEGRATION_ID',
-    'STAGING_PRODUCTION_PAYMENT_INTEGRATION',
-    "Use the TEST merchant account's own card-integration ID. Reusing the production " +
-      'integration ID lets Paymob process a genuinely live-capable transaction no matter what ' +
-      'PAYMOB_EXPECTED_MODE says.',
-  );
-  assertNotProductionIdentifier(
-    context,
-    'PAYMOB_IFRAME_ID',
-    'STAGING_PRODUCTION_PAYMENT_INTEGRATION',
-    "Use the TEST merchant account's own iframe ID, for the same reason as the card-integration ID.",
-  );
 }
 
 function checkWebhooksAndOrigins(context: RuleContext): void {
@@ -574,21 +549,10 @@ function checkSecretFingerprints(context: RuleContext): void {
 /**
  * The inverse guard: staging-shaped configuration must never reach production.
  * These are additive and cannot break the currently-deployed service, because
- * every variable they inspect is either already required to hold the opposite
- * value (`PAYMOB_EXPECTED_MODE`, enforced by `env.validation.ts`) or is newly
- * introduced by this phase and therefore unset in production today.
+ * every variable they inspect is newly introduced and therefore unset in
+ * production today.
  */
 function checkProductionMirror(context: RuleContext): void {
-  const mode = (context.get('PAYMOB_EXPECTED_MODE') ?? '').trim().toLowerCase();
-  if (mode === 'test') {
-    deny(context, {
-      code: 'PRODUCTION_PAYMENT_MODE_IS_TEST',
-      rule: 'structural',
-      variable: 'PAYMOB_EXPECTED_MODE',
-      message: 'is "test" on a production deployment. Real payments would not be processed.',
-    });
-  }
-
   if (parseList(context.get('MAIL_ALLOWLIST')).length > 0) {
     deny(context, {
       code: 'PRODUCTION_MAIL_ALLOWLIST_SET',

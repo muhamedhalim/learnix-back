@@ -16,7 +16,11 @@ import type { Cache } from 'cache-manager';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
-import { buildAbsoluteUrl, getConfiguredPublicOrigin, parsePublicOrigin } from '../../config/public-url.util';
+import {
+  buildAbsoluteUrl,
+  getConfiguredPublicOrigin,
+  parsePublicOrigin,
+} from '../../config/public-url.util';
 import { MeetingProvider } from '../entities/meeting-provider.enum';
 import { TeacherMeetingAccount } from '../entities/teacher-meeting-account.entity';
 import { TeacherMeetingAccountStatus } from '../entities/teacher-meeting-account-status.enum';
@@ -74,23 +78,37 @@ export class MeetingAccountsService {
   private verifyState(token: string): OAuthStatePayload {
     const [body, signature] = token.split('.');
     if (!body || !signature) {
-      throw new BadRequestException(biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'));
+      throw new BadRequestException(
+        biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'),
+      );
     }
-    const expectedSignature = createHmac('sha256', this.stateSecret()).update(body).digest('base64url');
+    const expectedSignature = createHmac('sha256', this.stateSecret())
+      .update(body)
+      .digest('base64url');
     const signatureBuffer = Buffer.from(signature);
     const expectedBuffer = Buffer.from(expectedSignature);
-    if (signatureBuffer.length !== expectedBuffer.length || !timingSafeEqual(signatureBuffer, expectedBuffer)) {
-      throw new BadRequestException(biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'));
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
+      throw new BadRequestException(
+        biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'),
+      );
     }
     let payload: OAuthStatePayload;
     try {
       payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as OAuthStatePayload;
     } catch {
-      throw new BadRequestException(biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'));
+      throw new BadRequestException(
+        biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'),
+      );
     }
     if (payload.exp < Date.now()) {
       throw new BadRequestException(
-        biBody('This connection request has expired — please try again', 'انتهت صلاحية طلب الربط — حاول مرة أخرى'),
+        biBody(
+          'This connection request has expired — please try again',
+          'انتهت صلاحية طلب الربط — حاول مرة أخرى',
+        ),
       );
     }
     return payload;
@@ -98,7 +116,7 @@ export class MeetingAccountsService {
 
   /**
    * Config only, never a request parameter (R-9 SSRF hardening — mirrors
-   * `validatePaymobBaseUrl`/`public-url.util.ts`). `MEETING_OAUTH_REDIRECT_BASE_URL`
+   * `validateEasyKashBaseUrl`/`public-url.util.ts`). `MEETING_OAUTH_REDIRECT_BASE_URL`
    * is optional but, when set, is validated exactly like every other public
    * origin (`parsePublicOrigin`) rather than concatenated raw, so a malformed
    * value fails at the OAuth handshake instead of quietly producing a broken
@@ -190,27 +208,27 @@ export class MeetingAccountsService {
   public async list(teacherId: string): Promise<MeetingAccountSummary[]> {
     const accounts = await this.accounts.find({ where: { teacher_id: teacherId } });
     const byProvider = new Map(accounts.map((account) => [account.provider, account]));
-    return this.registry
-      .list()
-      .map((entry) => {
-        const account = byProvider.get(entry.provider);
-        return account
-          ? this.toSummary(account)
-          : {
-              provider: entry.provider,
-              connected: false,
-              status: null,
-              accountEmail: null,
-              displayName: null,
-              lastVerifiedAt: null,
-            };
-      });
+    return this.registry.list().map((entry) => {
+      const account = byProvider.get(entry.provider);
+      return account
+        ? this.toSummary(account)
+        : {
+            provider: entry.provider,
+            connected: false,
+            status: null,
+            accountEmail: null,
+            displayName: null,
+            lastVerifiedAt: null,
+          };
+    });
   }
 
   public async disconnect(teacherId: string, provider: MeetingProvider): Promise<void> {
     const account = await this.accounts.findOne({ where: { teacher_id: teacherId, provider } });
     if (!account) {
-      throw new NotFoundException(biBody('No connected account for this provider', 'لا يوجد حساب مرتبط لهذا المزود'));
+      throw new NotFoundException(
+        biBody('No connected account for this provider', 'لا يوجد حساب مرتبط لهذا المزود'),
+      );
     }
     const client = this.registry.find(provider);
     if (client && account.access_token_encrypted) {
@@ -241,7 +259,8 @@ export class MeetingAccountsService {
     const account = await this.accounts.findOne({ where: { teacher_id: teacherId, provider } });
     if (!account || account.status !== TeacherMeetingAccountStatus.CONNECTED) return null;
 
-    const expiringSoon = account.token_expires_at && account.token_expires_at.getTime() - Date.now() < 60_000;
+    const expiringSoon =
+      account.token_expires_at && account.token_expires_at.getTime() - Date.now() < 60_000;
     if (!expiringSoon) return account;
 
     const client = this.registry.find(provider);

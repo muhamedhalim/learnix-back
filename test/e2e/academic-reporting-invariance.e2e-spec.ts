@@ -91,7 +91,7 @@ describe('academic reporting invariance — report figures never move when marke
         refunded_amount_minor: 0,
         currency: 'EGP',
         payment_channel: PaymentChannel.GATEWAY,
-        payment_method: 'paymob',
+        payment_method: 'easykash',
         status: OrderStatus.PAID,
         discount_code_id: null,
         activation_code_id: null,
@@ -248,9 +248,9 @@ describe('academic reporting invariance — report figures never move when marke
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-repinv-${order.id}`,
-        paymob_order_id: `provider-repinv-${order.id}`,
+        provider_order_reference: `provider-repinv-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -259,10 +259,10 @@ describe('academic reporting invariance — report figures never move when marke
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `repinv-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `repinv-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,

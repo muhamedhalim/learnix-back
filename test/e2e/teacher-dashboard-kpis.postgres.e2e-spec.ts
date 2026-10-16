@@ -124,7 +124,9 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
       revenue: Number.parseFloat(paidRevenue?.total ?? '0'),
       revenueThisMonth: Number.parseFloat(monthRevenue?.total ?? '0'),
       averageRating:
-        ratings?.average == null ? null : Math.round(Number.parseFloat(ratings.average) * 100) / 100,
+        ratings?.average == null
+          ? null
+          : Math.round(Number.parseFloat(ratings.average) * 100) / 100,
       totalReviews: Number.parseInt(ratings?.count ?? '0', 10),
       engagementViews: await engagementQuery.getCount(),
     };
@@ -234,8 +236,8 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
         provider_reference: `kpi-${ref}`,
         status: options.paymentStatus ?? PaymentStatus.COMPLETED,
         payment_method: PaymentMethod.CARD,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: `kpi-${ref}`,
         failure_reason: null,
         completed_at: null,
@@ -269,19 +271,23 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
     const foreign = await lesson(other.id, subject.id, 'foreign');
     await ds().getRepository(Lesson).softDelete({ id: gone.id });
 
-    await ds().getRepository(Book).save(
-      ds().getRepository(Book).create({
-        title: 'KPI book',
-        title_ar: 'كتاب',
-        description: null,
-        description_ar: null,
-        teacher_id: teacher.id,
-        subject_id: subject.id,
-        cover_image: null,
-        book_file: 'k/book.pdf',
-        price: 10,
-      } as never),
-    );
+    await ds()
+      .getRepository(Book)
+      .save(
+        ds()
+          .getRepository(Book)
+          .create({
+            title: 'KPI book',
+            title_ar: 'كتاب',
+            description: null,
+            description_ar: null,
+            teacher_id: teacher.id,
+            subject_id: subject.id,
+            cover_image: null,
+            book_file: 'k/book.pdf',
+            price: 10,
+          } as never),
+      );
 
     const reviews = ds().getRepository(LessonReview);
     const review = (l: Lesson, st: User, rating: number, status: ReviewStatus, at: Date) =>
@@ -384,7 +390,10 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
 
   /** The previous implementation's output with only the revenue fields redefined (T116). */
   async function expectedDashboard(teacherId: string, from?: Date, to?: Date) {
-    return { ...(await legacy(teacherId, from, to)), ...(await settledRevenue(teacherId, from, to)) };
+    return {
+      ...(await legacy(teacherId, from, to)),
+      ...(await settledRevenue(teacherId, from, to)),
+    };
   }
 
   async function fresh(teacherId: string, from?: Date, to?: Date) {
@@ -420,7 +429,9 @@ describe('Teacher dashboard KPIs (parity, postgres)', () => {
     const { teacher, now, lastMonth } = await seed();
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const to = new Date(now.getTime() + 60_000);
-    expect(await fresh(teacher.id, from, to)).toEqual(await expectedDashboard(teacher.id, from, to));
+    expect(await fresh(teacher.id, from, to)).toEqual(
+      await expectedDashboard(teacher.id, from, to),
+    );
     const narrow = new Date(lastMonth.getTime() + 24 * 3_600_000);
     expect(await fresh(teacher.id, narrow, to)).toEqual(
       await expectedDashboard(teacher.id, narrow, to),

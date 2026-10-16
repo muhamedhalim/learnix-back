@@ -73,7 +73,7 @@ describe('payment recovery PostgreSQL guarantees', () => {
     const [event] = (await dataSource.query(
       `INSERT INTO gateway_webhook_events
        (provider, provider_event_id, status, payload)
-       VALUES ('paymob', 'pg-lock-event', 'received', '{}'::jsonb)
+       VALUES ('easykash', 'pg-lock-event', 'received', '{}'::jsonb)
        RETURNING id`,
     )) as Array<{ id: string }>;
     expect(event).toBeDefined();
@@ -192,6 +192,8 @@ describe('payment recovery PostgreSQL guarantees', () => {
     const triggers = (await dataSource.query(`
       SELECT tgname FROM pg_trigger WHERE tgrelid = 'teacher_settlement_entries'::regclass AND NOT tgisinternal
     `)) as Array<{ tgname: string }>;
-    expect(triggers.map((trigger) => trigger.tgname)).toContain('trg_enforce_teacher_settlement_allocation');
+    expect(triggers.map((trigger) => trigger.tgname)).toContain(
+      'trg_enforce_teacher_settlement_allocation',
+    );
   });
 });

@@ -188,7 +188,7 @@ export class PaymentFinalizationService {
     payment.channel = order.payment_channel;
     payment.provider_reference = input.sourceReference;
     if (order.payment_channel === PaymentChannel.GATEWAY) {
-      payment.paymob_transaction_id = input.sourceReference;
+      payment.provider_transaction_id = input.sourceReference;
     }
     await manager.save(Payment, payment);
 

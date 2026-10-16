@@ -19,6 +19,6 @@ output "data_subnet_ids" {
 }
 
 output "nat_public_ips" {
-  description = "Static egress addresses (allowlist these at Paymob/Meta if needed). Empty in staging."
+  description = "Static egress addresses (allowlist these at EasyKash/Meta if needed). Empty in staging."
   value       = aws_eip.nat[*].public_ip
 }

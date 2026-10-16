@@ -1,4 +1,4 @@
 fields @timestamp, context, level, message
-| filter context like /(?i)payment|paymob|webhook|refund|ledger/
+| filter context like /(?i)payment|easykash|paymob|webhook|refund|ledger/
 | sort @timestamp desc
 | limit 200

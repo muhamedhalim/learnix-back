@@ -47,16 +47,15 @@ Corroborating signals in the same file: `R2_BUCKET=learnix` and an `R2_PUBLIC_BA
 
 | #    | Variable                     | Used at                    | External service          | Rotation procedure                                                                                                                                                              | Restart needed |
 | ---- | ---------------------------- | -------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| S-01 | `PAYMOB_API_KEY`             | `paymob.gateway.ts:52`     | Paymob merchant dashboard | Settings → API keys → regenerate. Update Railway var.                                                                                                                           | Yes            |
-| S-02 | `PAYMOB_SECRET_KEY`          | `paymob.gateway.ts:53`     | Paymob                    | Same screen as S-01; rotate together                                                                                                                                            | Yes            |
-| S-03 | `PAYMOB_WEBHOOK_SECRET`      | `paymob.gateway.ts:56`     | Paymob                    | Integrations → callback HMAC → regenerate. **Update Railway var in the same maintenance window** — a mismatch causes every webhook to 401 (`payments-webhook.controller.ts:37`) | Yes            |
+| S-01 | `EASYKASH_API_KEY`           | `easykash.gateway.ts`      | EasyKash Integration Settings | Regenerate the API key (the red refresh button). Update the `<project>/production/easykash` secret and restart tasks. |
+| S-03 | `EASYKASH_HMAC_SECRET`      | `easykash.gateway.ts`      | EasyKash Integration Settings | Shown after saving the callback URL. **Update the secret in the same step**, then confirm a real callback returns `200`, not `401`. |
 | S-04 | `MAILERSEND_API_KEY`         | `mail.service.ts:85`       | MailerSend                | Domains → API tokens → create new, update Railway, then delete old. **Create-then-delete order matters** — deleting first drops queued mail                                     | Yes            |
 | S-05 | `TWILIO_AUTH_TOKEN`          | `sms.channel.ts`           | Twilio Console            | Account → Auth tokens → create secondary → promote → revoke primary                                                                                                             | Yes            |
 | S-06 | `META_WHATSAPP_ACCESS_TOKEN` | `whatsapp-meta.channel.ts` | Meta for Developers       | App → WhatsApp → API setup → regenerate permanent token                                                                                                                         | Yes            |
 | S-07 | `META_WHATSAPP_APP_SECRET`   | `env.validation.ts:101`    | Meta                      | App → Settings → Basic → App secret → reset. Verifies `X-Hub-Signature-256`                                                                                                     | Yes            |
 | S-08 | `META_WHATSAPP_VERIFY_TOKEN` | `env.validation.ts:106`    | Meta                      | Self-chosen value; set on both sides simultaneously                                                                                                                             | Yes            |
 
-> `PAYMOB_CARD_INTEGRATION_ID` and `PAYMOB_IFRAME_ID` are **identifiers, not secrets** — no rotation. Record them in the inventory instead.
+> Paymob was retired; its secrets no longer exist in application code. Revoke any remaining Paymob keys in the Paymob dashboard.
 
 ### P2 — authentication and data access
 
@@ -100,8 +99,8 @@ Tick each box in order. Do not batch P1 with P2.
 
 ### P1 — within 24h
 
-- [ ] **R-05** S-01 + S-02 Paymob API + secret key (together)
-- [ ] **R-06** S-03 Paymob webhook secret — **then immediately** send a Paymob test webhook and confirm a `200`, not `401`
+- [ ] **R-05** S-01 EasyKash API key
+- [ ] **R-06** S-03 EasyKash HMAC secret — **then immediately** confirm the next real callback is accepted (`200`), not rejected (`401`)
 - [ ] **R-07** S-04 MailerSend API key (create → update → verify a send → delete old)
 - [ ] **R-08** S-05 Twilio auth token
 - [ ] **R-09** S-06 + S-07 + S-08 Meta WhatsApp token, app secret, verify token
@@ -153,7 +152,7 @@ GET /api/v1/health/all      → all indicators "up"
 POST /api/v1/health/actions/test-email  → delivered
 ```
 
-Paymob: trigger a sandbox webhook and assert `200` (a `401` means `PAYMOB_WEBHOOK_SECRET` is out of sync — see `payments-webhook.controller.ts:37`).
+EasyKash: a `401` on `/payments/webhook` means `EASYKASH_HMAC_SECRET` is out of sync with the dashboard (`payments-webhook.controller.ts`).
 
 Auth: `POST /auth/login` → `POST /auth/refresh` → an authenticated `GET` → `POST /auth/logout`.
 

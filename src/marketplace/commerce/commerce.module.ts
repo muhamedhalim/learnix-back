@@ -11,7 +11,6 @@ import { MarketplaceCheckoutService } from './checkout.service';
 import { FreeEnrollmentController } from './controllers/free-enrollment.controller';
 import { LearnerCheckoutController } from './controllers/learner-checkout.controller';
 import { LearnerOrdersController } from './controllers/learner-orders.controller';
-import { MarketplaceWebhookController } from './controllers/marketplace-webhook.controller';
 import { EnrollmentService } from './enrollment.service';
 import { MarketplaceEnrollment, MarketplaceLessonProgress, MarketplaceOrder } from './entities';
 import { FreeEnrollmentService } from './free-enrollment.service';
@@ -36,7 +35,7 @@ import { MarketplaceSettlementService } from './settlement.service';
     EarningsModule,
     IdempotencyModule,
   ],
-  controllers: [LearnerCheckoutController, LearnerOrdersController, MarketplaceWebhookController, FreeEnrollmentController],
+  controllers: [LearnerCheckoutController, LearnerOrdersController, FreeEnrollmentController],
   providers: [
     MarketplaceOrderService,
     MarketplaceCheckoutService,

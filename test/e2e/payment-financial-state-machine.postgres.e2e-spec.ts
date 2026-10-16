@@ -145,7 +145,7 @@ describe('payment financial state machine (PostgreSQL)', () => {
         refunded_amount_minor: 0,
         currency: 'EGP',
         payment_channel: PaymentChannel.GATEWAY,
-        payment_method: 'paymob',
+        payment_method: 'easykash',
         status: OrderStatus.AWAITING_PAYMENT,
         discount_code_id: null,
         activation_code_id: null,
@@ -177,10 +177,10 @@ describe('payment financial state machine (PostgreSQL)', () => {
         amount_minor: 10_000,
         currency: 'EGP',
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: '555',
-        paymob_order_id: '555',
-        paymob_transaction_id: null,
+        provider_order_reference: '555',
+        provider_transaction_id: null,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: 'state-payment-key',
@@ -193,7 +193,7 @@ describe('payment financial state machine (PostgreSQL)', () => {
     const events = dataSource.getRepository(GatewayWebhookEvent);
     const event = await events.save(
       events.create({
-        provider: 'paymob',
+        provider: 'easykash',
         provider_event_id: 'state-event-1',
         payment_id: payment.id,
         status: 'processing',
@@ -215,7 +215,7 @@ describe('payment financial state machine (PostgreSQL)', () => {
   }
 
   const webhook = (outcome: ProviderWebhookEvent['outcome']): ProviderWebhookEvent => ({
-    provider: 'paymob',
+    provider: 'easykash',
     providerEventId: `provider-${outcome}`,
     merchantReference: 'unused',
     providerOrderReference: '555',
@@ -262,7 +262,7 @@ describe('payment financial state machine (PostgreSQL)', () => {
     amountMinor: payment.amount_minor,
     currency: payment.currency,
     occurredAt: new Date(),
-    providerOrderReference: payment.paymob_order_id ?? payment.provider_reference!,
+    providerOrderReference: payment.provider_order_reference ?? payment.provider_reference!,
     merchantReference: payment.id,
     refundedAmountMinor: status === 'refunded' ? payment.amount_minor : 0,
     isLive: false,
@@ -610,7 +610,7 @@ describe('payment financial state machine (PostgreSQL)', () => {
     const { payment } = await fixture();
     const event = await dataSource.getRepository(GatewayWebhookEvent).save(
       dataSource.getRepository(GatewayWebhookEvent).create({
-        provider: 'paymob',
+        provider: 'easykash',
         provider_event_id: 'heartbeat-event',
         payment_id: payment.id,
         status: 'processing',

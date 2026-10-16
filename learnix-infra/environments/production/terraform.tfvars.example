@@ -36,10 +36,12 @@ inject_vapid          = false
 inject_cloudfront_key = false
 # video_public_key_pem = "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
 extra_secrets = {
-  # PAYMOB_API_KEY = { secret = "paymob", key = "PAYMOB_API_KEY" }
+  # Production only. Fill <project>/production/easykash with {EASYKASH_API_KEY, EASYKASH_HMAC_SECRET} first.
+  # EASYKASH_API_KEY     = { secret = "easykash", key = "EASYKASH_API_KEY" }
+  # EASYKASH_HMAC_SECRET = { secret = "easykash", key = "EASYKASH_HMAC_SECRET" }
 }
 extra_environment = {
-  # PAYMOB_INTEGRATION_ID = "<id>"
+  # EASYKASH_CASH_EXPIRY_HOURS = "24"   # optional, 1-72
 }
 
 # --- SMS (null until AWS approves the Egypt sender ID) ---------------------------------------------------

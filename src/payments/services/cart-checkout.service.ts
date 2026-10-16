@@ -1,3 +1,4 @@
+import { gatewayOrderExpirationMinutes } from '../gateway-expiry';
 import { createHash, randomBytes } from 'node:crypto';
 
 import {
@@ -14,7 +15,10 @@ import { Cart } from '../../cart/entities/cart.entity';
 import { CartItem, CartItemType } from '../../cart/entities/cart-item.entity';
 import type { CheckoutCartDto } from '../../cart/dto';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
-import { CartDiscountQuote, DiscountCodesService } from '../../discount-codes/discount-codes.service';
+import {
+  CartDiscountQuote,
+  DiscountCodesService,
+} from '../../discount-codes/discount-codes.service';
 import { ApplicableItem } from '../../discount-codes/entities/applicable-item.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { EGP_CURRENCY, fromMinorUnits } from '../money.util';
@@ -88,7 +92,10 @@ export class CartCheckoutService {
     private readonly refunds: RefundsService,
   ) {}
 
-  public async checkout(studentId: string, dto: CheckoutCartDto): Promise<CartGatewayCheckoutResult> {
+  public async checkout(
+    studentId: string,
+    dto: CheckoutCartDto,
+  ): Promise<CartGatewayCheckoutResult> {
     const context = await this.createOrReuseCheckout(studentId, dto);
     if (context.checkout.status === CartCheckoutStatus.PAID) {
       return this.result(context.checkout, context.payment, context.orders, null);
@@ -127,16 +134,22 @@ export class CartCheckoutService {
       if (
         childOrders.some((order) => order.status !== OrderStatus.PAID || order.payment_id === null)
       ) {
-        throw new UnprocessableEntityException('Paid cart checkout has incomplete product fulfillment');
+        throw new UnprocessableEntityException(
+          'Paid cart checkout has incomplete product fulfillment',
+        );
       }
       return;
     }
     if (
-      ![CartCheckoutStatus.AWAITING_PAYMENT, CartCheckoutStatus.PAYMENT_PROCESSING, CartCheckoutStatus.EXPIRED].includes(
-        checkout.status,
-      )
+      ![
+        CartCheckoutStatus.AWAITING_PAYMENT,
+        CartCheckoutStatus.PAYMENT_PROCESSING,
+        CartCheckoutStatus.EXPIRED,
+      ].includes(checkout.status)
     ) {
-      throw new UnprocessableEntityException('Cart checkout cannot be finalized in its current state');
+      throw new UnprocessableEntityException(
+        'Cart checkout cannot be finalized in its current state',
+      );
     }
     this.assertGatewayCapture(checkout, payment, input);
 
@@ -144,14 +157,18 @@ export class CartCheckoutService {
     // cross-cart ordering prevents two mixed-teacher carts from deadlocking
     // by acquiring those advisory locks in opposite orders.
     const ordersForFinalization = [...childOrders].sort(
-      (left, right) => (left.teacher_id ?? '').localeCompare(right.teacher_id ?? '') || left.id.localeCompare(right.id),
+      (left, right) =>
+        (left.teacher_id ?? '').localeCompare(right.teacher_id ?? '') ||
+        left.id.localeCompare(right.id),
     );
     for (const order of ordersForFinalization) {
       if (![OrderStatus.AWAITING_PAYMENT, OrderStatus.EXPIRED].includes(order.status)) {
         throw new UnprocessableEntityException('Cart checkout has a non-payable product order');
       }
       if (order.payment_id !== null) {
-        throw new UnprocessableEntityException('Cart checkout product already has a payment allocation');
+        throw new UnprocessableEntityException(
+          'Cart checkout product already has a payment allocation',
+        );
       }
       const allocatedPayment = await manager.save(
         Payment,
@@ -171,8 +188,8 @@ export class CartCheckoutService {
           provider_reference: input.sourceReference,
           status: PaymentStatus.PROCESSING,
           payment_method: checkout.payment_method,
-          paymob_order_id: payment.paymob_order_id,
-          paymob_transaction_id: input.sourceReference,
+          provider_order_reference: payment.provider_order_reference,
+          provider_transaction_id: input.sourceReference,
           idempotency_key: `cart:${checkout.id}:order:${order.id}`,
           failure_reason: null,
           completed_at: null,
@@ -204,7 +221,7 @@ export class CartCheckoutService {
     payment.status = PaymentStatus.COMPLETED;
     payment.completed_at = new Date();
     payment.provider_reference = input.sourceReference;
-    payment.paymob_transaction_id = input.sourceReference;
+    payment.provider_transaction_id = input.sourceReference;
     await manager.save(Payment, payment);
     checkout.status = CartCheckoutStatus.PAID;
     checkout.paid_at = new Date();
@@ -215,7 +232,11 @@ export class CartCheckoutService {
     if (cartItemIds.length > 0) {
       await manager.delete(CartItem, { cart_id: checkout.cart_id, id: In(cartItemIds) });
     }
-    await manager.update(Cart, { id: checkout.cart_id }, { discount_code: null, discount_amount: 0 });
+    await manager.update(
+      Cart,
+      { id: checkout.cart_id },
+      { discount_code: null, discount_amount: 0 },
+    );
     await manager.insert(PaymentAuditLog, {
       actor_id: null,
       action: 'cart_checkout_finalized',
@@ -273,11 +294,16 @@ export class CartCheckoutService {
         details: { payment_id: payment.id, reason },
         ip_address: null,
       });
-      await this.insertEvent(manager, 'cart_checkout.failed', `cart-checkout:${checkout.id}:failed`, {
-        checkout_id: checkout.id,
-        payment_id: payment.id,
-        reason,
-      });
+      await this.insertEvent(
+        manager,
+        'cart_checkout.failed',
+        `cart-checkout:${checkout.id}:failed`,
+        {
+          checkout_id: checkout.id,
+          payment_id: payment.id,
+          reason,
+        },
+      );
       return true;
     });
   }
@@ -311,7 +337,9 @@ export class CartCheckoutService {
       throw new UnprocessableEntityException('Cart checkout payment does not match checkout');
     }
     if (currency.toUpperCase() !== checkout.currency.toUpperCase() || amountMinor <= 0) {
-      throw new UnprocessableEntityException('Provider refund does not match cart checkout currency');
+      throw new UnprocessableEntityException(
+        'Provider refund does not match cart checkout currency',
+      );
     }
     const orders = await manager.find(Order, {
       where: { cart_checkout_id: checkout.id },
@@ -411,7 +439,12 @@ export class CartCheckoutService {
       manager,
       'cart_checkout.fulfillment_compensation_required',
       `cart-checkout:${checkout.id}:fulfillment-compensation`,
-      { checkout_id: checkout.id, payment_id: payment.id, source_reference: sourceReference, reason },
+      {
+        checkout_id: checkout.id,
+        payment_id: payment.id,
+        source_reference: sourceReference,
+        reason,
+      },
     );
   }
 
@@ -461,9 +494,14 @@ export class CartCheckoutService {
           { cart_checkout_id: checkout.id, status: OrderStatus.AWAITING_PAYMENT },
           { status: OrderStatus.EXPIRED },
         );
-        await this.insertEvent(manager, 'cart_checkout.expired', `cart-checkout:${checkout.id}:expired`, {
-          checkout_id: checkout.id,
-        });
+        await this.insertEvent(
+          manager,
+          'cart_checkout.expired',
+          `cart-checkout:${checkout.id}:expired`,
+          {
+            checkout_id: checkout.id,
+          },
+        );
         return true;
       });
       if (changed) expired += 1;
@@ -471,7 +509,10 @@ export class CartCheckoutService {
     return expired;
   }
 
-  private async createOrReuseCheckout(studentId: string, dto: CheckoutCartDto): Promise<CheckoutContext> {
+  private async createOrReuseCheckout(
+    studentId: string,
+    dto: CheckoutCartDto,
+  ): Promise<CheckoutContext> {
     return retryTransaction(this.dataSource, async (manager) => {
       if (dto.idempotency_key) {
         const replay = await manager.findOne(CartCheckout, {
@@ -537,7 +578,8 @@ export class CartCheckoutService {
         );
       }
       for (const product of products) {
-        const allocated = product.priceMinor - (discount.allocations_minor[product.cartItemId] ?? 0);
+        const allocated =
+          product.priceMinor - (discount.allocations_minor[product.cartItemId] ?? 0);
         if (!Number.isSafeInteger(allocated) || allocated <= 0) {
           throw new BadRequestException(
             biBody(
@@ -549,7 +591,7 @@ export class CartCheckoutService {
       }
 
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + 60 * 60_000);
+      const expiresAt = new Date(now.getTime() + gatewayOrderExpirationMinutes() * 60_000);
       const checkout = await manager.save(
         CartCheckout,
         manager.create(CartCheckout, {
@@ -567,7 +609,8 @@ export class CartCheckoutService {
           discount_code_id: discount.discount_code_id,
           cart_snapshot: this.snapshot(products, discount, cartItems),
           idempotency_key:
-            dto.idempotency_key ?? `cart-${studentId}-${fingerprint}-${randomBytes(8).toString('hex')}`,
+            dto.idempotency_key ??
+            `cart-${studentId}-${fingerprint}-${randomBytes(8).toString('hex')}`,
           failure_reason: null,
           expires_at: expiresAt,
           paid_at: null,
@@ -593,8 +636,8 @@ export class CartCheckoutService {
           provider_reference: null,
           status: PaymentStatus.PENDING,
           payment_method: dto.payment_method,
-          paymob_order_id: null,
-          paymob_transaction_id: null,
+          provider_order_reference: null,
+          provider_transaction_id: null,
           idempotency_key: `cart-payment:${checkout.id}`,
           failure_reason: null,
           completed_at: null,
@@ -660,7 +703,8 @@ export class CartCheckoutService {
         where: { cart_checkout_id: checkout.id },
         order: { created_at: 'ASC', id: 'ASC' },
       });
-      if (checkout.status === CartCheckoutStatus.PAID) return { checkout, payment, orders, reference: null };
+      if (checkout.status === CartCheckoutStatus.PAID)
+        return { checkout, payment, orders, reference: null };
       if (
         ![CartCheckoutStatus.AWAITING_PAYMENT, CartCheckoutStatus.PAYMENT_PROCESSING].includes(
           checkout.status,
@@ -671,8 +715,8 @@ export class CartCheckoutService {
           biBody('Cart checkout is no longer payable', 'لم تعد عملية الدفع من السلة متاحة'),
         );
       }
-      if (payment.paymob_order_id !== null) {
-        return { checkout, payment, orders, reference: payment.paymob_order_id };
+      if (payment.provider_order_reference !== null) {
+        return { checkout, payment, orders, reference: payment.provider_order_reference };
       }
       if (payment.status === PaymentStatus.PROCESSING) {
         throw new ConflictException(
@@ -681,7 +725,10 @@ export class CartCheckoutService {
       }
       if (![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status)) {
         throw new ConflictException(
-          biBody('Payment cannot be started in its current state', 'لا يمكن بدء الدفع في حالته الحالية'),
+          biBody(
+            'Payment cannot be started in its current state',
+            'لا يمكن بدء الدفع في حالته الحالية',
+          ),
         );
       }
       payment.status = PaymentStatus.PROCESSING;
@@ -703,6 +750,7 @@ export class CartCheckoutService {
       amountMinor: claimed.checkout.final_amount_minor,
       currency: claimed.checkout.currency,
       billingData: dto.billing_data,
+      ...(claimed.checkout.expires_at ? { expiresAt: claimed.checkout.expires_at } : {}),
     };
     let providerReference = claimed.reference;
     if (!providerReference) {
@@ -720,12 +768,12 @@ export class CartCheckoutService {
         if (!payment || payment.cart_checkout_id !== checkout.id) {
           throw new UnprocessableEntityException('Cart checkout payment is invalid');
         }
-        if (payment.paymob_order_id !== null) return payment.paymob_order_id;
+        if (payment.provider_order_reference !== null) return payment.provider_order_reference;
         if (payment.status !== PaymentStatus.PROCESSING) {
           throw new ConflictException('Payment cannot be started in its current state');
         }
         payment.provider_reference = createdReference;
-        payment.paymob_order_id = createdReference;
+        payment.provider_order_reference = createdReference;
         await manager.save(Payment, payment);
         return createdReference;
       });
@@ -802,8 +850,12 @@ export class CartCheckoutService {
     return orders;
   }
 
-  private async loadContext(manager: EntityManager, checkout: CartCheckout): Promise<CheckoutContext> {
-    if (!checkout.payment_id) throw new UnprocessableEntityException('Cart checkout is missing payment');
+  private async loadContext(
+    manager: EntityManager,
+    checkout: CartCheckout,
+  ): Promise<CheckoutContext> {
+    if (!checkout.payment_id)
+      throw new UnprocessableEntityException('Cart checkout is missing payment');
     const payment = await manager.findOne(Payment, { where: { id: checkout.payment_id } });
     if (!payment || payment.cart_checkout_id !== checkout.id || payment.order_id !== null) {
       throw new UnprocessableEntityException('Cart checkout payment is invalid');
@@ -830,13 +882,17 @@ export class CartCheckoutService {
     }
     if (checkout.status === CartCheckoutStatus.EXPIRED) {
       if (!input.verifiedOccurredAt || !checkout.expires_at) {
-        throw new UnprocessableEntityException('Expired cart checkout requires a verified capture time');
+        throw new UnprocessableEntityException(
+          'Expired cart checkout requires a verified capture time',
+        );
       }
       // The per-order finalizer applies the configured grace window too. This
       // guard only rules out a clearly late aggregate capture before child
       // payments are allocated.
       if (input.verifiedOccurredAt.getTime() > checkout.expires_at.getTime() + 300_000) {
-        throw new UnprocessableEntityException('Gateway capture occurred after cart checkout expiry');
+        throw new UnprocessableEntityException(
+          'Gateway capture occurred after cart checkout expiry',
+        );
       }
     }
   }

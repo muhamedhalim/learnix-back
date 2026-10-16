@@ -68,7 +68,9 @@ export class MarketplaceCheckoutService {
       throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
     }
     if (order.status !== MarketplaceOrderStatus.AWAITING_PAYMENT) {
-      throw new ConflictException(biBody('This order is not awaiting payment', 'هذا الطلب ليس بانتظار الدفع'));
+      throw new ConflictException(
+        biBody('This order is not awaiting payment', 'هذا الطلب ليس بانتظار الدفع'),
+      );
     }
 
     let payment = await this.payments.findOne({
@@ -103,10 +105,10 @@ export class MarketplaceCheckoutService {
       billingData,
     };
 
-    let providerReference = payment.paymob_order_id;
+    let providerReference = payment.provider_order_reference;
     if (!providerReference) {
       providerReference = await this.gateway.createCheckoutOrder(checkoutInput);
-      payment.paymob_order_id = providerReference;
+      payment.provider_order_reference = providerReference;
       payment.provider_reference = providerReference;
       payment.status = PaymentStatus.PROCESSING;
       await this.payments.save(payment);

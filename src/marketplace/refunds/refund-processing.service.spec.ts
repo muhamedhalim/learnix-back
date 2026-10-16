@@ -98,7 +98,7 @@ function defaultEarning(overrides: Record<string, unknown> = {}): InstructorEarn
 function defaultPayment(overrides: Record<string, unknown> = {}): Payment {
   return {
     id: 'payment-1',
-    provider: 'paymob',
+    provider: 'easykash',
     provider_reference: '123456',
     ...overrides,
   } as Payment;

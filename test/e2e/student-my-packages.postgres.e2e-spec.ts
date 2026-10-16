@@ -152,8 +152,8 @@ describe('Student my-packages (postgres)', () => {
         provider_reference: `smp-${String(seq)}`,
         status: PaymentStatus.COMPLETED,
         payment_method: PaymentMethod.MANUAL,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: `smp-${String(seq)}-${randomUUID()}`,
         failure_reason: null,
         completed_at: new Date(),
@@ -251,7 +251,12 @@ describe('Student my-packages (postgres)', () => {
       .query({ page: 1, limit: 20 })
       .expect(200);
     expect(first.body.data).toHaveLength(20);
-    expect(first.body.meta).toMatchObject({ total: 25, limit: 20, totalPages: 2, hasNextPage: true });
+    expect(first.body.meta).toMatchObject({
+      total: 25,
+      limit: 20,
+      totalPages: 2,
+      hasNextPage: true,
+    });
     const second = await student.agent
       .get(`${API_PREFIX}/payments/my-packages`)
       .query({ page: 2, limit: 20 })

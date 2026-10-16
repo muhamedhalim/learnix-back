@@ -236,9 +236,7 @@ export class GatewayWebhookService {
         event.next_retry_at = null;
         await manager.save(event);
       }
-      return candidates
-        .filter((event) => event.status === 'received')
-        .map((event) => event.id);
+      return candidates.filter((event) => event.status === 'received').map((event) => event.id);
     });
     for (const id of eventIds) {
       const event = await this.events.findOne({ where: { id } });
@@ -323,7 +321,7 @@ export class GatewayWebhookService {
     if (payment.provider !== webhook.provider) {
       throw new BadRequestException('Webhook provider does not match payment provider');
     }
-    const checkoutOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+    const checkoutOrderReference = payment.provider_order_reference ?? payment.provider_reference;
     if (
       checkoutOrderReference !== null &&
       checkoutOrderReference !== webhook.providerOrderReference

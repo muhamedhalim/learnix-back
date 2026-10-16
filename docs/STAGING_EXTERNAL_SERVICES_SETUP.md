@@ -1,4 +1,4 @@
-# Staging External Services Setup — Mail, SMS/WhatsApp, Firebase, Paymob, Webhooks, Sentry
+# Staging External Services Setup — Mail, SMS/WhatsApp, Firebase, EasyKash, Webhooks, Sentry
 
 > **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
 
@@ -60,36 +60,18 @@ therefore nothing to sandbox for push: it does not exist. What IS relevant is th
 **separate Firebase project**, so an ID token minted by the production app cannot authenticate
 against staging (`FIREBASE_PROJECT_ID`, now checked by the isolation guard — see §5).
 
-## 4. Paymob
+## 4. EasyKash (payment gateway)
 
-Already fail-fast at boot, from Phase 0/1/2: `PAYMOB_EXPECTED_MODE` must be `test` on staging
-whenever `PAYMOB_API_KEY` is configured (`STAGING_PAYMENT_MODE_NOT_TEST`), and
-`PAYMOB_API_KEY`/`PAYMOB_SECRET_KEY`/`PAYMOB_WEBHOOK_SECRET` are all in the secret-fingerprint
-denylist (`STAGING_PRODUCTION_SECRET_REUSED`).
+EasyKash documents **no sandbox or test mode**, so staging must run with the gateway
+**unconfigured**: the isolation guard refuses `EASYKASH_API_KEY` / `EASYKASH_HMAC_SECRET` on staging
+(`STAGING_PAYMENT_CREDENTIALS_SET`), and both are in the secret-fingerprint denylist
+(`STAGING_PRODUCTION_SECRET_REUSED`). Checkout therefore reports "payment service unavailable" on
+staging. Payment logic is exercised with mocked EasyKash responses and signed callbacks only
+(`easykash.gateway.spec.ts`, `test/e2e/easykash-callback.postgres.e2e-spec.ts`). See
+`docs/EASYKASH_SETUP.md` for the production merchant configuration.
 
-**Gap found and closed this phase:** `PAYMOB_EXPECTED_MODE` is this application's OWN belief about
-a transaction; whether Paymob actually treats it as real money is decided by which **integration
-reference** is submitted. A staging deployment reusing production's real
-`PAYMOB_CARD_INTEGRATION_ID` or `PAYMOB_IFRAME_ID` would let Paymob process a genuinely
-live-capable transaction regardless of what `PAYMOB_EXPECTED_MODE` says —
-`PaymobGateway.assertProviderMode()` would only notice the mismatch _after_ Paymob already
-processed it. Both are now checked against the identifier denylist
-(`STAGING_PRODUCTION_PAYMENT_INTEGRATION`), the same mechanism already used for `R2_BUCKET` and
-`BUNNY_STREAM_LIBRARY_ID`.
-
-**Webhook signature testing with fake data:** already thoroughly covered before this phase —
-`paymob.gateway.spec.ts`'s "rejects forged, tampered, unsigned, and wrong-integration callbacks"
-test constructs fake HMAC signatures and confirms `verifyWebhook()` rejects every one of them.
-Nothing new needed here; verified, not re-built.
-
-**Duplicate delivery / replay:** already covered — `gateway-webhook.service.spec.ts`'s "processes
-a successful callback once and deduplicates the exact retry" and "claims a concurrent webhook
-replay before any second financial side effect" tests exercise the real idempotency-key mechanism
-(a `(provider, provider_event_id)` unique constraint), not a mock.
-
-**Fake payments in the seed:** already true, verified against the actual code — `seed-staging.ts`'s
-commerce section uses `provider_reference: 'sandbox-ref-...'`, a synthetic string that corresponds
-to no real Paymob transaction and never calls the gateway at all.
+**Fake payments in the seed:** `seed-staging.ts` uses synthetic `sandbox-ref-...` references that
+correspond to no real transaction and never call the gateway.
 
 ## 5. WhatsApp webhook — new test coverage
 
@@ -113,11 +95,11 @@ token/mode and rejects every incorrect combination, including an unconfigured ve
 
 | Requirement (from the Phase 3 brief)                               | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Separate URLs and secrets per environment                          | Achieved structurally: `PAYMOB_WEBHOOK_SECRET` and `META_WHATSAPP_APP_SECRET` are both in the secret-fingerprint denylist, and the callback/return URLs are built from `FRONTEND_URL`/`BACKEND_URL`, both already checked against the production-host denylist                                                                                                                                                                                                                                                          |
+| Separate URLs and secrets per environment                          | Achieved structurally: `EASYKASH_HMAC_SECRET` and `META_WHATSAPP_APP_SECRET` are both in the secret-fingerprint denylist, and the callback/return URLs are built from `FRONTEND_URL`/`BACKEND_URL`, both already checked against the production-host denylist                                                                                                                                                                                                                                                          |
 | Prevent staging from accepting production webhook secrets          | Same fingerprint check — tested in `environment-isolation.guard.spec.ts`'s "production webhook secrets" describe block                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Prevent replay between environments                                | Achieved by construction, not by a new mechanism: a webhook signed with production's secret will fail signature verification on staging (different `PAYMOB_WEBHOOK_SECRET`/`META_WHATSAPP_APP_SECRET`), and vice versa. A production-signed payload literally cannot be replayed into staging without staging's own secret matching it                                                                                                                                                                                  |
 | Add an environment marker to each event when metadata is available | **Deliberately not added.** This would require a new `environment` column on `gateway_webhook_events` and a migration. Given the row above — cross-environment replay is already structurally impossible because the signatures themselves differ per environment — a marker column would be a second, redundant control for a risk the signature check already closes, not a new safety property. Flagged here as a considered-and-rejected item, matching Phase 2's own pattern of recording deliberate non-additions |
-| Test duplicate delivery and invalid signatures                     | Paymob: existing tests (§4). WhatsApp: new tests (§5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Test duplicate delivery and invalid signatures                     | EasyKash: `easykash.gateway.spec.ts` (§4). WhatsApp: new tests (§5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Review DLQ and replay jobs                                         | `GatewayWebhookService.recoverStaleEvents()` (the webhook-replay cron) is already gated by `FEATURE_FLAGS.WEBHOOK_REPLAY` from Phase 0; `replayDeadLetter()` exists but has no controller endpoint (manual-only, invoked from nowhere in `src/`) — noted, not changed, since building an admin endpoint for it is new feature work outside this phase's isolation scope                                                                                                                                                 |
 
 ## 7. Sentry / analytics
@@ -128,7 +110,7 @@ still correct.
 
 ## 8. What this phase does NOT do
 
-- Does not create any external account/resource (MailerSend staging key, Paymob test merchant,
+- Does not create any external account/resource (MailerSend staging key, EasyKash merchant,
   Meta test number, Firebase staging project) — no dashboard access from this environment. See
   `docs/PHASE_3_DASHBOARD_CHECKLIST.md`.
 - Does not implement push notifications in any form — none exist in this codebase to isolate.
