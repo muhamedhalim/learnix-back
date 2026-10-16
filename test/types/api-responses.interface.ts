@@ -99,7 +99,7 @@ export interface PaymentResponse {
   currency: string;
   payment_status: PaymentStatus;
   payment_method: string;
-  paymob_transaction_id?: string | null;
+  provider_transaction_id?: string | null;
   order_id?: string | null;
   created_at: string | Date;
   updated_at: string | Date;

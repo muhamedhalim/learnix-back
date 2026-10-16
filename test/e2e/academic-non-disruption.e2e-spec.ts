@@ -6,7 +6,11 @@ import request from 'supertest';
 
 import { MarketplaceCategory } from '../../src/marketplace/catalog/entities';
 import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/commerce/entities';
-import { InstructorEarningStatus, LessonContentType, PayoutRequestStatus } from '../../src/marketplace/common/enums';
+import {
+  InstructorEarningStatus,
+  LessonContentType,
+  PayoutRequestStatus,
+} from '../../src/marketplace/common/enums';
 import { ClearanceSweepService } from '../../src/marketplace/jobs/clearance.job';
 import { InstructorEarning } from '../../src/marketplace/earnings/entities/instructor-earning.entity';
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
@@ -20,7 +24,11 @@ import {
   SettlementStatus,
 } from '../../src/payments/entities';
 import { FinancialLedgerEntry } from '../../src/payments/entities/financial-ledger-entry.entity';
-import { LedgerDirection, LedgerEntryStatus, LedgerEntryType } from '../../src/payments/entities/ledger.enums';
+import {
+  LedgerDirection,
+  LedgerEntryStatus,
+  LedgerEntryType,
+} from '../../src/payments/entities/ledger.enums';
 import { Payment } from '../../src/payments/entities/payment.entity';
 import { PaymentMethod } from '../../src/payments/entities/payment-method.enum';
 import { PaymentStatus } from '../../src/payments/entities/payment-status.enum';
@@ -102,7 +110,9 @@ describe('academic non-disruption — the academic settlement journey is unaffec
 
   async function financeAdmin() {
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
-    await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
+    await dataSource
+      .getRepository(User)
+      .update({ id: admin.userId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
     return admin;
   }
 
@@ -138,7 +148,7 @@ describe('academic non-disruption — the academic settlement journey is unaffec
         refunded_amount_minor: 0,
         currency: 'EGP',
         payment_channel: PaymentChannel.GATEWAY,
-        payment_method: 'paymob',
+        payment_method: 'easykash',
         status: OrderStatus.PAID,
         discount_code_id: null,
         activation_code_id: null,
@@ -180,11 +190,19 @@ describe('academic non-disruption — the academic settlement journey is unaffec
 
     const createRes = await admin.agent
       .post(`${API_PREFIX}/admin/finance/settlements`)
-      .send({ teacher_id: teacher.id, idempotency_key: `nondisrupt-settle-${suffix}`, currency: 'EGP', payment_method: 'bank_transfer' })
+      .send({
+        teacher_id: teacher.id,
+        idempotency_key: `nondisrupt-settle-${suffix}`,
+        currency: 'EGP',
+        payment_method: 'bank_transfer',
+      })
       .expect(201);
     const settlementId = createRes.body.data.id as string;
 
-    await approvingAdmin.agent.post(`${API_PREFIX}/admin/finance/settlements/${settlementId}/approve`).send({}).expect(201);
+    await approvingAdmin.agent
+      .post(`${API_PREFIX}/admin/finance/settlements/${settlementId}/approve`)
+      .send({})
+      .expect(201);
     const paidRes = await payingAdmin.agent
       .post(`${API_PREFIX}/admin/finance/settlements/${settlementId}/pay`)
       // Deliberately the SAME literal reference for every run — this suite
@@ -199,7 +217,9 @@ describe('academic non-disruption — the academic settlement journey is unaffec
       .query({ teacher_id: teacher.id })
       .expect(200);
 
-    const finalSettlement = await dataSource.getRepository(Settlement).findOneByOrFail({ id: settlementId });
+    const finalSettlement = await dataSource
+      .getRepository(Settlement)
+      .findOneByOrFail({ id: settlementId });
     const finalOrder = await dataSource.getRepository(Order).findOneByOrFail({ id: order.id });
 
     return {
@@ -223,7 +243,9 @@ describe('academic non-disruption — the academic settlement journey is unaffec
       // are this run's own randomly-suffixed identity, never claimed to be
       // marketplace-sensitive, so comparing them would spuriously fail.
       teacherBalances: (() => {
-        const row = (balances.body.data as Array<Record<string, unknown>>).find((r) => r['currency'] === 'EGP');
+        const row = (balances.body.data as Array<Record<string, unknown>>).find(
+          (r) => r['currency'] === 'EGP',
+        );
         return {
           currency: row?.['currency'],
           available_minor: row?.['available_minor'],
@@ -238,7 +260,9 @@ describe('academic non-disruption — the academic settlement journey is unaffec
   /** A full, real marketplace course purchase → cleared earning → paid payout, for entirely unrelated users. */
   async function seedMarketplaceActivity(): Promise<void> {
     const instructorUser = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const marketplaceAdmin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     await dataSource
       .getRepository(User)
@@ -285,16 +309,27 @@ describe('academic non-disruption — the academic settlement journey is unaffec
         })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await marketplaceAdmin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await marketplaceAdmin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     const orderRes = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
       .set('Idempotency-Key', `noise-order-${Date.now()}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -307,9 +342,9 @@ describe('academic non-disruption — the academic settlement journey is unaffec
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-noise-${order.id}`,
-        paymob_order_id: `provider-noise-${order.id}`,
+        provider_order_reference: `provider-noise-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -318,10 +353,10 @@ describe('academic non-disruption — the academic settlement journey is unaffec
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `noise-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `noise-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -357,11 +392,21 @@ describe('academic non-disruption — the academic settlement journey is unaffec
     const requestRes = await instructorUser.agent
       .post(`${API_PREFIX}/marketplace/instructor/payouts`)
       .set('Idempotency-Key', `noise-payout-${Date.now()}`)
-      .send({ payout_account_id: accountRes.body.id, amount_minor: cleared.net_amount_minor, currency: 'EGP' })
+      .send({
+        payout_account_id: accountRes.body.id,
+        amount_minor: cleared.net_amount_minor,
+        currency: 'EGP',
+      })
       .expect(201);
     const requestId = requestRes.body.id as string;
-    await marketplaceAdmin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`).send({}).expect(201);
-    await marketplaceAdmin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`).send({}).expect(201);
+    await marketplaceAdmin.agent
+      .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`)
+      .send({})
+      .expect(201);
+    await marketplaceAdmin.agent
+      .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`)
+      .send({})
+      .expect(201);
     const paidPayout = await marketplaceAdmin.agent
       .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/paid`)
       .send({ payout_reference: 'TXN-NOISE-1' })

@@ -97,7 +97,7 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
         refunded_amount_minor: 0,
         currency: 'EGP',
         payment_channel: PaymentChannel.GATEWAY,
-        payment_method: 'paymob',
+        payment_method: 'easykash',
         status: OrderStatus.PAID,
         discount_code_id: null,
         activation_code_id: null,
@@ -151,11 +151,7 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
     );
   };
 
-  const audit = async (
-    resourceType: string,
-    resourceId: string,
-    action: string,
-  ): Promise<void> => {
+  const audit = async (resourceType: string, resourceId: string, action: string): Promise<void> => {
     await dataSource.getRepository(PaymentAuditLog).insert({
       actor_id: null,
       action,
@@ -377,14 +373,18 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
         .get(`${API_PREFIX}/admin/finance/audit`)
         .query({ teacher_id: teacherA.id, limit: 100 })
         .expect(200);
-      const listed = [...new Set((list.body.data as Array<{ action: string }>).map((row) => row.action))].sort();
+      const listed = [
+        ...new Set((list.body.data as Array<{ action: string }>).map((row) => row.action)),
+      ].sort();
       expect(forA.body.data).toEqual(listed);
     });
 
     it('keeps the guards: 400 without a teacher id, 403 without permission or as a teacher, 401 anonymous', async () => {
       const teacher = await makeTeacher('a2');
       const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
-      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+      await dataSource
+        .getRepository(User)
+        .update({ id: admin.userId }, { finance_permissions: [] });
       await admin.agent
         .get(`${API_PREFIX}/admin/finance/audit/actions`)
         .query({ teacher_id: teacher.id })
@@ -484,16 +484,17 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
   describe('GET /admin/finance/reports/reconciliation-warnings (T041)', () => {
     it('requires reconciliation.review', async () => {
       const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
-      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+      await dataSource
+        .getRepository(User)
+        .update({ id: admin.userId }, { finance_permissions: [] });
 
-      await admin.agent.get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`).expect(403);
+      await admin.agent
+        .get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`)
+        .expect(403);
     });
 
-    it("detected_at is the compute time (not the request time) and a repeat visit within the snapshot returns the identical detected_at (no re-sweep)", async () => {
-      const [teacher, student] = await Promise.all([
-        makeTeacher('recon-1'),
-        makeStudent(),
-      ]);
+    it('detected_at is the compute time (not the request time) and a repeat visit within the snapshot returns the identical detected_at (no re-sweep)', async () => {
+      const [teacher, student] = await Promise.all([makeTeacher('recon-1'), makeStudent()]);
       // A paid order with no entitlement row is exactly what `paid_orders_without_entitlement` flags.
       await makePaidOrder(teacher, student, 'AUDIT-RECON-1');
 
@@ -509,7 +510,9 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
         affected_count: number;
         detected_at: string;
       }>;
-      const paidWithoutEntitlement = warnings.find((w) => w.type === 'paid_orders_without_entitlement');
+      const paidWithoutEntitlement = warnings.find(
+        (w) => w.type === 'paid_orders_without_entitlement',
+      );
       expect(paidWithoutEntitlement).toBeDefined();
       expect(paidWithoutEntitlement!.affected_count).toBeGreaterThanOrEqual(1);
       const detectedAt = new Date(paidWithoutEntitlement!.detected_at).getTime();
@@ -523,16 +526,13 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
         .get(`${API_PREFIX}/admin/finance/reports/reconciliation-warnings`)
         .expect(200);
       const secondWarnings = second.body.data as Array<{ type: string; detected_at: string }>;
-      expect(secondWarnings.find((w) => w.type === 'paid_orders_without_entitlement')?.detected_at).toBe(
-        paidWithoutEntitlement!.detected_at,
-      );
+      expect(
+        secondWarnings.find((w) => w.type === 'paid_orders_without_entitlement')?.detected_at,
+      ).toBe(paidWithoutEntitlement!.detected_at);
     });
 
     it('counts are never silently capped below the truth: an exact count under 101 is reported as-is', async () => {
-      const [teacher, student] = await Promise.all([
-        makeTeacher('recon-2'),
-        makeStudent(),
-      ]);
+      const [teacher, student] = await Promise.all([makeTeacher('recon-2'), makeStudent()]);
       await Promise.all([
         makePaidOrder(teacher, student, 'AUDIT-RECON-2A'),
         makePaidOrder(teacher, student, 'AUDIT-RECON-2B'),
@@ -554,20 +554,15 @@ describe('teacher finance audit trail (PostgreSQL)', () => {
     it('reflects a newly created warning immediately, with no cache in front of it', async () => {
       const admin = await financeAdmin();
       const warm = await admin.agent.get(`${API_PREFIX}/admin/finance/reconciliation`).expect(200);
-      const before = (
-        warm.body.data.paid_orders_without_entitlement as unknown[]
-      ).length;
+      const before = (warm.body.data.paid_orders_without_entitlement as unknown[]).length;
 
-      const [teacher, student] = await Promise.all([
-        makeTeacher('recon-live'),
-        makeStudent(),
-      ]);
+      const [teacher, student] = await Promise.all([makeTeacher('recon-live'), makeStudent()]);
       await makePaidOrder(teacher, student, 'AUDIT-RECON-LIVE');
 
       const fresh = await admin.agent.get(`${API_PREFIX}/admin/finance/reconciliation`).expect(200);
-      expect(
-        (fresh.body.data.paid_orders_without_entitlement as unknown[]).length,
-      ).toBe(before + 1);
+      expect((fresh.body.data.paid_orders_without_entitlement as unknown[]).length).toBe(
+        before + 1,
+      );
     });
   });
 });

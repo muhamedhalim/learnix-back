@@ -3,7 +3,11 @@ import type { DataSource } from 'typeorm';
 
 import { MarketplaceCategory } from '../../src/marketplace/catalog/entities';
 import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/commerce/entities';
-import { InstructorEarningStatus, LessonContentType, PayoutRequestStatus } from '../../src/marketplace/common/enums';
+import {
+  InstructorEarningStatus,
+  LessonContentType,
+  PayoutRequestStatus,
+} from '../../src/marketplace/common/enums';
 import { ClearanceSweepService } from '../../src/marketplace/jobs/clearance.job';
 import { InstructorEarning } from '../../src/marketplace/earnings/entities/instructor-earning.entity';
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
@@ -50,7 +54,9 @@ describe('dual-capability isolation — academic activity never touches marketpl
   afterAll(async () => app.close());
 
   async function grantAllFinancePermissions(adminId: string) {
-    await dataSource.getRepository(User).update({ id: adminId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
+    await dataSource
+      .getRepository(User)
+      .update({ id: adminId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
   }
 
   /** Builds one real marketplace earning for a dual-capability user, cleared to AVAILABLE_BALANCE. */
@@ -58,7 +64,9 @@ describe('dual-capability isolation — academic activity never touches marketpl
     instructorUser: Awaited<ReturnType<typeof createAuthenticatedUser>>,
     admin: Awaited<ReturnType<typeof createAuthenticatedUser>>,
   ) {
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const category = await dataSource.getRepository(MarketplaceCategory).save({
       name_en: 'Programming',
       name_ar: 'البرمجة',
@@ -99,9 +107,18 @@ describe('dual-capability isolation — academic activity never touches marketpl
         })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     const learner = await createAuthenticatedUser(app, dataSource);
     const orderRes = await learner.agent
@@ -109,7 +126,9 @@ describe('dual-capability isolation — academic activity never touches marketpl
       .set('Idempotency-Key', `order-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -122,9 +141,9 @@ describe('dual-capability isolation — academic activity never touches marketpl
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-order-${order.id}`,
-        paymob_order_id: `provider-order-${order.id}`,
+        provider_order_reference: `provider-order-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -133,10 +152,10 @@ describe('dual-capability isolation — academic activity never touches marketpl
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -149,9 +168,7 @@ describe('dual-capability isolation — academic activity never touches marketpl
     await operations.publishOutbox();
 
     order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id });
-    await dataSource
-      .getRepository(MarketplaceEnrollment)
-      .findOneByOrFail({ order_id: order.id });
+    await dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ order_id: order.id });
 
     const earnings = dataSource.getRepository(InstructorEarning);
     const earning = await earnings.findOneByOrFail({ order_id: order.id });
@@ -195,19 +212,29 @@ describe('dual-capability isolation — academic activity never touches marketpl
       transfer_reference: 'ACADEMIC-TXN-1',
     });
 
-    const balanceRes = await instructorUser.agent.get(`${API_PREFIX}/marketplace/instructor/earnings/balance`).expect(200);
-    const egp = (balanceRes.body as Array<{ currency: string; availableMinor: number; paidOutMinor: number }>).find(
-      (b) => b.currency === 'EGP',
-    );
+    const balanceRes = await instructorUser.agent
+      .get(`${API_PREFIX}/marketplace/instructor/earnings/balance`)
+      .expect(200);
+    const egp = (
+      balanceRes.body as Array<{ currency: string; availableMinor: number; paidOutMinor: number }>
+    ).find((b) => b.currency === 'EGP');
     // The academic settlement's 800000 minor units never appear in the marketplace balance.
     expect(egp?.availableMinor).toBe(earning.net_amount_minor);
     expect(egp?.paidOutMinor).toBe(0);
 
-    const unchangedEarning = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+    const unchangedEarning = await dataSource
+      .getRepository(InstructorEarning)
+      .findOneByOrFail({ id: earning.id });
     expect(unchangedEarning.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
     expect(unchangedEarning.net_amount_minor).toBe(earning.net_amount_minor);
 
-    const payoutRes = await instructorUser.agent.get(`${API_PREFIX}/marketplace/instructor/payouts?page=1&limit=20`).expect(200);
-    expect((payoutRes.body.data as unknown[]).filter((p) => (p as { status: string }).status === PayoutRequestStatus.PAID)).toHaveLength(0);
+    const payoutRes = await instructorUser.agent
+      .get(`${API_PREFIX}/marketplace/instructor/payouts?page=1&limit=20`)
+      .expect(200);
+    expect(
+      (payoutRes.body.data as unknown[]).filter(
+        (p) => (p as { status: string }).status === PayoutRequestStatus.PAID,
+      ),
+    ).toHaveLength(0);
   });
 });

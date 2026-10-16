@@ -109,9 +109,18 @@ describe('marketplace private file access (Phase 14, T208)', () => {
       if (i === 1) lessonId = lesson.body.id as string;
     }
 
-    await instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     return { courseId, lessonId };
   }
@@ -122,10 +131,15 @@ describe('marketplace private file access (Phase 14, T208)', () => {
   ): Promise<{ order: MarketplaceOrder; enrollment: MarketplaceEnrollment }> {
     const created = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
-      .set('Idempotency-Key', `fileaccess-order-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .set(
+        'Idempotency-Key',
+        `fileaccess-order-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      )
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: created.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: created.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -138,9 +152,9 @@ describe('marketplace private file access (Phase 14, T208)', () => {
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-fileaccess-${order.id}`,
-        paymob_order_id: `provider-fileaccess-${order.id}`,
+        provider_order_reference: `provider-fileaccess-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -149,10 +163,10 @@ describe('marketplace private file access (Phase 14, T208)', () => {
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `fileaccess-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `fileaccess-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -165,13 +179,17 @@ describe('marketplace private file access (Phase 14, T208)', () => {
     await operations.publishOutbox();
 
     order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id });
-    const enrollment = await dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ order_id: order.id });
+    const enrollment = await dataSource
+      .getRepository(MarketplaceEnrollment)
+      .findOneByOrFail({ order_id: order.id });
     return { order, enrollment };
   }
 
-  it('a learner with no enrollment cannot reach a paid lesson\'s content at all', async () => {
+  it("a learner with no enrollment cannot reach a paid lesson's content at all", async () => {
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const { courseId, lessonId } = await publishVideoCourse(instructor.agent, admin.agent);
     void courseId;
@@ -179,13 +197,17 @@ describe('marketplace private file access (Phase 14, T208)', () => {
     const outsider = await createAuthenticatedUser(app, dataSource);
     // No enrollment id belongs to this learner at all — every enrollment id is refused identically.
     await outsider.agent
-      .get(`${API_PREFIX}/marketplace/me/enrollments/00000000-0000-4000-8000-000000000000/lessons/${lessonId}`)
+      .get(
+        `${API_PREFIX}/marketplace/me/enrollments/00000000-0000-4000-8000-000000000000/lessons/${lessonId}`,
+      )
       .expect(404);
   });
 
   it('an enrolled learner gets real signed content, and the response is never cacheable', async () => {
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const { courseId, lessonId } = await publishVideoCourse(instructor.agent, admin.agent);
 
@@ -203,7 +225,9 @@ describe('marketplace private file access (Phase 14, T208)', () => {
 
   it('access lost after purchase (e.g. a completed refund revoking the enrollment) is refused on the very next request — not a stale cached grant', async () => {
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const { courseId, lessonId } = await publishVideoCourse(instructor.agent, admin.agent);
 
@@ -211,7 +235,9 @@ describe('marketplace private file access (Phase 14, T208)', () => {
     const { enrollment } = await createPaidOrder(learner, courseId);
 
     // First request succeeds — proves access genuinely existed, not that the route always 404s.
-    await learner.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${lessonId}`).expect(200);
+    await learner.agent
+      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${lessonId}`)
+      .expect(200);
 
     // Access is revoked exactly as a completed refund would (`RefundProcessingService` sets the
     // enrollment to REVOKED — see `marketplace-refunds.e2e-spec.ts` for the full refund lifecycle;
@@ -220,23 +246,33 @@ describe('marketplace private file access (Phase 14, T208)', () => {
       .getRepository(MarketplaceEnrollment)
       .update(enrollment.id, { status: MarketplaceEnrollmentStatus.REVOKED });
 
-    await learner.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${lessonId}`).expect(403);
-    await learner.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`).expect(403);
+    await learner.agent
+      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/lessons/${lessonId}`)
+      .expect(403);
+    await learner.agent
+      .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`)
+      .expect(403);
   });
 
   it('an authenticated instructor-facing course response also carries no-store', async () => {
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const { courseId } = await publishVideoCourse(instructor.agent, admin.agent);
 
-    const res = await instructor.agent.get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(200);
+    const res = await instructor.agent
+      .get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
+      .expect(200);
     expect(res.headers['cache-control']).toBe('private, no-store');
   });
 
   it('the public, anonymous catalogue surface is explicitly excluded from no-store — it is meant to be cacheable', async () => {
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     await publishVideoCourse(instructor.agent, admin.agent);
 

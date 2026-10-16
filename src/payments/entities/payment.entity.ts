@@ -26,6 +26,7 @@ import { PaymentStatus } from './payment-status.enum';
   'reconciliation_status',
   'reconciliation_next_retry_at',
 ])
+@Index('IDX_payments_provider_order_reference', ['provider', 'provider_order_reference'])
 @Index('UQ_payments_order_id', ['order_id'], { unique: true, where: '"order_id" IS NOT NULL' })
 // Guarantees at most one in-flight (pending/processing) payment per user+item,
 // so concurrent "Pay" clicks / refresh-during-payment cannot open two gateway
@@ -115,17 +116,17 @@ export class Payment {
     type: 'varchar',
     length: 255,
     nullable: true,
-    name: 'paymob_order_id',
+    name: 'provider_order_reference',
   })
-  paymob_order_id!: string | null;
+  provider_order_reference!: string | null;
 
   @Column({
     type: 'varchar',
     length: 255,
     nullable: true,
-    name: 'paymob_transaction_id',
+    name: 'provider_transaction_id',
   })
-  paymob_transaction_id!: string | null;
+  provider_transaction_id!: string | null;
 
   @Column({
     type: 'varchar',

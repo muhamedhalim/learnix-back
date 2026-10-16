@@ -28,6 +28,7 @@ import { OrdersController } from './controllers/orders.controller';
 // Controllers
 import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsWebhookController } from './controllers/payments-webhook.controller';
+import { PaymentsReturnController } from './controllers/payments-return.controller';
 import { TeacherFinanceController } from './controllers/teacher-finance.controller';
 import { TeacherPaymentsController } from './controllers/teacher-payments.controller';
 // Entities
@@ -51,7 +52,7 @@ import {
   SettlementEntry,
 } from './entities';
 import { PAYMENT_GATEWAY } from './providers/payment-gateway.interface';
-import { PaymobGateway } from './providers/paymob/paymob.gateway';
+import { EasyKashGateway } from './providers/easykash/easykash.gateway';
 // Services
 import { CommissionService } from './services/commission.service';
 import { CartCheckoutService } from './services/cart-checkout.service';
@@ -138,15 +139,16 @@ import { SettlementsService } from './services/settlements.service';
     OrdersController,
     ManualPaymentsController,
     PaymentsWebhookController,
+    PaymentsReturnController,
     TeacherPaymentsController,
     TeacherFinanceController,
   ],
   providers: [
     PaymentsService,
-    PaymobGateway,
+    EasyKashGateway,
     {
       provide: PAYMENT_GATEWAY,
-      useExisting: PaymobGateway,
+      useExisting: EasyKashGateway,
     },
     PaymentProviderRegistry,
     CommissionService,
@@ -185,7 +187,7 @@ import { SettlementsService } from './services/settlements.service';
     PaymentFinalizationService,
     PaymentOperationsService,
     LessonSessionsService,
-    // Lets `MarketplaceWebhookController` reuse the exact same HMAC-verified,
+    // Lets marketplace code reuse the exact same HMAC-verified,
     // idempotency-guarded webhook entry point academic checkout uses,
     // rather than a second implementation.
     GatewayWebhookService,

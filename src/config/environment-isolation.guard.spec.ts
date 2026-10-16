@@ -37,8 +37,6 @@ const stagingConfig: Record<string, unknown> = {
   PUBLIC_MEDIA_BASE_URL: 'https://api-staging.learnix.school',
   CORS_ORIGINS: 'https://staging.learnix.school',
   R2_BUCKET: 'learnix-staging',
-  PAYMOB_API_KEY: 'sandbox-key',
-  PAYMOB_EXPECTED_MODE: 'test',
   MAIL_PROVIDER: 'mailersend',
   MAILERSEND_API_KEY: 'staging-mail-key',
   MAIL_FROM_EMAIL: 'staging@staging.learnix.school',
@@ -60,8 +58,8 @@ const productionConfig: Record<string, unknown> = {
   PUBLIC_MEDIA_BASE_URL: 'https://learning-center-backend-production.up.railway.app',
   CORS_ORIGINS: 'https://learnix.school',
   R2_BUCKET: 'learnix',
-  PAYMOB_API_KEY: 'live-key',
-  PAYMOB_EXPECTED_MODE: 'live',
+  EASYKASH_API_KEY: 'live-key',
+  EASYKASH_HMAC_SECRET: 'live-hmac-secret',
   MAIL_PROVIDER: 'mailersend',
   MAILERSEND_API_KEY: 'prod-mail-key',
   MAIL_FROM_EMAIL: 'info@learnix.school',
@@ -239,22 +237,25 @@ describe('staging isolation — production storage', () => {
 });
 
 describe('staging isolation — production payment credentials', () => {
-  it('fails when the payment mode is not test', () => {
-    const config = { ...stagingConfig, PAYMOB_EXPECTED_MODE: 'live' };
-    expect(() => guard(config)).toThrow(EnvironmentIsolationError);
-    expect(codesFor(config)).toContain('STAGING_PAYMENT_MODE_NOT_TEST');
-  });
+  // EasyKash documents no sandbox, so any credential on staging could move real money.
+  it.each(['EASYKASH_API_KEY', 'EASYKASH_HMAC_SECRET'])(
+    'fails when %s is set on staging',
+    (variable) => {
+      const config = { ...stagingConfig, [variable]: 'any-value' };
+      expect(() => guard(config)).toThrow(EnvironmentIsolationError);
+      expect(codesFor(config)).toContain('STAGING_PAYMENT_CREDENTIALS_SET');
+    },
+  );
 
-  it('fails when the payment mode is unset while credentials are present', () => {
-    const config = { ...stagingConfig, PAYMOB_EXPECTED_MODE: undefined };
-    expect(codesFor(config)).toContain('STAGING_PAYMENT_MODE_NOT_TEST');
+  it('does not flag an unconfigured gateway', () => {
+    expect(codesFor(stagingConfig)).toHaveLength(0);
   });
 
   it('fails when a production payment secret is reused, detected by fingerprint', () => {
-    const productionApiKey = 'the-real-live-paymob-key';
+    const productionApiKey = 'the-real-live-easykash-key';
     const config = {
       ...stagingConfig,
-      PAYMOB_API_KEY: productionApiKey,
+      EASYKASH_API_KEY: productionApiKey,
       PROD_SECRET_FINGERPRINTS: fingerprint(productionApiKey),
     };
     expect(() => guard(config)).toThrow(EnvironmentIsolationError);
@@ -262,10 +263,10 @@ describe('staging isolation — production payment credentials', () => {
   });
 
   it('never puts the secret value into the error message', () => {
-    const productionApiKey = 'the-real-live-paymob-key';
+    const productionApiKey = 'the-real-live-easykash-key';
     const config = {
       ...stagingConfig,
-      PAYMOB_API_KEY: productionApiKey,
+      EASYKASH_API_KEY: productionApiKey,
       PROD_SECRET_FINGERPRINTS: fingerprint(productionApiKey),
     };
     try {
@@ -273,34 +274,13 @@ describe('staging isolation — production payment credentials', () => {
       throw new Error('expected the guard to throw');
     } catch (error) {
       expect((error as Error).message).not.toContain(productionApiKey);
-      expect((error as Error).message).toContain('PAYMOB_API_KEY');
+      expect((error as Error).message).toContain('EASYKASH_API_KEY');
     }
-  });
-
-  // PAYMOB_EXPECTED_MODE is this application's own belief; whether Paymob
-  // actually treats a transaction as live money is decided by which
-  // integration reference is submitted. Reusing production's real
-  // integration/iframe ID would let Paymob process a genuinely live-capable
-  // transaction no matter what PAYMOB_EXPECTED_MODE says.
-  it.each(['PAYMOB_CARD_INTEGRATION_ID', 'PAYMOB_IFRAME_ID'])(
-    'fails when %s is the production integration reference',
-    (variable) => {
-      const config = {
-        ...stagingConfig,
-        PROD_IDENTIFIER_DENYLIST: 'prod-integration-42',
-        [variable]: 'prod-integration-42',
-      };
-      expect(codesFor(config)).toContain('STAGING_PRODUCTION_PAYMENT_INTEGRATION');
-    },
-  );
-
-  it('does not flag integration IDs when they are absent', () => {
-    expect(codesFor(stagingConfig)).toHaveLength(0);
   });
 });
 
 describe('staging isolation — production webhook secrets', () => {
-  it.each(['PAYMOB_WEBHOOK_SECRET', 'META_WHATSAPP_APP_SECRET'])(
+  it.each(['EASYKASH_HMAC_SECRET', 'META_WHATSAPP_APP_SECRET'])(
     'fails when %s matches a production fingerprint',
     (variable) => {
       const secret = `production-${variable}`;
@@ -428,7 +408,7 @@ describe('staging isolation — reporting', () => {
       ...stagingConfig,
       DATABASE_URL: 'postgresql://u:p@some-db.internal.test:5432/learnix',
       R2_BUCKET: 'learnix',
-      PAYMOB_EXPECTED_MODE: 'live',
+      EASYKASH_API_KEY: 'live-key',
       MAIL_FROM_EMAIL: 'info@learnix.school',
     };
     const codes = codesFor(config);
@@ -436,7 +416,7 @@ describe('staging isolation — reporting', () => {
       expect.arrayContaining([
         'STAGING_PRODUCTION_DATABASE_NAME',
         'STAGING_PRODUCTION_STORAGE_BUCKET',
-        'STAGING_PAYMENT_MODE_NOT_TEST',
+        'STAGING_PAYMENT_CREDENTIALS_SET',
         'STAGING_PRODUCTION_MAIL_SENDER',
       ]),
     );
@@ -463,12 +443,6 @@ describe('production is unaffected', () => {
     expect(() => validate(productionConfig)).not.toThrow();
   });
 
-  it('still requires PAYMOB_EXPECTED_MODE=live on production', () => {
-    expect(() => validate({ ...productionConfig, PAYMOB_EXPECTED_MODE: 'test' })).toThrow(
-      /PAYMOB_EXPECTED_MODE=live/,
-    );
-  });
-
   it('applies the production rules when APP_ENV is explicitly production', () => {
     expect(() => guard({ ...productionConfig, APP_ENV: 'production' })).not.toThrow();
   });
@@ -481,13 +455,6 @@ describe('production is unaffected', () => {
   it('rejects sandbox SMS mode reaching production', () => {
     const config = { ...productionConfig, SMS_MODE: 'sandbox' };
     expect(codesFor(config)).toContain('PRODUCTION_SMS_MODE_IS_SANDBOX');
-  });
-
-  it('rejects test payment mode reaching production via the mirror rule', () => {
-    // Reached through the guard directly: env.validation raises its own error
-    // first, so this asserts the guard is independently protective.
-    const config = { ...productionConfig, PAYMOB_EXPECTED_MODE: 'test' };
-    expect(codesFor(config)).toContain('PRODUCTION_PAYMENT_MODE_IS_TEST');
   });
 });
 

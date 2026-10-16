@@ -75,7 +75,9 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
   });
   afterAll(async () => app.close());
 
-  async function runMigrationUp(migration: { up: (runner: import('typeorm').QueryRunner) => Promise<void> }) {
+  async function runMigrationUp(migration: {
+    up: (runner: import('typeorm').QueryRunner) => Promise<void>;
+  }) {
     const runner = dataSource.createQueryRunner();
     await runner.connect();
     await runner.startTransaction();
@@ -94,7 +96,9 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
   async function waitForCertificate(studentId: string, packageId: string): Promise<Certificate> {
     const certificates_ = dataSource.getRepository(Certificate);
     for (let attempt = 0; attempt < 40; attempt++) {
-      const found = await certificates_.findOne({ where: { student_id: studentId, package_id: packageId } });
+      const found = await certificates_.findOne({
+        where: { student_id: studentId, package_id: packageId },
+      });
       if (found) return found;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -232,8 +236,8 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
         provider_reference: `e2e-cv-${ref}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: `e2e-cv-${ref}`,
         failure_reason: null,
         completed_at: null,
@@ -305,7 +309,9 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
     expect(await purchasedLessonIds(student1.id, purchase1.payment.id)).toEqual(
       [lessonA.id, lessonB.id, lessonC.id].sort(),
     );
-    const stillV1 = await dataSource.getRepository(CourseVersion).findOneOrFail({ where: { id: version1.id } });
+    const stillV1 = await dataSource
+      .getRepository(CourseVersion)
+      .findOneOrFail({ where: { id: version1.id } });
     expect(stillV1.version_number).toBe(1); // untouched
 
     // ── New purchaser after D was added: gets A, B, C, D on version 2. ─────
@@ -542,8 +548,8 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
         provider_reference: 'e2e-cv-retry',
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: 'e2e-cv-retry',
         failure_reason: null,
         completed_at: null,
@@ -576,7 +582,9 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
         .getRepository(CourseVersionItem)
         .count({ where: { version_id: pp.course_version_id! } }),
     ).toBe(2);
-    expect(await purchasedLessonIds(student.id, payment.id)).toEqual([lessonA.id, lessonB.id].sort());
+    expect(await purchasedLessonIds(student.id, payment.id)).toEqual(
+      [lessonA.id, lessonB.id].sort(),
+    );
   });
 
   it('enforces version-item and lock immutability at the database level', async () => {
@@ -611,7 +619,9 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
       dataSource.query('DELETE FROM course_version_items WHERE id = $1', [item.id]),
     ).rejects.toThrow(/immutable/i);
     await expect(
-      dataSource.query('UPDATE course_versions SET locked_at = NULL WHERE id = $1', [lockedVersionId]),
+      dataSource.query('UPDATE course_versions SET locked_at = NULL WHERE id = $1', [
+        lockedVersionId,
+      ]),
     ).rejects.toThrow(/cannot change/i);
   });
 
@@ -673,8 +683,8 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
           provider_reference: ref,
           status: PaymentStatus.COMPLETED,
           payment_method: PaymentMethod.MANUAL,
-          paymob_order_id: null,
-          paymob_transaction_id: null,
+          provider_order_reference: null,
+          provider_transaction_id: null,
           idempotency_key: ref,
           failure_reason: null,
           completed_at: new Date(),
@@ -832,7 +842,10 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
     // purchase whose version was nulled: falls through to the package's current version
     const nulled = await course('nulled', [l1, l2]);
     await purchasePackage(student.id, teacher.id, nulled.id, 100, 'b-nulled');
-    await dataSource.query('UPDATE package_purchases SET course_version_id = NULL WHERE package_id = $1', [nulled.id]);
+    await dataSource.query(
+      'UPDATE package_purchases SET course_version_id = NULL WHERE package_id = $1',
+      [nulled.id],
+    );
     // unlocked draft: judged by lesson_package_items
     const draft = await course('draft', [l1, l3]);
     await looseUnversionedPurchase(draft);
@@ -843,14 +856,19 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
     // revoked purchase
     const revoked = await course('revoked', [l1, l2]);
     await purchasePackage(student.id, teacher.id, revoked.id, 100, 'b-revoked');
-    await dataSource.query('UPDATE package_purchases SET revoked_at = now() WHERE package_id = $1', [revoked.id]);
+    await dataSource.query(
+      'UPDATE package_purchases SET revoked_at = now() WHERE package_id = $1',
+      [revoked.id],
+    );
     // never purchased
     const unowned = await course('unowned', [l1, l2]);
     // the same lesson listed twice in a locked version (no unique constraint): completed once must count once
     const dup = await course('dup', [l1, l2]);
     await purchasePackage(student.id, teacher.id, dup.id, 100, 'b-dup');
     const dupVersion = (
-      await dataSource.getRepository(PackagePurchase).findOneOrFail({ where: { package_id: dup.id } })
+      await dataSource
+        .getRepository(PackagePurchase)
+        .findOneOrFail({ where: { package_id: dup.id } })
     ).course_version_id as string;
     await dataSource.query('ALTER TABLE course_version_items DISABLE TRIGGER USER');
     try {
@@ -862,7 +880,17 @@ describe('course versioning lifecycle (PostgreSQL)', () => {
       await dataSource.query('ALTER TABLE course_version_items ENABLE TRIGGER USER');
     }
 
-    const requested = [locked.id, nulled.id, draft.id, gone.id, revoked.id, unowned.id, dup.id, randomUUID(), locked.id];
+    const requested = [
+      locked.id,
+      nulled.id,
+      draft.id,
+      gone.id,
+      revoked.id,
+      unowned.id,
+      dup.id,
+      randomUUID(),
+      locked.id,
+    ];
     const distinct = [...new Set(requested)];
 
     const counter = new StatementCounter(dataSource);

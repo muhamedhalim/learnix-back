@@ -87,9 +87,6 @@ locals {
       # Required in production mode (NODE_ENV=production on both): the app refuses to boot without them.
       PAYMENT_CAPTURE_GRACE_SECONDS       = "300"
       PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS = "120"
-      PAYMOB_EXPECTED_MODE                = "live"
-      # No default in the backend: without it checkout cannot start. The backend only accepts the two Paymob hosts.
-      PAYMOB_BASE_URL = "https://accept.paymob.com"
 
       MAIL_PROVIDER         = "ses"
       SES_REGION            = var.region

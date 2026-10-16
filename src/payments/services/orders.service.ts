@@ -1,3 +1,4 @@
+import { gatewayOrderExpirationMinutes } from '../gateway-expiry';
 import { randomBytes } from 'node:crypto';
 
 import {
@@ -323,7 +324,9 @@ export class OrdersService {
         await this.assertNoActiveOrder(manager, studentId, dto.item_type, dto.item_id);
         const now = new Date();
         const expirationMinutes =
-          dto.payment_channel === PaymentChannel.MANUAL ? MANUAL_PAYMENT_EXPIRATION_MINUTES : 60;
+          dto.payment_channel === PaymentChannel.MANUAL
+            ? MANUAL_PAYMENT_EXPIRATION_MINUTES
+            : gatewayOrderExpirationMinutes();
         const normalExpiresAt = new Date(now.getTime() + expirationMinutes * 60 * 1000);
         const expiresAt = product.appointmentStartAt
           ? new Date(
@@ -401,8 +404,8 @@ export class OrdersService {
             dto.payment_channel === PaymentChannel.GATEWAY
               ? PaymentMethod.CARD
               : PaymentMethod.MANUAL,
-          paymob_order_id: null,
-          paymob_transaction_id: null,
+          provider_order_reference: null,
+          provider_transaction_id: null,
           idempotency_key: idempotencyKey,
           failure_reason: null,
           completed_at: null,
@@ -560,8 +563,8 @@ export class OrdersService {
         provider_reference: code.id,
         status: PaymentStatus.PENDING,
         payment_method: PaymentMethod.PURCHASE_CODE,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: `activation-code-${code.id}`,
         failure_reason: null,
         completed_at: null,
@@ -604,8 +607,8 @@ export class OrdersService {
         throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
       }
 
-      if (payment.paymob_order_id !== null) {
-        return { order, payment, providerReference: payment.paymob_order_id };
+      if (payment.provider_order_reference !== null) {
+        return { order, payment, providerReference: payment.provider_order_reference };
       }
       if (payment.status === PaymentStatus.PROCESSING) {
         throw new ConflictException(
@@ -638,6 +641,7 @@ export class OrdersService {
       amountMinor: claimed.order.final_amount_minor,
       currency: claimed.order.currency,
       billingData: dto.billing_data,
+      ...(claimed.order.expires_at ? { expiresAt: claimed.order.expires_at } : {}),
     };
 
     let providerReference = claimed.providerReference;
@@ -662,7 +666,7 @@ export class OrdersService {
         if (!payment) {
           throw new NotFoundException(biBody('Payment not found', 'عملية الدفع غير موجودة'));
         }
-        if (payment.paymob_order_id !== null) return payment.paymob_order_id;
+        if (payment.provider_order_reference !== null) return payment.provider_order_reference;
         if (payment.status !== PaymentStatus.PROCESSING) {
           throw new ConflictException(
             biBody(
@@ -673,7 +677,7 @@ export class OrdersService {
         }
 
         payment.provider_reference = createdReference;
-        payment.paymob_order_id = createdReference;
+        payment.provider_order_reference = createdReference;
         payment.failure_reason = null;
         await manager.save(Payment, payment);
         return createdReference;
@@ -958,7 +962,12 @@ export class OrdersService {
     // never resolves a product through this academic service in the first place (FR-109:
     // the marketplace checkout refuses a discount code outright, with DISCOUNTS_NOT_APPLICABLE).
     if (product.itemType === ItemType.MARKETPLACE_COURSE) {
-      throw new BadRequestException(biBody('Discount codes are not applicable to this item', 'رموز الخصم غير قابلة للتطبيق على هذا العنصر'));
+      throw new BadRequestException(
+        biBody(
+          'Discount codes are not applicable to this item',
+          'رموز الخصم غير قابلة للتطبيق على هذا العنصر',
+        ),
+      );
     }
     const applicable = {
       [ItemType.LESSON]: ApplicableItem.LESSON,

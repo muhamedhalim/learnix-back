@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Post, Query, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Inject, Post, UnauthorizedException } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
@@ -49,14 +49,8 @@ export class PaymentsWebhookController {
   @SkipCsrf()
   @InvalidatesCache(PAYMENTS_WEBHOOK_INVALIDATES_CACHE)
   @ApiResponse({ status: 401, description: 'Invalid HMAC signature' })
-  public async handleWebhook(
-    @Body() payload: unknown,
-    @Query('hmac') signature?: string,
-  ): Promise<GatewayWebhookResponse> {
-    const request: ProviderWebhookRequest = {
-      payload,
-      ...(signature === undefined ? {} : { signature }),
-    };
+  public async handleWebhook(@Body() payload: unknown): Promise<GatewayWebhookResponse> {
+    const request: ProviderWebhookRequest = { payload };
     if (!this.gateway.verifyWebhook(request)) {
       performanceMetrics.recordFailure('webhook');
       throw new UnauthorizedException(biBody('Invalid HMAC signature', 'توقيع HMAC غير صالح'));
@@ -68,10 +62,7 @@ export class PaymentsWebhookController {
   @SkipCsrf()
   @InvalidatesCache(PAYMENTS_WEBHOOK_INVALIDATES_CACHE)
   @ApiOperation({ summary: 'Alternative payment gateway callback URL' })
-  public async handleCallback(
-    @Body() payload: unknown,
-    @Query('hmac') signature?: string,
-  ): Promise<GatewayWebhookResponse> {
-    return this.handleWebhook(payload, signature);
+  public async handleCallback(@Body() payload: unknown): Promise<GatewayWebhookResponse> {
+    return this.handleWebhook(payload);
   }
 }

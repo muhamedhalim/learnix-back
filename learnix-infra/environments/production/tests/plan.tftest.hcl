@@ -81,7 +81,7 @@ run "dns_zone_copy_keeps_vercel_records" {
   # The backend's production-mode env validation refuses to boot without these (learnix-back
   # src/config/env.validation.ts); keep this list in sync with it.
   assert {
-    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "PAYMOB_EXPECTED_MODE", "PAYMOB_BASE_URL", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
+    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
     error_message = "A variable the backend requires in production mode is missing from the task environment."
   }
 
@@ -149,7 +149,7 @@ run "api_host_live_with_everything_on" {
     inject_vapid          = true
     inject_cloudfront_key = true
     extra_secrets = {
-      PAYMOB_API_KEY = { secret = "paymob", key = "PAYMOB_API_KEY" }
+      EASYKASH_API_KEY = { secret = "easykash", key = "EASYKASH_API_KEY" }
     }
     canary_enabled   = true
     app_repositories = { api = "learnix/learnix-back" }

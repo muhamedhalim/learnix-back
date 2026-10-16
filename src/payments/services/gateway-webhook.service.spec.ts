@@ -75,7 +75,7 @@ describe('GatewayWebhookService', () => {
       currency: 'EGP',
       provider: 'configured-gateway',
       provider_reference: 'provider-order-1',
-      paymob_order_id: 'provider-order-1',
+      provider_order_reference: 'provider-order-1',
     }) as Payment;
 
   const callback = (
@@ -101,7 +101,12 @@ describe('GatewayWebhookService', () => {
     payments.processFailedPayment.mockResolvedValue(undefined);
     payments.processRefundedPayment.mockResolvedValue(undefined);
     financialStateMachine.apply.mockImplementation(
-      async (_eventId: string, _lease: string, paymentId: string, webhook: ProviderWebhookEvent) => {
+      async (
+        _eventId: string,
+        _lease: string,
+        paymentId: string,
+        webhook: ProviderWebhookEvent,
+      ) => {
         await payments.processSuccessfulPayment(paymentId, {
           amountCents: webhook.amountMinor,
           currency: webhook.currency,

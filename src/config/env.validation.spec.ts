@@ -47,21 +47,62 @@ describe('production environment URL validation', () => {
   });
 
   it.each([
-    'http://accept.paymob.com',
+    'http://back.easykash.net',
     'https://attacker.example',
-    'https://key@accept.paymob.com',
-    'https://accept.paymob.com/?redirect=https://attacker.example',
+    'https://key@back.easykash.net',
+    'https://back.easykash.net/?redirect=https://attacker.example',
+    'https://back.easykash.net/api',
     'not a url',
-  ])('rejects unsafe PAYMOB_BASE_URL=%s', (url) => {
-    expect(() => validate({ ...baseProductionConfig, PAYMOB_BASE_URL: url })).toThrow(
-      /PAYMOB_BASE_URL/i,
+  ])('rejects unsafe EASYKASH_API_BASE_URL=%s', (url) => {
+    expect(() =>
+      validate({
+        ...baseProductionConfig,
+        EASYKASH_API_KEY: 'k',
+        EASYKASH_HMAC_SECRET: 's',
+        EASYKASH_API_BASE_URL: url,
+      }),
+    ).toThrow(/EASYKASH_API_BASE_URL/i);
+  });
+
+  it.each(['https://back.easykash.net', 'https://back.easykash.net/'])(
+    'accepts allowlisted EASYKASH_API_BASE_URL=%s',
+    (url) => {
+      expect(() =>
+        validate({
+          ...baseProductionConfig,
+          EASYKASH_API_KEY: 'k',
+          EASYKASH_HMAC_SECRET: 's',
+          EASYKASH_API_BASE_URL: url,
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  it('requires the HMAC secret whenever EasyKash is configured', () => {
+    expect(() => validate({ ...baseProductionConfig, EASYKASH_API_KEY: 'k' })).toThrow(
+      /EASYKASH_HMAC_SECRET is required/,
     );
   });
 
-  it.each(['https://accept.paymob.com', 'https://accept.paymobsolutions.com/api'])(
-    'accepts allowlisted PAYMOB_BASE_URL=%s',
-    (url) => {
-      expect(() => validate({ ...baseProductionConfig, PAYMOB_BASE_URL: url })).not.toThrow();
-    },
-  );
+  it.each(['abc', '0', '73', '1.5'])('rejects EASYKASH_CASH_EXPIRY_HOURS=%s', (hours) => {
+    expect(() =>
+      validate({
+        ...baseProductionConfig,
+        EASYKASH_API_KEY: 'k',
+        EASYKASH_HMAC_SECRET: 's',
+        EASYKASH_CASH_EXPIRY_HOURS: hours,
+      }),
+    ).toThrow(/EASYKASH_CASH_EXPIRY_HOURS/);
+  });
+
+  it('rejects an undocumented payment option id', () => {
+    expect(() =>
+      validate({
+        ...baseProductionConfig,
+        EASYKASH_API_KEY: 'k',
+        EASYKASH_HMAC_SECRET: 's',
+        EASYKASH_PAYMENT_OPTIONS: '2,999',
+      }),
+    ).toThrow(/EASYKASH_PAYMENT_OPTIONS/);
+  });
 });

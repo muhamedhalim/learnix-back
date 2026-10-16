@@ -244,8 +244,8 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
         provider_reference: `e2e-cert-${ref}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: `e2e-cert-${ref}`,
         failure_reason: null,
         completed_at: null,
@@ -269,11 +269,7 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
   }
 
   /** Request + complete a refund of `amountMinor` through the real service. */
-  async function refundOrder(
-    orderId: string,
-    amountMinor: number,
-    ref: string,
-  ): Promise<Refund> {
+  async function refundOrder(orderId: string, amountMinor: number, ref: string): Promise<Refund> {
     const requester = await makeUser(UserRole.ADMIN);
     const completer = await makeUser(UserRole.ADMIN);
     const created = await refunds.request(
@@ -478,7 +474,9 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
     const issued = await certificates.issueForCourse(student.id, course.id);
     const code = issued.verification_code;
 
-    const before = await request(server).get(`${API_PREFIX}/certificates/verify/${code}`).expect(200);
+    const before = await request(server)
+      .get(`${API_PREFIX}/certificates/verify/${code}`)
+      .expect(200);
     expect(before.body.valid).toBe(true);
     expect(before.body.certificate.status).toBe('issued');
     expect(before.body.certificate.revoked_at).toBeNull();
@@ -486,7 +484,9 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
 
     await refundOrder(order.id, order.final_amount_minor, 'verify');
 
-    const after = await request(server).get(`${API_PREFIX}/certificates/verify/${code}`).expect(200);
+    const after = await request(server)
+      .get(`${API_PREFIX}/certificates/verify/${code}`)
+      .expect(200);
     expect(after.body.valid).toBe(false);
     expect(after.body.certificate.status).toBe('revoked');
     expect(after.body.certificate.revoked_at).not.toBeNull();
@@ -499,7 +499,7 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
     expect(gallery.body.data).toHaveLength(0);
   });
 
-  it("stops the student themselves from downloading the revoked certificate as a document", async () => {
+  it('stops the student themselves from downloading the revoked certificate as a document', async () => {
     const { student, course, order } = await seedCompletedPurchase('own-download');
     const issued = await certificates.issueForCourse(student.id, course.id);
 
@@ -557,9 +557,9 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
 
     const half = Math.floor(order.final_amount_minor / 2);
     await refundOrder(order.id, half, 'remainder-1');
-    expect(
-      (await certificateRepo().findOneOrFail({ where: { id: issued.id } })).status,
-    ).toBe(CertificateStatus.ISSUED);
+    expect((await certificateRepo().findOneOrFail({ where: { id: issued.id } })).status).toBe(
+      CertificateStatus.ISSUED,
+    );
 
     const second = await refundOrder(order.id, order.final_amount_minor - half, 'remainder-2');
     const revoked = await certificateRepo().findOneOrFail({ where: { id: issued.id } });
@@ -574,7 +574,9 @@ describe('certificate ↔ course entitlement lifecycle (PostgreSQL)', () => {
       true,
     );
     expect(
-      await dataSource.getRepository(CertificateHistory).count({ where: { certificate_id: issued.id } }),
+      await dataSource
+        .getRepository(CertificateHistory)
+        .count({ where: { certificate_id: issued.id } }),
     ).toBe(1);
     expect(
       await dataSource

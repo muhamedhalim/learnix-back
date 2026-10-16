@@ -120,9 +120,18 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
     adminAgent: Awaited<ReturnType<typeof createAuthenticatedUser>>['agent'],
     courseId: string,
   ) {
-    await instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
   }
 
   async function createPaidOrder(
@@ -134,7 +143,9 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
       .set('Idempotency-Key', `authz-order-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: created.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: created.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -147,9 +158,9 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-authz-${order.id}`,
-        paymob_order_id: `provider-authz-${order.id}`,
+        provider_order_reference: `provider-authz-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -158,10 +169,10 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `authz-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `authz-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -174,58 +185,85 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
     await operations.publishOutbox();
 
     order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id });
-    const enrollment = await dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ order_id: order.id });
+    const enrollment = await dataSource
+      .getRepository(MarketplaceEnrollment)
+      .findOneByOrFail({ order_id: order.id });
     return { order, enrollment };
   }
 
   describe('instructor course and curriculum ownership', () => {
-    it('a stranger instructor gets 404 (never 403) on another instructor\'s course, section and lesson', async () => {
+    it("a stranger instructor gets 404 (never 403) on another instructor's course, section and lesson", async () => {
       const owner = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: owner.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: owner.userId }));
       const stranger = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: stranger.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: stranger.userId }));
       const category = await seedCategory();
       const { courseId, sectionId, lessonId } = await publishCourse(owner.agent, category.id);
 
-      await stranger.agent.get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(404);
-      await stranger.agent.patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).send({ title: 'Hijacked' }).expect(404);
-      await stranger.agent.delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(404);
+      await stranger.agent
+        .get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
+        .expect(404);
+      await stranger.agent
+        .patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
+        .send({ title: 'Hijacked' })
+        .expect(404);
+      await stranger.agent
+        .delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
+        .expect(404);
       await stranger.agent
         .patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/sections/${sectionId}`)
         .send({ title: 'Hijacked section' })
         .expect(404);
-      await stranger.agent.delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/sections/${sectionId}`).expect(404);
+      await stranger.agent
+        .delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/sections/${sectionId}`)
+        .expect(404);
       await stranger.agent
         .patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons/${lessonId}`)
         .send({ title: 'Hijacked lesson' })
         .expect(404);
-      await stranger.agent.delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons/${lessonId}`).expect(404);
+      await stranger.agent
+        .delete(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons/${lessonId}`)
+        .expect(404);
 
       // The owner, meanwhile, can read and modify their own resource normally.
       await owner.agent.get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(200);
 
       // Confirm the resource was genuinely untouched by every refused stranger write.
-      const untouched = await dataSource.getRepository(MarketplaceCourse).findOneByOrFail({ id: courseId });
+      const untouched = await dataSource
+        .getRepository(MarketplaceCourse)
+        .findOneByOrFail({ id: courseId });
       expect(untouched.title).not.toBe('Hijacked');
     });
 
     it('an unauthenticated caller gets 401 on the same routes, before any ownership check runs', async () => {
       const owner = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: owner.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: owner.userId }));
       const category = await seedCategory();
       const { courseId } = await publishCourse(owner.agent, category.id);
 
       const server = app.getHttpServer() as Server;
-      await request(server).get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`).expect(401);
+      await request(server)
+        .get(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
+        .expect(401);
     });
   });
 
   describe('instructor payout account and payout request ownership', () => {
-    it('a stranger instructor gets 404 on another instructor\'s payout account', async () => {
+    it("a stranger instructor gets 404 on another instructor's payout account", async () => {
       const owner = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: owner.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: owner.userId }));
       const stranger = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: stranger.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: stranger.userId }));
 
       const account = await owner.agent
         .post(`${API_PREFIX}/marketplace/instructor/payout-accounts`)
@@ -243,19 +281,29 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
         .patch(`${API_PREFIX}/marketplace/instructor/payout-accounts/${accountId}`)
         .send({ bank_name: 'Hijacked Bank' })
         .expect(404);
-      await stranger.agent.post(`${API_PREFIX}/marketplace/instructor/payout-accounts/${accountId}/default`).expect(404);
-      await stranger.agent.delete(`${API_PREFIX}/marketplace/instructor/payout-accounts/${accountId}`).expect(404);
+      await stranger.agent
+        .post(`${API_PREFIX}/marketplace/instructor/payout-accounts/${accountId}/default`)
+        .expect(404);
+      await stranger.agent
+        .delete(`${API_PREFIX}/marketplace/instructor/payout-accounts/${accountId}`)
+        .expect(404);
 
       // The stranger's own list never includes the owner's account (scoped list, not filtered after the fact).
-      const strangerList = await stranger.agent.get(`${API_PREFIX}/marketplace/instructor/payout-accounts`).expect(200);
-      expect((strangerList.body as Array<{ id: string }>).some((a) => a.id === accountId)).toBe(false);
+      const strangerList = await stranger.agent
+        .get(`${API_PREFIX}/marketplace/instructor/payout-accounts`)
+        .expect(200);
+      expect((strangerList.body as Array<{ id: string }>).some((a) => a.id === accountId)).toBe(
+        false,
+      );
     });
   });
 
   describe('learner order, enrollment and refund ownership', () => {
-    it('a stranger learner gets 404 on another learner\'s order, enrollment player and refund-eligibility', async () => {
+    it("a stranger learner gets 404 on another learner's order, enrollment player and refund-eligibility", async () => {
       const instructor = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: instructor.userId }));
       const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
       const category = await seedCategory();
       const { courseId } = await publishCourse(instructor.agent, category.id);
@@ -266,8 +314,12 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
       const stranger = await createAuthenticatedUser(app, dataSource);
 
       await stranger.agent.get(`${API_PREFIX}/marketplace/me/orders/${order.id}`).expect(404);
-      await stranger.agent.get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`).expect(404);
-      await stranger.agent.get(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund-eligibility`).expect(404);
+      await stranger.agent
+        .get(`${API_PREFIX}/marketplace/me/enrollments/${enrollment.id}/player`)
+        .expect(404);
+      await stranger.agent
+        .get(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund-eligibility`)
+        .expect(404);
 
       // The owning learner, meanwhile, can read their own order normally.
       await owner.agent.get(`${API_PREFIX}/marketplace/me/orders/${order.id}`).expect(200);
@@ -275,9 +327,11 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
   });
 
   describe('learner review ownership', () => {
-    it('a stranger learner gets 404 on another learner\'s review', async () => {
+    it("a stranger learner gets 404 on another learner's review", async () => {
       const instructor = await createAuthenticatedUser(app, dataSource);
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: instructor.userId }));
       const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
       const category = await seedCategory();
       const { courseId } = await publishCourse(instructor.agent, category.id);
@@ -293,7 +347,10 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
 
       const stranger = await createAuthenticatedUser(app, dataSource);
       await stranger.agent.get(`${API_PREFIX}/marketplace/me/reviews/${reviewId}`).expect(404);
-      await stranger.agent.patch(`${API_PREFIX}/marketplace/me/reviews/${reviewId}`).send({ rating: 1 }).expect(404);
+      await stranger.agent
+        .patch(`${API_PREFIX}/marketplace/me/reviews/${reviewId}`)
+        .send({ rating: 1 })
+        .expect(404);
       await stranger.agent.delete(`${API_PREFIX}/marketplace/me/reviews/${reviewId}`).expect(404);
 
       await owner.agent.get(`${API_PREFIX}/marketplace/me/reviews/${reviewId}`).expect(200);

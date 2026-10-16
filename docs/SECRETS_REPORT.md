@@ -1,5 +1,7 @@
 # Secrets Report — Learnix
 
+> **Superseded for payments (EasyKash migration, 2026-10-16).** Paymob has been removed from the application; every `PAYMOB_*` entry below describes the retired integration. Current variables: `EASYKASH_API_KEY`, `EASYKASH_HMAC_SECRET`, `EASYKASH_API_BASE_URL`, `EASYKASH_PAYMENT_OPTIONS`, `EASYKASH_CASH_EXPIRY_HOURS` (see `docs/EASYKASH_SETUP.md`).
+
 > **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
 
 > **NO SECRET VALUE APPEARS IN THIS DOCUMENT, ANYWHERE.** The "Secure fingerprint" column is a truncated SHA-256 digest — the same one-way construction `src/config/environment-isolation.guard.ts` already uses for `PROD_SECRET_FINGERPRINTS` — computed by `scripts/fingerprint-secrets.ts` and reproduced verbatim below. A fingerprint cannot be reversed to recover the value it was computed from.

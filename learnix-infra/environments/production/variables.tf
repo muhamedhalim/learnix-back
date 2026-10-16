@@ -32,7 +32,7 @@ variable "domain_name" {
 }
 
 variable "api_subdomain" {
-  description = "Label of the API host under domain_name (api -> api.learnix.school). This is NEXT_PUBLIC_API_URL for the Vercel production environment, the Paymob/Meta/OAuth callback host and the playback origin."
+  description = "Label of the API host under domain_name (api -> api.learnix.school). This is NEXT_PUBLIC_API_URL for the Vercel production environment, the EasyKash/Meta/OAuth callback host and the playback origin."
   type        = string
   default     = "api"
 
@@ -146,7 +146,7 @@ variable "inject_cloudfront_key" {
 }
 
 variable "extra_secrets" {
-  description = "ENV_NAME => {secret = <paymob|meta-whatsapp|meetings>, key = <json key>}."
+  description = "ENV_NAME => {secret = <easykash|meta-whatsapp|meetings>, key = <json key>}."
   type = map(object({
     secret = string
     key    = string
@@ -155,7 +155,7 @@ variable "extra_secrets" {
 }
 
 variable "extra_environment" {
-  description = "Additional non-secret environment variables for api/worker/migrate (e.g. PAYMOB_* ids)."
+  description = "Additional non-secret environment variables for api/worker/migrate (e.g. EASYKASH_CASH_EXPIRY_HOURS)."
   type        = map(string)
   default     = {}
 }

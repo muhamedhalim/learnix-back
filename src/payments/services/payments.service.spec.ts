@@ -227,7 +227,9 @@ describe('PaymentsService — canonical compatibility routes', () => {
     it('active entitlement without expiry: one probe, no purchase reads', async () => {
       entitlements.getActive.mockResolvedValue({ expires_at: null });
 
-      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({ has_access: true });
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({
+        has_access: true,
+      });
 
       expect(entitlements.getActive).toHaveBeenCalledTimes(1);
       expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
@@ -250,7 +252,9 @@ describe('PaymentsService — canonical compatibility routes', () => {
       entitlements.getActive.mockResolvedValue(null);
       lessonPurchases.findOne.mockResolvedValue(null);
 
-      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({ has_access: false });
+      await expect(service.checkItemAccess('s', ItemType.LESSON, 'l')).resolves.toEqual({
+        has_access: false,
+      });
 
       expect(entitlements.getActive).toHaveBeenCalledTimes(1);
       expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
@@ -261,20 +265,31 @@ describe('PaymentsService — canonical compatibility routes', () => {
       entitlements.getActive.mockResolvedValue(null);
       packagePurchases.findOne.mockResolvedValueOnce({ id: 'pp' }).mockResolvedValueOnce(null);
 
-      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({ has_access: true });
-      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({ has_access: false });
+      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({
+        has_access: true,
+      });
+      await expect(service.checkItemAccess('s', ItemType.PACKAGE, 'p')).resolves.toEqual({
+        has_access: false,
+      });
 
       expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
       expect(lessonPurchases.findOne).not.toHaveBeenCalled();
     });
 
     it('book fallback: a live book purchase grants access; none does not', async () => {
-      const bookPurchases = { findOne: jest.fn().mockResolvedValueOnce({ id: 'bp' }).mockResolvedValueOnce(null) };
-      (service as unknown as { bookPurchasesRepository: unknown }).bookPurchasesRepository = bookPurchases;
+      const bookPurchases = {
+        findOne: jest.fn().mockResolvedValueOnce({ id: 'bp' }).mockResolvedValueOnce(null),
+      };
+      (service as unknown as { bookPurchasesRepository: unknown }).bookPurchasesRepository =
+        bookPurchases;
       entitlements.getActive.mockResolvedValue(null);
 
-      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({ has_access: true });
-      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({ has_access: false });
+      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({
+        has_access: true,
+      });
+      await expect(service.checkItemAccess('s', ItemType.BOOK, 'b')).resolves.toEqual({
+        has_access: false,
+      });
 
       expect(entitlements.hasItemAccess).not.toHaveBeenCalled();
       expect(bookPurchases.findOne).toHaveBeenCalledTimes(2);
@@ -310,7 +325,9 @@ describe('PaymentsService — canonical compatibility routes', () => {
     await expect(service.checkLessonAccess('student-1', 'expired-lesson')).resolves.toEqual({
       has_access: false,
     });
-    await expect(service.hasLessonPlaybackAccess('student-1', 'expired-lesson')).resolves.toBe(false);
+    await expect(service.hasLessonPlaybackAccess('student-1', 'expired-lesson')).resolves.toBe(
+      false,
+    );
 
     expect(packagePurchases.findOne).not.toHaveBeenCalled();
     expect(lessonPurchases.findOne).toHaveBeenCalledTimes(2);
@@ -336,14 +353,21 @@ describe('PaymentsService — canonical compatibility routes', () => {
     it('returns an empty set without querying when there are no lesson ids', async () => {
       const query = queryMock();
 
-      await expect(service.getPlaybackAccessibleLessonIds('student-1', [])).resolves.toEqual(new Set());
+      await expect(service.getPlaybackAccessibleLessonIds('student-1', [])).resolves.toEqual(
+        new Set(),
+      );
       expect(query).not.toHaveBeenCalled();
     });
 
     it('runs one statement with one array bind and returns the accessible ids', async () => {
       const query = queryMock().mockResolvedValue([{ lesson_id: 'l-2' }, { lesson_id: 'l-3' }]);
 
-      const result = await service.getPlaybackAccessibleLessonIds('student-1', ['l-1', 'l-2', 'l-2', 'l-3']);
+      const result = await service.getPlaybackAccessibleLessonIds('student-1', [
+        'l-1',
+        'l-2',
+        'l-2',
+        'l-3',
+      ]);
 
       expect(result).toEqual(new Set(['l-2', 'l-3']));
       expect(query).toHaveBeenCalledTimes(1);
@@ -384,7 +408,7 @@ describe('PaymentsService — canonical compatibility routes', () => {
       expect.objectContaining({
         status: PaymentStatus.FAILED,
         failure_reason: 'declined',
-        paymob_transaction_id: 'failure-1',
+        provider_transaction_id: 'failure-1',
       }),
     );
     expect(manager.update).toHaveBeenCalledWith(Order, expect.objectContaining({ id: 'order-1' }), {
@@ -501,16 +525,27 @@ describe('PaymentsService — canonical compatibility routes', () => {
         userId: 'student-1',
       });
       expect(qb['andWhere']).toHaveBeenCalledWith('purchase.revoked_at IS NULL');
-      expect(qb['addSelect']).toHaveBeenCalledWith(['teacher.id', 'teacher.name', 'teacher.profile_picture_url']);
+      expect(qb['addSelect']).toHaveBeenCalledWith([
+        'teacher.id',
+        'teacher.name',
+        'teacher.profile_picture_url',
+      ]);
       // `title_ar` is not a lesson column; selecting it would make TypeORM throw.
-      expect(qb['addSelect']).toHaveBeenCalledWith(['lesson.id', 'lesson.title', 'lesson.duration']);
+      expect(qb['addSelect']).toHaveBeenCalledWith([
+        'lesson.id',
+        'lesson.title',
+        'lesson.duration',
+      ]);
       expect(qb['orderBy']).toHaveBeenCalledWith('purchase.purchased_at', 'DESC');
       expect(qb['addOrderBy']).toHaveBeenCalledWith('items.order_index', 'ASC');
     });
 
     it('skips the detail query when the student has no live purchases', async () => {
       const qb = mockQueryBuilder();
-      const query = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: '0' }]);
+      const query = jest
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: '0' }]);
       const createQueryBuilder = jest.fn().mockReturnValue(qb);
       Object.assign(packagePurchases as unknown as Record<string, unknown>, {
         manager: { query },
@@ -523,5 +558,4 @@ describe('PaymentsService — canonical compatibility routes', () => {
       expect(createQueryBuilder).not.toHaveBeenCalled();
     });
   });
-
 });

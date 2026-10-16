@@ -3,7 +3,11 @@ import type { DataSource } from 'typeorm';
 
 import { MarketplaceCategory } from '../../src/marketplace/catalog/entities';
 import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/commerce/entities';
-import { LessonContentType, MarketplaceLedgerEntryType, PayoutRequestStatus } from '../../src/marketplace/common/enums';
+import {
+  LessonContentType,
+  MarketplaceLedgerEntryType,
+  PayoutRequestStatus,
+} from '../../src/marketplace/common/enums';
 import { MarketplaceLedgerEntry } from '../../src/marketplace/earnings/entities/marketplace-ledger-entry.entity';
 import { InstructorEarning } from '../../src/marketplace/earnings/entities/instructor-earning.entity';
 import { ClearanceSweepService } from '../../src/marketplace/jobs/clearance.job';
@@ -72,7 +76,9 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
   afterAll(async () => app.close());
 
   async function grantFinancePermissions(adminId: string) {
-    await dataSource.getRepository(User).update({ id: adminId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
+    await dataSource
+      .getRepository(User)
+      .update({ id: adminId }, { finance_permissions: [...FINANCE_PERMISSIONS] });
   }
 
   async function seedInstructorWithClearedEarning(): Promise<{
@@ -81,7 +87,9 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
     earning: InstructorEarning;
   }> {
     const instructorUser = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     await grantFinancePermissions(admin.userId);
     const learner = await createAuthenticatedUser(app, dataSource);
@@ -126,16 +134,27 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     const orderRes = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
       .set('Idempotency-Key', `replay-order-${Date.now()}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
 
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
@@ -148,9 +167,9 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-replay-${order.id}`,
-        paymob_order_id: `provider-replay-${order.id}`,
+        provider_order_reference: `provider-replay-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -159,10 +178,10 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `replay-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `replay-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -200,7 +219,11 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
       })
       .expect(201);
     const key = `replay-payout-${Date.now()}`;
-    const body = { payout_account_id: accountRes.body.id, amount_minor: earning.net_amount_minor, currency: 'EGP' };
+    const body = {
+      payout_account_id: accountRes.body.id,
+      amount_minor: earning.net_amount_minor,
+      currency: 'EGP',
+    };
 
     const first = await instructorUser.agent
       .post(`${API_PREFIX}/marketplace/instructor/payouts`)
@@ -215,14 +238,18 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
 
     expect(second.body.id).toBe(first.body.id);
 
-    const list = await instructorUser.agent.get(`${API_PREFIX}/marketplace/instructor/payouts?page=1&limit=20`).expect(200);
+    const list = await instructorUser.agent
+      .get(`${API_PREFIX}/marketplace/instructor/payouts?page=1&limit=20`)
+      .expect(200);
     expect((list.body.data as unknown[]).length).toBe(1);
   });
 
   it('replaying the exact same Idempotency-Key on a refund request returns the cached result, never a second refund', async () => {
     const learner = await createAuthenticatedUser(app, dataSource);
     const instructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructor.userId }));
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const category = await dataSource.getRepository(MarketplaceCategory).save({
       name_en: 'Programming',
@@ -264,16 +291,27 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         })
         .expect(201);
     }
-    await instructor.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructor.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructor.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructor.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     const orderRes = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
       .set('Idempotency-Key', `refund-replay-order-${Date.now()}`)
       .send({ courseId })
       .expect(201);
-    let order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: orderRes.body.id as string });
+    let order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: orderRes.body.id as string });
     const payments = dataSource.getRepository(Payment);
     const payment = await payments.save(
       payments.create({
@@ -285,9 +323,9 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-refundreplay-${order.id}`,
-        paymob_order_id: `provider-refundreplay-${order.id}`,
+        provider_order_reference: `provider-refundreplay-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -295,10 +333,10 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
     );
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `refundreplay-settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `refundreplay-txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -341,12 +379,22 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
     const requestRes = await instructorUser.agent
       .post(`${API_PREFIX}/marketplace/instructor/payouts`)
       .set('Idempotency-Key', `replay-transition-${Date.now()}`)
-      .send({ payout_account_id: accountRes.body.id, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+      .send({
+        payout_account_id: accountRes.body.id,
+        amount_minor: earning.net_amount_minor,
+        currency: 'EGP',
+      })
       .expect(201);
     const requestId = requestRes.body.id as string;
 
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`).send({}).expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`)
+      .send({})
+      .expect(201);
     const paidRes = await admin.agent
       .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/paid`)
       .send({ payout_reference: 'TXN-REPLAY-1' })
@@ -361,7 +409,12 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
 
     const ledgerEntries = await dataSource
       .getRepository(MarketplaceLedgerEntry)
-      .find({ where: { instructor_id: earning.instructor_id, entry_type: MarketplaceLedgerEntryType.PAYOUT } });
+      .find({
+        where: {
+          instructor_id: earning.instructor_id,
+          entry_type: MarketplaceLedgerEntryType.PAYOUT,
+        },
+      });
     expect(ledgerEntries).toHaveLength(1);
     expect(Number(ledgerEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
   });

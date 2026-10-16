@@ -147,8 +147,8 @@ describe('package lesson access windows (PostgreSQL)', () => {
         provider_reference: 'package-window-e2e',
         status: PaymentStatus.COMPLETED,
         payment_method: PaymentMethod.MANUAL,
-        paymob_order_id: null,
-        paymob_transaction_id: null,
+        provider_order_reference: null,
+        provider_transaction_id: null,
         idempotency_key: 'package-window-e2e-payment',
         failure_reason: null,
         completed_at: new Date(),
@@ -343,8 +343,8 @@ describe('package lesson access windows (PostgreSQL)', () => {
             provider_reference: `t065-${seq}`,
             status: PaymentStatus.COMPLETED,
             payment_method: PaymentMethod.MANUAL,
-            paymob_order_id: null,
-            paymob_transaction_id: null,
+            provider_order_reference: null,
+            provider_transaction_id: null,
             idempotency_key: `t065-payment-${seq}-${randomUUID()}`,
             failure_reason: null,
             completed_at: new Date(),
@@ -595,8 +595,14 @@ describe('package lesson access windows (PostgreSQL)', () => {
       expect(legacy.statements).toBe(2);
 
       // Package and book fallbacks: entitlement probe + their own purchase read.
-      expect(await run(ItemType.PACKAGE, randomUUID())).toEqual({ result: { has_access: false }, statements: 2 });
-      expect(await run(ItemType.BOOK, randomUUID())).toEqual({ result: { has_access: false }, statements: 2 });
+      expect(await run(ItemType.PACKAGE, randomUUID())).toEqual({
+        result: { has_access: false },
+        statements: 2,
+      });
+      expect(await run(ItemType.BOOK, randomUUID())).toEqual({
+        result: { has_access: false },
+        statements: 2,
+      });
     });
   });
 });

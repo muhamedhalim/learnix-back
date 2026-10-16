@@ -106,9 +106,7 @@ locals {
       PUSH_PROVIDER = "webpush"
       VAPID_SUBJECT = var.vapid_subject
 
-      PAYMOB_EXPECTED_MODE = "test"
-      PAYMOB_BASE_URL      = "https://accept.paymob.com"
-      ADMIN_INIT_EMAIL     = var.admin_email
+      ADMIN_INIT_EMAIL = var.admin_email
     },
     module.cdn.video_key_pair_id == null ? {} : { CLOUDFRONT_KEY_PAIR_ID = module.cdn.video_key_pair_id },
     # Egypt sender ID and the Egypt-only protect configuration exist only after AWS approves the

@@ -740,7 +740,7 @@ async function seedCommerce(
         amount_minor: amountMinor,
         currency: 'EGP',
         channel: entry.channel,
-        provider: entry.channel === PaymentChannel.GATEWAY ? 'paymob' : null,
+        provider: entry.channel === PaymentChannel.GATEWAY ? 'easykash' : null,
         // Sandbox-shaped references. These correspond to no real transaction
         // at any provider.
         provider_reference:

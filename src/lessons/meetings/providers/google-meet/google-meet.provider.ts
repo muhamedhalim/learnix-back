@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { biBody } from '../../../../i18n/error-translator.util';
@@ -17,7 +23,11 @@ import {
   parseGoogleTokenResponse,
   parseGoogleUserInfo,
 } from './google-meet.mapper';
-import type { GoogleCalendarEventResponse, GoogleTokenResponse, GoogleUserInfoResponse } from './google-meet.types';
+import type {
+  GoogleCalendarEventResponse,
+  GoogleTokenResponse,
+  GoogleUserInfoResponse,
+} from './google-meet.types';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -35,7 +45,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
  * First concrete `MeetingProviderClient` (Phase 4). Consumer Gmail accounts
  * work out of the box, which is why Google Meet ships before Zoom/Teams (see
  * R-1/R-2 — those need marketplace publishing / work accounts). Mirrors
- * `PaymobGateway`'s plain-`fetch` + `AbortSignal.timeout` style rather than
+ * `EasyKashGateway`'s plain-`fetch` + `AbortSignal.timeout` style rather than
  * pulling in `@nestjs/axios`.
  */
 @Injectable()
@@ -79,7 +89,10 @@ export class GoogleMeetProvider implements MeetingProviderClient {
     return `${AUTH_URL}?${params.toString()}`;
   }
 
-  public async exchangeCode(code: string, redirectUri: string): Promise<MeetingTokenSet & MeetingAccountIdentity> {
+  public async exchangeCode(
+    code: string,
+    redirectUri: string,
+  ): Promise<MeetingTokenSet & MeetingAccountIdentity> {
     this.assertConfigured();
     const data = await this.postToken(
       {
@@ -119,7 +132,10 @@ export class GoogleMeetProvider implements MeetingProviderClient {
     return parseGoogleTokenResponse(data);
   }
 
-  public async revoke(tokens: { accessToken: string; refreshToken?: string | null }): Promise<void> {
+  public async revoke(tokens: {
+    accessToken: string;
+    refreshToken?: string | null;
+  }): Promise<void> {
     const token = tokens.refreshToken ?? tokens.accessToken;
     if (!token) return;
     try {
@@ -140,7 +156,10 @@ export class GoogleMeetProvider implements MeetingProviderClient {
       `${CALENDAR_EVENTS_URL}?conferenceDataVersion=1`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.accessToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${input.accessToken}`,
+        },
         body: JSON.stringify(buildCalendarEventBody(input)),
       },
       'meeting creation',
@@ -173,7 +192,10 @@ export class GoogleMeetProvider implements MeetingProviderClient {
     return parseGoogleUserInfo(data);
   }
 
-  private async postToken(params: Record<string, string>, operation: string): Promise<GoogleTokenResponse> {
+  private async postToken(
+    params: Record<string, string>,
+    operation: string,
+  ): Promise<GoogleTokenResponse> {
     let response: Response;
     try {
       response = await fetch(TOKEN_URL, {
@@ -193,7 +215,10 @@ export class GoogleMeetProvider implements MeetingProviderClient {
       // can mark the account `revoked` rather than merely `expired`.
       if (data.error === 'invalid_grant') {
         throw new UnauthorizedException(
-          biBody('This meeting account needs to be reconnected', 'يجب إعادة ربط حساب الاجتماعات هذا'),
+          biBody(
+            'This meeting account needs to be reconnected',
+            'يجب إعادة ربط حساب الاجتماعات هذا',
+          ),
         );
       }
       this.logger.error(`Google Meet ${operation} failed: ${JSON.stringify(data).slice(0, 500)}`);
@@ -211,10 +236,15 @@ export class GoogleMeetProvider implements MeetingProviderClient {
     }
     if (!response.ok) {
       const bodyText = await response.text().catch(() => '');
-      this.logger.error(`Google Meet ${operation} failed with status ${String(response.status)}: ${bodyText.slice(0, 500)}`);
+      this.logger.error(
+        `Google Meet ${operation} failed with status ${String(response.status)}: ${bodyText.slice(0, 500)}`,
+      );
       if (response.status === 401) {
         throw new UnauthorizedException(
-          biBody('This meeting account needs to be reconnected', 'يجب إعادة ربط حساب الاجتماعات هذا'),
+          biBody(
+            'This meeting account needs to be reconnected',
+            'يجب إعادة ربط حساب الاجتماعات هذا',
+          ),
         );
       }
       throw this.unavailable(`${operation} failed`);

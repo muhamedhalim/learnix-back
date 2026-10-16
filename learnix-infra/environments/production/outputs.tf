@@ -25,11 +25,10 @@ output "vercel_environment" {
 }
 
 output "provider_callback_urls" {
-  description = "Callback and webhook URLs to register in the provider dashboards (Paymob, Meta, Zoom/Google/Microsoft). They point at the API host, not at the Vercel site."
+  description = "Callback and webhook URLs to register in the provider dashboards (EasyKash, Meta, Zoom/Google/Microsoft). They point at the API host, not at the Vercel site."
   value = {
-    paymob_webhook         = "${local.api_url}/api/v1/payments/webhook"
-    paymob_webhook_alt     = "${local.api_url}/api/v1/payments/webhook/callback"
-    paymob_marketplace     = "${local.api_url}/api/v1/marketplace/webhooks/payment"
+    easykash_callback      = "${local.api_url}/api/v1/payments/webhook"
+    easykash_return_base   = "${local.api_url}/api/v1/payments/easykash/return"
     meta_whatsapp_webhook  = "${local.api_url}/api/v1/webhooks/whatsapp"
     meeting_oauth_callback = "${local.api_url}/api/v1/teacher/meeting-accounts/callback"
   }

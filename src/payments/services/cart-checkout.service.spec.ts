@@ -71,13 +71,20 @@ describe('CartCheckoutService', () => {
       create: jest.fn((_entity: unknown, value: unknown) => value),
       findOne: jest.fn((entity: unknown, options: { where: Record<string, unknown> }) => {
         const where = options.where;
-        if (entity === Cart) return Promise.resolve(match(records.cart as never, where) ? records.cart : null);
+        if (entity === Cart)
+          return Promise.resolve(match(records.cart as never, where) ? records.cart : null);
         if (entity === CartCheckout)
-          return Promise.resolve(records.checkouts.find((item) => match(item as never, where)) ?? null);
+          return Promise.resolve(
+            records.checkouts.find((item) => match(item as never, where)) ?? null,
+          );
         if (entity === Payment)
-          return Promise.resolve(records.payments.find((item) => match(item as never, where)) ?? null);
+          return Promise.resolve(
+            records.payments.find((item) => match(item as never, where)) ?? null,
+          );
         if (entity === Order)
-          return Promise.resolve(records.orders.find((item) => match(item as never, where)) ?? null);
+          return Promise.resolve(
+            records.orders.find((item) => match(item as never, where)) ?? null,
+          );
         return Promise.resolve(null);
       }),
       find: jest.fn((entity: unknown, options: { where: Record<string, unknown> }) => {
@@ -91,7 +98,8 @@ describe('CartCheckoutService', () => {
       save: jest.fn((entity: unknown, value: Record<string, unknown>) => {
         if (entity === CartCheckout) {
           if (!value.id) value.id = `checkout-${++id}`;
-          if (!records.checkouts.includes(value as CartCheckout)) records.checkouts.push(value as CartCheckout);
+          if (!records.checkouts.includes(value as CartCheckout))
+            records.checkouts.push(value as CartCheckout);
         }
         if (entity === Payment) {
           if (!value.id) value.id = `payment-${++id}`;
@@ -166,9 +174,11 @@ describe('CartCheckoutService', () => {
       releaseUsageForPayment: jest.fn().mockResolvedValue(undefined),
     };
     const provider = {
-      name: 'paymob',
+      name: 'easykash',
       createCheckoutOrder: jest.fn().mockResolvedValue('gateway-order-1'),
-      createCheckoutSession: jest.fn().mockResolvedValue({ redirectUrl: 'https://gateway.test/pay' }),
+      createCheckoutSession: jest
+        .fn()
+        .mockResolvedValue({ redirectUrl: 'https://gateway.test/pay' }),
     };
     const finalizer = {
       finalizeSuccessfulPayment: jest.fn(async (input: { orderId: string; paymentId: string }) => {
@@ -213,7 +223,11 @@ describe('CartCheckoutService', () => {
       'student-1',
       expect.anything(),
     );
-    expect(started).toMatchObject({ amount_minor: 30_000, discount_amount_minor: 3_000, final_amount_minor: 27_000 });
+    expect(started).toMatchObject({
+      amount_minor: 30_000,
+      discount_amount_minor: 3_000,
+      final_amount_minor: 27_000,
+    });
     expect(retried.checkout_id).toBe(started.checkout_id);
     expect(provider.createCheckoutOrder).toHaveBeenCalledTimes(1);
     expect(discounts.applyDiscount).toHaveBeenCalledWith(
@@ -269,7 +283,10 @@ describe('CartCheckoutService', () => {
 
     expect(records.deletedCartItems).toHaveLength(0);
     expect(records.checkouts[0]?.status).toBe(CartCheckoutStatus.FAILED);
-    expect(discounts.releaseUsageForPayment).toHaveBeenCalledWith(started.payment_id, expect.anything());
+    expect(discounts.releaseUsageForPayment).toHaveBeenCalledWith(
+      started.payment_id,
+      expect.anything(),
+    );
   });
 
   it('rejects the whole checkout when canonical ownership validation rejects one cart product', async () => {
@@ -278,7 +295,9 @@ describe('CartCheckoutService', () => {
       new ConflictException('You already have access to this item'),
     );
 
-    await expect(service.checkout('student-1', checkoutDto)).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.checkout('student-1', checkoutDto)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
 
     expect(records.checkouts).toHaveLength(0);
     expect(provider.createCheckoutOrder).not.toHaveBeenCalled();

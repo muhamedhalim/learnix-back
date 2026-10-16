@@ -158,9 +158,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         amount_minor: order.net_amount_minor,
         currency: order.currency,
         channel: PaymentChannel.GATEWAY,
-        provider: 'paymob',
+        provider: 'easykash',
         provider_reference: `provider-order-${order.id}`,
-        paymob_order_id: `provider-order-${order.id}`,
+        provider_order_reference: `provider-order-${order.id}`,
         status: PaymentStatus.PROCESSING,
         payment_method: PaymentMethod.CARD,
         idempotency_key: `marketplace-checkout:${order.id}`,
@@ -169,10 +169,10 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
     await dataSource.getRepository(MarketplaceOrder).update(order.id, { payment_id: payment.id });
 
     const event: ProviderWebhookEvent = {
-      provider: 'paymob',
+      provider: 'easykash',
       providerEventId: `settle-${order.id}`,
       merchantReference: payment.id,
-      providerOrderReference: payment.paymob_order_id!,
+      providerOrderReference: payment.provider_order_reference!,
       transactionId: `txn-${order.id}`,
       amountMinor: payment.amount_minor!,
       currency: payment.currency,
@@ -252,18 +252,30 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
       const requestId = requestRes.body.id as string;
       expect(requestRes.body.status).toBe(PayoutRequestStatus.REQUESTED);
       expect(requestRes.body.amount_minor).toBe(earning.net_amount_minor);
 
-      const lockedEarning = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+      const lockedEarning = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ id: earning.id });
       expect(lockedEarning.status).toBe(InstructorEarningStatus.PAYOUT_REQUESTED);
       expect(lockedEarning.payout_request_id).toBe(requestId);
 
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`).send({}).expect(201);
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`).send({}).expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`)
+        .send({})
+        .expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`)
+        .send({})
+        .expect(201);
       const paidRes = await admin.agent
         .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/paid`)
         .send({ payout_reference: 'TXN-E2E-1' })
@@ -271,12 +283,19 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       expect(paidRes.body.status).toBe(PayoutRequestStatus.PAID);
       expect(paidRes.body.payout_reference).toBe('TXN-E2E-1');
 
-      const paidEarning = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+      const paidEarning = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ id: earning.id });
       expect(paidEarning.status).toBe(InstructorEarningStatus.PAID_OUT);
 
       const ledgerEntries = await dataSource
         .getRepository(MarketplaceLedgerEntry)
-        .find({ where: { instructor_id: earning.instructor_id, entry_type: MarketplaceLedgerEntryType.PAYOUT } });
+        .find({
+          where: {
+            instructor_id: earning.instructor_id,
+            entry_type: MarketplaceLedgerEntryType.PAYOUT,
+          },
+        });
       expect(ledgerEntries).toHaveLength(1);
       expect(ledgerEntries[0]!.direction).toBe(MarketplaceLedgerDirection.CREDIT);
       expect(Number(ledgerEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
@@ -284,9 +303,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const balanceRes = await instructorUser.agent
         .get(`${API_PREFIX}/marketplace/instructor/earnings/balance`)
         .expect(200);
-      const egp = (balanceRes.body as Array<{ currency: string; paidOutMinor: number; availableMinor: number }>).find(
-        (b) => b.currency === 'EGP',
-      );
+      const egp = (
+        balanceRes.body as Array<{ currency: string; paidOutMinor: number; availableMinor: number }>
+      ).find((b) => b.currency === 'EGP');
       expect(egp?.paidOutMinor).toBe(earning.net_amount_minor);
       expect(egp?.availableMinor).toBe(0);
     });
@@ -298,7 +317,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const first = await clearanceSweep.runSweep();
       expect(first.cleared).toBe(0); // already cleared once by `actors()`'s own forceClear() call
 
-      const earning = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ order_id: order.id });
+      const earning = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ order_id: order.id });
       expect(earning.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
     });
 
@@ -328,11 +349,19 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         instructorUser.agent
           .post(`${API_PREFIX}/marketplace/instructor/payouts`)
           .set('Idempotency-Key', `payout-race-a-${Date.now()}`)
-          .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' }),
+          .send({
+            payout_account_id: accountId,
+            amount_minor: earning.net_amount_minor,
+            currency: 'EGP',
+          }),
         instructorUser.agent
           .post(`${API_PREFIX}/marketplace/instructor/payouts`)
           .set('Idempotency-Key', `payout-race-b-${Date.now()}`)
-          .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' }),
+          .send({
+            payout_account_id: accountId,
+            amount_minor: earning.net_amount_minor,
+            currency: 'EGP',
+          }),
       ]);
 
       const statuses = [first.status, second.status].sort();
@@ -340,7 +369,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const failed = first.status === 422 ? first : second;
       expect(failed.body.code).toBe('PAYOUT_INSUFFICIENT_BALANCE');
 
-      const requests = await dataSource.getRepository(MarketplacePayoutRequest).find({ where: { instructor_id: earning.instructor_id } });
+      const requests = await dataSource
+        .getRepository(MarketplacePayoutRequest)
+        .find({ where: { instructor_id: earning.instructor_id } });
       expect(requests).toHaveLength(1);
     });
   });
@@ -352,7 +383,11 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-reject-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
 
       await admin.agent
@@ -360,7 +395,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .send({ reason: 'Suspicious account details' })
         .expect(201);
 
-      const released = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+      const released = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ id: earning.id });
       expect(released.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
       expect(released.payout_request_id).toBeNull();
     });
@@ -371,7 +408,11 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-cancel-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
 
       await instructorUser.agent
@@ -379,7 +420,9 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .send({})
         .expect(201);
 
-      const released = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+      const released = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ id: earning.id });
       expect(released.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
     });
 
@@ -405,12 +448,22 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-reversal-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
       const requestId = requestRes.body.id as string;
 
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`).send({}).expect(201);
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`).send({}).expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`)
+        .send({})
+        .expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`)
+        .send({})
+        .expect(201);
       await admin.agent
         .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/paid`)
         .send({ payout_reference: 'TXN-TO-REVERSE' })
@@ -422,12 +475,19 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .expect(201);
       expect(failedRes.body.status).toBe(PayoutRequestStatus.FAILED);
 
-      const reverted = await dataSource.getRepository(InstructorEarning).findOneByOrFail({ id: earning.id });
+      const reverted = await dataSource
+        .getRepository(InstructorEarning)
+        .findOneByOrFail({ id: earning.id });
       expect(reverted.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
 
       const reversalEntries = await dataSource
         .getRepository(MarketplaceLedgerEntry)
-        .find({ where: { instructor_id: earning.instructor_id, entry_type: MarketplaceLedgerEntryType.PAYOUT_REVERSAL } });
+        .find({
+          where: {
+            instructor_id: earning.instructor_id,
+            entry_type: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
+          },
+        });
       expect(reversalEntries).toHaveLength(1);
       expect(reversalEntries[0]!.direction).toBe(MarketplaceLedgerDirection.DEBIT);
       expect(Number(reversalEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
@@ -435,7 +495,12 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       // The original `payout` credit is never edited or deleted (FR-221).
       const originalPayoutEntry = await dataSource
         .getRepository(MarketplaceLedgerEntry)
-        .findOneOrFail({ where: { instructor_id: earning.instructor_id, entry_type: MarketplaceLedgerEntryType.PAYOUT } });
+        .findOneOrFail({
+          where: {
+            instructor_id: earning.instructor_id,
+            entry_type: MarketplaceLedgerEntryType.PAYOUT,
+          },
+        });
       expect(Number(originalPayoutEntry.amount_minor)).toBe(earning.net_amount_minor);
       expect(originalPayoutEntry.direction).toBe(MarketplaceLedgerDirection.CREDIT);
     });
@@ -444,7 +509,11 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
   describe('multi-currency balances never merge (FR-125, FR-150, FR-151)', () => {
     it('keeps EGP and a second currency fully separate across earnings, requests and balances', async () => {
       // EGP leg.
-      const { instructorUser, admin, earning: egpEarning } = await actors({ priceMinor: 200000, currency: 'EGP' });
+      const {
+        instructorUser,
+        admin,
+        earning: egpEarning,
+      } = await actors({ priceMinor: 200000, currency: 'EGP' });
 
       // A second currency leg for the SAME instructor. Enabled here directly
       // since only EGP ships enabled at launch (FR-325) — a second currency
@@ -483,7 +552,11 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const oversized = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-multi-${Date.now()}`)
-        .send({ payout_account_id: egpAccountId, amount_minor: egpEarning.net_amount_minor + usdEarning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: egpAccountId,
+          amount_minor: egpEarning.net_amount_minor + usdEarning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(422);
       expect(oversized.body.code).toBe('PAYOUT_INSUFFICIENT_BALANCE');
     });
@@ -518,11 +591,21 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-dual-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
       const requestId = requestRes.body.id as string;
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`).send({}).expect(201);
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`).send({}).expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/approve`)
+        .send({})
+        .expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/processing`)
+        .send({})
+        .expect(201);
       await admin.agent
         .post(`${API_PREFIX}/marketplace/admin/payouts/${requestId}/paid`)
         .send({ payout_reference: 'TXN-DUAL-CAPABILITY' })
@@ -537,14 +620,21 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       // The marketplace ledger carries only the marketplace amount — never netted against, offset by, or inflated by the academic settlement.
       const paidOutEntries = await dataSource
         .getRepository(MarketplaceLedgerEntry)
-        .find({ where: { instructor_id: earning.instructor_id, entry_type: MarketplaceLedgerEntryType.PAYOUT } });
+        .find({
+          where: {
+            instructor_id: earning.instructor_id,
+            entry_type: MarketplaceLedgerEntryType.PAYOUT,
+          },
+        });
       expect(paidOutEntries).toHaveLength(1);
       expect(Number(paidOutEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
 
       const balanceRes = await instructorUser.agent
         .get(`${API_PREFIX}/marketplace/instructor/earnings/balance`)
         .expect(200);
-      const egp = (balanceRes.body as Array<{ currency: string; paidOutMinor: number }>).find((b) => b.currency === 'EGP');
+      const egp = (balanceRes.body as Array<{ currency: string; paidOutMinor: number }>).find(
+        (b) => b.currency === 'EGP',
+      );
       expect(egp?.paidOutMinor).toBe(earning.net_amount_minor);
     });
   });
@@ -570,17 +660,24 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       // to exercise the "admin, but this one permission wasn't granted" case, the same
       // pattern finance-audit.postgres.e2e-spec.ts uses to assert denial.
       const bareAdmin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
-      await dataSource.query('UPDATE users SET finance_permissions = $1::jsonb WHERE id = $2', ['[]', bareAdmin.userId]);
+      await dataSource.query('UPDATE users SET finance_permissions = $1::jsonb WHERE id = $2', [
+        '[]',
+        bareAdmin.userId,
+      ]);
       await bareAdmin.agent.get(`${API_PREFIX}/marketplace/admin/payouts`).expect(403);
     });
 
-    it('404s an instructor reading another instructor\'s payout request (IDOR-safe)', async () => {
+    it("404s an instructor reading another instructor's payout request (IDOR-safe)", async () => {
       const { instructorUser, earning } = await actors({ priceMinor: 200000 });
       const accountId = await createPayoutAccount(instructorUser.agent);
       const requestRes = await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/payouts`)
         .set('Idempotency-Key', `payout-idor-${Date.now()}`)
-        .send({ payout_account_id: accountId, amount_minor: earning.net_amount_minor, currency: 'EGP' })
+        .send({
+          payout_account_id: accountId,
+          amount_minor: earning.net_amount_minor,
+          currency: 'EGP',
+        })
         .expect(201);
 
       const otherInstructorUser = await createAuthenticatedUser(app, dataSource);

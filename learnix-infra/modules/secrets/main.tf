@@ -17,7 +17,8 @@ locals {
   # Secrets that cannot be generated here (they come from a provider, or need an asymmetric key pair
   # created out-of-band). Terraform creates the empty container only; the value is entered by an operator.
   external = {
-    paymob             = "Paymob API key, HMAC secret and integration ids (TEST mode in staging)"
+    easykash           = "EasyKash payment gateway: {EASYKASH_API_KEY, EASYKASH_HMAC_SECRET}; production only, EasyKash has no test mode"
+    paymob             = "RETIRED (Paymob removed from the application). Kept only until an operator confirms it is empty or unused, then delete in a separate approved change."
     meta-whatsapp      = "Meta WhatsApp Cloud API access token, phone number id, app secret, verify token"
     vapid              = "Web Push VAPID keys: {VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY}; generate with npx web-push generate-vapid-keys"
     cloudfront-signing = "CloudFront playback signing key: {CLOUDFRONT_PRIVATE_KEY_B64}; PEM private half of the key whose public half is in the CloudFront key group"

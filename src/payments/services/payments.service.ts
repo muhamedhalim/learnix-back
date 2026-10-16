@@ -39,7 +39,6 @@ import { RefundsService } from './refunds.service';
 export interface PaymentResponse {
   payment_id: string;
   payment_key: string;
-  paymob_order_id: number;
   amount: number;
   discount_amount: number;
   final_amount: number;
@@ -203,7 +202,6 @@ export class PaymentsService {
     return {
       payment_id: checkout.payment_id,
       payment_key: checkout.payment_id,
-      paymob_order_id: 0,
       amount: created.order.original_amount_minor / 100,
       discount_amount: created.order.discount_amount_minor / 100,
       final_amount: created.order.final_amount_minor / 100,
@@ -226,7 +224,6 @@ export class PaymentsService {
     return {
       payment_id: checkout.payment_id,
       payment_key: checkout.payment_id,
-      paymob_order_id: 0,
       amount: created.order.original_amount_minor / 100,
       discount_amount: created.order.discount_amount_minor / 100,
       final_amount: created.order.final_amount_minor / 100,
@@ -364,7 +361,7 @@ export class PaymentsService {
       payment.status = PaymentStatus.FAILED;
       payment.failure_reason = reason;
       if (verification?.transactionId !== undefined) {
-        payment.paymob_transaction_id = verification.transactionId;
+        payment.provider_transaction_id = verification.transactionId;
       }
       await manager.save(Payment, payment);
       if (payment.order_id) {
@@ -871,7 +868,10 @@ export class PaymentsService {
    */
   public async getRevenueStatistics(fromDate?: Date, toDate?: Date): Promise<RevenueStatistics> {
     const queryBuilder = this.canonicalPaidOrderRevenueQuery(fromDate, toDate)
-      .select('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'total_revenue')
+      .select(
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0',
+        'total_revenue',
+      )
       .addSelect('COUNT(order.id)', 'total_payments')
       .addSelect('COALESCE(SUM(order.discount_amount_minor), 0) / 100.0', 'total_discounts');
 
@@ -962,7 +962,10 @@ export class PaymentsService {
 
     const totalResult = (await totalQuery
 
-      .select('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'total')
+      .select(
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0',
+        'total',
+      )
 
       .getRawOne<TeacherRevenueTotalRaw>()) ?? { total: null };
 
@@ -990,7 +993,10 @@ export class PaymentsService {
 
       .select(`TO_CHAR(order.paid_at, '${dateFormat}')`, 'period')
 
-      .addSelect('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'revenue')
+      .addSelect(
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0',
+        'revenue',
+      )
 
       .addSelect('COUNT(order.id)', 'sales')
 
@@ -1018,7 +1024,10 @@ export class PaymentsService {
 
       .addSelect('MAX(order.product_title_snapshot)', 'lesson_title')
 
-      .addSelect('COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0', 'revenue')
+      .addSelect(
+        'COALESCE(SUM(order.final_amount_minor - order.refunded_amount_minor), 0) / 100.0',
+        'revenue',
+      )
 
       .addSelect('COUNT(order.id)', 'sales')
 

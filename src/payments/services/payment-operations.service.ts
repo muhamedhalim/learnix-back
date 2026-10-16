@@ -26,6 +26,7 @@ import {
   FinancialLedgerEntry,
   FinancialMaintenanceRun,
   GatewayWebhookEvent,
+  ItemType,
   ManualPaymentSubmission,
   ManualPaymentSubmissionStatus,
   Order,
@@ -307,8 +308,14 @@ export class PaymentOperationsService {
         .andWhere(
           '(payment.order_id IS NOT NULL OR (payment.cart_checkout_id IS NOT NULL AND payment.order_id IS NULL))',
         )
-        .andWhere('payment.provider IS NOT NULL')
-        .andWhere('(payment.paymob_order_id IS NOT NULL OR payment.provider_reference IS NOT NULL)')
+        // Only the active gateway can be inquired; historical rows of a retired
+        // provider are kept as-is and must not be re-reconciled.
+        .andWhere('payment.provider = :activeProvider', {
+          activeProvider: this.providers.getDefault().name,
+        })
+        .andWhere(
+          '(payment.provider_order_reference IS NOT NULL OR payment.provider_reference IS NOT NULL)',
+        )
         .andWhere(
           "(payment.failure_reason IS NULL OR payment.failure_reason NOT LIKE 'reconciliation_quarantine:%')",
         )
@@ -415,7 +422,7 @@ export class PaymentOperationsService {
         );
         return;
       }
-      const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+      const providerOrderReference = payment.provider_order_reference ?? payment.provider_reference;
       if (!providerOrderReference) {
         await this.scheduleRefundReconciliationRetry(
           claimed,
@@ -627,12 +634,57 @@ export class PaymentOperationsService {
     });
   }
 
+  /**
+   * Customer-facing return from the hosted page. The browser redirect carries
+   * no trusted facts, so this only (a) resolves where to send the customer and
+   * (b) nudges a rate-limited server-side inquiry for a still-open payment so a
+   * slow callback does not leave the customer waiting. Access is only ever
+   * granted by the verified callback/inquiry path, never from this request.
+   */
+  public async resolveHostedReturn(
+    paymentId: string,
+  ): Promise<{ kind: 'order' | 'marketplace' | 'cart' | 'unknown'; id: string | null }> {
+    const payment = await this.payments.findOne({ where: { id: paymentId } });
+    if (!payment) return { kind: 'unknown', id: null };
+    const open = [PaymentStatus.PENDING, PaymentStatus.PROCESSING, PaymentStatus.EXPIRED].includes(
+      payment.status,
+    );
+    const recentlyChecked =
+      payment.reconciliation_last_attempted_at !== null &&
+      Date.now() - payment.reconciliation_last_attempted_at.getTime() < 30_000;
+    if (
+      open &&
+      !recentlyChecked &&
+      payment.provider === this.providers.getDefault().name &&
+      payment.provider_order_reference !== null
+    ) {
+      try {
+        await this.reconcilePayment(payment);
+      } catch (error) {
+        this.logger.warn(
+          `Return-triggered reconciliation failed for payment ${payment.id}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+    }
+    if (payment.item_type === ItemType.MARKETPLACE_COURSE) {
+      return { kind: 'marketplace', id: payment.item_id };
+    }
+    if (payment.cart_checkout_id !== null && payment.order_id === null) {
+      return { kind: 'cart', id: payment.cart_checkout_id };
+    }
+    return payment.order_id === null
+      ? { kind: 'unknown', id: null }
+      : { kind: 'order', id: payment.order_id };
+  }
+
   private async reconcilePayment(candidate: Payment): Promise<void> {
     const payment = await this.claimPaymentReconciliation(candidate.id);
     if (!payment) return;
     try {
       const provider = this.providers.get(payment.provider!);
-      const providerOrderReference = payment.paymob_order_id ?? payment.provider_reference;
+      const providerOrderReference = payment.provider_order_reference ?? payment.provider_reference;
       if (!providerOrderReference) {
         await this.schedulePaymentReconciliationRetry(
           payment,
@@ -665,7 +717,7 @@ export class PaymentOperationsService {
           amountCents: details.amountMinor,
           currency: details.currency,
           transactionId: details.transactionId,
-          occurredAt: details.occurredAt,
+          ...(details.occurredAt === undefined ? {} : { occurredAt: details.occurredAt }),
         });
         await this.finishPaymentReconciliation(payment);
         return;
@@ -675,13 +727,13 @@ export class PaymentOperationsService {
           amountCents: details.amountMinor,
           currency: details.currency,
           transactionId: details.transactionId,
-          occurredAt: details.occurredAt,
+          ...(details.occurredAt === undefined ? {} : { occurredAt: details.occurredAt }),
         });
         await this.paymentService.processRefundedPayment(payment.id, {
           amountCents: details.amountMinor,
           currency: details.currency,
           transactionId: details.transactionId,
-          occurredAt: details.occurredAt,
+          ...(details.occurredAt === undefined ? {} : { occurredAt: details.occurredAt }),
         });
         await this.finishPaymentReconciliation(payment);
         return;

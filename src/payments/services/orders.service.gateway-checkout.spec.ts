@@ -27,18 +27,18 @@ function checkoutFixture(overrides: Partial<Payment> = {}): CheckoutFixture {
   const payment = {
     id: 'payment-1',
     order_id: order.id,
-    provider: 'paymob',
+    provider: 'easykash',
     provider_reference: null,
-    paymob_order_id: null,
+    provider_order_reference: null,
     status: PaymentStatus.PENDING,
     failure_reason: null,
     ...overrides,
   } as Payment;
   const provider = {
-    name: 'paymob',
+    name: 'easykash',
     createCheckoutOrder: jest.fn().mockResolvedValue('555'),
     createCheckoutSession: jest.fn().mockResolvedValue({
-      redirectUrl: 'https://paymob.test/checkout',
+      redirectUrl: 'https://easykash.test/checkout',
       providerReference: '555',
     }),
   } as unknown as PaymentGateway;
@@ -105,7 +105,7 @@ const checkoutDto = {
 };
 
 describe('OrdersService gateway checkout idempotency', () => {
-  it('allows only one concurrent checkout request to register a Paymob order', async () => {
+  it('allows only one concurrent checkout request to register a EasyKash order', async () => {
     const { service, payment, provider } = checkoutFixture();
     let releaseRegistration: (() => void) | undefined;
     const registrationStarted = new Promise<void>((resolve) => {
@@ -130,9 +130,9 @@ describe('OrdersService gateway checkout idempotency', () => {
     releaseRegistration?.();
     await expect(first).resolves.toMatchObject({
       payment_id: 'payment-1',
-      redirect_url: 'https://paymob.test/checkout',
+      redirect_url: 'https://easykash.test/checkout',
     });
-    expect(payment.paymob_order_id).toBe('555');
+    expect(payment.provider_order_reference).toBe('555');
     expect(provider.createCheckoutSession).toHaveBeenCalledWith(
       expect.objectContaining({ paymentId: 'payment-1' }),
       '555',
@@ -143,13 +143,13 @@ describe('OrdersService gateway checkout idempotency', () => {
     const { service, provider } = checkoutFixture({
       status: PaymentStatus.PROCESSING,
       provider_reference: '555',
-      paymob_order_id: '555',
+      provider_order_reference: '555',
     });
 
     await expect(
       service.startGatewayCheckout('order-1', 'student-1', checkoutDto),
     ).resolves.toMatchObject({
-      redirect_url: 'https://paymob.test/checkout',
+      redirect_url: 'https://easykash.test/checkout',
     });
 
     expect(provider.createCheckoutOrder).not.toHaveBeenCalled();
