@@ -143,7 +143,7 @@ module "database" {
   kms_key_arn               = module.kms.arn
   instance_class            = var.db_instance_class
   database_name             = local.database_name
-  multi_az                  = true
+  multi_az                  = var.db_multi_az
   backup_retention_days     = 14
   deletion_protection       = true
   skip_final_snapshot       = false
@@ -169,7 +169,7 @@ module "cache" {
   kms_key_arn               = module.kms.arn
   secret_prefix             = local.secret_prefix
   node_type                 = var.valkey_node_type
-  node_count                = 2
+  node_count                = var.valkey_node_count
   snapshot_retention_days   = 7
   secret_recovery_days      = 30
   apply_immediately         = false

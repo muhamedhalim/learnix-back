@@ -261,3 +261,32 @@ variable "sms_protect_configuration_id" {
   type        = string
   default     = null
 }
+
+# --- Launch sizing (LAUNCH-SIZING.md). Defaults keep the Stage 1 design; lower values are an explicit, reviewed choice. ---
+variable "api_min_count" {
+  description = "Minimum api tasks once scaled up. 2 spreads the API over both AZs; 1 is the lean launch option (a task or AZ failure is an outage until ECS replaces the task)."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.api_min_count >= 1 && var.api_min_count <= 6
+    error_message = "api_min_count must be 1..6 (the api max_count)."
+  }
+}
+
+variable "db_multi_az" {
+  description = "RDS Multi-AZ standby with automatic failover. false is the lean launch option: a host or AZ failure means downtime until RDS recovers the instance or a point-in-time restore is done."
+  type        = bool
+  default     = true
+}
+
+variable "valkey_node_count" {
+  description = "Valkey nodes: 2 = primary + replica with automatic failover; 1 = lean launch option (no failover; a node failure loses queued jobs since the last snapshot and the API reports not-ready until the node is replaced)."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.valkey_node_count >= 1 && var.valkey_node_count <= 3
+    error_message = "valkey_node_count must be 1..3."
+  }
+}

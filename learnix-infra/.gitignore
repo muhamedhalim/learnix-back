@@ -12,3 +12,9 @@ terraform.tfvars
 override.tf
 override.tf.json
 .build/
+
+# Local-only Terraform data dirs, the real launch tfvars (owner emails) and the bootstrap-state migration override
+.tfdata*/
+*.tfvars
+!*.tfvars.example
+backend_override.tf
