@@ -251,6 +251,43 @@ run "cloudflare_certificate_waits_for_the_operators_record" {
   }
 }
 
+run "lean_launch_sizing_plans_cleanly" {
+  command = plan
+
+  variables {
+    api_min_count        = 1
+    db_multi_az          = false
+    valkey_node_count    = 1
+    api_desired_count    = 1
+    worker_desired_count = 1
+  }
+
+  assert {
+    condition     = var.api_min_count == 1 && var.db_multi_az == false && var.valkey_node_count == 1
+    error_message = "The lean launch values must be accepted by the stack."
+  }
+}
+
+run "rejects_zero_api_min_count" {
+  command = plan
+
+  variables {
+    api_min_count = 0
+  }
+
+  expect_failures = [var.api_min_count]
+}
+
+run "rejects_zero_valkey_nodes" {
+  command = plan
+
+  variables {
+    valkey_node_count = 0
+  }
+
+  expect_failures = [var.valkey_node_count]
+}
+
 run "cloudflare_certificate_validated_attaches_alias" {
   command = plan
 

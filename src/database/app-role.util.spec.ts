@@ -3,6 +3,8 @@ import {
   buildRoleStatement,
   ensureAppRole,
   readAppRoleConfig,
+  resolveDatabaseName,
+  scramSha256Verifier,
   type AppRoleConfig,
 } from './app-role.util';
 
@@ -31,10 +33,33 @@ describe('app role', () => {
     expect(sql).not.toMatch(/ALL PRIVILEGES|\bCREATE\b ON|TRUNCATE|OWNER/i);
   });
 
-  it('escapes quotes in the password and rejects unsafe identifiers', () => {
-    expect(buildRoleStatement({ ...config, password: "a'b" }, true)).toContain("PASSWORD 'a''b'");
+  it('never puts the plaintext password in SQL and rejects unsafe identifiers', () => {
+    const sql = buildRoleStatement({ ...config, password: "a'b-plain" }, true);
+    expect(sql).not.toContain('plain');
+    expect(sql).toMatch(
+      /PASSWORD 'SCRAM-SHA-256\$4096:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+'$/,
+    );
     expect(() => buildRoleStatement({ ...config, user: 'x"; DROP ROLE y; --' }, true)).toThrow();
     expect(() => buildGrantStatements({ ...config, database: 'a b' })).toThrow();
+  });
+
+  it('builds the SCRAM-SHA-256 verifier PostgreSQL expects', () => {
+    // Format and determinism only; that PostgreSQL accepts a login with it is checked against a real server
+    // by running the migrate task and then the api as the application role.
+    const salt = Buffer.alloc(16, 1);
+    const verifier = scramSha256Verifier('pencil', salt);
+    expect(verifier.startsWith(`SCRAM-SHA-256$4096:${salt.toString('base64')}$`)).toBe(true);
+    expect(scramSha256Verifier('pencil', salt)).toBe(verifier);
+    expect(scramSha256Verifier('pencil2', salt)).not.toBe(verifier);
+  });
+
+  it('resolves the database name when TypeORM connects through a URL', () => {
+    expect(resolveDatabaseName('configured', { DB_NAME: 'x' })).toBe('configured');
+    expect(resolveDatabaseName(undefined, { DB_NAME: 'learnix' })).toBe('learnix');
+    expect(resolveDatabaseName('', { DATABASE_URL: 'postgresql://u:p@host:5432/learnix' })).toBe(
+      'learnix',
+    );
+    expect(resolveDatabaseName(undefined, {})).toBe('');
   });
 
   it('creates when missing, alters (password sync) when present, then grants', async () => {

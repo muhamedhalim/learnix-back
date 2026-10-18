@@ -223,7 +223,7 @@ module "api" {
   memory       = 1024
 
   desired_count    = var.api_desired_count
-  min_count        = 2
+  min_count        = var.api_min_count
   max_count        = 6
   container_port   = 3000
   target_group_arn = module.alb.target_group_arns["api"]
