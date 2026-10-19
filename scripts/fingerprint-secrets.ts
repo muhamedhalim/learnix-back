@@ -78,7 +78,6 @@ const SECRETS: readonly SecretDescriptor[] = [
     usedAt: 'src/payments/providers/easykash/easykash.gateway.ts',
     service: 'EasyKash',
   },
-  { variable: 'MAILERSEND_API_KEY', usedAt: 'src/mail/mail.service.ts', service: 'MailerSend' },
   {
     variable: 'R2_ACCESS_KEY_ID',
     usedAt: 'src/storage/storage.service.ts',

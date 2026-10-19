@@ -1,5 +1,7 @@
 # Staging Environment Implementation Plan — Learnix
 
+> **Superseded 2026-10-19:** MailerSend was removed and Brevo was never integrated. Amazon SES is the only email provider (no API key, no remote templates). MailerSend steps below are history; do not perform them.
+
 > **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
 
 > **STATUS: Phase 0 COMPLETE AND CLOSED (audited).** See [§25 Phase 0 Execution Record](#25-phase-0-execution-record) for the original build, and [§26 Phase 0 Closure Audit](#26-phase-0-closure-audit) for the follow-up review that verified it, found and fixed 3 additional defects, and formally closes every open item.

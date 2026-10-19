@@ -9,6 +9,7 @@ import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 import { MarketplaceEnrollment } from '../commerce/entities';
 import {
   MarketplaceEnrollmentStatus,
@@ -137,7 +138,7 @@ export class CourseRemovalService {
         // Deterministic per order — a re-enqueue (retried admin action, a
         // worker restart replaying its wait list) can never create a second
         // job for the same order.
-        opts: { jobId: `marketplace:removal:${enrollment.order_id}` },
+        opts: { jobId: queueJobId('marketplace', 'removal', enrollment.order_id) },
       })),
     );
 

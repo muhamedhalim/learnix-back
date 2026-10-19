@@ -121,7 +121,7 @@ export class HealthDiagnosticsService {
     await this.audit.record({
       adminId: input.adminId,
       action: 'health_test_email',
-      target: 'mailersend-email',
+      target: 'ses-email',
       details: { sent },
       ipAddress: input.ipAddress,
     });

@@ -87,7 +87,7 @@ function priorityForSeverity(severity: AlertSeverity): NotificationPriority {
  * the dashboard. Two independent external paths are added here, both
  * environment-driven and both optional:
  *
- *   - `ALERT_EMAIL_RECIPIENTS` — reuses the existing MailerSend + BullMQ
+ *   - `ALERT_EMAIL_RECIPIENTS` — reuses the existing Amazon SES + BullMQ
  *     pipeline (`MailService`), which is already the production email path.
  *   - `ALERT_WEBHOOK_URL` — a single provider-agnostic JSON POST. No vendor
  *     SDK is added; the payload carries `text` and `content` alongside the
@@ -234,7 +234,7 @@ export class OperationalAlertService {
         JSON.stringify({
           event: 'operational_alert_email_unavailable',
           alertKey: alert.key,
-          reason: 'MailerSend is not configured',
+          reason: 'Email provider (Amazon SES) is not configured',
         }),
       );
       return 'skipped';

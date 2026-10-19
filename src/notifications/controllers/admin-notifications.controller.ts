@@ -330,15 +330,16 @@ export class AdminNotificationsController {
         ...(typeof payload['subject'] === 'string' ? { subject: payload['subject'] } : {}),
         ...(typeof payload['html'] === 'string' ? { html: payload['html'] } : {}),
         ...(typeof payload['text'] === 'string' ? { text: payload['text'] } : {}),
-        ...(typeof payload['templateId'] === 'string'
-          ? { templateId: payload['templateId'] }
-          : {}),
-        ...(payload['personalization'] !== null &&
-        typeof payload['personalization'] === 'object' &&
-        !Array.isArray(payload['personalization'])
-          ? { personalization: payload['personalization'] as Record<string, unknown> }
-          : {}),
       };
+      if (replay.subject === undefined || (replay.html === undefined && replay.text === undefined)) {
+        // Payloads recorded for a removed remote-template provider carry no rendered content.
+        throw new BadRequestException(
+          biBody(
+            'This historical email has no rendered subject and body to replay',
+            'This historical email has no rendered subject and body to replay',
+          ),
+        );
+      }
       const queued = await this.mail.send({
         ...replay,
         notificationDeliveryId: delivery.id,
@@ -354,7 +355,7 @@ export class AdminNotificationsController {
       await this.notificationDeliveries.record(
         delivery.id,
         NotificationDeliveryStatus.QUEUED,
-        { provider: 'mailersend' },
+        { provider: this.mail.providerName },
       );
     } else {
       throw new BadRequestException(

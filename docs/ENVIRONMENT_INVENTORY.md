@@ -252,6 +252,9 @@ Registered from 6 modules plus `queues.module.ts`. When Redis is unconfigured (n
 
 ### 3.9 Email — MailerSend
 
+> **Superseded 2026-10-19:** MailerSend was removed. Amazon SES (`MAIL_PROVIDER=ses`, task-role credentials,
+> repo-local templates) is the only email provider. This section is the historical inventory.
+
 | Item                    | Value                                                        | Source                                    |
 | ----------------------- | ------------------------------------------------------------ | ----------------------------------------- |
 | Provider gate           | `MAIL_PROVIDER` must equal `mailersend`                      | `src/mail/mailersend.config.ts`           |

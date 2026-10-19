@@ -13,12 +13,16 @@ import { NotificationEmailService } from './notification-email.service';
  */
 describe('NotificationEmailService (DEF-005 email channel enforcement)', () => {
   let service: NotificationEmailService;
-  let mail: { send: jest.Mock; isConfigured: jest.Mock };
+  let mail: { send: jest.Mock; isConfigured: jest.Mock; providerName: string };
   let policy: { decide: jest.Mock };
   let deliveries: { claim: jest.Mock; record: jest.Mock };
 
   beforeEach(async () => {
-    mail = { send: jest.fn(async () => true), isConfigured: jest.fn(() => true) };
+    mail = {
+      send: jest.fn(async () => true),
+      isConfigured: jest.fn(() => true),
+      providerName: 'ses',
+    };
     policy = {
       decide: jest.fn(async () => ({ channel: NotificationChannel.EMAIL, allowed: true })),
     };
@@ -80,7 +84,7 @@ describe('NotificationEmailService (DEF-005 email channel enforcement)', () => {
     expect(deliveries.record).toHaveBeenCalledWith(
       'del-1',
       NotificationDeliveryStatus.SKIPPED_PREFERENCE,
-      expect.objectContaining({ provider: 'mailersend' }),
+      expect.objectContaining({ provider: 'ses' }),
     );
   });
 
@@ -102,13 +106,13 @@ describe('NotificationEmailService (DEF-005 email channel enforcement)', () => {
   });
 
   it('never throws when the mail provider fails — the in-app record stands alone', async () => {
-    mail.send.mockRejectedValue(new Error('MailerSend 503'));
+    mail.send.mockRejectedValue(new Error('SES 503'));
 
     await expect(service.send(input)).resolves.toBe('failed');
     expect(deliveries.record).toHaveBeenCalledWith(
       'del-1',
       NotificationDeliveryStatus.FAILED,
-      expect.objectContaining({ error: 'MailerSend 503' }),
+      expect.objectContaining({ error: 'SES 503' }),
     );
   });
 

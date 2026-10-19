@@ -286,7 +286,7 @@ export class QueueHealthIndicator implements HealthIndicator {
       dependencies['meta-whatsapp'] = 'optional';
       dependencies['twilio-sms'] = 'optional';
     } else if (name === QUEUE_NAMES.EMAIL) {
-      dependencies['mailersend-email'] = 'operational';
+      dependencies['ses-email'] = 'operational';
     } else if (name === QUEUE_NAMES.GAMIFICATION) {
       dependencies['postgresql'] = 'operational';
     }

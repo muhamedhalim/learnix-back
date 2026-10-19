@@ -22,6 +22,7 @@ import { NotificationStatus } from '../notifications/entities/notification-statu
 import { NotificationType } from '../notifications/entities/notification-type.enum';
 import { ItemType, Order, Payment } from '../payments/entities';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
+import { queueJobId } from '../queues/job-id.util';
 import { User } from '../users/entities/user.entity';
 import { EGP_CURRENCY, toMinorUnits } from '../payments/money.util';
 import {
@@ -539,7 +540,7 @@ export class LessonSessionsService {
     await this.meetingQueue.add(
       JOB_TYPES.MEETING.PROVISION,
       { sessionId },
-      { jobId: `meeting:provision:${sessionId}` },
+      { jobId: queueJobId('meeting', 'provision', sessionId) },
     );
     return session;
   }
@@ -1065,7 +1066,7 @@ export class LessonSessionsService {
       .execute();
     if (insert.identifiers.length === 0 || !params.recipient.email) return;
     const notificationId = insert.identifiers[0]?.['id'] as string | undefined;
-    // Enforces `email_enabled` before MailerSend is touched, and records the
+    // Enforces `email_enabled` before the email provider is touched, and records the
     // outcome (sent / skipped_preference / failed) against the notification
     // row inserted just above. Never throws — the persisted in-app
     // notification remains the durable delivery record.

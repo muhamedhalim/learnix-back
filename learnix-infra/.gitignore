@@ -19,6 +19,7 @@ override.tf.json
 !*.tfvars.example
 backend_override.tf
 final.json
+counts.json
 final-plan.log
 preview*
 fix.json
