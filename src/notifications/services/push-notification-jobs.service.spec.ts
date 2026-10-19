@@ -28,15 +28,15 @@ describe('PushNotificationJobsService.enqueueDeliveryMany', () => {
 
     expect(queue.addBulk).toHaveBeenCalledTimes(1);
     expect(queue.addBulk).toHaveBeenCalledWith([
-      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n1' }, opts: { jobId: 'push:n1' } },
-      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n2' }, opts: { jobId: 'push:n2' } },
-      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n3' }, opts: { jobId: 'push:n3' } },
+      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n1' }, opts: { jobId: 'push.n1' } },
+      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n2' }, opts: { jobId: 'push.n2' } },
+      { name: JOB_TYPES.PUSH.DELIVER, data: { notificationId: 'n3' }, opts: { jobId: 'push.n3' } },
     ]);
     // The single-notification path uses the same id scheme.
     expect(queue.add).toHaveBeenCalledWith(
       JOB_TYPES.PUSH.DELIVER,
       { notificationId: 'n9' },
-      { jobId: 'push:n9' },
+      { jobId: 'push.n9' },
     );
     expect(dispatcher.dispatch).not.toHaveBeenCalled();
   });

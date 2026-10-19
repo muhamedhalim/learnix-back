@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 
 import type { ParentEventType } from '../../common/events/parent-event-type.enum';
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 
 /** Payload of a `deliver-parent-message` job. Crosses Redis — keep it JSON. */
 export interface ParentDeliveryJob {
@@ -50,8 +51,8 @@ export class ParentNotificationJobsService {
     // an actual double-send.
     const jobId =
       options.bypassDedup === true
-        ? `parent:${job.eventType}:${job.subjectId}:retry:${String(Date.now())}`
-        : `parent:${job.eventType}:${job.subjectId}`;
+        ? queueJobId('parent', job.eventType, job.subjectId, 'retry', Date.now())
+        : queueJobId('parent', job.eventType, job.subjectId);
 
     await this.queue.add(JOB_TYPES.PARENT.DELIVER, job, { jobId });
     this.logger.debug(`Enqueued ${job.eventType} for student ${job.studentId}`);
@@ -62,7 +63,7 @@ export class ParentNotificationJobsService {
     await this.queue.add(
       JOB_TYPES.PARENT.REDELIVER,
       { parentMessageId } satisfies ParentRedeliveryJob,
-      { jobId: `parent:redeliver:${parentMessageId}:${String(Date.now())}` },
+      { jobId: queueJobId('parent', 'redeliver', parentMessageId, Date.now()) },
     );
   }
 

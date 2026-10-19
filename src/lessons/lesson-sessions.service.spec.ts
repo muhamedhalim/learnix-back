@@ -449,7 +449,7 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     expect(queue.add).toHaveBeenCalledWith(
       expect.any(String),
       { sessionId },
-      { jobId: `meeting:provision:${sessionId}` },
+      { jobId: `meeting.provision.${sessionId}` },
     );
   });
 
