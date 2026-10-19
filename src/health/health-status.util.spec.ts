@@ -82,7 +82,7 @@ describe('health status calculation', () => {
   });
 
   it('counts required important misconfiguration as a partial outage', () => {
-    const mail = component('mailersend-email', 'misconfigured');
+    const mail = component('ses-email', 'misconfigured');
     mail.importance = 'important';
     mail.required = true;
     expect(calculateOverallStatus([component('api', 'healthy', true), mail])).toBe(

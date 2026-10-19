@@ -32,11 +32,12 @@ const repos = {
 const baselinePath = join(here, 'provider-baseline.json');
 
 // Patterns per provider. Imports catch SDK use; hosts catch hand-written HTTP clients (Bunny has no SDK).
-// Bunny is fully retired: its baseline is EMPTY, so any new reference to it fails this audit.
+// Bunny, MailerSend and Brevo are fully retired: their baselines are EMPTY, so any new reference fails this audit.
 const PROVIDERS = {
   'bunny-stream': [/bunnycdn\.com/i, /mediadelivery\.net/i, /b-cdn\.net/i, /from ['"]tus-js-client['"]/, /BUNNY_[A-Z_]+/],
   'cloudflare-r2': [/r2\.cloudflarestorage\.com/i, /\bR2_[A-Z_]+/],
   mailersend: [/from ['"]mailersend['"]/, /mailersend\.com/i, /MAILERSEND_[A-Z_]+/],
+  brevo: [/from ['"](@getbrevo\/brevo|sib-api-v3-sdk)['"]/, /api\.brevo\.com/i, /sendinblue/i, /BREVO_[A-Z_]+/],
   twilio: [/from ['"]twilio['"]/, /api\.twilio\.com/i, /TWILIO_[A-Z_]+/],
   firebase: [/from ['"]firebase(-admin)?(\/[a-z-]+)?['"]/, /import\(['"]firebase\/[a-z-]+['"]\)/, /fcm\.googleapis\.com/i, /gstatic\.com\/firebasejs/i, /FIREBASE_[A-Z_]+/],
   sentry: [/from ['"]@sentry\/[a-z-]+['"]/, /import\(['"]@sentry\/[a-z-]+['"]\)/, /sentry\.io/i],
@@ -78,7 +79,7 @@ function scan() {
 }
 
 // The configuration AWS actually runs with must not select any legacy provider.
-const LEGACY_ENV = /\b(R2_[A-Z_]+|BUNNY_[A-Z_]+|MAILERSEND_[A-Z_]+|TWILIO_[A-Z_]+|FIREBASE_[A-Z_]+|NEXT_PUBLIC_FIREBASE_[A-Z_]+|SENTRY_[A-Z_]+|NEXT_PUBLIC_SENTRY_[A-Z_]+|RAILWAY_[A-Z_]+)\b/;
+const LEGACY_ENV = /\b(R2_[A-Z_]+|BUNNY_[A-Z_]+|MAILERSEND_[A-Z_]+|BREVO_[A-Z_]+|TWILIO_[A-Z_]+|FIREBASE_[A-Z_]+|NEXT_PUBLIC_FIREBASE_[A-Z_]+|SENTRY_[A-Z_]+|NEXT_PUBLIC_SENTRY_[A-Z_]+|RAILWAY_[A-Z_]+)\b/;
 const LEGACY_VALUES = /(MAIL_PROVIDER\s*=\s*"mailersend"|SMS_PROVIDER\s*=\s*"twilio"|PUSH_PROVIDER\s*=\s*"fcm")/;
 function awsConfigFiles() {
   const files = [];

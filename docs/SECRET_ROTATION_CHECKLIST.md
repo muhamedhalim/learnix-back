@@ -49,7 +49,7 @@ Corroborating signals in the same file: `R2_BUCKET=learnix` and an `R2_PUBLIC_BA
 | ---- | ---------------------------- | -------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | S-01 | `EASYKASH_API_KEY`           | `easykash.gateway.ts`      | EasyKash Integration Settings | Regenerate the API key (the red refresh button). Update the `<project>/production/easykash` secret and restart tasks. |
 | S-03 | `EASYKASH_HMAC_SECRET`      | `easykash.gateway.ts`      | EasyKash Integration Settings | Shown after saving the callback URL. **Update the secret in the same step**, then confirm a real callback returns `200`, not `401`. |
-| S-04 | `MAILERSEND_API_KEY`         | `mail.service.ts:85`       | MailerSend                | Domains → API tokens → create new, update Railway, then delete old. **Create-then-delete order matters** — deleting first drops queued mail                                     | Yes            |
+| S-04 | `MAILERSEND_API_KEY`         | removed 2026-10-19         | MailerSend                | No longer read by the application (SES only). Revoke the key in the MailerSend account; nothing to rotate                                                                        | Yes            |
 | S-05 | `TWILIO_AUTH_TOKEN`          | `sms.channel.ts`           | Twilio Console            | Account → Auth tokens → create secondary → promote → revoke primary                                                                                                             | Yes            |
 | S-06 | `META_WHATSAPP_ACCESS_TOKEN` | `whatsapp-meta.channel.ts` | Meta for Developers       | App → WhatsApp → API setup → regenerate permanent token                                                                                                                         | Yes            |
 | S-07 | `META_WHATSAPP_APP_SECRET`   | `env.validation.ts:101`    | Meta                      | App → Settings → Basic → App secret → reset. Verifies `X-Hub-Signature-256`                                                                                                     | Yes            |
@@ -101,7 +101,7 @@ Tick each box in order. Do not batch P1 with P2.
 
 - [ ] **R-05** S-01 EasyKash API key
 - [ ] **R-06** S-03 EasyKash HMAC secret — **then immediately** confirm the next real callback is accepted (`200`), not rejected (`401`)
-- [ ] **R-07** S-04 MailerSend API key (create → update → verify a send → delete old)
+- [x] **R-07** S-04 MailerSend API key — not applicable: MailerSend removed 2026-10-19 (SES uses the task role, no key). Revoke the old key in the MailerSend account when closing it.
 - [ ] **R-08** S-05 Twilio auth token
 - [ ] **R-09** S-06 + S-07 + S-08 Meta WhatsApp token, app secret, verify token
 - [ ] **R-10** Verify: `GET /api/v1/health/all` shows every external provider healthy

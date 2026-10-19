@@ -25,6 +25,16 @@ enum Environment {
   Test = 'test',
 }
 
+const PUBLIC_MAILBOX_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'hotmail.com',
+  'outlook.com',
+  'live.com',
+  'icloud.com',
+]);
+
 const EASYKASH_ALLOWED_HOSTS = new Set(['back.easykash.net']);
 const EASYKASH_PAYMENT_OPTION_IDS = new Set([
   1, 2, 3, 4, 5, 6, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34,
@@ -137,7 +147,7 @@ export function validateAwsRuntimeProfile(config: Record<string, unknown>): void
       );
     }
   };
-  oneOf('MAIL_PROVIDER', ['ses', 'mailersend']);
+  oneOf('MAIL_PROVIDER', ['ses']);
   oneOf('SMS_PROVIDER', ['aws', 'twilio']);
   // Anything but "webpush" silently selects FCM in the notifications module.
   oneOf('PUSH_PROVIDER', ['webpush', 'fcm']);
@@ -150,6 +160,19 @@ export function validateAwsRuntimeProfile(config: Record<string, unknown>): void
     ) {
       throw new Error(`Environment validation failed: ${key} must be an SQS queue URL.`);
     }
+  }
+
+  // SES can only DKIM-sign for a domain it has verified, so a mailbox-provider sender (for example gmail.com)
+  // fails SPF/DKIM alignment and is spam-foldered or rejected under that provider's DMARC policy.
+  const fromDomain = read('MAIL_FROM_EMAIL')?.trim().toLowerCase().split('@')[1];
+  if (
+    read('MAIL_PROVIDER')?.trim().toLowerCase() === 'ses' &&
+    fromDomain !== undefined &&
+    PUBLIC_MAILBOX_DOMAINS.has(fromDomain)
+  ) {
+    throw new Error(
+      `Environment validation failed: MAIL_FROM_EMAIL uses ${fromDomain}; SES must send from a verified domain the platform owns.`,
+    );
   }
 
   // Legacy storage providers stay selectable in code for rollback until the parity window ends; production on
@@ -223,7 +246,7 @@ export class EnvironmentVariables {
 
   /**
    * Staging-only outbound mail allowlist (addresses or bare domains).
-   * Required on staging whenever MailerSend is configured; forbidden on
+   * Required on staging whenever SES is configured; forbidden on
    * production, where it would silently discard customer mail.
    */
   @IsString()
@@ -621,16 +644,12 @@ export class EnvironmentVariables {
   @Type(() => Number)
   public PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS = 120;
 
-  // SMTP / Email delivery (optional — when unset, password-reset emails are
+  // Email delivery through Amazon SES (optional — when unset, password-reset emails are
   // logged instead of sent, and the reset token is returned in the response in
   // non-production environments so the flow remains testable).
-  @IsString()
+  @IsIn(['ses'])
   @IsOptional()
   public MAIL_PROVIDER?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_API_KEY?: string;
 
   @IsString()
   @IsOptional()
@@ -643,46 +662,6 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   public MAIL_REPLY_TO?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_WELCOME?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_PASSWORD_RESET?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_LOGIN_VERIFICATION?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_INVITATION?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_PAYMENT_CONFIRMATION?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_INVOICE?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_CERTIFICATE?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_HOMEWORK?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_EXAM?: string;
-
-  @IsString()
-  @IsOptional()
-  public MAILERSEND_TEMPLATE_SUBSCRIPTION?: string;
 
   // Password reset token lifetime (duration string, e.g. "1h", "30m"). Default 1h.
   @IsString()

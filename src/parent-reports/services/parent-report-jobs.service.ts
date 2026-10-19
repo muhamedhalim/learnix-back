@@ -4,6 +4,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 import { ParentReportType } from '../entities/parent-report-type.enum';
 import {
   MONTHLY_SWEEP_CRON,
@@ -80,7 +81,7 @@ export class ParentReportJobsService implements OnModuleInit {
    */
   public async enqueueBuild(job: BuildReportJob, periodKey: string): Promise<void> {
     await this.queue.add(JOB_TYPES.PARENT_REPORT.BUILD, job, {
-      jobId: `parent-report:${job.reportType}:${job.studentId}:${periodKey}`,
+      jobId: queueJobId('parent-report', job.reportType, job.studentId, periodKey),
     });
   }
 
@@ -96,7 +97,7 @@ export class ParentReportJobsService implements OnModuleInit {
         name: JOB_TYPES.PARENT_REPORT.BUILD,
         data: job,
         opts: {
-          jobId: `parent-report:${job.reportType}:${job.studentId}:${periodKey}`,
+          jobId: queueJobId('parent-report', job.reportType, job.studentId, periodKey),
         },
       })),
     );

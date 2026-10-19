@@ -60,7 +60,7 @@ Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned
 
 | Variable                                             | Notes                                                                                         |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `MAIL_PROVIDER`                                      | `ses` or `mailersend` (rollback).                                                             |
+| `MAIL_PROVIDER`                                      | `ses` (the only email provider; unset disables mail).                                                             |
 | `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME`, `MAIL_REPLY_TO` | Verified SES identity.                                                                        |
 | `SES_REGION`, `SES_CONFIGURATION_SET`                | Config set publishes bounces/complaints to SNS -> SQS.                                        |
 | `MAIL_EVENTS_QUEUE_URL`                              | SQS queue of SES feedback (logged + metric; SES account-level suppression does the blocking). |

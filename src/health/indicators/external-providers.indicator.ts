@@ -158,20 +158,20 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     const mail = this.mail.getHealthStatus();
     if (!mail.enabled) {
       return this.disabled(
-        'mailersend-email',
+        'ses-email',
         'Email delivery',
         'provider',
         startedAt,
-        'MailerSend delivery is disabled by MAIL_PROVIDER.',
+        'Amazon SES delivery is disabled by MAIL_PROVIDER.',
       );
     }
     if (!mail.configured) {
       return this.misconfigured(
-        'mailersend-email',
+        'ses-email',
         'Email delivery',
         'provider',
         startedAt,
-        `MailerSend is enabled but required configuration is incomplete (${mail.missing.join(', ')}).`,
+        `Amazon SES is enabled but required configuration is incomplete (${mail.missing.join(', ')}).`,
         false,
       );
     }
@@ -183,28 +183,27 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
           : 'healthy';
     const errorCode =
       mail.state === 'authentication_failed'
-        ? 'MAILERSEND_AUTHENTICATION_FAILED'
+        ? 'SES_AUTHENTICATION_FAILED'
         : mail.state === 'rate_limited'
-          ? 'MAILERSEND_RATE_LIMITED'
+          ? 'SES_RATE_LIMITED'
           : mail.state === 'provider_unavailable'
-            ? 'MAILERSEND_PROVIDER_UNAVAILABLE'
+            ? 'SES_PROVIDER_UNAVAILABLE'
             : null;
     return componentResult({
-      id: 'mailersend-email',
+      id: 'ses-email',
       name: 'Email delivery',
       category: 'provider',
       status,
       startedAt,
       message:
         status === 'healthy'
-          ? 'MailerSend configuration is valid; no message-generating provider probe was executed.'
-          : 'MailerSend reported a delivery failure during the most recent real email attempt.',
+          ? 'Amazon SES configuration is valid; no message-generating provider probe was executed.'
+          : 'Amazon SES reported a delivery failure during the most recent real email attempt.',
       metadata: {
         purpose: 'Transactional and administrative email',
         configured: true,
         enabled: true,
-        provider: 'mailersend',
-        configuredTemplateCount: mail.configuredTemplateCount,
+        provider: 'ses',
         probeExecuted: false,
         probeStatus: 'not_executed',
         lastProviderAttemptAt: mail.lastAttemptAt,
@@ -220,7 +219,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
       recommendation:
         status === 'healthy'
           ? null
-          : 'Verify the MailerSend account, API key permissions, sender domain, rate limit, and provider status.',
+          : 'Verify the SES sending status and quota, the verified sender identity, the task role ses:SendEmail permission, and the configuration set.',
       dependencies: ['redis', 'worker-email'],
       dependencyTypes: { redis: 'direct', 'worker-email': 'operational' },
       importance: 'important',
@@ -616,7 +615,7 @@ export class ExternalProvidersHealthIndicator implements HealthIndicator {
     message: string,
     critical: boolean,
   ): HealthComponentResult {
-    const required = id === 'mailersend-email';
+    const required = id === 'ses-email';
     return componentResult({
       id,
       name,

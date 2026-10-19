@@ -190,11 +190,11 @@ describe('CourseRemovalService (T142)', () => {
       expect(marketplaceQueue.addBulk).toHaveBeenCalledWith([
         expect.objectContaining({
           data: expect.objectContaining({ orderId: 'o1', isZeroValue: false, totalCount: 2 }),
-          opts: { jobId: 'marketplace:removal:o1' },
+          opts: { jobId: 'marketplace.removal.o1' },
         }),
         expect.objectContaining({
           data: expect.objectContaining({ orderId: 'o2', isZeroValue: true, totalCount: 2 }),
-          opts: { jobId: 'marketplace:removal:o2' },
+          opts: { jobId: 'marketplace.removal.o2' },
         }),
       ]);
     });

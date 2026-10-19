@@ -16,7 +16,8 @@ const reader = (env: Record<string, string>) => (key: string) => env[key];
 
 describe('resolveSesConfig', () => {
   it('is disabled unless MAIL_PROVIDER=ses', () => {
-    expect(resolveSesConfig(reader({ MAIL_PROVIDER: 'mailersend' })).enabled).toBe(false);
+    expect(resolveSesConfig(reader({})).enabled).toBe(false);
+    expect(resolveSesConfig(reader({ MAIL_PROVIDER: 'smtp' })).enabled).toBe(false);
   });
 
   it('needs only a sender (credentials come from the task role)', () => {
@@ -106,7 +107,7 @@ describe('MailService with SES', () => {
     const { service } = make(sesEnv);
     expect(service.providerName).toBe('ses');
     expect(service.isConfigured()).toBe(true);
-    expect(service.getHealthStatus()).toMatchObject({ enabled: true, configured: true, configuredTemplateCount: 0 });
+    expect(service.getHealthStatus()).toMatchObject({ enabled: true, configured: true });
   });
 
   it('is not configured when selected without a sender', () => {
@@ -124,7 +125,7 @@ describe('MailService with SES', () => {
 
   it('refuses to send a body-less message instead of sending an empty email', async () => {
     const { service } = make(sesEnv);
-    await expect(service.deliver({ to: 'a@b.test', templateId: 'remote-template' })).rejects.toThrow(/failed/i);
+    await expect(service.deliver({ to: 'a@b.test', subject: 'No body' })).rejects.toThrow(/failed/i);
     expect(ses.commandCalls(SendEmailCommand)).toHaveLength(0);
   });
 
@@ -143,8 +144,7 @@ describe('MailService with SES', () => {
       locale: PreferredLanguage.AR,
       personalization: { setupUrl: 'https://learnix.school/auth/reset-password?token=abc', expiresAt: '2026-10-12T10:00:00.000Z' },
     });
-    const job = queue.add.mock.calls[0]![1] as { subject: string; html: string; templateId?: string };
-    expect(job.templateId).toBeUndefined();
+    const job = queue.add.mock.calls[0]![1] as { subject: string; html: string };
     expect(job.subject).toBe('لديك دعوة إلى Learnix');
     expect(job.html).toContain('dir="rtl"');
     expect(job.html).toContain('token=abc');

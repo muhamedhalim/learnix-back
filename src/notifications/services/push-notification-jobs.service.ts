@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
 import { areQueuesEnabled, JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 import { PushDispatchService } from './push-dispatch.service';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { NotificationDeliveryStatus } from '../entities';
@@ -73,8 +74,8 @@ export class PushNotificationJobsService {
     // twice enqueues once. Belt-and-braces on top of the per-device
     // `notification_deliveries` claim, which is the real guarantee.
     const jobId = options.forceNewJob
-      ? `push:${notificationId}:retry:${Date.now().toString(36)}`
-      : `push:${notificationId}`;
+      ? queueJobId('push', notificationId, 'retry', Date.now().toString(36))
+      : queueJobId('push', notificationId);
     await this.queue.add(JOB_TYPES.PUSH.DELIVER, {
       notificationId,
       ...(options.retryDeliveryId ? { retryDeliveryId: options.retryDeliveryId } : {}),
@@ -86,7 +87,7 @@ export class PushNotificationJobsService {
 
   /**
    * Push for many already-persisted notifications at once (T069). Queues enabled:
-   * one `addBulk` with the same deterministic `push:<id>` job ids as
+   * one `addBulk` with the same deterministic `push.<id>` job ids as
    * {@link enqueueDelivery}. Queues disabled: the same per-id inline dispatch,
    * errors swallowed. The caller is responsible for never calling this before the
    * rows are committed.
@@ -101,7 +102,7 @@ export class PushNotificationJobsService {
       notificationIds.map((notificationId) => ({
         name: JOB_TYPES.PUSH.DELIVER,
         data: { notificationId } satisfies PushDeliveryJob,
-        opts: { jobId: `push:${notificationId}` },
+        opts: { jobId: queueJobId('push', notificationId) },
       })),
     );
     this.logger.debug(`Enqueued push for ${String(notificationIds.length)} notification(s)`);

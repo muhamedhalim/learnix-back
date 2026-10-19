@@ -68,7 +68,7 @@ const RULES: RiskRule[] = [
   },
   {
     id: 'provider-latency',
-    componentId: /^(payment-gateway|meta-whatsapp|twilio-sms|mailersend-email)$/u,
+    componentId: /^(payment-gateway|meta-whatsapp|twilio-sms|ses-email)$/u,
     metric: '__latency',
     threshold: 1_000,
     level: 'medium',

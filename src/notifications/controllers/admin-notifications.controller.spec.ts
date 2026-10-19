@@ -14,7 +14,7 @@ describe('AdminNotificationsController', () => {
   };
   const deliveries = { findOne: jest.fn(), record: jest.fn().mockResolvedValue(undefined) };
   const pushJobs = { enqueueDelivery: jest.fn().mockResolvedValue(undefined) };
-  const mail = { send: jest.fn() };
+  const mail = { send: jest.fn(), providerName: 'ses' };
   const controller = new AdminNotificationsController(
     {} as never,
     bulk as never,
@@ -111,7 +111,20 @@ describe('AdminNotificationsController', () => {
     expect(deliveries.record).toHaveBeenCalledWith(
       'delivery-2',
       NotificationDeliveryStatus.QUEUED,
-      { provider: 'mailersend' },
+      { provider: 'ses' },
     );
+  });
+
+  it('refuses to replay a template-only email payload that has no rendered content', async () => {
+    deliveries.findOne.mockResolvedValue({
+      id: 'delivery-3',
+      notification_id: 'notification-3',
+      channel: NotificationChannel.EMAIL,
+      status: NotificationDeliveryStatus.FAILED,
+      request_payload: { to: 'student@example.test', templateId: 'legacy-template' },
+    });
+
+    await expect(controller.retryDelivery('delivery-3')).rejects.toThrow(BadRequestException);
+    expect(mail.send).not.toHaveBeenCalled();
   });
 });
