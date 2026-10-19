@@ -214,6 +214,8 @@ data "aws_iam_policy_document" "worker" {
 module "api" {
   source = "../../modules/ecs-service"
 
+  retain_old_task_definitions = true
+
   # HTTP only: queue consumers, crons and event consumers run in the worker service.
   name         = "api"
   cluster_arn  = module.ecs.cluster_arn
@@ -249,6 +251,8 @@ module "api" {
 
 module "worker" {
   source = "../../modules/ecs-service"
+
+  retain_old_task_definitions = true
 
   container_health_check = { port = 3000, path = "/api/v1/health" }
 
@@ -287,6 +291,8 @@ module "worker" {
 # One-shot migration task: `aws ecs run-task` before each deploy (advisory-locked, so two runs never race).
 module "migrate" {
   source = "../../modules/ecs-service"
+
+  retain_old_task_definitions = true
 
   name           = "migrate"
   create_service = false
