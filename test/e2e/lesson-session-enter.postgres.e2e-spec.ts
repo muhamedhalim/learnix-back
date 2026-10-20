@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
 
+import { AttendanceRecord } from '../../src/attendance/entities/attendance-record.entity';
 import { LessonSession } from '../../src/attendance/entities/lesson-session.entity';
 import { Lesson } from '../../src/lessons/entities/lesson.entity';
 import {
@@ -299,6 +300,76 @@ describe('lesson session enter — client IP handling (PostgreSQL)', () => {
       expect(rows).toHaveLength(2);
       expect(rows[0]!.exited_at).toBeNull();
       expect(rows[1]!.exited_at).not.toBeNull();
+    });
+  });
+
+  /**
+   * The 80% auto-attendance rule at the HTTP boundary (FIA-002 made the frontend report a real
+   * watch percentage; until then no test exercised the threshold over HTTP).
+   */
+  describe('POST /lessons/:id/exit — 80% auto-attendance threshold', () => {
+    async function exitWith(percent: number) {
+      const fixture = await enrolledStudentFixture();
+      await fixture.student.agent.post(`${API_PREFIX}/lessons/${fixture.lesson.id}/enter`).send().expect(201);
+      const res = await fixture.student.agent
+        .post(`${API_PREFIX}/lessons/${fixture.lesson.id}/exit`)
+        .send({ video_progress_percent: percent, duration_seconds: 60 })
+        .expect(201);
+      return { ...fixture, body: res.body as { auto_attendance?: boolean } };
+    }
+
+    function attendanceRows(lessonId: string) {
+      return dataSource.getRepository(AttendanceRecord).find({ where: { lesson_id: lessonId } });
+    }
+
+    it('does not mark attendance below the threshold (79%)', async () => {
+      const { lesson, body } = await exitWith(79);
+
+      expect(body.auto_attendance).toBe(false);
+      await expect(attendanceRows(lesson.id)).resolves.toHaveLength(0);
+    });
+
+    it('marks the student present, automatically, at exactly 80%', async () => {
+      const { student, lesson, body } = await exitWith(80);
+
+      expect(body.auto_attendance).toBe(true);
+      const rows = await attendanceRows(lesson.id);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        student_id: student.userId,
+        status: 'present',
+        is_auto_marked: true,
+        marked_by: null,
+      });
+    });
+
+    it('never creates a second record when a later session also crosses the threshold', async () => {
+      const { student, lesson } = await exitWith(95);
+
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+      const again = await student.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 100, duration_seconds: 60 })
+        .expect(201);
+
+      expect((again.body as { auto_attendance?: boolean }).auto_attendance).toBe(false);
+      await expect(attendanceRows(lesson.id)).resolves.toHaveLength(1);
+    });
+
+    it('rejects a percentage outside 0–100 and leaves the session open', async () => {
+      const { student, lesson } = await enrolledStudentFixture();
+      await student.agent.post(`${API_PREFIX}/lessons/${lesson.id}/enter`).send().expect(201);
+
+      await student.agent
+        .post(`${API_PREFIX}/lessons/${lesson.id}/exit`)
+        .send({ video_progress_percent: 101, duration_seconds: 60 })
+        .expect(400);
+
+      const session = await dataSource
+        .getRepository(LessonSession)
+        .findOneOrFail({ where: { lesson_id: lesson.id } });
+      expect(session.exited_at).toBeNull();
+      await expect(attendanceRows(lesson.id)).resolves.toHaveLength(0);
     });
   });
 });

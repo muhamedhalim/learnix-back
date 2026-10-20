@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Fake curl for ecs-deploy.sh --verify-url: the domain serves SERVED_COMMIT (default: the tested tag).
+echo "$*" >> /work/curl.log
+echo "{\"commit\":\"${SERVED_COMMIT:-abc123}\"}"

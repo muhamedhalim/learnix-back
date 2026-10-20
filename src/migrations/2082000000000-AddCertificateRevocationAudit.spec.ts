@@ -64,3 +64,29 @@ describe('AddCertificateRevocationAudit2082000000000', () => {
     expect(revert).toContain(`"revocation_context" ->> 'source' = 'refund_backfill'`);
   });
 });
+
+describe('AddCertificateRevocationAudit2082000000000 backfill count (FIA-003)', () => {
+  /** What TypeORM's Postgres query runner really returns: `[rows, rowCount]` for UPDATE … RETURNING. */
+  function queryRunner(revokedRows: number) {
+    const query = jest.fn(async (statement: string) => {
+      if (statement.includes('RETURNING c."id"')) {
+        return [Array.from({ length: revokedRows }, (_, i) => ({ id: `c${String(i)}` })), revokedRows];
+      }
+      if (statement.includes('SELECT COUNT(*)::int AS count')) return [{ count: 4 }];
+      return undefined;
+    });
+    return { query } as never;
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([0, 1, 37])('logs the number of certificates the backfill actually revoked (%i)', async (revoked) => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await new AddCertificateRevocationAudit2082000000000().up(queryRunner(revoked));
+
+    const line = log.mock.calls.map(([message]) => String(message)).find((message) => message.startsWith('[DEF-019]'));
+    expect(line).toContain(`Revoked ${String(revoked)} certificate(s)`);
+    expect(line).toContain('4 certificate(s) have no purchase record');
+  });
+});

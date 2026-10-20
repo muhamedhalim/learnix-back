@@ -5,7 +5,10 @@ import { processEnvReader } from '../common/utils/redis-connection.util';
 import { resolveAppEnvLabel } from '../config/app-env';
 import { MailService } from '../mail/mail.service';
 import { AlertCooldownStore } from './alert-cooldown.store';
-import { AdminNotificationEvent } from '../notifications/constants/admin-notification-events';
+import {
+  AdminNotificationEvent,
+  BUSINESS_ALERT_CATEGORY_PREFIXES,
+} from '../notifications/constants/admin-notification-events';
 import { AdminNotificationCategory } from '../notifications/entities/admin-notification-category.enum';
 import { NotificationPriority } from '../notifications/entities/notification-priority.enum';
 import { AdminNotificationsService } from '../notifications/services/admin-notifications.service';
@@ -16,6 +19,21 @@ export type AlertSeverity = 'critical' | 'warning' | 'info';
 /** Only safe, non-identifying diagnostic values may travel in an alert. */
 export type AlertContext = Record<string, string | number | boolean | null>;
 
+/**
+ * Who an alert is for — decided by the PRODUCER, explicitly, never inferred
+ * from the displayed text.
+ *
+ *  - `business`: money, access or trust is at stake and an administrator must
+ *    act (a stuck/quarantined payment or refund, a security incident). These
+ *    appear in the admin inbox (`/admin/my-notifications`) as well as on the
+ *    external channels.
+ *  - `technical`: infrastructure/monitoring signal (component health, latency,
+ *    queue backlog, scheduled-job failure). These go to the health console
+ *    (incidents are recorded by `HealthIncidentService` independently), email
+ *    and the alert webhook — but NEVER into the admin notification inbox.
+ */
+export type AlertAudience = 'business' | 'technical';
+
 export interface OperationalAlert {
   /**
    * Stable identity of THIS incident (e.g. `payment.webhook_dead_letter:<id>`).
@@ -23,13 +41,18 @@ export interface OperationalAlert {
    * enough that two genuinely different incidents never share a key.
    */
   key: string;
+  /** Required so every producer states which audience the alert is for. */
+  audience: AlertAudience;
   severity: AlertSeverity;
   title: string;
   message: string;
   context?: AlertContext;
   /** Extra addresses on top of `ALERT_EMAIL_RECIPIENTS` (e.g. per-rule ones). */
   additionalEmailRecipients?: string[];
-  /** Defaults: in-app always; email + webhook for `critical` and `warning`. */
+  /**
+   * Defaults: admin inbox for `business` alerts only (a `technical` alert never
+   * reaches it); email + webhook for `critical` and `warning`.
+   */
   channels?: { inApp?: boolean; email?: boolean; webhook?: boolean };
 }
 
@@ -44,20 +67,9 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const DEFAULT_MIN_INTERVAL_SECONDS = 900;
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 5_000;
 
-/** Alert-key prefix → admin-notification category. Anything unmatched is `SYSTEM`. */
-const ALERT_CATEGORY_PREFIXES: ReadonlyArray<
-  readonly [prefix: string, category: AdminNotificationCategory]
-> = [
-  ['payment.', AdminNotificationCategory.FINANCIAL],
-  ['refund.', AdminNotificationCategory.FINANCIAL],
-  ['finance.', AdminNotificationCategory.FINANCIAL],
-  ['security.', AdminNotificationCategory.SECURITY],
-  ['auth.', AdminNotificationCategory.SECURITY],
-];
-
 function categorizeAlert(key: string): AdminNotificationCategory {
   return (
-    ALERT_CATEGORY_PREFIXES.find(([prefix]) => key.startsWith(prefix))?.[1] ??
+    BUSINESS_ALERT_CATEGORY_PREFIXES.find(([prefix]) => key.startsWith(prefix))?.[1] ??
     AdminNotificationCategory.SYSTEM
   );
 }
@@ -87,7 +99,7 @@ function priorityForSeverity(severity: AlertSeverity): NotificationPriority {
  * the dashboard. Two independent external paths are added here, both
  * environment-driven and both optional:
  *
- *   - `ALERT_EMAIL_RECIPIENTS` — reuses the existing MailerSend + BullMQ
+ *   - `ALERT_EMAIL_RECIPIENTS` — reuses the existing Amazon SES + BullMQ
  *     pipeline (`MailService`), which is already the production email path.
  *   - `ALERT_WEBHOOK_URL` — a single provider-agnostic JSON POST. No vendor
  *     SDK is added; the payload carries `text` and `content` alongside the
@@ -142,12 +154,18 @@ export class OperationalAlertService {
     const external = alert.severity !== 'info';
     const wantsEmail = alert.channels?.email ?? external;
     const wantsWebhook = alert.channels?.webhook ?? external;
-    const wantsInApp = alert.channels?.inApp ?? true;
+    // The admin inbox is for business notifications only. A technical alert is
+    // never written there, whatever a caller's `channels.inApp` says; the
+    // health console is its in-app destination.
+    const wantsInApp = alert.audience === 'business' && (alert.channels?.inApp ?? true);
 
     // Suppression applies only to the external channels: the in-app feed is a
     // durable record and should always reflect every occurrence.
     // Atomic across replicas: exactly one of N processes that see the same incident delivers it.
-    const claimed = wantsEmail || wantsWebhook ? await this.cooldown.claim(alert.key, this.minIntervalMs()) : false;
+    const claimed =
+      wantsEmail || wantsWebhook
+        ? await this.cooldown.claim(alert.key, this.minIntervalMs())
+        : false;
     const suppressExternal = (wantsEmail || wantsWebhook) && !claimed;
     outcome.suppressed = suppressExternal;
 
@@ -234,7 +252,7 @@ export class OperationalAlertService {
         JSON.stringify({
           event: 'operational_alert_email_unavailable',
           alertKey: alert.key,
-          reason: 'MailerSend is not configured',
+          reason: 'Email provider (Amazon SES) is not configured',
         }),
       );
       return 'skipped';

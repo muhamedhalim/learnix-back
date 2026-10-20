@@ -1,5 +1,10 @@
 # Vercel + AWS DNS cutover: audit and checklist
 
+> **Decision 2026-10-19 (supersedes the email rows below):** email is AWS-only. MailerSend and Brevo are removed
+> from the code and must not be restored in DNS (E5's `_spf.mailersend.net` include, E6, E8, E9, E10 and the Brevo
+> `rua` in E7/B6; C1 and item 14 are resolved). SES needs its own DKIM, MAIL FROM, SPF and DMARC records. Vercel DNS
+> has been authoritative since 2026-10-18. The tables below are kept as the 2026-10-13 zone inventory.
+
 **Status: audit and preparation only.** Nothing described here has been executed. No DNS record, nameserver,
 Vercel setting, production variable or AWS resource was changed while writing this document.
 Companion file: [VERCEL-ENVIRONMENT-MATRIX.md](VERCEL-ENVIRONMENT-MATRIX.md) (variables, URL inventory, provider callbacks).

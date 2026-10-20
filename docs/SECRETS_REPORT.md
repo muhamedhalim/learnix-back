@@ -4,6 +4,8 @@
 
 > **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
 
+> **Superseded for email (2026-10-19):** MailerSend was removed; Amazon SES uses the ECS task role and needs no API key. The `MAILERSEND_API_KEY` row below is history. That key was populated, so revoke it in the MailerSend account when the account is closed.
+
 > **NO SECRET VALUE APPEARS IN THIS DOCUMENT, ANYWHERE.** The "Secure fingerprint" column is a truncated SHA-256 digest — the same one-way construction `src/config/environment-isolation.guard.ts` already uses for `PROD_SECRET_FINGERPRINTS` — computed by `scripts/fingerprint-secrets.ts` and reproduced verbatim below. A fingerprint cannot be reversed to recover the value it was computed from.
 >
 > **Correction to an earlier finding.** `docs/SECRET_ROTATION_CHECKLIST.md` (written before this fingerprinting pass existed) generalised that the local `.env` holds "54 populated keys" and treated Paymob/Twilio/Meta/Firebase as exposed. Running `scripts/fingerprint-secrets.ts` against that file shows this was imprecise: `PAYMOB_API_KEY`, `PAYMOB_SECRET_KEY`, `PAYMOB_WEBHOOK_SECRET`, `TWILIO_AUTH_TOKEN`, `META_WHATSAPP_ACCESS_TOKEN`, `META_WHATSAPP_APP_SECRET`, and `FIREBASE_PRIVATE_KEY` are **declared but empty** in that file — the keys exist as blank lines, not populated secrets. The rotation urgency for those specific credentials is lower than originally stated. Everything else in that document — the P1/P2/P3 tiering, the checklist, the `REDIS_URL`-points-at-a-Railway-internal-host reasoning — stands.

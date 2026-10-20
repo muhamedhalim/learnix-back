@@ -26,14 +26,6 @@
     "learnix-back/src/storage/storage.service.ts",
     "learnix-front/next.config.ts"
   ],
-  "mailersend": [
-    "learnix-back/scripts/fingerprint-secrets.ts",
-    "learnix-back/src/config/env.validation.ts",
-    "learnix-back/src/config/environment-isolation.guard.ts",
-    "learnix-back/src/health/indicators/external-providers.indicator.ts",
-    "learnix-back/src/mail/mail.service.ts",
-    "learnix-back/src/mail/mailersend.config.ts"
-  ],
   "twilio": [
     "learnix-back/scripts/fingerprint-secrets.ts",
     "learnix-back/src/config/env.validation.ts",

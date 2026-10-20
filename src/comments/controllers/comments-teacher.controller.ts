@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Param,
-  Post,
-  Request,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -15,17 +8,11 @@ import {
 
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { CommentsService } from '../comments.service';
 import { CreateReplyDto } from '../dto';
-
-interface AuthRequest extends Request {
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
 
 @ApiTags('Comments')
 @Controller('teacher/comments/:commentId/reply')
@@ -41,8 +28,8 @@ export class CommentsTeacherController {
   public async addReply(
     @Param('commentId') commentId: string,
     @Body() dto: CreateReplyDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return await this.commentsService.addReply(commentId, req.user.id, dto);
+    return await this.commentsService.addReply(commentId, user.userId, dto);
   }
 }

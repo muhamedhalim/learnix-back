@@ -15,6 +15,7 @@ import {
   NotificationType,
 } from '../../notifications/entities';
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 import { User } from '../../users/entities/user.entity';
 import { UserStatus } from '../../users/entities/user-status.enum';
 import type { BulkNotificationDto } from '../dto';
@@ -110,7 +111,7 @@ export class BulkNotificationProcessor extends WorkerHost {
             insertedIds.map((notificationId) => ({
               name: JOB_TYPES.PUSH.DELIVER,
               data: { notificationId },
-              opts: { jobId: `push:${notificationId}` },
+              opts: { jobId: queueJobId('push', notificationId) },
             })),
           );
         }

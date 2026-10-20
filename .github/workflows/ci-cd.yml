@@ -7,8 +7,9 @@ name: CI/CD
 #   pull_request                -> `control` -> every validation job + `ci-gate`. Never deploys.
 #   push to develop             -> validation -> `ci-gate` -> promotion gates -> deploy STAGING (this same run)
 #   push to main                -> validation -> `ci-gate` -> promotion gates -> deploy PRODUCTION (this same run), which waits
-#                                  for the `production` environment's required reviewers. Skipped when the push changed
-#                                  nothing the image contains (docs / learnix-infra only).
+#                                  for the `production` environment's required reviewers. Every such push reaches
+#                                  `deploy`; it rebuilds only when what the environment RUNS differs in image inputs
+#                                  (scripts/ci/release-decision.sh), and otherwise PROVES the running release instead.
 #   schedule (nightly)          -> branch-sync only
 #   workflow_dispatch           -> `action`: deploy (staging|production) | rollback | branch-sync (manual production
 #                                  deploys need the same green staging tree and the same approvals)
@@ -67,34 +68,14 @@ jobs:
       environment: ${{ steps.route.outputs.environment }}
       manual: ${{ steps.route.outputs.manual }}
     steps:
-      - name: Checkout (to see what the push changed)
-        if: ${{ github.event_name == 'push' }}
+      - name: Checkout (routing script)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Did the push change anything the image contains?
-        id: changes
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          # Only a push can be a no-op for the image. Everything else (PR, manual) counts as a change.
-          app_changed=true
-          if [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            # NUL-delimited so file names are never interpreted by the shell; the image only contains what
-            # is NOT docs, markdown, learnix-infra or the repo's own meta files.
-            app_changed=false
-            while IFS= read -r -d '' f; do
-              case "$f" in
-                learnix-infra/*|docs/*|*.md|.github/dependabot.yml) ;;
-                *) app_changed=true; break ;;
-              esac
-            done < <(git diff -z --name-only "$BEFORE" "$GITHUB_SHA")
-          fi
-          echo "app_changed=$app_changed" >> "$GITHUB_OUTPUT"
-
+      # Every push to main/develop routes to `deploy`. Whether anything is rebuilt is decided in that job from
+      # what the environment RUNS (scripts/ci/release-decision.sh). Deciding here from the push diff let a push
+      # whose predecessor never deployed go green with `deploy` skipped while production ran an older release.
       - name: Route this event
         id: route
         env:
@@ -102,36 +83,10 @@ jobs:
           REF: ${{ github.ref }}
           ACTION: ${{ inputs.action }}
           ENVIRONMENT: ${{ inputs.environment }}
-          APP_CHANGED: ${{ steps.changes.outputs.app_changed }}
         run: |
-          ci=false deploy=false rollback=false branch_sync=false manual=false target=''
-          case "$EVENT" in
-            pull_request) ci=true ;;
-            push)
-              ci=true branch_sync=true
-              # A push that changed neither code nor dependencies would rebuild an identical image.
-              if [ "$APP_CHANGED" = true ]; then
-                case "$REF" in
-                  refs/heads/develop) deploy=true target=staging ;;
-                  refs/heads/main) deploy=true target=production ;;
-                esac
-              fi ;;
-            schedule) branch_sync=true ;;
-            workflow_dispatch)
-              manual=true
-              case "$ACTION" in
-                deploy) deploy=true target="$ENVIRONMENT" ;;
-                rollback) rollback=true target="$ENVIRONMENT" ;;
-                branch-sync) branch_sync=true ;;
-                *) echo "::error::unknown action '$ACTION'"; exit 1 ;;
-              esac ;;
-            *) echo "::error::unexpected event '$EVENT'"; exit 1 ;;
-          esac
-          {
-            echo "ci=$ci"; echo "deploy=$deploy"; echo "rollback=$rollback"
-            echo "branch_sync=$branch_sync"; echo "environment=$target"; echo "manual=$manual"
-          } >> "$GITHUB_OUTPUT"
-          echo "event=$EVENT ci=$ci deploy=$deploy($target) rollback=$rollback branch_sync=$branch_sync" >> "$GITHUB_STEP_SUMMARY"
+          routed=$(bash scripts/ci/route-event.sh)
+          echo "$routed" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT ref=$REF: $(echo "$routed" | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
 
   build-test:
     name: Typecheck, lint, build & test
@@ -658,7 +613,6 @@ jobs:
       - name: Test scripts/ci
         run: bash scripts/ci/run-tests.sh
 
-
   # One verdict for "everything that must be green before anything is released". Fails unless EVERY required
   # job succeeded (a skipped or cancelled one is a failure, never a silent pass). migration-safety-check stays
   # advisory, exactly as before.
@@ -741,22 +695,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-        # Staging is deployed by the `deploy` job of a push run on develop, so a successful CI/CD push run on
-        # develop means the checks AND the staging rollout both succeeded. A merge into main creates a new
-        # commit, so the comparison is on the TREE (the file contents), not the commit id: the same code
-        # that ran green on develop is what production receives.
-        run: |
-          git fetch --quiet origin develop
-          want=$(git rev-parse "${GITHUB_SHA}^{tree}")
-          found=false
-          for sha in $(gh api "repos/${REPOSITORY}/actions/workflows/ci-cd.yml/runs?branch=develop&event=push&status=success&per_page=50" --jq '.workflow_runs[].head_sha'); do
-            tree=$(git rev-parse "${sha}^{tree}" 2>/dev/null) || continue
-            if [ "$tree" = "$want" ]; then found=true; echo "Staging deployed this exact tree in run for $sha."; break; fi
-          done
-          if [ "$found" != true ]; then
-            echo "::error::No successful staging deploy of this code (tree $want). Merge it into develop and let staging deploy first."
-            exit 1
-          fi
+        # Staging is deployed by the `deploy` job of a push run on develop. A green run alone is NOT proof: a
+        # docs/infra-only push skips `deploy` and the run is still green. scripts/ci/staging-gate.mjs therefore
+        # requires a successful push run on develop of the SAME TREE (a merge into main creates a new commit, so
+        # the comparison is on the file contents, not the commit id) whose `deploy` job itself succeeded. It
+        # fails closed on any API or git error. Tests: scripts/ci/tests/staging-gate.test.mjs.
+        run: node scripts/ci/staging-gate.mjs
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -812,8 +756,10 @@ jobs:
       TARGET: ${{ needs.control.outputs.environment }}
       IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
     steps:
+      # Full history: scripts/ci/release-decision.sh compares the running commit with this one.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Refuse an unconfigured environment
@@ -826,7 +772,11 @@ jobs:
           ECS_SERVICES: ${{ vars.ECS_SERVICES }}
           MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
           TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          API_URL: ${{ vars.API_URL }}
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
         run: |
+          # Production cannot succeed without proving the public domain serves the release (API_URL).
+          [ "$TARGET" = production ] && REQUIRED="$REQUIRED API_URL DB_INSTANCE_ID"
           for v in $REQUIRED; do
             [ -n "${!v}" ] || { echo "::error::GitHub environment variable $v is not set"; exit 1; }
           done
@@ -836,11 +786,53 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      # What the environment RUNS decides what this job does (never run or deployment history, which misses
+      # rollbacks and workstation deploys). Any AWS error fails the job here. Under the per-environment lock
+      # above, a second run for a commit that is already live (duplicate trigger, retry) only verifies it, and
+      # a re-run of an older commit fails instead of rolling the environment back.
+      - name: What does the environment run now?
+        id: decision
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" --status > runtime-state.env
+          bash scripts/ci/release-decision.sh runtime-state.env "$GITHUB_SHA" "$ECR_REPOSITORY_URL" > decision.env
+          cat decision.env >> "$GITHUB_OUTPUT"
+          {
+            echo "### $TARGET: $(sed -n 's/^action=//p' decision.env)"
+            echo "- runs now: \`$(sed -n 's/^running_image=//p' decision.env)\`"
+            echo "- why: $(sed -n 's/^reason=//p' decision.env)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The ECR repositories are IMMUTABLE: a re-run whose push already happened reuses that image (built and
+      # scanned by the earlier attempt of this same commit) instead of failing on `docker push`.
+      - name: Is this commit's image already in ECR?
+        id: image
+        if: steps.decision.outputs.action == 'deploy'
+        run: |
+          repository="${IMAGE#*/}"; repository="${repository%:*}"
+          if digest=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$GITHUB_SHA" \
+            --query 'imageDetails[0].imageDigest' --output text 2>ecr-error.txt); then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Reusing $IMAGE ($digest) pushed by an earlier attempt."
+          elif grep -q ImageNotFoundException ecr-error.txt; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat ecr-error.txt >&2
+            echo "::error::cannot read ECR for $IMAGE"
+            exit 1
+          fi
+
       - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+        if: steps.image.outputs.exists == 'false'
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: steps.image.outputs.exists == 'false'
 
       - name: Build (linux/arm64, RDS CA bundle included)
+        if: steps.image.outputs.exists == 'false'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -851,6 +843,7 @@ jobs:
             RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 
       - name: Scan the image (fail on fixable HIGH/CRITICAL)
+        if: steps.image.outputs.exists == 'false'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1 (the unprefixed tag 0.33.1 does not exist)
         with:
           image-ref: ${{ env.IMAGE }}
@@ -859,43 +852,86 @@ jobs:
           exit-code: '1'
 
       - name: Push (immutable tag = commit)
+        if: steps.image.outputs.exists == 'false'
         run: docker push "$IMAGE"
 
       # Production only: a manual snapshot before migrations run. Replaces the old GitHub-artifact
       # pg_dump, which copied production personal data out of the database account.
       - name: Pre-deploy database snapshot
-        if: env.TARGET == 'production'
+        if: steps.decision.outputs.action == 'deploy' && env.TARGET == 'production'
         env:
           DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
         run: |
-          [ -n "$DB_INSTANCE_ID" ] || { echo "::error::GitHub environment variable DB_INSTANCE_ID is not set"; exit 1; }
           id="pre-deploy-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}"
           aws rds create-db-snapshot --db-instance-identifier "$DB_INSTANCE_ID" --db-snapshot-identifier "$id" \
             --tags Key=Purpose,Value=pre-deploy Key=Commit,Value="$GITHUB_SHA" >/dev/null
           aws rds wait db-snapshot-available --db-snapshot-identifier "$id"
-          echo "Snapshot $id is available."
+          status=$(aws rds describe-db-snapshots --db-snapshot-identifier "$id" --query 'DBSnapshots[0].Status' --output text)
+          [ "$status" = available ] || { echo "::error::snapshot $id is '$status', not available"; exit 1; }
+          echo "- pre-deploy snapshot \`$id\` (available)" >> "$GITHUB_STEP_SUMMARY"
 
+      # The job succeeds only when every running task is on the commit's digest and, for production (and any
+      # environment runners can reach), the public domain reports the commit at /api/v1/health/version.
+      # Any failed check rolls api + worker back to the revisions recorded before the deploy.
       - name: Migrate, then roll out (automatic rollback)
+        if: steps.decision.outputs.action == 'deploy'
         env:
           ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
           ECS_SERVICES: ${{ vars.ECS_SERVICES }}
           MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
           TASK_NETWORK: ${{ vars.TASK_NETWORK }}
           DEPLOY_ALARMS: ${{ vars.DEPLOY_ALARMS }}
+          API_URL: ${{ vars.API_URL }}
+          SMOKE_FROM_RUNNER: ${{ vars.SMOKE_FROM_RUNNER }}
         run: |
+          verify=()
+          if [ "$TARGET" = production ] || [ "$SMOKE_FROM_RUNNER" = true ]; then verify=(--verify-url "$API_URL"); fi
           bash learnix-infra/scripts/ecs-deploy.sh \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICES" \
             --image "$IMAGE" \
             --migrate-family "$MIGRATE_FAMILY" \
             --network "$TASK_NETWORK" \
-            --alarm-names "$DEPLOY_ALARMS"
+            --alarm-names "$DEPLOY_ALARMS" \
+            "${verify[@]}"
+
+      # Nothing to roll out: the environment already runs this commit, or one with identical image inputs.
+      # That is only a success once it is PROVEN (every task on that digest, the domain serving that commit).
+      - name: Verify the running release (no rollout needed)
+        if: steps.decision.outputs.action == 'verify-running'
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          API_URL: ${{ vars.API_URL }}
+          SMOKE_FROM_RUNNER: ${{ vars.SMOKE_FROM_RUNNER }}
+          RUNNING_IMAGE: ${{ steps.decision.outputs.running_image }}
+        run: |
+          verify=()
+          if [ "$TARGET" = production ] || [ "$SMOKE_FROM_RUNNER" = true ]; then verify=(--verify-url "$API_URL"); fi
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" \
+            --verify-only --image "$RUNNING_IMAGE" "${verify[@]}"
+
+      - name: Record what runs
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+        run: |
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" --status > final-state.env
+          image=$(sed -n 's/^running_image=//p' final-state.env)
+          repository="${image#*/}"; repository="${repository%:*}"
+          digest=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="${image##*:}" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          {
+            echo "- now running \`$image\`, digest \`$digest\`"
+            echo "- requested commit \`$GITHUB_SHA\`, tree \`$(git rev-parse "HEAD^{tree}")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the rollback point
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}
+          # The attempt number keeps a re-run from colliding with the artifact of the attempt it retries.
+          name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}-${{ github.run_attempt }}
           path: previous-task-definitions.json
           if-no-files-found: ignore
           retention-days: 30

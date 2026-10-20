@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import type { FindOperator } from 'typeorm';
 
 import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
@@ -190,11 +191,11 @@ describe('CourseRemovalService (T142)', () => {
       expect(marketplaceQueue.addBulk).toHaveBeenCalledWith([
         expect.objectContaining({
           data: expect.objectContaining({ orderId: 'o1', isZeroValue: false, totalCount: 2 }),
-          opts: { jobId: 'marketplace:removal:o1' },
+          opts: { jobId: 'marketplace.removal.o1' },
         }),
         expect.objectContaining({
           data: expect.objectContaining({ orderId: 'o2', isZeroValue: true, totalCount: 2 }),
-          opts: { jobId: 'marketplace:removal:o2' },
+          opts: { jobId: 'marketplace.removal.o2' },
         }),
       ]);
     });
@@ -409,6 +410,73 @@ describe('CourseRemovalService (T142)', () => {
       await service.processRemovalOrder(baseJob);
 
       expect(removalsRepo.increment).not.toHaveBeenCalled();
+    });
+
+    /**
+     * A refund-request lookup that honours the `where` clause: `learnerRequest` is the learner's own,
+     * earlier request for this order (not removal-driven); there is no removal-driven one yet.
+     */
+    function refundRequestsWith(learnerRequest: { id: string; status: RefundRequestStatus }) {
+      return {
+        findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+          if (where.is_removal_driven === true) return null;
+          const status = where.status as FindOperator<RefundRequestStatus[]> | undefined;
+          if (status && !status.value.includes(learnerRequest.status)) return null;
+          return { ...learnerRequest, is_removal_driven: false };
+        }),
+      };
+    }
+
+    it.each([RefundRequestStatus.FAILED, RefundRequestStatus.REJECTED])(
+      "still refunds and counts the order when the learner's own earlier request is %s (FIA-010)",
+      async (learnerStatus) => {
+        dataSource.getRepository.mockImplementation((entity: { name: string }) => {
+          if (entity.name === 'MarketplaceRefundRequest')
+            return refundRequestsWith({ id: 'learner-refund', status: learnerStatus });
+          if (entity.name === 'InstructorEarning')
+            return { findOne: jest.fn().mockResolvedValue(null) };
+          throw new Error('unexpected repo');
+        });
+        // What re-processing the learner's closed request does for real: it is not approved.
+        refundProcessing.process.mockRejectedValue(
+          new ConflictException('This refund request must be approved before it can be processed'),
+        );
+        refundRequests.createRemovalDrivenRefund.mockResolvedValue({
+          id: 'removal-refund',
+          status: RefundRequestStatus.FAILED,
+        });
+
+        await service.processRemovalOrder(baseJob);
+
+        expect(refundProcessing.process).not.toHaveBeenCalled();
+        expect(refundRequests.createRemovalDrivenRefund).toHaveBeenCalledWith(
+          'order-1',
+          'enrollment-1',
+          'learner-1',
+          'Course permanently removed',
+        );
+        expect(removalsRepo.increment).toHaveBeenCalledWith({ id: 'removal-1' }, 'refunds_failed', 1);
+      },
+    );
+
+    it("resumes the learner's own still-open request instead of opening a second refund (FIA-010)", async () => {
+      dataSource.getRepository.mockImplementation((entity: { name: string }) => {
+        if (entity.name === 'MarketplaceRefundRequest')
+          return refundRequestsWith({ id: 'learner-refund', status: RefundRequestStatus.APPROVED });
+        if (entity.name === 'InstructorEarning')
+          return { findOne: jest.fn().mockResolvedValue(null) };
+        throw new Error('unexpected repo');
+      });
+      refundProcessing.process.mockResolvedValue({
+        id: 'learner-refund',
+        status: RefundRequestStatus.COMPLETED,
+      });
+
+      await service.processRemovalOrder(baseJob);
+
+      expect(refundProcessing.process).toHaveBeenCalledWith('learner-refund');
+      expect(refundRequests.createRemovalDrivenRefund).not.toHaveBeenCalled();
+      expect(removalsRepo.increment).toHaveBeenCalledWith({ id: 'removal-1' }, 'refunds_issued', 1);
     });
   });
 });

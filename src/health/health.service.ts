@@ -7,6 +7,7 @@ import { DataSource } from 'typeorm';
 
 import { isDraining } from '../common/utils/graceful-shutdown.util';
 import { resolveRedisUrl } from '../common/utils/redis-connection.util';
+import { resolveCommitSha } from '../observability/release';
 import { withHealthTimeout } from './health-timeout.util';
 
 /**
@@ -27,6 +28,16 @@ export class HealthService implements OnModuleDestroy {
 
   public getPublicLiveness(): { status: 'healthy'; timestamp: string } {
     return { status: 'healthy', timestamp: new Date().toISOString() };
+  }
+
+  /**
+   * Public build identity (`GET /health/version`): the commit this process was built from, so a deploy can
+   * prove which code the public domain serves. Only a hex commit id ever leaves (the repository is public);
+   * anything else configured under those keys is reported as `null` rather than echoed.
+   */
+  public getPublicVersion(): { commit: string | null } {
+    const commit = resolveCommitSha((key) => this.config.get<string>(key));
+    return { commit: commit !== undefined && /^[0-9a-f]{7,40}$/u.test(commit) ? commit : null };
   }
 
   /**

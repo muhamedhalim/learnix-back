@@ -27,6 +27,7 @@ import { buildCorsOptions, getAllowedOrigins } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
 import { withMigrationAdvisoryLock } from './database/migration-lock.util';
+import { isMarketplaceEnabled } from './config/marketplace.config';
 import { resolveProcessRole, runsBackgroundWork } from './config/process-role';
 import {
   buildLoggerOptions,
@@ -272,6 +273,12 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, '0.0.0.0');
   logger.log(
     `Process role: ${resolveProcessRole()} (background work ${runsBackgroundWork() ? 'on' : 'off'})`,
+  );
+  // Absent/false means every /api/v1/marketplace/* route answers "Cannot GET": say so at boot.
+  logger.log(
+    isMarketplaceEnabled()
+      ? 'Marketplace module: enabled'
+      : 'Marketplace module: DISABLED (set MARKETPLACE_ENABLED=true to serve /api/v1/marketplace/*)',
   );
 
   // Lesson videos are uploaded as one long-lived multipart request (see

@@ -95,7 +95,6 @@ const FINGERPRINTED_SECRETS: readonly string[] = Object.freeze([
   'BULL_BOARD_PASSWORD',
   'EASYKASH_API_KEY',
   'EASYKASH_HMAC_SECRET',
-  'MAILERSEND_API_KEY',
   'R2_ACCESS_KEY_ID',
   'R2_SECRET_ACCESS_KEY',
   'TWILIO_AUTH_TOKEN',
@@ -453,18 +452,16 @@ function checkCookies(context: RuleContext): void {
 
 function checkMessaging(context: RuleContext): void {
   const mailProvider = (context.get('MAIL_PROVIDER') ?? '').trim().toLowerCase();
-  const mailEnabled = mailProvider === 'mailersend' || mailProvider === 'ses';
   // SES authenticates through the task role, so being selected is what makes it live.
-  const mailKeyPresent =
-    mailProvider === 'ses' || (context.get('MAILERSEND_API_KEY') ?? '').trim() !== '';
+  const mailEnabled = mailProvider === 'ses';
 
-  if (mailEnabled && mailKeyPresent && parseList(context.get('MAIL_ALLOWLIST')).length === 0) {
+  if (mailEnabled && parseList(context.get('MAIL_ALLOWLIST')).length === 0) {
     deny(context, {
       code: 'STAGING_MAIL_ALLOWLIST_MISSING',
       rule: 'structural',
       variable: 'MAIL_ALLOWLIST',
       message:
-        'is required when an email provider (SES or MailerSend) is configured on staging. Without it, any address present in ' +
+        'is required when the email provider (Amazon SES) is configured on staging. Without it, any address present in ' +
         'the database receives real mail. Set a comma-separated list of permitted recipients or domains.',
     });
   }

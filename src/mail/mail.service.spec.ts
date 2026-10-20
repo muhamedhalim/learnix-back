@@ -1,18 +1,24 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import type { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
+import { mockClient } from 'aws-sdk-client-mock';
 
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { JOB_TYPES } from '../queues/queues.constants';
 import { MailService, type MailJob } from './mail.service';
 
 describe('MailService', () => {
+  const ses = mockClient(SESv2Client);
+  beforeEach(() => {
+    ses.reset();
+    ses.on(SendEmailCommand).resolves({ MessageId: 'ses-1' });
+  });
+
   const configuredValues: Record<string, string> = {
-    MAIL_PROVIDER: 'mailersend',
-    MAILERSEND_API_KEY: 'test-api-key',
+    MAIL_PROVIDER: 'ses',
     MAIL_FROM_EMAIL: 'no-reply@example.test',
     MAIL_FROM_NAME: 'Learnix',
     MAIL_REPLY_TO: 'support@example.test',
-    MAILERSEND_TEMPLATE_PASSWORD_RESET: 'template-password-reset',
   };
 
   function createService(values = configuredValues): {
@@ -32,7 +38,9 @@ describe('MailService', () => {
     };
   }
 
-  it('queues template-backed password resets with personalization and no HTML', async () => {
+  const sentInput = () => ses.commandCalls(SendEmailCommand)[0]?.args[0].input;
+
+  it('queues a rendered password reset with the link in both text and HTML', async () => {
     const { service, queue } = createService();
 
     await service.sendPasswordResetEmail(
@@ -47,16 +55,14 @@ describe('MailService', () => {
       JOB_TYPES.EMAIL.DELIVER,
       expect.objectContaining({
         to: 'student@example.test',
-        templateId: 'template-password-reset',
-        personalization: {
-          name: 'Student',
-          reset_url: 'https://app.example.test/reset?token=secret',
-          expires_in: '1 hour',
-          locale: PreferredLanguage.EN,
-        },
+        subject: 'Reset your password',
+        text: expect.stringContaining('https://app.example.test/reset?token=secret'),
+        html: expect.stringContaining('href="https://app.example.test/reset?token=secret"'),
       }),
     );
-    expect(queue.add.mock.calls[0]?.[1]).not.toHaveProperty('html');
+    const job = queue.add.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(job).not.toHaveProperty('templateId');
+    expect(job).not.toHaveProperty('personalization');
   });
 
   it('does not report acceptance when the queue creates no durable job', async () => {
@@ -68,37 +74,27 @@ describe('MailService', () => {
     ).resolves.toBe(false);
   });
 
-  it('builds MailerSend template requests with sender, reply-to, and personalization', async () => {
-    const { service } = createService();
-    const send = jest.fn().mockResolvedValue({
-      statusCode: 202,
-      headers: { 'x-request-id': 'request-123' },
-    });
-    (service as unknown as { client: { email: { send: jest.Mock } } }).client = {
-      email: { send },
-    };
-
-    await service.deliver({
-      to: 'student@example.test',
-      recipientName: 'Student',
-      templateId: 'template-password-reset',
-      personalization: { reset_url: 'https://app.example.test/reset' },
+  it('sends through SES with sender, reply-to and configuration set', async () => {
+    const { service } = createService({
+      ...configuredValues,
+      SES_CONFIGURATION_SET: 'learnix-test',
     });
 
-    const params = send.mock.calls[0]?.[0] as {
-      from?: { email: string; name?: string };
-      reply_to?: { email: string };
-      template_id?: string;
-      personalization?: unknown;
-      html?: string;
-    };
-    expect(params.from).toEqual({ email: 'no-reply@example.test', name: 'Learnix' });
-    expect(params.reply_to).toEqual({ email: 'support@example.test' });
-    expect(params.template_id).toBe('template-password-reset');
-    expect(params.personalization).toEqual([
-      { email: 'student@example.test', data: { reset_url: 'https://app.example.test/reset' } },
-    ]);
-    expect(params.html).toBeUndefined();
+    await expect(
+      service.deliver({
+        to: 'student@example.test',
+        recipientName: 'Student',
+        subject: 'Hi',
+        text: 'Hi',
+      }),
+    ).resolves.toEqual({ accepted: true, providerMessageId: 'ses-1' });
+
+    expect(sentInput()).toMatchObject({
+      FromEmailAddress: 'Learnix <no-reply@example.test>',
+      Destination: { ToAddresses: ['Student <student@example.test>'] },
+      ReplyToAddresses: ['support@example.test'],
+      ConfigurationSetName: 'learnix-test',
+    });
     expect(service.getHealthStatus()).toMatchObject({
       state: 'configured',
       lastAttemptAt: expect.any(String),
@@ -107,33 +103,10 @@ describe('MailService', () => {
     });
   });
 
-  it('passes a recipient locale to configured templates and localizes Arabic fallbacks', async () => {
-    const { service, queue } = createService({
-      ...configuredValues,
-      MAILERSEND_TEMPLATE_WELCOME: 'template-welcome',
-    });
-
-    await service.sendWelcomeEmail({
-      to: 'student@example.test',
-      locale: PreferredLanguage.AR,
-      personalization: { name: 'طالب' },
-    });
+  it('localizes Arabic subjects for rendered messages', async () => {
+    const { service, queue } = createService();
+    await service.sendWelcomeEmail({ to: 'student@example.test', locale: PreferredLanguage.AR });
     expect(queue.add).toHaveBeenCalledWith(
-      JOB_TYPES.EMAIL.DELIVER,
-      expect.objectContaining({
-        templateId: 'template-welcome',
-        personalization: { name: 'طالب', locale: PreferredLanguage.AR },
-      }),
-    );
-
-    const { service: fallback, queue: fallbackQueue } = createService({
-      MAIL_PROVIDER: 'mailersend',
-      MAILERSEND_API_KEY: 'test-api-key',
-      MAIL_FROM_EMAIL: 'no-reply@example.test',
-      MAIL_FROM_NAME: 'Learnix',
-    });
-    await fallback.sendWelcomeEmail({ to: 'student@example.test', locale: PreferredLanguage.AR });
-    expect(fallbackQueue.add).toHaveBeenCalledWith(
       JOB_TYPES.EMAIL.DELIVER,
       expect.objectContaining({
         subject: 'مرحبًا بك في Learnix',
@@ -142,18 +115,16 @@ describe('MailService', () => {
     );
   });
 
-  it('blocks delivery to a non-allowlisted recipient on staging without calling MailerSend', async () => {
+  it('blocks delivery to a non-allowlisted recipient on staging without calling SES', async () => {
     const { service } = createService({
       ...configuredValues,
       APP_ENV: 'staging',
       MAIL_ALLOWLIST: 'tester@example.com',
     });
-    const send = jest.fn();
-    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
 
     await service.deliver({ to: 'real.student@gmail.com', subject: 'Hi', text: 'Hi' });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(ses.commandCalls(SendEmailCommand)).toHaveLength(0);
   });
 
   it('delivers for real to an allowlisted recipient on staging, with a [STAGING] subject prefix', async () => {
@@ -162,40 +133,33 @@ describe('MailService', () => {
       APP_ENV: 'staging',
       MAIL_ALLOWLIST: 'tester@example.com',
     });
-    const send = jest.fn().mockResolvedValue({ statusCode: 202, headers: {} });
-    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
 
     await service.deliver({ to: 'tester@example.com', subject: 'Hi', text: 'Hi' });
 
-    expect(send).toHaveBeenCalledTimes(1);
-    const params = send.mock.calls[0]?.[0] as { subject?: string };
-    expect(params.subject).toBe('[STAGING] Hi');
+    expect(ses.commandCalls(SendEmailCommand)).toHaveLength(1);
+    expect(sentInput()?.Content?.Simple?.Subject?.Data).toBe('[STAGING] Hi');
   });
 
   it('does not block anything on production (default APP_ENV)', async () => {
     const { service } = createService(configuredValues);
-    const send = jest.fn().mockResolvedValue({ statusCode: 202, headers: {} });
-    (service as unknown as { client: { email: { send: jest.Mock } } }).client = { email: { send } };
 
     await service.deliver({ to: 'anyone@gmail.com', subject: 'Hi', text: 'Hi' });
 
-    expect(send).toHaveBeenCalledTimes(1);
-    const params = send.mock.calls[0]?.[0] as { subject?: string };
-    expect(params.subject).toBe('Hi');
+    expect(ses.commandCalls(SendEmailCommand)).toHaveLength(1);
+    expect(sentInput()?.Content?.Simple?.Subject?.Data).toBe('Hi');
   });
 
-  it('does not initialize MailerSend for any other provider', async () => {
-    const { service, queue } = createService({ MAIL_PROVIDER: 'smtp' });
+  it.each([{}, { MAIL_PROVIDER: 'smtp' }, { MAIL_PROVIDER: 'mailersend' }])(
+    'sends nothing unless MAIL_PROVIDER=ses (%j)',
+    async (values) => {
+      const { service, queue } = createService(values as Record<string, string>);
 
-    await expect(
-      service.send({
-        to: 'student@example.test',
-        subject: 'Ignored',
-        text: 'Ignored',
-        html: '<p>Ignored</p>',
-      }),
-    ).resolves.toBe(false);
-    expect(service.isConfigured()).toBe(false);
-    expect(queue.add).not.toHaveBeenCalled();
-  });
+      await expect(
+        service.send({ to: 'student@example.test', subject: 'Ignored', text: 'Ignored' }),
+      ).resolves.toBe(false);
+      expect(service.isConfigured()).toBe(false);
+      expect(service.providerName).toBe('none');
+      expect(queue.add).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -79,15 +79,16 @@ resource "aws_iam_role" "backup" {
 }
 
 resource "aws_iam_role_policy_attachment" "backup" {
-  for_each = var.create_plan ? toset([
-    "AWSBackupServiceRolePolicyForBackup",
-    "AWSBackupServiceRolePolicyForRestores",
-    "AWSBackupServiceRolePolicyForS3Backup",
-    "AWSBackupServiceRolePolicyForS3Restore",
-  ]) : toset([])
+  # The S3 policies are published at the policy root; the other two under service-role/.
+  for_each = var.create_plan ? {
+    AWSBackupServiceRolePolicyForBackup    = "service-role/"
+    AWSBackupServiceRolePolicyForRestores  = "service-role/"
+    AWSBackupServiceRolePolicyForS3Backup  = ""
+    AWSBackupServiceRolePolicyForS3Restore = ""
+  } : {}
 
   role       = aws_iam_role.backup[0].name
-  policy_arn = "arn:${local.partition}:iam::aws:policy/service-role/${each.value}"
+  policy_arn = "arn:${local.partition}:iam::aws:policy/${each.value}${each.key}"
 }
 
 resource "aws_backup_plan" "this" {

@@ -26,7 +26,7 @@ function safeUrl(value: unknown): string | null {
 
 /**
  * Repo-local bilingual template for the account-setup invitation (sent to approved marketplace
- * instructors). Replaces the remote MailerSend template, so the content lives in version control.
+ * instructors). The content lives in version control; SES only transports it.
  * Returns null when the data needed to build a working link is missing.
  */
 export function renderInvitationEmail(

@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -54,6 +55,12 @@ export class HealthController {
   @ApiOperation({ summary: 'Public liveness probe' })
   public liveness(): { status: 'healthy'; timestamp: string } {
     return this.health.getPublicLiveness();
+  }
+
+  @Get('version')
+  @ApiOperation({ summary: 'Public build identity (commit SHA) for deploy verification' })
+  public version(): { commit: string | null } {
+    return this.health.getPublicVersion();
   }
 
   @Get('readiness')
@@ -133,7 +140,7 @@ export class HealthController {
   @ApiBearerAuth('JWT-auth')
   @Throttle({ default: THROTTLE.DEFAULT })
   public async updateAlertRule(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateHealthAlertRuleDto,
     @Req() request: UserRequest,
   ): Promise<unknown> {

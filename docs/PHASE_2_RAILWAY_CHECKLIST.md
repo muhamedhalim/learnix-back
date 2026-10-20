@@ -1,5 +1,7 @@
 # Phase 2 Railway Checklist — Database and Redis
 
+> **Superseded 2026-10-19:** MailerSend was removed and Brevo was never integrated. Amazon SES is the only email provider (no API key, no remote templates). MailerSend steps below are history; do not perform them.
+
 > **Superseded 2026-10-15:** Bunny Stream and Bunny Storage are retired. Lesson video is S3, MediaConvert and CloudFront signed cookies, and no Bunny variable is read any more. See `docs/AWS-PRODUCTION-AUDIT.md` section 8. Mentions of Bunny below describe the old system and are kept as history.
 
 Everything in this document requires Railway dashboard access this session does not have. Nothing

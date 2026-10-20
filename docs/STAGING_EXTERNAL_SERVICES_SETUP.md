@@ -7,33 +7,30 @@ Phase 3 of `STAGING_ENVIRONMENT_IMPLEMENTATION_PLAN.md`.
 ## 1. The gap this phase closes
 
 Before this phase, `MAIL_ALLOWLIST` and `SMS_MODE=sandbox` were **required at boot** by
-`environment-isolation.guard.ts` whenever real MailerSend/Twilio/Meta credentials were configured
+`environment-isolation.guard.ts` whenever real mail/Twilio/Meta credentials were configured
 on staging — but nothing in `mail.service.ts`, `sms-sender.service.ts`, or
 `whatsapp-meta.channel.ts` actually read those variables to change behaviour. An operator could
 set `MAIL_ALLOWLIST` correctly and it would have **zero runtime effect**. This was the single
 biggest functional gap found in Phase 3's audit, and closing it — not just re-verifying the boot
 guard, which was already solid — is most of this phase's code.
 
-## 2. Mail (MailerSend)
+## 2. Mail (Amazon SES)
+
+> **Updated 2026-10-19:** MailerSend was removed from the codebase. Amazon SES (`MAIL_PROVIDER=ses`) is the
+> only email provider, and every message is rendered in this repository, so there are no remote templates.
 
 **New file:** `src/common/utils/staging-messaging-guard.util.ts` — `evaluateMailRecipient`,
 `applyStagingSubjectPrefix`. **Wired into:** `src/mail/mail.service.ts`'s `deliver()`, the single
-place in the entire codebase that calls the real MailerSend API (`client.email.send`).
+place in the entire codebase that calls Amazon SES (`SendEmailCommand` through `ses.transport.ts`).
 
 **Behaviour on staging** (inert on production and on any deployment where `APP_ENV` isn't
 `staging`):
 
 - A recipient whose address or domain appears in `MAIL_ALLOWLIST` still receives a REAL email —
   this is how a UAT tester's own inbox gets a real test message.
-- Every other recipient is blocked before MailerSend is ever called. The block is logged
+- Every other recipient is blocked before SES is ever called. The block is logged
   (`status: "blocked_staging_allowlist"`) with the recipient masked, never in full.
-- A non-templated send (`subject`/`text`/`html`) gets `"[STAGING] "` prepended to its subject.
-  **Limitation, disclosed rather than hidden:** MailerSend template-backed sends carry their
-  subject from the template configured in the MailerSend dashboard; this SDK has no per-send
-  subject override for a templated email. A staging deployment MUST use its own template IDs
-  (`MAILERSEND_TEMPLATE_*`, already a distinct variable set per environment) with `"[STAGING]"`
-  baked into each template's own subject in the MailerSend dashboard — this code cannot reach in
-  and change it.
+- Every send gets `"[STAGING] "` prepended to its subject.
 
 ## 3. SMS (Twilio) and WhatsApp (Meta)
 
@@ -110,7 +107,7 @@ still correct.
 
 ## 8. What this phase does NOT do
 
-- Does not create any external account/resource (MailerSend staging key, EasyKash merchant,
+- Does not create any external account/resource (EasyKash merchant,
   Meta test number, Firebase staging project) — no dashboard access from this environment. See
   `docs/PHASE_3_DASHBOARD_CHECKLIST.md`.
 - Does not implement push notifications in any form — none exist in this codebase to isolate.

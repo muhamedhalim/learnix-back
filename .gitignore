@@ -71,3 +71,7 @@ ormconfig.json
 AUDIT
 # E2E diagnostics (jest JSON/JUnit/log), produced by `npm run test:e2e:ci`
 /e2e-results
+
+# Local-disk storage root (StorageService default PRIVATE_UPLOAD_DIR / UPLOAD_DIR). Unit/E2E runs write fixtures here;
+# they are runtime data, never source, and were committed by accident (a7bd368).
+/private-uploads

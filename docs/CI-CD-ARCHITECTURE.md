@@ -25,15 +25,15 @@ deploy was a third, reusable workflow whose own triggers had to be kept in step 
 ran CI on both `push` and `pull_request` for the same commit, and deployed from separate `push` workflows
 racing CI. All of that is now one run per event, with the deploy a _job_ of that run:
 
-| Event                                    | What runs (all in one `CI/CD` run)                                                                                                                                                        |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                       |
-| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`)                                                                                                  |
-| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; skipped when the push only touched docs / `learnix-infra` / markdown) |
-| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                                                                                                                        |
-| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                                                                                                                    |
-| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                                                                                                                        |
-| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                                                                                                                        |
+| Event                                    | What runs (all in one `CI/CD` run)                                                                                                                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                                                     |
+| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`)                                                                                                                                |
+| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; rebuilds unless production already runs an image-equivalent commit, which is then verified instead) |
+| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                                                                                                                                                      |
+| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                                                                                                                                                  |
+| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                                                                                                                                                      |
+| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                                                                                                                                                      |
 
 `control` is the single place that maps an event to these paths (outputs `ci`, `deploy`, `rollback`,
 `branch_sync`, `environment`, `manual`).
@@ -97,11 +97,36 @@ stored in the workflow. Required environment variables are listed in the comment
 - **Production**: automatic on push to `main` (after `ci-gate`), or by `workflow_dispatch`
   (`action=deploy`, `environment=production`). Requires a successful push run of `ci-cd.yml` on `develop` whose
   git TREE equals the tree being deployed (a merge commit on `main` has a new SHA, so the comparison is on
-  content; that run includes its staging rollout), the migration
+  content) and whose own `deploy` job succeeded (`scripts/ci/staging-gate.mjs`; a green run whose `deploy` was
+  skipped, e.g. a docs-only push, is not accepted), the migration
   classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
   `production` environment's reviewers, and an RDS snapshot taken before migrating.
-- Post-deploy verification is `ecs-deploy.sh`'s wait for steady state plus its alarm watch (automatic rollback),
-  and the read-only API smoke test when the environment sets `SMOKE_FROM_RUNNER=true`.
+- Post-deploy verification (`ecs-deploy.sh`, automatic rollback on any failure): each service's PRIMARY deployment
+  must be the NEW revision, COMPLETED and alone (an ECS circuit-breaker rollback also ends COMPLETED and is a
+  failure), the alarm watch, every RUNNING task must be on the new revision with the digest ECR holds for the
+  commit tag, and, for production (required `API_URL`) or when `SMOKE_FROM_RUNNER=true`, the public domain must
+  report the commit on 10 consecutive `GET /api/v1/health/version` requests. Then the read-only API smoke test
+  when the environment sets `SMOKE_FROM_RUNNER=true`.
+- What `deploy` does is decided from what the environment RUNS (`ecs-deploy.sh --status` ->
+  `scripts/ci/release-decision.sh`), never from the push diff or GitHub run/deployment history (which miss
+  rollbacks and workstation deploys): `verify-running` only when the services stably run this commit, or one with
+  identical image inputs, on the latest task-definition revision; `deploy` otherwise. A failed lookup fails the
+  job; an older commit than the one running fails the job.
+
+### 1.2.1 Release procedure (the only one)
+
+1. Merge the change into `develop` by PR (CI must be green). The push run deploys **staging** and verifies it.
+2. Open the release PR `develop` -> `main`. The push run of `main` waits for the `production` environment's
+   reviewers, checks that staging deployed the same tree (`scripts/ci/staging-gate.mjs`) and classifies migrations
+   (`NEEDS_DB_APPROVAL` waits for `production-db-approval`). Then: RDS snapshot (verified `available`), migrate
+   task (exit 0), rollout of api + worker, task/digest check, 10 x `GET https://api.learnix.school/api/v1/health/version`.
+3. A hotfix on `main` must be merged back into `develop` in the same change (`branch-sync`). A sync PR from `main`
+   into `develop` must have **base `develop`** (PR #20 targeted `main` and synced nothing).
+4. To retry a failed release, re-run the failed jobs of the same run: the existing image is reused, a commit
+   that already runs is only verified. To go back, use `workflow_dispatch` `action=rollback`.
+5. Workstation deploys (`ecs-deploy.sh` run by hand) bypass the reviewers and the staging gate: emergency only,
+   with the same `--verify-url`, and recorded in `docs/audits/`.
+
 - There is no Terraform in this workflow: see 1.4.
 
 ### 1.3 `rollback` and `branch-sync`
@@ -209,10 +234,16 @@ Nothing below is verified: the audit had no GitHub access. Each must be created 
 
 1. Separate workflows reacted to the same `push` (CI, a deploy workflow, a secret-scan workflow): merged into
    `ci-cd.yml` (commits `c9807a9`, `cbb3686`).
-2. A push that changed only docs or `learnix-infra` rebuilt and redeployed an identical image: `control` computes
-   `app_changed` and skips the deploy; `terraform.yml` handles the infra change.
-3. Infra and application pipelines are separate workflows with separate locks and disjoint triggers.
-4. Remaining outside this repository (verify in the Railway dashboard): a Railway GitHub integration that still builds `main`.
+2. A push that changed only docs or `learnix-infra` rebuilt and redeployed an identical image. That skip used to
+   be decided in `control` from the push diff, which went green while production ran an older release (audit
+   2026-10-20). It is now decided in `deploy` from the running release (`scripts/ci/release-decision.sh`), and the
+   skip path still has to prove what runs (`ecs-deploy.sh --verify-only`).
+3. Two runs for the same commit (a re-run, a manual dispatch next to the push): the `deploy-api-<environment>`
+   lock serialises them; the second sees the commit already running and only verifies it. An existing ECR tag is
+   reused instead of pushed again (the repositories are IMMUTABLE). A run for an OLDER commit than the one running
+   fails instead of rolling the environment back (`action=rollback` is the way back).
+4. Infra and application pipelines are separate workflows with separate locks and disjoint triggers.
+5. Remaining outside this repository (verify in the Railway dashboard): a Railway GitHub integration that still builds `main`.
 
 ## 6. What is not yet true, stated plainly
 

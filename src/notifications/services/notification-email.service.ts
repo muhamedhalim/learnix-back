@@ -44,7 +44,7 @@ export type NotificationEmailOutcome =
  *   must actually stop these, which is the DEF-005 requirement.
  *
  * Delivery is still asynchronous — `MailService.send` enqueues onto the existing
- * EMAIL queue and `MailProcessor` performs the MailerSend call — so this adds a
+ * EMAIL queue and `MailProcessor` performs the Amazon SES call — so this adds a
  * preference check and a delivery record, not a second transport.
  */
 @Injectable()
@@ -91,7 +91,7 @@ export class NotificationEmailService {
       const claim = await this.deliveries.claim({
         notificationId,
         channel: NotificationChannel.EMAIL,
-        provider: 'mailersend',
+        provider: this.mail.providerName,
         requestPayload: { ...message },
       });
       if (!claim.claimed) {
@@ -107,7 +107,7 @@ export class NotificationEmailService {
         await this.deliveries.record(
           claim.delivery.id,
           NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
-          { provider: 'mailersend' },
+          { provider: this.mail.providerName },
         );
         return 'provider_unavailable';
       }
@@ -130,12 +130,12 @@ export class NotificationEmailService {
     const claim = await this.deliveries.claim({
       notificationId,
       channel: NotificationChannel.EMAIL,
-      provider: 'mailersend',
+      provider: this.mail.providerName,
       requestPayload: requestPayload ?? null,
     });
     if (!claim.claimed) return;
     await this.deliveries.record(claim.delivery.id, status, {
-      provider: 'mailersend',
+      provider: this.mail.providerName,
       ...(error === undefined ? {} : { error }),
     });
   }

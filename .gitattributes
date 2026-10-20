@@ -3,3 +3,5 @@
 # or "$'\r': command not found"), so these are forced to LF regardless of a
 # developer's local core.autocrlf setting.
 *.sh text eol=lf
+# Extensionless fakes installed as executables in the deploy-script test container.
+learnix-infra/scripts/tests/fake-* text eol=lf
