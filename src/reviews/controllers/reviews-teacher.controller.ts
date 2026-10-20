@@ -5,7 +5,6 @@ import {
   Param,
   Post,
   Query,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -17,13 +16,11 @@ import {
 
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { ReplyReviewDto, ReviewFilterDto } from '../dto';
 import { ReviewsService } from '../reviews.service';
-
-interface AuthRequest extends Request {
-  user: { id: string; email: string; role: string };
-}
 
 @ApiTags('Reviews · Teacher')
 @Controller('teacher/reviews')
@@ -37,10 +34,10 @@ export class ReviewsTeacherController {
   @ApiOperation({ summary: "Reviews across all of the teacher's lessons" })
   public async myLessonReviews(
     @Query() filter: ReviewFilterDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
     return this.reviewsService.getTeacherLessonReviews(
-      req.user.id,
+      user.userId,
       filter.page,
       filter.limit,
     );
@@ -52,9 +49,9 @@ export class ReviewsTeacherController {
   public async reply(
     @Param('reviewId') reviewId: string,
     @Body() dto: ReplyReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.replyToLessonReview(reviewId, req.user.id, dto.reply);
+    return this.reviewsService.replyToLessonReview(reviewId, user.userId, dto.reply);
   }
 
   @Post('profile/:reviewId/reply')
@@ -63,8 +60,8 @@ export class ReviewsTeacherController {
   public async replyToProfileReview(
     @Param('reviewId') reviewId: string,
     @Body() dto: ReplyReviewDto,
-    @Request() req: AuthRequest,
+    @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.replyToTeacherReview(reviewId, req.user.id, dto.reply);
+    return this.reviewsService.replyToTeacherReview(reviewId, user.userId, dto.reply);
   }
 }

@@ -894,6 +894,69 @@ describe('payment financial state machine (PostgreSQL)', () => {
     ).resolves.toEqual([{ count: 1 }]);
   });
 
+  it('releases a due held earning when the application clock runs ahead of the database clock (E2E-1)', async () => {
+    const { order, payment, teacher } = await fixture();
+    await dataSource
+      .getRepository(Order)
+      .update(order.id, { status: OrderStatus.PAID, paid_at: new Date() });
+    await dataSource.getRepository(Payment).update(payment.id, { status: PaymentStatus.COMPLETED });
+
+    // Only `Date` is faked: the application clock is put 5 s ahead of PostgreSQL's (the Docker VM
+    // clock drift seen when E2E-1 failed), while timers, I/O and the database run for real.
+    jest.useFakeTimers({
+      now: Date.now() + 5_000,
+      advanceTimers: true,
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    try {
+      const pending = await dataSource.getRepository(FinancialLedgerEntry).save(
+        dataSource.getRepository(FinancialLedgerEntry).create({
+          account: 'teacher_payable',
+          order_id: order.id,
+          payment_id: payment.id,
+          teacher_id: teacher.id,
+          entry_type: LedgerEntryType.TEACHER_EARNING_PENDING,
+          amount_minor: 7_000,
+          currency: 'EGP',
+          direction: LedgerDirection.CREDIT,
+          status: LedgerEntryStatus.POSTED,
+          // Due by the application clock that wrote it, still 4 s in the future by the database's.
+          available_at: new Date(Date.now() - 1_000),
+          source_channel: PaymentChannel.GATEWAY,
+          collection_party: CollectionParty.PLATFORM,
+          settlement_id: null,
+          reference: `order:${order.id}:teacher-earning`,
+          metadata: null,
+        }),
+      );
+
+      await expect(settlements.releaseAvailableEarnings()).resolves.toBe(1);
+      await expect(
+        dataSource.query(
+          'SELECT count(*)::int AS count FROM financial_ledger_entries WHERE reference = $1',
+          [`release:${pending.id}:available`],
+        ),
+      ).resolves.toEqual([{ count: 1 }]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('serializes a refund against settlement allocation without a deadlock or negative available balance', async () => {
     const { order, payment, teacher, student } = await fixture();
     await dataSource

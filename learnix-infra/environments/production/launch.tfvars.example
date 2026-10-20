@@ -1,0 +1,58 @@
+# PROPOSED launch configuration for the FIRST production apply (see LAUNCH-SIZING.md). Not loaded automatically.
+# Shape: "L1" lean launch (chosen by the owner 2026-10-18; I1 = comment out the three L1 lines at the bottom). Nothing here is secret. Every __REQUIRED_*__ placeholder must be
+# replaced with a value the owner supplies; refuse to plan while one remains:
+#   grep -n "__REQUIRED_" launch.tfvars && echo "STOP: unresolved placeholders"
+# Values for each later stage (scale-up, certificate, cutover) are listed at the bottom and are applied only
+# through their own approved plan.
+
+# --- Owner-supplied values (Terraform has no default for the first two) ---------------------------------
+admin_email     = "__REQUIRED_ADMIN_EMAIL__"     # seeded as the first admin on the FIRST api boot; changing it later does not rename that admin
+mail_from_email = "__REQUIRED_MAIL_FROM_EMAIL__" # SES sender on learnix.school; mail stays off until SES production access
+alert_emails    = []                             # optional for the plan; strongly recommended before apply (otherwise alarms reach nobody)
+# vapid_subject defaults to "mailto:ops@learnix.school" (variables.tf). Push is off (inject_vapid = false); set a real
+# address before enabling Web Push.
+
+# --- Domain: Cloudflare stays authoritative; Terraform only prints the records to add -------------------
+dns_provider          = "cloudflare"
+certificate_enabled   = false
+certificate_validated = false
+cors_extra_origins    = [] # www.learnix.school redirects (307) to the apex, so it needs no CORS entry
+
+# --- Images and capacity: zero tasks until the first image is in ECR ----------------------------------
+image_tag            = "__REQUIRED_FULL_COMMIT_SHA__" # the release commit; the image is pushed as <ecr>/api:<sha> before scale-up
+api_desired_count    = 0
+worker_desired_count = 0
+
+# No GitHub OIDC deploy role at launch: the first release is deployed locally (the CI production gate needs a
+# staging deploy of the same tree, which this launch does not do). The production GitHub environment has no
+# branch policy yet, so a role trusting environment:production is created only together with that policy.
+app_repositories = {}
+
+# --- Sizing (I1) -----------------------------------------------------------------------------------------
+nat_gateway_count = 1
+db_instance_class = "db.t4g.small"
+valkey_node_type  = "cache.t4g.micro"
+
+# --- Launch scope: no payments, no SES production mail, no SMS, no Web Push, no signed video ---------------
+extra_secrets         = {}
+extra_environment     = {}
+inject_vapid          = false
+inject_cloudfront_key = false
+# sms_sender_id / sms_protect_configuration_id stay unset (null) until AWS approves the Egypt sender ID.
+
+# --- Edge and observability ------------------------------------------------------------------------------
+waf_block                   = false # managed + rate rules COUNT only; block after tuning on real traffic
+canary_enabled              = false # true in the post-cutover stage (it probes api.learnix.school)
+application_signals_enabled = false # I1/L1: X-Ray/Application Signals off; logs, metrics, alarms, RUM stay on
+# read_only_root_filesystem keeps its default (true), as staging has run since 2026-10-13.
+
+# --- L1 (CHOSEN 2026-10-18): the variables below now exist (default 2 / true / 2). Uncommitted until reviewed. ---
+api_min_count     = 1
+db_multi_az       = false
+valkey_node_count = 1
+
+# --- Later stages (each is its own plan + approval) ------------------------------------------------------
+# Stage H2 (scale-up, after the first successful image deploy):  api_desired_count = 2 (L1: 1), worker_desired_count = 1
+# Stage I2 (certificate request, after the Cloudflare CAA record): certificate_enabled = true
+# Stage I4 (after ACM shows ISSUED):                              certificate_validated = true
+# Stage J  (after the api CNAME points at CloudFront):            canary_enabled = true

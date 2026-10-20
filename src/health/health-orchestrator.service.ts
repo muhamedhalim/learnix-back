@@ -86,7 +86,7 @@ export class HealthOrchestratorService {
         ([
           'frontend-web',
           'jwt-authentication',
-          'mailersend-email',
+          'ses-email',
           'payment-gateway',
           'firebase',
           'meta-whatsapp',

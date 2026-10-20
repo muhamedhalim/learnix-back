@@ -59,7 +59,7 @@ export class NotificationDelivery {
   })
   status!: NotificationDeliveryStatus;
 
-  /** Transport provider actually used, e.g. `fcm`, `mailersend`, `twilio`. */
+  /** Transport provider actually used, e.g. `fcm`, `ses`, `twilio`. */
   @Column({ type: 'varchar', length: 40, nullable: true })
   provider!: string | null;
 

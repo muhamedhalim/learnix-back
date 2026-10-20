@@ -59,6 +59,8 @@ locals {
       APP_ENV        = "production"
       PORT           = "3000"
       RUN_MIGRATIONS = "false"
+      # Read once at boot by AppModule; absent means OFF and all /api/v1/marketplace/* routes 404 (var description).
+      MARKETPLACE_ENABLED = tostring(var.marketplace_enabled)
       # SIGTERM: report not-ready and wait this long (ms) for the load balancer to stop routing before closing.
       # Delay + SHUTDOWN_TIMEOUT_MS (default 40 s) must stay under the 60 s task stopTimeout.
       SHUTDOWN_DELAY_MS    = "10000"
@@ -223,7 +225,7 @@ module "api" {
   memory       = 1024
 
   desired_count    = var.api_desired_count
-  min_count        = 2
+  min_count        = var.api_min_count
   max_count        = 6
   container_port   = 3000
   target_group_arn = module.alb.target_group_arns["api"]

@@ -37,8 +37,7 @@ const stagingConfig: Record<string, unknown> = {
   PUBLIC_MEDIA_BASE_URL: 'https://api-staging.learnix.school',
   CORS_ORIGINS: 'https://staging.learnix.school',
   R2_BUCKET: 'learnix-staging',
-  MAIL_PROVIDER: 'mailersend',
-  MAILERSEND_API_KEY: 'staging-mail-key',
+  MAIL_PROVIDER: 'ses',
   MAIL_FROM_EMAIL: 'staging@staging.learnix.school',
   MAIL_ALLOWLIST: 'qa@staging.learnix.invalid',
   PAYMENT_CAPTURE_GRACE_SECONDS: '300',
@@ -60,8 +59,7 @@ const productionConfig: Record<string, unknown> = {
   R2_BUCKET: 'learnix',
   EASYKASH_API_KEY: 'live-key',
   EASYKASH_HMAC_SECRET: 'live-hmac-secret',
-  MAIL_PROVIDER: 'mailersend',
-  MAILERSEND_API_KEY: 'prod-mail-key',
+  MAIL_PROVIDER: 'ses',
   MAIL_FROM_EMAIL: 'info@learnix.school',
   PAYMENT_CAPTURE_GRACE_SECONDS: '300',
   PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS: '120',
@@ -297,7 +295,6 @@ describe('staging isolation — production webhook secrets', () => {
     'JWT_SECRET',
     'JWT_REFRESH_SECRET',
     'COOKIE_SECRET',
-    'MAILERSEND_API_KEY',
     'R2_SECRET_ACCESS_KEY',
     'TWILIO_AUTH_TOKEN',
   ])('fails when the production %s is reused on staging', (variable) => {
@@ -343,7 +340,7 @@ describe('staging isolation — production origins and cookies', () => {
 });
 
 describe('staging isolation — email and SMS', () => {
-  it('fails when MailerSend is configured without a recipient allowlist', () => {
+  it('fails when SES is configured without a recipient allowlist', () => {
     const config = { ...stagingConfig, MAIL_ALLOWLIST: undefined };
     expect(codesFor(config)).toContain('STAGING_MAIL_ALLOWLIST_MISSING');
   });
@@ -370,7 +367,7 @@ describe('staging isolation — email and SMS', () => {
   it('does not demand an allowlist when mail is not configured at all', () => {
     const config = {
       ...stagingConfig,
-      MAILERSEND_API_KEY: undefined,
+      MAIL_PROVIDER: undefined,
       MAIL_ALLOWLIST: undefined,
       MAIL_FROM_EMAIL: undefined,
     };

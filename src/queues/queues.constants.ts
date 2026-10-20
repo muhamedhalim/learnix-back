@@ -95,7 +95,7 @@ export const QUEUE_NAMES = {
  */
 export const JOB_TYPES = {
   EMAIL: {
-    /** Outbound MailerSend delivery; executed only by MailProcessor. */
+    /** Outbound Amazon SES delivery; executed only by MailProcessor. */
     DELIVER: 'deliver-email',
     PAYMENT_CONFIRMATION: 'payment-confirmation',
     LESSON_PURCHASE_CONFIRMATION: 'lesson-purchase-confirmation',

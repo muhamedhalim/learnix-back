@@ -81,7 +81,7 @@ run "dns_zone_copy_keeps_vercel_records" {
   # The backend's production-mode env validation refuses to boot without these (learnix-back
   # src/config/env.validation.ts); keep this list in sync with it.
   assert {
-    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
+    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL", "MARKETPLACE_ENABLED"] : contains(output.app_environment_keys, k)])
     error_message = "A variable the backend requires in production mode is missing from the task environment."
   }
 
@@ -249,6 +249,43 @@ run "cloudflare_certificate_waits_for_the_operators_record" {
     condition     = length(aws_acm_certificate.api) == 1 && length(aws_acm_certificate_validation.api) == 0 && length(aws_route53_record.api_validation) == 0
     error_message = "The certificate is requested, but nothing waits for validation (or attaches the alias) until certificate_validated."
   }
+}
+
+run "lean_launch_sizing_plans_cleanly" {
+  command = plan
+
+  variables {
+    api_min_count        = 1
+    db_multi_az          = false
+    valkey_node_count    = 1
+    api_desired_count    = 1
+    worker_desired_count = 1
+  }
+
+  assert {
+    condition     = var.api_min_count == 1 && var.db_multi_az == false && var.valkey_node_count == 1
+    error_message = "The lean launch values must be accepted by the stack."
+  }
+}
+
+run "rejects_zero_api_min_count" {
+  command = plan
+
+  variables {
+    api_min_count = 0
+  }
+
+  expect_failures = [var.api_min_count]
+}
+
+run "rejects_zero_valkey_nodes" {
+  command = plan
+
+  variables {
+    valkey_node_count = 0
+  }
+
+  expect_failures = [var.valkey_node_count]
 }
 
 run "cloudflare_certificate_validated_attaches_alias" {

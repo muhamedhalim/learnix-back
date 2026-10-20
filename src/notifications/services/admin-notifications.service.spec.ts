@@ -3,7 +3,10 @@ import { AdminNotificationCategory } from '../entities/admin-notification-catego
 import { NotificationOrigin } from '../entities/notification-origin.enum';
 import { NotificationPriority } from '../entities/notification-priority.enum';
 import { NotificationType } from '../entities/notification-type.enum';
-import { AdminNotificationsService } from './admin-notifications.service';
+import {
+  AdminNotificationsService,
+  TechnicalAdminNotificationRejectedError,
+} from './admin-notifications.service';
 import type { NotificationsService } from './notifications.service';
 
 function buildHarness(admins: Array<{ id: string }> = [{ id: 'admin-1' }, { id: 'admin-2' }]) {
@@ -53,6 +56,7 @@ describe('AdminNotificationsService', () => {
     await service.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
       title: 'Alert',
       message: 'Something happened',
+      category: AdminNotificationCategory.FINANCIAL,
     });
 
     expect(users.find).toHaveBeenCalledWith(
@@ -97,6 +101,7 @@ describe('AdminNotificationsService', () => {
     await service.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
       title: 'Alert',
       message: 'Something happened',
+      category: AdminNotificationCategory.FINANCIAL,
     });
 
     const options = notifications.create.mock.calls[0]?.[2] as Record<string, unknown>;
@@ -127,9 +132,65 @@ describe('AdminNotificationsService', () => {
       service.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
         title: 'Alert',
         message: 'Something happened',
+        category: AdminNotificationCategory.FINANCIAL,
       }),
     ).resolves.toBeUndefined();
 
     expect(notifications.create).toHaveBeenCalledTimes(2);
+  });
+
+  describe('technical monitoring alerts are rejected at the persistence boundary', () => {
+    it.each([
+      [
+        'an operational alert with no explicit business category (catalog default is system)',
+        undefined,
+      ],
+      ['an operational alert explicitly categorised as system', AdminNotificationCategory.SYSTEM],
+      [
+        'an operational alert categorised as content review',
+        AdminNotificationCategory.CONTENT_REVIEW,
+      ],
+    ])('rejects %s and creates nothing', async (_label, category) => {
+      const { service, users, notifications } = buildHarness();
+
+      await expect(
+        service.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
+          title: '[WARNING][production] Component becomes degraded',
+          message: 'PostgreSQL: statusRank is 4.00 (threshold 4.00).',
+          link: '/admin/health',
+          ...(category === undefined ? {} : { category }),
+        }),
+      ).rejects.toBeInstanceOf(TechnicalAdminNotificationRejectedError);
+
+      expect(users.find).not.toHaveBeenCalled();
+      expect(notifications.create).not.toHaveBeenCalled();
+    });
+
+    it.each([AdminNotificationCategory.FINANCIAL, AdminNotificationCategory.SECURITY])(
+      'still delivers an operational alert categorised as %s to every admin',
+      async (category) => {
+        const { service, notifications } = buildHarness();
+
+        await service.notifyAdmins(AdminNotificationEvent.OPERATIONAL_ALERT, {
+          title: 'Payment quarantined during reconciliation',
+          message: 'Manual financial review is required.',
+          category,
+        });
+
+        expect(notifications.create).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each(
+      Object.values(AdminNotificationEvent).filter(
+        (event) => event !== AdminNotificationEvent.OPERATIONAL_ALERT,
+      ),
+    )('never blocks the catalogued business event %s', async (event) => {
+      const { service, notifications } = buildHarness([{ id: 'admin-1' }]);
+
+      await service.notifyAdmins(event, { title: 'Needs attention', message: 'Action required' });
+
+      expect(notifications.create).toHaveBeenCalledTimes(1);
+    });
   });
 });

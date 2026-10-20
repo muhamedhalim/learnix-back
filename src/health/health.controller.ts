@@ -4,6 +4,7 @@ import {
   Get,
   Header,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -133,7 +134,7 @@ export class HealthController {
   @ApiBearerAuth('JWT-auth')
   @Throttle({ default: THROTTLE.DEFAULT })
   public async updateAlertRule(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateHealthAlertRuleDto,
     @Req() request: UserRequest,
   ): Promise<unknown> {

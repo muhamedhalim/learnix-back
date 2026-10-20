@@ -1,0 +1,8 @@
+{
+  "BudgetName": "learnix-production",
+  "BudgetLimit": { "Amount": "250", "Unit": "USD" },
+  "TimeUnit": "MONTHLY",
+  "BudgetType": "COST",
+  "CostFilters": { "TagKeyValue": ["user:Environment$production"] },
+  "CostTypes": { "IncludeCredit": false, "IncludeRefund": false, "IncludeTax": true, "IncludeSubscription": true, "IncludeSupport": true, "IncludeUpfront": true, "IncludeRecurring": true, "IncludeOtherSubscription": true, "IncludeDiscount": true, "UseBlended": false, "UseAmortized": false }
+}

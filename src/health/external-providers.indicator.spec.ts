@@ -90,7 +90,7 @@ describe('ExternalProvidersHealthIndicator', () => {
     ['provider_unavailable', true, true, 'degraded'],
     ['rate_limited', true, true, 'degraded'],
   ] as const)(
-    'classifies MailerSend runtime state %s',
+    'classifies Amazon SES runtime state %s',
     async (state, enabled, configured, expected) => {
       const config = { get: jest.fn() } as unknown as ConfigService;
       const mail = {
@@ -98,8 +98,7 @@ describe('ExternalProvidersHealthIndicator', () => {
           state,
           enabled,
           configured,
-          missing: configured ? [] : ['MAILERSEND_API_KEY'],
-          configuredTemplateCount: 4,
+          missing: configured ? [] : ['MAIL_FROM_EMAIL'],
           probeExecuted: false,
           lastAttemptAt: null,
           lastSuccessAt: null,
@@ -114,9 +113,7 @@ describe('ExternalProvidersHealthIndicator', () => {
         } as unknown as DataSource,
         paymentGateway(),
       );
-      const result = (await indicator.check()).find(
-        (component) => component.id === 'mailersend-email',
-      );
+      const result = (await indicator.check()).find((component) => component.id === 'ses-email');
       expect(result?.status).toBe(expected);
       expect(JSON.stringify(result)).not.toContain('test-api-key');
     },

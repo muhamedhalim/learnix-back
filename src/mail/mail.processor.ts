@@ -11,7 +11,7 @@ import {
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../queues/queues.constants';
 import { MailService, type MailJob } from './mail.service';
 
-/** The only component that performs an outbound email API call (SES or MailerSend). */
+/** The only component that performs an outbound email API call (Amazon SES). */
 @Processor(QUEUE_NAMES.EMAIL, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
 export class MailProcessor extends WorkerHost {
   public constructor(
@@ -44,7 +44,7 @@ export class MailProcessor extends WorkerHost {
       if (job.data.notificationDeliveryId !== undefined) {
         await this.deliveries.update(job.data.notificationDeliveryId, {
           status: NotificationDeliveryStatus.FAILED,
-          provider: 'mailersend',
+          provider: this.mail.providerName,
           error_message: (error instanceof Error ? error.message : String(error)).slice(0, 1000),
           attempts: job.attemptsMade + 1,
         });

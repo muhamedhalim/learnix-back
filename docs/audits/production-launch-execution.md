@@ -1,0 +1,56 @@
+# Production launch — execution log and approval packet
+
+**Started:** 2026-10-18. **Branch:** `deploy/production-launch` (local, not pushed). **Account/region:** 486940690416 / eu-central-1
+(+ us-east-1 for CloudFront certificate/WAF, eu-west-1 for backup copies). Staging (`learnix-staging-*`) is not touched by any step.
+
+## Checklist
+
+| # | Step | State | Evidence |
+|---|---|---|---|
+| 1 | Live inventory (read-only) | ✅ done | only staging exists: cluster `learnix-staging`, RDS `learnix-staging-pg`, VPCs 10.10/16 + default; no budgets; 0 active cost-allocation tags |
+| 2 | DNS/TLS state (read-only) | ✅ done | NS = Cloudflare; `api.learnix.school` proxied → **HTTP 525**; apex CAA lists comodoca, digicert, letsencrypt, pki.goog, sectigo, ssl.com — **no amazon.com** (ACM issuance blocked until added); `learnix.school` → 200 (Vercel) |
+| 3 | Backend build + unit tests | ✅ done | `npm run build` exit 0; jest 380 suites / **3211 passed**, 0 failed |
+| 4 | Production env contract | ✅ done | Terraform's task environment (apps.tf) replayed through `scripts/validate-env.ts` with NODE_ENV/APP_ENV=production → "Environment validation passed" |
+| 5 | **Fix: migrate task could never finish on AWS** | ✅ fixed, commit `f348d26` | `options.database` is empty with DATABASE_URL → grants threw "database name must match"; now DB_NAME / URL path |
+| 6 | **Fix: app-role password printed in migrate logs** | ✅ fixed, commit `f348d26` | `CREATE ROLE … PASSWORD '<plaintext>'` was logged (data-source `logging: true`); now a SCRAM-SHA-256 verifier is sent |
+| 7 | Release image | ✅ built locally | `learnix-api:f348d26e3a701cdfaafaf944073c836b3a859cc6`, linux/arm64, RDS CA bundle baked in, built from a clean worktree of the commit |
+| 8 | Image boot test (local Postgres 16 with TLS + Valkey) | ✅ done | migrate: **152 migrations applied**, password absent from log, app role logs in (SCRAM), has DML, no CREATE on DB; api + worker (read-only rootfs) `/api/v1/health` 200, `/health/readiness` ready; admin seeded; CSRF → login → `/users/me` → logout all 200; cookies `HttpOnly; Secure; SameSite=None`; CORS credentialed only for `https://learnix.school` (foreign origin: none); worker consumes `production:*` queues; SIGTERM → drain 10 s → `shutdown_complete` in ~12 s |
+| 9 | Production Terraform offline | ✅ done | `fmt`, `validate`, `terraform test` **10/10** |
+| 10 | Production plan preview (read-only, throwaway local backend) | ✅ done | **227 to add, 0 change, 0 destroy**; no resource name mentions staging; DB `db.t4g.small` single-AZ 20 GB PG16, deletion protection, 14-day PITR; Valkey `cache.t4g.micro` × 1 |
+| 11 | Repo prep: `bootstrap-state/` stack, `scripts/prod-guard.mjs` (+4 tests), budgets JSON, gitignore | ✅ done | validate OK; guard rejects a plan whose backend is not `learnix-production-tfstate-…/production/platform.tfstate` |
+| A1 | Cost-allocation tags + budgets + anomaly monitor | ⛔ needs approval + alert email | — |
+| A2 | Production state bucket (`bootstrap-state` apply) | ⛔ needs approval | — |
+| A3 | Production stack apply #1 (0 tasks) | ⛔ needs approval + admin/mail emails | — |
+| A4 | Push image, snapshot, run migrate, scale api 1 / worker 1 | ⛔ needs approval | — |
+| A5 | CAA + ACM validation + `api` CNAME in Cloudflare | ⛔ owner action in Cloudflare (no API access here) | — |
+| A6 | Acceptance tests from outside AWS | pending | — |
+
+## Why not the CI pipeline
+
+`ci-cd.yml` deploys production only after a successful staging deploy of the same tree. You asked for no staging release, so
+this gate is **not bypassed or edited**; the first production release is deployed locally with the admin credentials of
+profile `learnix-staging` (same account), using the same image build arguments and the same order as the pipeline
+(snapshot → migrate task must exit 0 → services). No GitHub OIDC deploy role is created at launch (`app_repositories = {}`),
+because the `production` GitHub environment has no branch policy yet; CI deploys can be enabled later in a separate, approved change.
+
+## Costs (USD/month, on-demand, eu-central-1)
+
+| | Estimate |
+|---|---|
+| Production after A3 (0 tasks): NAT + EIP, internal ALB, RDS t4g.small single-AZ, Valkey micro × 1, WAF, KMS × 3, secrets × 9, CloudWatch alarms/dashboard, VPC endpoint | ≈ $122 |
+| + A4 (api 1 + worker 1 Fargate ARM, 0.5 vCPU / 1 GB each) | ≈ $155 |
+| Production with launch-level traffic, logs, backups, CloudFront | ≈ $182–215 |
+| Staging, measured: $15.10 usage 2026-10-01…17 (live since 10-13) | ≈ $90 run-rate |
+| **Account total** | **≈ $270–305** |
+
+Current usage is fully offset by AWS credits (Cost Explorer: usage $15.10, credit −$15.10), so the budgets are defined with
+`IncludeCredit=false`; otherwise they would never alert. **Budgets only send email; they do not cap or stop spending.**
+
+## Rollback per step
+
+| Step | Rollback |
+|---|---|
+| A1 | `aws budgets delete-budget`; deactivate tags (free) |
+| A2 | bucket and key have `prevent_destroy`; empty bucket + schedule key deletion (30-day window) |
+| A3/A4 | scale services to 0 (`aws ecs update-service --desired-count 0`); full teardown = `terraform destroy` on the production state only (RDS deletion protection must be lifted first; a final snapshot is kept). Staging state is separate and cannot be addressed |
+| A5 | restore the recorded Cloudflare `api` record (proxied, current value) and remove the CAA/validation records |

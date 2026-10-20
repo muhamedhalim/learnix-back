@@ -27,10 +27,28 @@ describe('validateAwsRuntimeProfile', () => {
 
   it.each([
     ['MAIL_PROVIDER', 'sess'],
+    ['MAIL_PROVIDER', 'mailersend'],
     ['SMS_PROVIDER', 'amazon'],
     ['PUSH_PROVIDER', 'webpsuh'],
   ])('rejects %s=%s instead of silently disabling the feature', (key, value) => {
     expect(() => validateAwsRuntimeProfile({ ...aws, [key]: value })).toThrow(new RegExp(key));
+  });
+
+  it('refuses a mailbox-provider sender for SES and accepts an owned domain', () => {
+    expect(() =>
+      validateAwsRuntimeProfile({
+        ...aws,
+        MAIL_PROVIDER: 'ses',
+        MAIL_FROM_EMAIL: 'Someone@Gmail.com',
+      }),
+    ).toThrow(/gmail\.com/);
+    expect(() =>
+      validateAwsRuntimeProfile({
+        ...aws,
+        MAIL_PROVIDER: 'ses',
+        MAIL_FROM_EMAIL: 'no-reply@learnix.school',
+      }),
+    ).not.toThrow();
   });
 
   it('rejects a malformed SQS queue URL', () => {

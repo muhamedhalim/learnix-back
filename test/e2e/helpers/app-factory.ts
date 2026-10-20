@@ -111,6 +111,13 @@ async function bootstrapE2EApp(
   });
 
   await app.init();
+  // Listen once, on an ephemeral loopback port, for the app's whole life. Against a server that is
+  // not listening, supertest calls `listen(0)` itself for each request and `close()`s it when that
+  // request ends; with two requests in flight (a `Promise.all` in a spec), the first one to finish
+  // closes the server under the other, and Node's `close()` drops that one's still-idle connection:
+  // the intermittent `read ECONNRESET` of E2E-2. A listening server is reused by every request and
+  // closed only by `app.close()`.
+  await app.listen(0, '127.0.0.1');
 
   const dataSource = moduleFixture.get<DataSource>(DataSource);
   return { app, dataSource };

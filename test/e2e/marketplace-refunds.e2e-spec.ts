@@ -500,6 +500,56 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       expect(retried.body.status).toBe(RefundRequestStatus.FAILED);
     });
 
+    it('never refunds an order twice: retrying a stale FAILED request after a later one refunded the order sends nothing (FIA-009)', async () => {
+      const { learner, order, admin, payment } = await actors();
+      await grantRefundPermission(admin.userId);
+      const first = await learner.agent
+        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+        .set('Idempotency-Key', `refund-first-${Date.now()}`)
+        .send({ reason: 'Provider outage on the first try' })
+        .expect(201);
+      expect(first.body.status).toBe(RefundRequestStatus.FAILED);
+
+      // The provider recovers (test double only — no live call) and a second request refunds the order.
+      const gateway = app.get(PaymentProviderRegistry).get(payment.provider);
+      const supportsRefunds = jest.spyOn(gateway, 'supportsRefunds').mockReturnValue(true);
+      const providerRefund = jest
+        .spyOn(gateway, 'refund')
+        .mockResolvedValue({ providerReference: `test-refund-${order.id}`, status: 'succeeded' });
+      try {
+        const second = await learner.agent
+          .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+          .set('Idempotency-Key', `refund-second-${Date.now()}`)
+          .send({ reason: 'Second try' })
+          .expect(201);
+        expect(second.body.status).toBe(RefundRequestStatus.COMPLETED);
+        expect(providerRefund).toHaveBeenCalledTimes(1);
+        const ledgerRowsAfterRefund = await dataSource
+          .getRepository(MarketplaceLedgerEntry)
+          .countBy({ order_id: order.id });
+
+        const retried = await admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/refunds/${first.body.id}/retry`)
+          .expect(201);
+
+        expect(providerRefund).toHaveBeenCalledTimes(1);
+        expect(retried.body.status).toBe(RefundRequestStatus.FAILED);
+        expect(retried.body.failure_reason).toContain(second.body.id);
+        // Nothing was reversed a second time either.
+        await expect(
+          dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
+        ).resolves.toBe(ledgerRowsAfterRefund);
+      } finally {
+        supportsRefunds.mockRestore();
+        providerRefund.mockRestore();
+      }
+
+      const rows = await dataSource
+        .getRepository(MarketplaceRefundRequest)
+        .find({ where: { order_id: order.id } });
+      expect(rows.filter((r) => r.status === RefundRequestStatus.COMPLETED)).toHaveLength(1);
+    }, 60_000);
+
     it('lists the refund queue with eligibility inputs and verdict visible', async () => {
       const { learner, order, admin } = await actors();
       await grantRefundPermission(admin.userId);

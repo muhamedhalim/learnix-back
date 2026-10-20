@@ -2,13 +2,14 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 
 import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
 import { biBody } from '../../i18n/error-translator.util';
 import { JOB_TYPES, QUEUE_NAMES } from '../../queues/queues.constants';
+import { queueJobId } from '../../queues/job-id.util';
 import { MarketplaceEnrollment } from '../commerce/entities';
 import {
   MarketplaceEnrollmentStatus,
@@ -137,7 +138,7 @@ export class CourseRemovalService {
         // Deterministic per order — a re-enqueue (retried admin action, a
         // worker restart replaying its wait list) can never create a second
         // job for the same order.
-        opts: { jobId: `marketplace:removal:${enrollment.order_id}` },
+        opts: { jobId: queueJobId('marketplace', 'removal', enrollment.order_id) },
       })),
     );
 
@@ -154,16 +155,38 @@ export class CourseRemovalService {
     }
 
     const refundRequestsRepo = this.dataSource.getRepository(MarketplaceRefundRequest);
-    const existing = await refundRequestsRepo.findOne({ where: { order_id: data.orderId } });
+    // Only this job's own (removal-driven) request tells whether a previous delivery already
+    // counted the order. A learner's earlier request for the same order — auto-rejected, or
+    // failed at the provider — is not that: treating it as "already counted" skipped the order
+    // without counting it, and re-processing a rejected one hit a 409 that was skipped as
+    // "concurrent", so the learner was never refunded and the removal never completed.
+    const removalDriven = await refundRequestsRepo.findOne({
+      where: { order_id: data.orderId, is_removal_driven: true },
+    });
 
     if (
-      existing &&
-      (existing.status === RefundRequestStatus.COMPLETED ||
-        existing.status === RefundRequestStatus.FAILED)
+      removalDriven &&
+      (removalDriven.status === RefundRequestStatus.COMPLETED ||
+        removalDriven.status === RefundRequestStatus.FAILED)
     ) {
       // Already counted by a previous delivery of this job — nothing left to do but re-check completion.
       return this.maybeComplete(data.removalId, data.totalCount);
     }
+
+    // A still-open request (removal-driven from an interrupted delivery, or the learner's own) is
+    // the order's one in-flight refund: resume it rather than open a second.
+    const existing =
+      removalDriven ??
+      (await refundRequestsRepo.findOne({
+        where: {
+          order_id: data.orderId,
+          status: In([
+            RefundRequestStatus.REQUESTED,
+            RefundRequestStatus.APPROVED,
+            RefundRequestStatus.PROCESSING,
+          ]),
+        },
+      }));
 
     let result: MarketplaceRefundRequest;
     try {

@@ -184,6 +184,12 @@ variable "extra_secrets" {
   default = {}
 }
 
+variable "marketplace_enabled" {
+  description = "Registers the Professional Courses Marketplace module in the api/worker (MARKETPLACE_ENABLED). While false, every /api/v1/marketplace/* route - including the /admin/marketplace console - answers 404 \"Cannot GET\". true also turns on marketplace checkout, refunds, payouts and their worker queues, so it is a launch decision: set it per environment in tfvars only after those are launch-ready, never as a default."
+  type        = bool
+  default     = false
+}
+
 variable "extra_environment" {
   description = "Additional non-secret environment variables for api/worker/migrate (e.g. EASYKASH_CASH_EXPIRY_HOURS)."
   type        = map(string)

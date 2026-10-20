@@ -228,6 +228,7 @@ export class FinancialOperationsAlertListener {
     try {
       await this.alerts.dispatch({
         key: `scheduled_job.repeated_failure:${jobName}`,
+        audience: 'technical',
         severity: 'critical',
         title: `Scheduled job "${jobName}" is failing repeatedly`,
         message:
@@ -283,6 +284,8 @@ export class FinancialOperationsAlertListener {
         // Per-incident key: two different stuck payments alert separately,
         // while repeated emissions for the SAME entity are suppressed.
         key: `${input.event}:${input.identity}`,
+        // Money is stuck or mismatched: an administrator must act on it.
+        audience: 'business',
         severity: 'critical',
         title: input.title,
         message: input.message,

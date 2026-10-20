@@ -5,7 +5,7 @@
  * WHY THIS FILE EXISTS
  * ---------------------
  * `MAIL_ALLOWLIST` and `SMS_MODE=sandbox` were already REQUIRED at boot by
- * `environment-isolation.guard.ts` whenever real MailerSend/Twilio/Meta
+ * `environment-isolation.guard.ts` whenever real SES/Twilio/Meta
  * credentials are configured on staging — but until this file, nothing in
  * `mail.service.ts`, `sms.channel.ts`, or `whatsapp-meta.channel.ts` actually
  * read those variables to change behaviour. An operator could set

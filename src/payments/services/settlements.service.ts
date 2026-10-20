@@ -977,13 +977,18 @@ export class SettlementsService {
   }
 
   public async releaseAvailableEarnings(limit = 500): Promise<number> {
+    // One clock for the whole run: `available_at` is written from the application clock
+    // (payment finalization), so it is compared with the application clock both when selecting
+    // due rows and when re-checking a locked row. Mixing in the database's NOW() made a due
+    // earning invisible whenever the database clock lagged the application's (E2E-1).
+    const now = new Date();
     const due = await this.ledger
       .createQueryBuilder('entry')
       .where('entry.entry_type = :entryType', {
         entryType: LedgerEntryType.TEACHER_EARNING_PENDING,
       })
       .andWhere('entry.direction = :direction', { direction: LedgerDirection.CREDIT })
-      .andWhere('entry.available_at <= NOW()')
+      .andWhere('entry.available_at <= :now', { now })
       .andWhere(
         `NOT EXISTS (
           SELECT 1 FROM financial_ledger_entries reversal
@@ -1018,7 +1023,7 @@ export class SettlementsService {
           locked.entry_type !== LedgerEntryType.TEACHER_EARNING_PENDING ||
           locked.direction !== LedgerDirection.CREDIT ||
           !locked.available_at ||
-          locked.available_at > new Date()
+          locked.available_at > now
         ) {
           return;
         }

@@ -48,8 +48,9 @@ resource "aws_db_parameter_group" "this" {
   description = "Learnix PostgreSQL 16"
 
   parameter {
-    name  = "rds.force_ssl"
-    value = "1"
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot" # static parameter: AWS always reports it this way
   }
   parameter {
     name  = "log_min_duration_statement"

@@ -15,7 +15,7 @@
  */
 
 import { AppDataSource } from '../data-source';
-import { ensureAppRole, readAppRoleConfig } from './app-role.util';
+import { ensureAppRole, readAppRoleConfig, resolveDatabaseName } from './app-role.util';
 import { withMigrationAdvisoryLock } from './migration-lock.util';
 
 type Command = 'status' | 'run' | 'revert';
@@ -49,7 +49,15 @@ async function runMigrate(): Promise<number> {
       : 'No pending migrations to apply.',
   );
   // Runs as the master user, after the schema is current, so the grants cover every table.
-  const appRole = readAppRoleConfig(process.env, String(AppDataSource.options.database ?? ''));
+  const appRole = readAppRoleConfig(
+    process.env,
+    resolveDatabaseName(
+      typeof AppDataSource.options.database === 'string'
+        ? AppDataSource.options.database
+        : undefined,
+      process.env,
+    ),
+  );
   if (appRole) await ensureAppRole(AppDataSource, appRole, (message) => console.log(message));
   return 0;
 }
