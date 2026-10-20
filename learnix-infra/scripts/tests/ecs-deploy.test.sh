@@ -61,6 +61,42 @@ check "domain serving the release passes after 10 consecutive matches" "[ $rc -e
 fresh; out=$(SERVED_COMMIT=cf91a61 bash d.sh --cluster c --services api --image repo:abc123 --verify-url https://api.example.test 2>&1); rc=$?
 check "domain still serving the old commit rolls back" "[ $rc -ne 0 ] && echo \"\$out\" | grep -q \"serves commit 'cf91a61'\" && grep -q 'update-service.*learnix-staging-api:7' calls.log"
 
+fresh; out=$(ECR_FAIL=1 bash d.sh --cluster c --services api --image repo:abc123 2>&1); rc=$?
+check "an ECR lookup error fails the deploy before anything changes" "[ $rc -ne 0 ] && ! grep -q 'register-task-definition\|update-service' calls.log"
+
+fresh; out=$(MIGRATE_EXIT=1 bash d.sh --cluster c --services api,worker --image repo:abc123 --migrate-family learnix-staging-migrate --network "$NET" --verify-url https://api.example.test 2>&1); rc=$?
+check "failed migration: nothing rolled, nothing verified, explicit error" "[ $rc -ne 0 ] && ! grep -q update-service calls.log && [ ! -s curl.log ] && echo \"\$out\" | grep -q 'migrations failed'"
+
+# --status: the read-only snapshot scripts/ci/release-decision.sh decides on.
+fresh; out=$(RUNNING_IMAGE=repo:aaa bash d.sh --cluster c --services api,worker --status 2>/dev/null); rc=$?
+check "status reports the shared running image, stable, latest revision" "[ $rc -eq 0 ] && echo \"\$out\" | grep -qx 'running_image=repo:aaa' && echo \"\$out\" | grep -qx 'stable=true' && echo \"\$out\" | grep -qx 'latest_revision=true'"
+check "status changes nothing" "! grep -q 'register-task-definition\|update-service\|run-task' calls.log"
+
+fresh; out=$(RUNNING_IMAGE=repo:aaa WORKER_IMAGE=repo:bbb bash d.sh --cluster c --services api,worker --status 2>/dev/null); rc=$?
+check "status: api and worker on different images is no single release" "[ $rc -eq 0 ] && echo \"\$out\" | grep -qx 'running_image=' && echo \"\$out\" | grep -qx 'stable=false'"
+
+fresh; out=$(RUNNING_IMAGE=repo:aaa LATEST_REV=9 bash d.sh --cluster c --services api --status 2>/dev/null); rc=$?
+check "status: a newer registered revision (Terraform) is reported" "[ $rc -eq 0 ] && echo \"\$out\" | grep -qx 'latest_revision=false'"
+
+fresh; out=$(RUNNING_IMAGE=repo:aaa IN_PROGRESS=1 bash d.sh --cluster c --services api --status 2>/dev/null); rc=$?
+check "status: a rollout in progress is not stable" "[ $rc -eq 0 ] && echo \"\$out\" | grep -qx 'stable=false'"
+
+fresh; out=$(DESCRIBE_FAIL=1 bash d.sh --cluster c --services api --status 2>/dev/null); rc=$?
+check "status: an AWS error is a failure with no snapshot" "[ $rc -ne 0 ] && ! echo \"\$out\" | grep -q 'running_image='"
+
+# --verify-only: proves what runs now, never changes anything.
+fresh; out=$(RUNNING_IMAGE=repo:abc123 bash d.sh --cluster c --services api,worker --verify-only --image repo:abc123 --verify-url https://api.example.test 2>&1); rc=$?
+check "verify-only passes when tasks and domain are on the release" "[ $rc -eq 0 ] && ! grep -q 'register-task-definition\|update-service' calls.log"
+
+fresh; out=$(RUNNING_IMAGE=repo:old bash d.sh --cluster c --services api --verify-only --image repo:abc123 2>&1); rc=$?
+check "verify-only fails when the service runs another image" "[ $rc -ne 0 ] && ! grep -q update-service calls.log"
+
+fresh; out=$(RUNNING_IMAGE=repo:abc123 TASK_DIGEST=sha256:old bash d.sh --cluster c --services api --verify-only --image repo:abc123 2>&1); rc=$?
+check "verify-only fails on a stale task digest, without rolling anything" "[ $rc -ne 0 ] && ! grep -q update-service calls.log"
+
+fresh; out=$(RUNNING_IMAGE=repo:abc123 SERVED_COMMIT=cf91a61 bash d.sh --cluster c --services api --verify-only --image repo:abc123 --verify-url https://api.example.test 2>&1); rc=$?
+check "verify-only fails when the domain serves an old commit" "[ $rc -ne 0 ] && ! grep -q update-service calls.log"
+
 fresh; echo '{"api":"arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-staging-api:7"}' > prev.json
 out=$(bash d.sh --cluster c --services api --rollback --to-file prev.json 2>&1); rc=$?
 check "manual rollback" "[ $rc -eq 0 ] && grep -q 'update-service.*api:7' calls.log"

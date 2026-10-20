@@ -225,6 +225,9 @@ resource "aws_ecs_task_definition" "this" {
   }
 
   container_definitions = "[${join(",", local.containers)}]"
+
+  # The provider deregisters the old revision on replacement unless this is set (default false).
+  skip_destroy = var.retain_old_task_definitions
 }
 
 resource "aws_ecs_service" "this" {

@@ -4,14 +4,14 @@ Symptom: the CI/CD run for `main` was green, but `api.learnix.school` still serv
 
 ## Evidence (read-only, 2026-10-20 ~17:10 UTC)
 
-| What | Value |
-| --- | --- |
-| Intended release | `main` = `fa1455b` (merge of PR #20), tree `14b2c84ccb34da535e7f4111053f86c2488a282f` (same tree as `a9bdeed`) |
-| Serving production | `cf91a611e412f00aa347d494b1d75d05b7dbd381`, image digest `sha256:6f9273940e583aff30c8c042abeafddc7ff034eca62398db5ac4de62df88c614` |
-| ECS (cluster `learnix-production`, acct 486940690416, eu-central-1) | `api` → `learnix-production-api:3`, `worker` → `learnix-production-worker:3`; 1/1 each, single PRIMARY deployment COMPLETED 2026-10-19 15:2x UTC; every running task on the digest above |
-| ECR `learnix-production/api` | tags `f348d26…`, `b97cc15…`, `cf91a61…` only — no image for `a9bdeed` or `fa1455b` was ever built or pushed |
-| Routing | `api.learnix.school` → CloudFront `ENLOUWTVYKRG7` → internal ALB `learnix-production-alb` → 1 healthy target. Health responses `Cache-Control: private, no-store`, `X-Cache: Miss`. Routing/caching is correct |
-| Gap | 19 commits, 38 `src` files, 3 new migrations (`2082…`, `2083…`, `2208…`) between `cf91a61` and `fa1455b` |
+| What                                                                | Value                                                                                                                                                                                                          |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Intended release                                                    | `main` = `fa1455b` (merge of PR #20), tree `14b2c84ccb34da535e7f4111053f86c2488a282f` (same tree as `a9bdeed`)                                                                                                 |
+| Serving production                                                  | `cf91a611e412f00aa347d494b1d75d05b7dbd381`, image digest `sha256:6f9273940e583aff30c8c042abeafddc7ff034eca62398db5ac4de62df88c614`                                                                             |
+| ECS (cluster `learnix-production`, acct 486940690416, eu-central-1) | `api` → `learnix-production-api:3`, `worker` → `learnix-production-worker:3`; 1/1 each, single PRIMARY deployment COMPLETED 2026-10-19 15:2x UTC; every running task on the digest above                       |
+| ECR `learnix-production/api`                                        | tags `f348d26…`, `b97cc15…`, `cf91a61…` only — no image for `a9bdeed` or `fa1455b` was ever built or pushed                                                                                                    |
+| Routing                                                             | `api.learnix.school` → CloudFront `ENLOUWTVYKRG7` → internal ALB `learnix-production-alb` → 1 healthy target. Health responses `Cache-Control: private, no-store`, `X-Cache: Miss`. Routing/caching is correct |
+| Gap                                                                 | 19 commits, 38 `src` files, 3 new migrations (`2082…`, `2083…`, `2208…`) between `cf91a61` and `fa1455b`                                                                                                       |
 
 ## Root cause
 
@@ -58,7 +58,7 @@ so a rolled-back deploy would have been reported as deployed.
    (`AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL`, `ECS_CLUSTER`, `ECS_SERVICES=api,worker`,
    `MIGRATE_FAMILY`, `TASK_NETWORK`, `DEPLOY_ALARMS`, `API_URL=https://api.learnix.school`,
    `DB_INSTANCE_ID`). Then `workflow_dispatch` `deploy`/`production`.
-   *Or*, as for `cf91a61`: a workstation deploy of the same commit with `ecs-deploy.sh --verify-url
-   https://api.learnix.school`, after staging is green.
+   _Or_, as for `cf91a61`: a workstation deploy of the same commit with `ecs-deploy.sh --verify-url
+https://api.learnix.school`, after staging is green.
 3. Verify: `curl https://api.learnix.school/api/v1/health/version` returns the release commit, and
    `aws ecs describe-tasks` shows every api/worker task on the new revision and digest.

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fake aws CLI for ecs-deploy.sh tests. Behaviour via env: MIGRATE_EXIT, ROLLOUT (COMPLETED|FAILED), ALARMS,
-# ECS_AUTO_ROLLBACK, DEPLOYMENTS, STALE_TASK, TASK_DIGEST, ECR_DIGEST.
+# ECS_AUTO_ROLLBACK, DEPLOYMENTS, STALE_TASK, TASK_DIGEST, ECR_DIGEST, ECR_FAIL, RUNNING_IMAGE, WORKER_IMAGE, LATEST_REV,
+# IN_PROGRESS, DESCRIBE_FAIL.
+[ -n "${DESCRIBE_FAIL:-}" ] && [ "$1 $2" = "ecs describe-services" ] && { echo "An error occurred (AccessDenied)" >&2; exit 254; }
 LOG=/work/calls.log; echo "$*" >> $LOG
 case "$1 $2" in
   "ecs describe-services")
@@ -10,6 +12,8 @@ case "$1 $2" in
       # ECS_AUTO_ROLLBACK: the circuit breaker put the old revision back as a COMPLETED PRIMARY deployment.
       [ -n "${ECS_AUTO_ROLLBACK:-}" ] && cur="${cur%:*}:7"
       if [ -f /work/rolledback ]; then state=COMPLETED; else state="${ROLLOUT:-COMPLETED}"; fi
+      # IN_PROGRESS: a rollout is still running.
+      [ -n "${IN_PROGRESS:-}" ] && state=IN_PROGRESS
       printf '%s\t%s\t%s\n' "$state" "$cur" "${DEPLOYMENTS:-1}"
     else
       cur=$(cat /work/td-$svc 2>/dev/null || echo "arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-staging-$svc:7")
@@ -20,9 +24,18 @@ case "$1 $2" in
     [ "$name" = "$td" ] && name=migrate
     EXTRA=""; case "$td" in *:*) ;; *) [ -n "${LATEST_NEWER:-}" ] && EXTRA=',{"name":"TF_NEW","value":"1"}' ;; esac
     fam=$(echo "$td" | sed -E 's#.*task-definition/##; s#:[0-9]+$##')
+    name="${fam##*-}"
+    # A bare family resolves to its latest ACTIVE revision (LATEST_REV, default 7).
+    case "$td" in *:*) arn="$td" ;; *) arn="arn:aws:ecs:eu-central-1:111122223333:task-definition/$fam:${LATEST_REV:-7}" ;; esac
+    if echo "$*" | grep -q -- '--query'; then echo "$arn"; exit 0; fi
+    # Revisions this run registered (:8) are returned as registered.
+    if [ "${td##*:}" = 8 ] && [ -f "/work/registered-$fam.json" ]; then
+      jq '{taskDefinition: ., tags: []}' "/work/registered-$fam.json"; exit 0
+    fi
+    img="${RUNNING_IMAGE:-old:1}"; [ "$name" = worker ] && [ -n "${WORKER_IMAGE:-}" ] && img="$WORKER_IMAGE"
     cat <<J
-{"taskDefinition":{"taskDefinitionArn":"$td","family":"$fam","revision":7,"status":"ACTIVE","requiresAttributes":[],"compatibilities":["FARGATE"],"registeredAt":"x","registeredBy":"y",
-"containerDefinitions":[{"name":"$name","image":"old:1","essential":true,"environment":[{"name":"GIT_SHA","value":"old"}$EXTRA]},{"name":"otel-init","image":"adot","essential":false}],
+{"taskDefinition":{"taskDefinitionArn":"$arn","family":"$fam","revision":7,"status":"ACTIVE","requiresAttributes":[],"compatibilities":["FARGATE"],"registeredAt":"x","registeredBy":"y",
+"containerDefinitions":[{"name":"$name","image":"$img","essential":true,"environment":[{"name":"GIT_SHA","value":"old"}$EXTRA]},{"name":"otel-init","image":"adot","essential":false}],
 "cpu":"512","memory":"1024","networkMode":"awsvpc"},"tags":[{"key":"Project","value":"learnix"}]}
 J
     ;;
@@ -35,11 +48,13 @@ J
   "ecs describe-tasks")
     if echo "$*" | grep -q -- '--output json'; then
       # Service tasks: STALE_TASK keeps them on the old revision, TASK_DIGEST overrides the running digest.
-      svc=$(echo "$*" | sed -E 's#.*task/c/([^ ]+).*#\1#'); td=$(cat /work/td-$svc 2>/dev/null)
+      svc=$(echo "$*" | sed -E 's#.*task/c/([^ ]+).*#\1#'); td=$(cat /work/td-$svc 2>/dev/null || echo "arn:aws:ecs:eu-central-1:111122223333:task-definition/learnix-staging-$svc:7")
       [ -n "${STALE_TASK:-}" ] && td="${td%:*}:7"
       echo "{\"tasks\":[{\"taskArn\":\"t-$svc\",\"lastStatus\":\"RUNNING\",\"taskDefinitionArn\":\"$td\",\"containers\":[{\"imageDigest\":\"${TASK_DIGEST:-sha256:abc}\"}]}]}"
     else echo "${MIGRATE_EXIT:-0}"; fi ;;
-  "ecr describe-images") echo "${ECR_DIGEST:-sha256:abc}" ;;
+  "ecr describe-images")
+    [ -n "${ECR_FAIL:-}" ] && { echo "An error occurred (AccessDeniedException)" >&2; exit 254; }
+    echo "${ECR_DIGEST:-sha256:abc}" ;;
   "ecs update-service")
     svc=$(echo "$*" | sed -E 's/.*--service ([^ ]+).*/\1/'); td=$(echo "$*" | sed -E 's/.*--task-definition ([^ ]+).*/\1/')
     echo "$td" > /work/td-$svc; echo "$td"

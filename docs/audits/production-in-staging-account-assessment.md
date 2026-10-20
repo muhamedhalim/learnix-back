@@ -8,33 +8,33 @@
 
 ## 2. Evidence that it is staging (live, read-only, 2026-10-18)
 
-| Check | Result |
-|---|---|
-| `sts get-caller-identity` with profile `learnix-staging` | account `4869…0416`, IAM user `learnix-terraform` |
-| Repo documents | `learnix-infra/docs/INITIAL-AWS-DEPLOYMENT.md` and `AWS-COST-ESTIMATE.md` name this account as the staging account; the 2026-10-16 GitHub `staging` environment variables point at it |
-| ECS | one cluster, `learnix-staging` |
-| RDS | `learnix-staging-pg`, db.t4g.micro, single-AZ, available |
-| VPCs | `learnix-staging` 10.10.0.0/16, plus the unused default VPC 172.31.0.0/16 |
-| S3 | `learnix-staging-{files,logs,tfstate,video-output,video-source}-4869…0416` |
-| Secrets Manager | `learnix/staging/*` (core, valkey, paymob, meta-whatsapp, meetings, vapid, cloudfront-signing) and the RDS-managed master secret |
-| CloudFront | `E1BTQT8D6RRQQ3` / `dz8egx08r1ti9.cloudfront.net`, no custom alias |
-| IAM | OIDC provider for GitHub **already exists**; roles `learnix-gha-plan`, `learnix-gha-apply`, `learnix-staging-gha-deploy-api` and the staging task roles; one IAM user (`learnix-terraform`) with **one active static access key created 2026-10-13** |
-| SES | no identities; **sandbox** (`ProductionAccessEnabled=false`, 200/day) |
-| Budgets / NAT | no budgets; no NAT gateway (staging uses public IPs) |
-| Profile `learnix-production` | does not exist on this workstation |
+| Check                                                    | Result                                                                                                                                                                                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sts get-caller-identity` with profile `learnix-staging` | account `4869…0416`, IAM user `learnix-terraform`                                                                                                                                                                                                    |
+| Repo documents                                           | `learnix-infra/docs/INITIAL-AWS-DEPLOYMENT.md` and `AWS-COST-ESTIMATE.md` name this account as the staging account; the 2026-10-16 GitHub `staging` environment variables point at it                                                                |
+| ECS                                                      | one cluster, `learnix-staging`                                                                                                                                                                                                                       |
+| RDS                                                      | `learnix-staging-pg`, db.t4g.micro, single-AZ, available                                                                                                                                                                                             |
+| VPCs                                                     | `learnix-staging` 10.10.0.0/16, plus the unused default VPC 172.31.0.0/16                                                                                                                                                                            |
+| S3                                                       | `learnix-staging-{files,logs,tfstate,video-output,video-source}-4869…0416`                                                                                                                                                                           |
+| Secrets Manager                                          | `learnix/staging/*` (core, valkey, paymob, meta-whatsapp, meetings, vapid, cloudfront-signing) and the RDS-managed master secret                                                                                                                     |
+| CloudFront                                               | `E1BTQT8D6RRQQ3` / `dz8egx08r1ti9.cloudfront.net`, no custom alias                                                                                                                                                                                   |
+| IAM                                                      | OIDC provider for GitHub **already exists**; roles `learnix-gha-plan`, `learnix-gha-apply`, `learnix-staging-gha-deploy-api` and the staging task roles; one IAM user (`learnix-terraform`) with **one active static access key created 2026-10-13** |
+| SES                                                      | no identities; **sandbox** (`ProductionAccessEnabled=false`, 200/day)                                                                                                                                                                                |
+| Budgets / NAT                                            | no budgets; no NAT gateway (staging uses public IPs)                                                                                                                                                                                                 |
+| Profile `learnix-production`                             | does not exist on this workstation                                                                                                                                                                                                                   |
 
 ## 3. Collisions and conflicts if production is applied here
 
-| # | Item | Evidence | Effect |
-|---|---|---|---|
-| 1 | Fixed IAM role names `learnix-gha-plan` and `learnix-gha-apply` | `bootstrap/main.tf:229,379` (no environment in the name); both roles already exist, owned by the **staging bootstrap state** | A second bootstrap run **fails with EntityAlreadyExists**. Renaming them in code makes the next staging bootstrap plan **replace the staging roles** and breaks the staging CI variables and trust |
-| 2 | GitHub OIDC provider | `create_oidc_provider` default true; one per account (exists) | Must be `false` for a production bootstrap |
-| 3 | Apply-role trust is `environment:infra-<env>` | `bootstrap/main.tf:290` | Staging and production would need two apply roles with distinct names (see 1) |
-| 4 | Bootstrap workspace | `bootstrap/.terraform` is initialised against the staging state bucket | Already handled by the isolated-copy rule in plan v2 |
-| 5 | Resource names | Everything else is prefixed `learnix-<env>` / `learnix/<env>/…` (state bucket, KMS alias, VPC `10.20.0.0/16` vs `10.10.0.0/16`, ECS, RDS, ALB, secrets, SG, log groups) | **No collision** (checked in `bootstrap`, `environments/*`, `modules/*`) |
-| 6 | SES | staging has no domain identity (`domain_name` unset); production creates `learnix.school` | No collision, but SES **production access is per account**: granting it for production also lifts the sandbox for staging. Staging's only guard would be the app-level `MAIL_ALLOWLIST` |
-| 7 | Account-wide settings | Application Signals discovery, Container Insights, service quotas (Fargate vCPUs, EIPs, VPCs, CloudFront), budgets | Shared; production load can exhaust staging's quota headroom and the reverse |
-| 8 | Application Signals / RUM / GuardDuty | already enabled for staging | Fine, shared |
+| #   | Item                                                            | Evidence                                                                                                                                                                | Effect                                                                                                                                                                                             |
+| --- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Fixed IAM role names `learnix-gha-plan` and `learnix-gha-apply` | `bootstrap/main.tf:229,379` (no environment in the name); both roles already exist, owned by the **staging bootstrap state**                                            | A second bootstrap run **fails with EntityAlreadyExists**. Renaming them in code makes the next staging bootstrap plan **replace the staging roles** and breaks the staging CI variables and trust |
+| 2   | GitHub OIDC provider                                            | `create_oidc_provider` default true; one per account (exists)                                                                                                           | Must be `false` for a production bootstrap                                                                                                                                                         |
+| 3   | Apply-role trust is `environment:infra-<env>`                   | `bootstrap/main.tf:290`                                                                                                                                                 | Staging and production would need two apply roles with distinct names (see 1)                                                                                                                      |
+| 4   | Bootstrap workspace                                             | `bootstrap/.terraform` is initialised against the staging state bucket                                                                                                  | Already handled by the isolated-copy rule in plan v2                                                                                                                                               |
+| 5   | Resource names                                                  | Everything else is prefixed `learnix-<env>` / `learnix/<env>/…` (state bucket, KMS alias, VPC `10.20.0.0/16` vs `10.10.0.0/16`, ECS, RDS, ALB, secrets, SG, log groups) | **No collision** (checked in `bootstrap`, `environments/*`, `modules/*`)                                                                                                                           |
+| 6   | SES                                                             | staging has no domain identity (`domain_name` unset); production creates `learnix.school`                                                                               | No collision, but SES **production access is per account**: granting it for production also lifts the sandbox for staging. Staging's only guard would be the app-level `MAIL_ALLOWLIST`            |
+| 7   | Account-wide settings                                           | Application Signals discovery, Container Insights, service quotas (Fargate vCPUs, EIPs, VPCs, CloudFront), budgets                                                      | Shared; production load can exhaust staging's quota headroom and the reverse                                                                                                                       |
+| 8   | Application Signals / RUM / GuardDuty                           | already enabled for staging                                                                                                                                             | Fine, shared                                                                                                                                                                                       |
 
 ## 4. Risks of a single account (ranked)
 
@@ -60,14 +60,14 @@ Gated like the rest of Phase A, none executed:
 
 ## 6. Costs
 
-| | Separate account (recommended) | Same account |
-|---|---|---|
-| Production infrastructure (L1, from `LAUNCH-SIZING.md`) | ≈ $182–215/mo | same |
-| Staging (already running) | ≈ $78–100/mo (repo estimate) | same |
-| Account fee | $0 | $0 |
-| Support plan | Business/Developer plans are billed per account [UNV]; none is assumed in either case | one plan covers both |
-| Extra work | account creation (console, ~30 min), second bootstrap, second set of budgets | code change + review + staging-role safeguards |
-| **Net monthly difference** | **≈ $0** | **≈ $0** (a shared account saves nothing: each environment already has its own VPC, NAT, RDS, Valkey) |
+|                                                         | Separate account (recommended)                                                        | Same account                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Production infrastructure (L1, from `LAUNCH-SIZING.md`) | ≈ $182–215/mo                                                                         | same                                                                                                  |
+| Staging (already running)                               | ≈ $78–100/mo (repo estimate)                                                          | same                                                                                                  |
+| Account fee                                             | $0                                                                                    | $0                                                                                                    |
+| Support plan                                            | Business/Developer plans are billed per account [UNV]; none is assumed in either case | one plan covers both                                                                                  |
+| Extra work                                              | account creation (console, ~30 min), second bootstrap, second set of budgets          | code change + review + staging-role safeguards                                                        |
+| **Net monthly difference**                              | **≈ $0**                                                                              | **≈ $0** (a shared account saves nothing: each environment already has its own VPC, NAT, RDS, Valkey) |
 
 Isolation costs nothing in AWS spend, so the single-account option saves only a console session and costs more engineering and risk.
 

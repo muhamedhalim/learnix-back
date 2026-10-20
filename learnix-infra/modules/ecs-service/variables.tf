@@ -30,6 +30,12 @@ variable "desired_count" {
   default     = 0
 }
 
+variable "retain_old_task_definitions" {
+  description = "Keep a task-definition revision ACTIVE when Terraform replaces it. Services ignore task_definition changes, so the running revision is rolled back to with update-service; a deregistered (INACTIVE) revision cannot be."
+  type        = bool
+  default     = false
+}
+
 variable "min_count" {
   type    = number
   default = 1
