@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 /**
@@ -7,9 +8,13 @@ import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
  * instructor suspension FR-021, profile-change rejection FR-029, refund
  * decision FR-198, ...) shares this one shape, so it is not redeclared
  * per controller.
+ *
+ * Trimmed before validation: `@IsNotEmpty()` alone accepts `"   "`, which would
+ * persist a blank reason that the affected party is then shown.
  */
 export class MarketplaceReasonDto {
   @ApiProperty({ description: 'Why this decision was made. Shown to the affected party.', maxLength: 1000 })
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()
   @MaxLength(1000)

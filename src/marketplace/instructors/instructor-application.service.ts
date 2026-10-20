@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { EntityManager } from 'typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
@@ -10,6 +10,7 @@ import { biBody } from '../../i18n/error-translator.util';
 import { InstructorApplicationStatus } from '../common/enums';
 import {
   accountAlreadyExistsForApplicant,
+  applicationAlreadyDecided,
   applicationAlreadyOpen,
   applicationNotReadyForSubmission,
   applicationResubmissionBlocked,
@@ -35,6 +36,12 @@ const OPEN_STATUSES = [
   InstructorApplicationStatus.SUBMITTED,
   InstructorApplicationStatus.UNDER_REVIEW,
   InstructorApplicationStatus.APPROVED,
+];
+
+/** Statuses an admin can still approve or reject (contracts §5). */
+const REVIEWABLE_STATUSES = [
+  InstructorApplicationStatus.SUBMITTED,
+  InstructorApplicationStatus.UNDER_REVIEW,
 ];
 
 const POSTGRES_UNIQUE_VIOLATION = '23505';
@@ -248,23 +255,25 @@ export class InstructorApplicationService {
     const qb = this.applications.createQueryBuilder('a').orderBy('a.submitted_at', 'ASC');
     if (filter.status) qb.andWhere('a.status = :status', { status: filter.status });
     else
-      qb.andWhere('a.status IN (:...statuses)', {
-        statuses: [InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW],
-      });
+      qb.andWhere('a.status IN (:...statuses)', { statuses: REVIEWABLE_STATUSES });
     qb.skip((page - 1) * limit).take(limit);
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
   }
 
-  /** Opening the dossier is what starts review — `submitted → under_review`. */
+  /**
+   * Opening the dossier is what starts review — `submitted → under_review`. The transition is a
+   * conditional UPDATE rather than read-then-save: saving a row read before a concurrent decision
+   * committed would write `under_review` over an `approved`/`rejected` status.
+   */
   public async getDossier(id: string): Promise<InstructorApplication> {
+    await this.applications.update(
+      { id, status: InstructorApplicationStatus.SUBMITTED },
+      { status: InstructorApplicationStatus.UNDER_REVIEW },
+    );
     const application = await this.applications.findOne({ where: { id } });
     if (!application) {
       throw new NotFoundException(biBody('Application not found', 'الطلب غير موجود'));
-    }
-    if (application.status === InstructorApplicationStatus.SUBMITTED) {
-      application.status = InstructorApplicationStatus.UNDER_REVIEW;
-      await this.applications.save(application);
     }
     return application;
   }
@@ -287,30 +296,20 @@ export class InstructorApplicationService {
   ): Promise<InstructorApplication> {
     const repo =
       'getRepository' in manager ? manager.getRepository(InstructorApplication) : manager;
-    const application = await repo.findOne({ where: { id } });
-    if (
-      !application ||
-      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(
-        application.status,
-      )
-    ) {
-      throw new NotFoundException(
-        biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'),
-      );
-    }
-    application.status = InstructorApplicationStatus.APPROVED;
-    application.reviewed_by = adminId;
-    application.reviewed_at = new Date();
-    return repo.save(application);
+    return this.decide(repo, id, {
+      status: InstructorApplicationStatus.APPROVED,
+      reviewed_by: adminId,
+      reviewed_at: new Date(),
+    });
   }
 
   public async reject(id: string, adminId: string, reason: string): Promise<InstructorApplication> {
-    const application = await this.getReviewable(id);
-    application.status = InstructorApplicationStatus.REJECTED;
-    application.reviewed_by = adminId;
-    application.reviewed_at = new Date();
-    application.decision_reason = reason;
-    return this.applications.save(application);
+    return this.decide(this.applications, id, {
+      status: InstructorApplicationStatus.REJECTED,
+      reviewed_by: adminId,
+      reviewed_at: new Date(),
+      decision_reason: reason,
+    });
   }
 
   /** FR-016 — lifts the 3-application block for one applicant. */
@@ -345,17 +344,26 @@ export class InstructorApplicationService {
     return application;
   }
 
-  private async getReviewable(id: string): Promise<InstructorApplication> {
-    const application = await this.applications.findOne({ where: { id } });
-    if (
-      !application ||
-      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(
-        application.status,
-      )
-    ) {
-      throw new NotFoundException(
-        biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'),
-      );
+  /**
+   * Applies an admin decision as one conditional UPDATE, which is the whole check-and-set:
+   * Postgres row-locks the matched row, so of two concurrent decisions only the first still
+   * matches a reviewable status and the other sees `affected === 0` (FR-020 — a rejected
+   * application can never end up alongside a granted capability; cf. FR-073 for courses).
+   * A missing application is a 404; an existing one that is no longer reviewable is a 409.
+   */
+  private async decide(
+    repo: Repository<InstructorApplication>,
+    id: string,
+    decision: Pick<InstructorApplication, 'status' | 'reviewed_by' | 'reviewed_at'> &
+      Partial<Pick<InstructorApplication, 'decision_reason'>>,
+  ): Promise<InstructorApplication> {
+    const result = await repo.update({ id, status: In(REVIEWABLE_STATUSES) }, decision);
+    const application = await repo.findOne({ where: { id } });
+    if (!application) {
+      throw new NotFoundException(biBody('Application not found', 'الطلب غير موجود'));
+    }
+    if (!result.affected) {
+      throw applicationAlreadyDecided();
     }
     return application;
   }

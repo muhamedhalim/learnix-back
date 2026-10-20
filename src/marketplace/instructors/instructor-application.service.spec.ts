@@ -1,4 +1,6 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
+import { FindOperator } from 'typeorm';
 
 import type { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { InstructorApplicationStatus } from '../common/enums';
@@ -39,9 +41,26 @@ function buildApplication(overrides: Partial<InstructorApplication> = {}): Instr
   } as InstructorApplication;
 }
 
+/** Mirrors how Postgres evaluates a `repo.update(where, patch)` criteria object: plain equality or `In(...)`. */
+function matchesCriteria(row: InstructorApplication, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, expected]) => {
+    const actual = (row as unknown as Record<string, unknown>)[key];
+    if (expected instanceof FindOperator) {
+      return expected.type === 'in' && (expected.value as unknown[]).includes(actual);
+    }
+    return actual === expected;
+  });
+}
+
 function buildService(rows: InstructorApplication[] = []): {
   service: InstructorApplicationService;
-  applications: { create: jest.Mock; save: jest.Mock; findOne: jest.Mock; find: jest.Mock };
+  applications: {
+    create: jest.Mock;
+    save: jest.Mock;
+    findOne: jest.Mock;
+    find: jest.Mock;
+    update: jest.Mock;
+  };
   activityLogs: jest.Mocked<ActivityLogsService>;
   eventEmitter: jest.Mocked<EventEmitter2>;
 } {
@@ -70,6 +89,11 @@ function buildService(rows: InstructorApplication[] = []): {
       ),
     ),
     createQueryBuilder: jest.fn(),
+    update: jest.fn(async (where: Record<string, unknown>, patch: Partial<InstructorApplication>) => {
+      const matched = rows.filter((r) => matchesCriteria(r, where));
+      for (const row of matched) Object.assign(row, patch);
+      return { affected: matched.length };
+    }),
   };
   const activityLogs = {
     getLatestAuditRecord: jest.fn().mockResolvedValue(null),
@@ -394,8 +418,23 @@ describe('InstructorApplicationService', () => {
       const { service, applications } = buildService([
         buildApplication({ status: InstructorApplicationStatus.UNDER_REVIEW }),
       ]);
-      await service.getDossier('app-1');
+      const result = await service.getDossier('app-1');
+      expect(result.status).toBe(InstructorApplicationStatus.UNDER_REVIEW);
       expect(applications.save).not.toHaveBeenCalled();
+      await expect(applications.update.mock.results[0]?.value).resolves.toEqual({ affected: 0 });
+    });
+
+    it('getDossier never moves a decided application back to under_review', async () => {
+      const { service } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.APPROVED }),
+      ]);
+      const result = await service.getDossier('app-1');
+      expect(result.status).toBe(InstructorApplicationStatus.APPROVED);
+    });
+
+    it('getDossier is a 404 for an unknown id', async () => {
+      const { service } = buildService([]);
+      await expect(service.getDossier('missing')).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it.each([InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW])(
@@ -413,9 +452,51 @@ describe('InstructorApplicationService', () => {
       InstructorApplicationStatus.APPROVED,
       InstructorApplicationStatus.REJECTED,
       InstructorApplicationStatus.WITHDRAWN,
-    ])('refuses to approve an application in status %s', async (status) => {
+    ])('refuses to approve an application in status %s with 409 already-decided', async (status) => {
       const { service } = buildService([buildApplication({ status })]);
-      await expect(service.markApproved('app-1', 'admin-1')).rejects.toThrow();
+      const attempt = service.markApproved('app-1', 'admin-1');
+      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+      await expect(attempt).rejects.toMatchObject({
+        response: { code: 'APPLICATION_ALREADY_DECIDED' },
+      });
+    });
+
+    it('approve and reject are 404 for an unknown id', async () => {
+      const { service } = buildService([]);
+      await expect(service.markApproved('missing', 'admin-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(service.reject('missing', 'admin-1', 'reason')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('a second decision on the same application loses with 409 and changes nothing (FR-020)', async () => {
+      const row = buildApplication({ status: InstructorApplicationStatus.UNDER_REVIEW });
+      const { service } = buildService([row]);
+      await service.markApproved('app-1', 'admin-1');
+
+      await expect(service.reject('app-1', 'admin-2', 'too late')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(row.status).toBe(InstructorApplicationStatus.APPROVED);
+      expect(row.decision_reason).toBeNull();
+      expect(row.reviewed_by).toBe('admin-1');
+    });
+
+    it('decides through one conditional update guarded on a reviewable status', async () => {
+      const { service, applications } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.SUBMITTED }),
+      ]);
+      await service.reject('app-1', 'admin-1', 'Incomplete portfolio');
+      const [where] = applications.update.mock.calls[0] as [Record<string, unknown>];
+      expect(where['id']).toBe('app-1');
+      expect(where['status']).toBeInstanceOf(FindOperator);
+      expect((where['status'] as FindOperator<unknown>).value).toEqual([
+        InstructorApplicationStatus.SUBMITTED,
+        InstructorApplicationStatus.UNDER_REVIEW,
+      ]);
+      expect(applications.save).not.toHaveBeenCalled();
     });
 
     it('reject requires and stores a reason (FR-018)', async () => {

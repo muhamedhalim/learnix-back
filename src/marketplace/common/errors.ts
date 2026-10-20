@@ -34,6 +34,8 @@ export const MARKETPLACE_ERROR_CODES = {
   ACCOUNT_ALREADY_EXISTS_FOR_APPLICANT: 'ACCOUNT_ALREADY_EXISTS_FOR_APPLICANT',
   /** FR-016 — resubmission is blocked by the 14-day wait or the 3-application cap. */
   APPLICATION_RESUBMISSION_BLOCKED: 'APPLICATION_RESUBMISSION_BLOCKED',
+  /** FR-020 — the application was already approved/rejected/withdrawn, typically by a concurrent decision; this caller lost the race. */
+  APPLICATION_ALREADY_DECIDED: 'APPLICATION_ALREADY_DECIDED',
   /** FR-077, FR-281 — a requested page size exceeds the stated maximum. */
   PAGE_SIZE_EXCEEDS_MAXIMUM: 'PAGE_SIZE_EXCEEDS_MAXIMUM',
   /** contracts §7 — a money route requires an idempotency key. */
@@ -205,6 +207,14 @@ export function applicationAlreadyOpen(): MarketplaceConflictException {
     MARKETPLACE_ERROR_CODES.APPLICATION_ALREADY_OPEN,
     'You already have an open instructor application',
     'لديك بالفعل طلب انضمام كمدرّب مفتوح',
+  );
+}
+
+export function applicationAlreadyDecided(): MarketplaceConflictException {
+  return new MarketplaceConflictException(
+    MARKETPLACE_ERROR_CODES.APPLICATION_ALREADY_DECIDED,
+    'This application is no longer awaiting a decision',
+    'لم يعد هذا الطلب بانتظار قرار',
   );
 }
 

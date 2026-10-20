@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import type { INestApplication } from '@nestjs/common';
@@ -39,6 +40,23 @@ describe('marketplace applications — contract (contracts §2, §5)', () => {
     intended_category_ids: ['11111111-1111-4111-8111-111111111111'],
     professional_links: [{ kind: 'linkedin', url: 'https://www.linkedin.com/in/example' }],
   };
+
+  /** Draft → complete → submit for the given learner; returns the application id. */
+  async function submitFor(learner: { agent: request.Agent }): Promise<string> {
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/applications`)
+      .send({ display_name: 'Nour' })
+      .expect(201);
+    await learner.agent
+      .patch(`${API_PREFIX}/marketplace/applications/me`)
+      .send(submittableApplication)
+      .expect(200);
+    const submitted = await learner.agent
+      .post(`${API_PREFIX}/marketplace/applications/me/submit`)
+      .send({})
+      .expect(201);
+    return submitted.body.id as string;
+  }
 
   beforeAll(async () => {
     ({ app, dataSource } = await createE2EApp());
@@ -227,6 +245,103 @@ describe('marketplace applications — contract (contracts §2, §5)', () => {
         .findOne({ where: { id: applicationRow.id } });
       expect(rejected?.status).toBe('rejected');
       expect(rejected?.decision_reason).toBe('Incomplete portfolio');
+    });
+
+    it('refuses a whitespace-only rejection reason and keeps the application reviewable', async () => {
+      const learner = await createAuthenticatedUser(app, dataSource);
+      const applicationId = await submitFor(learner);
+      const admin = await createAuthenticatedUser(app, dataSource);
+      await setUserRole(dataSource, admin.userId, 'admin');
+
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/reject`)
+        .send({ reason: '   ' })
+        .expect(400);
+
+      const row = await dataSource
+        .getRepository(InstructorApplication)
+        .findOneOrFail({ where: { id: applicationId } });
+      expect(row.status).toBe('submitted');
+      expect(row.decision_reason).toBeNull();
+
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/reject`)
+        .send({ reason: '  Incomplete portfolio  ' })
+        .expect(201);
+      const rejected = await dataSource
+        .getRepository(InstructorApplication)
+        .findOneOrFail({ where: { id: applicationId } });
+      expect(rejected.decision_reason).toBe('Incomplete portfolio');
+    });
+
+    it('answers a decision on an already-decided application with 409, and an unknown id with 404', async () => {
+      const learner = await createAuthenticatedUser(app, dataSource);
+      const applicationId = await submitFor(learner);
+      const admin = await createAuthenticatedUser(app, dataSource);
+      await setUserRole(dataSource, admin.userId, 'admin');
+
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
+        .send({})
+        .expect(201);
+
+      const again = await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
+        .send({});
+      expect(again.status).toBe(409);
+      expect(again.body.code).toBe('APPLICATION_ALREADY_DECIDED');
+
+      const lateReject = await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/reject`)
+        .send({ reason: 'Too late' });
+      expect(lateReject.status).toBe(409);
+
+      // Opening the dossier after the decision must not move it back to under_review.
+      const dossier = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications/${applicationId}`)
+        .expect(200);
+      expect(dossier.body.status).toBe('approved');
+
+      const instructors = await dataSource
+        .getRepository(MarketplaceInstructor)
+        .count({ where: { user_id: learner.userId } });
+      expect(instructors).toBe(1);
+
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${randomUUID()}/approve`)
+        .send({})
+        .expect(404);
+    });
+
+    it('resolves a concurrent approve and reject to exactly one outcome (FR-020)', async () => {
+      const learner = await createAuthenticatedUser(app, dataSource);
+      const applicationId = await submitFor(learner);
+      const admin = await createAuthenticatedUser(app, dataSource);
+      await setUserRole(dataSource, admin.userId, 'admin');
+
+      const [approve, reject] = await Promise.all([
+        admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
+          .send({}),
+        admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/reject`)
+          .send({ reason: 'Concurrent decision' }),
+      ]);
+
+      expect([approve.status, reject.status].sort()).toEqual([201, 409]);
+      const row = await dataSource
+        .getRepository(InstructorApplication)
+        .findOneOrFail({ where: { id: applicationId } });
+      const instructors = await dataSource
+        .getRepository(MarketplaceInstructor)
+        .count({ where: { user_id: learner.userId } });
+      if (approve.status === 201) {
+        expect(row.status).toBe('approved');
+        expect(instructors).toBe(1);
+      } else {
+        expect(row.status).toBe('rejected');
+        expect(instructors).toBe(0);
+      }
     });
 
     it('lifts the resubmission block via reset-attempts, reason mandatory (FR-016)', async () => {
