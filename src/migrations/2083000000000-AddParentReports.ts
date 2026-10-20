@@ -43,13 +43,15 @@ export class AddParentReports2083000000000 implements MigrationInterface {
       `ALTER TABLE "lesson_progress" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMP WITH TIME ZONE`,
     );
 
-    const backfilled = (await q.query(`
+    // For UPDATE/DELETE, TypeORM's Postgres query runner returns `[rows, rowCount]`, not the rows,
+    // so `.length` of the result was always 2 regardless of how many rows changed (FIA-003).
+    const [, backfilledCount] = (await q.query(`
       UPDATE "lesson_progress"
          SET "completed_at" = "updated_at"
        WHERE "completed" = true
          AND "completed_at" IS NULL
       RETURNING "id"
-    `)) as { id: string }[];
+    `)) as [{ id: string }[], number];
 
     // Partial: only completed rows are ever queried by this column, and the
     // reporting predicate is always a bounded range over it.
@@ -141,7 +143,7 @@ export class AddParentReports2083000000000 implements MigrationInterface {
 
     // eslint-disable-next-line no-console
     console.log(
-      `[DEF-006] Created parent_reports. Backfilled completed_at on ${String(backfilled.length)} ` +
+      `[DEF-006] Created parent_reports. Backfilled completed_at on ${String(backfilledCount)} ` +
         `already-completed lesson_progress row(s) from updated_at (see migration docblock for the ` +
         `documented limitation).`,
     );

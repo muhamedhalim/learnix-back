@@ -56,7 +56,9 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
        WHERE "status" = 'revoked' AND "revocation_context" IS NULL
     `);
 
-    const backfilled = (await q.query(`
+    // For UPDATE/DELETE, TypeORM's Postgres query runner returns `[rows, rowCount]`, not the rows,
+    // so `.length` of the result was always 2 regardless of how many certificates changed (FIA-003).
+    const [, revokedCount] = (await q.query(`
       WITH refunded_course_access AS (
         SELECT
           pp.student_id,
@@ -103,7 +105,7 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
               AND live.revoked_at IS NULL
          )
       RETURNING c."id"
-    `)) as { id: string }[];
+    `)) as [{ id: string }[], number];
 
     const orphans = (await q.query(`
       SELECT COUNT(*)::int AS count
@@ -117,7 +119,7 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
 
     // eslint-disable-next-line no-console
     console.log(
-      `[DEF-019] Revoked ${backfilled.length} certificate(s) whose course purchase was fully refunded. ` +
+      `[DEF-019] Revoked ${String(revokedCount)} certificate(s) whose course purchase was fully refunded. ` +
         `${orphans[0].count} certificate(s) have no purchase record at all and were left untouched (see migration docblock).`,
     );
   }

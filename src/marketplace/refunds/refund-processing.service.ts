@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, Not } from 'typeorm';
 
 import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
@@ -148,6 +148,34 @@ export class RefundProcessingService {
         ),
       );
     }
+
+    // An order is refunded at most once. The open-request unique index only stops two requests
+    // being in flight together; once one has COMPLETED it leaves that index, so an older FAILED
+    // (or REJECTED, then discretionarily approved) request for the same order could otherwise be
+    // claimed and sent to the provider a second time — with its own idempotency key. Nothing is
+    // sent: the request is closed FAILED with the reason, and no refund-failed notification goes
+    // to a learner who has in fact been refunded.
+    const order = await manager.findOne(MarketplaceOrder, {
+      where: { id: request.order_id },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const completedSibling = await manager.findOne(MarketplaceRefundRequest, {
+      where: {
+        order_id: request.order_id,
+        id: Not(request.id),
+        status: RefundRequestStatus.COMPLETED,
+      },
+    });
+    if (order?.status === MarketplaceOrderStatus.REFUNDED || completedSibling) {
+      request.status = RefundRequestStatus.FAILED;
+      request.failure_reason = completedSibling
+        ? `Order already refunded by refund request ${completedSibling.id}; no second refund was sent to the provider`
+        : 'Order already refunded; no second refund was sent to the provider';
+      const closed = await manager.save(MarketplaceRefundRequest, request);
+      this.logger.warn(`Marketplace refund ${request.id} not sent: order ${request.order_id} is already refunded.`);
+      return { request: closed, alreadyDone: true };
+    }
+
     request.status = RefundRequestStatus.PROCESSING;
     request.failure_reason = null;
     const saved = await manager.save(MarketplaceRefundRequest, request);
