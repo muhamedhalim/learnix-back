@@ -59,6 +59,10 @@ jobs:
     name: Execution control
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # deployments:read for scripts/ci/deploy-baseline.mjs (an unlisted scope would be "none").
+    permissions:
+      contents: read
+      deployments: read
     outputs:
       ci: ${{ steps.route.outputs.ci }}
       deploy: ${{ steps.route.outputs.deploy }}
@@ -74,15 +78,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Compared with what the target environment last RECEIVED (its newest successful GitHub deployment), not
+      # with the push's `before`: a push whose predecessor never deployed (failed gate, skipped job) must still
+      # deploy. Diffing against `before` let such a push skip `deploy` and go green while production kept
+      # serving an older release. No baseline (never deployed, API error) counts as a change.
       - name: Did the push change anything the image contains?
         id: changes
         env:
           EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           # Only a push can be a no-op for the image. Everything else (PR, manual) counts as a change.
           app_changed=true
-          if [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          case "$REF" in refs/heads/main) TARGET=production ;; refs/heads/develop) TARGET=staging ;; *) TARGET='' ;; esac
+          BASELINE=''
+          if [ "$EVENT" = push ] && [ -n "$TARGET" ]; then
+            BASELINE=$(TARGET="$TARGET" node scripts/ci/deploy-baseline.mjs)
+            echo "Last successful $TARGET deployment: ${BASELINE:-none}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$BASELINE" ] && git cat-file -e "$BASELINE^{commit}" 2>/dev/null; then
             # NUL-delimited so file names are never interpreted by the shell; the image only contains what
             # is NOT docs, markdown, learnix-infra or the repo's own meta files.
             app_changed=false
@@ -91,7 +107,7 @@ jobs:
                 learnix-infra/*|docs/*|*.md|.github/dependabot.yml) ;;
                 *) app_changed=true; break ;;
               esac
-            done < <(git diff -z --name-only "$BEFORE" "$GITHUB_SHA")
+            done < <(git diff -z --name-only "$BASELINE" "$GITHUB_SHA")
           fi
           echo "app_changed=$app_changed" >> "$GITHUB_OUTPUT"
 
@@ -658,7 +674,6 @@ jobs:
       - name: Test scripts/ci
         run: bash scripts/ci/run-tests.sh
 
-
   # One verdict for "everything that must be green before anything is released". Fails unless EVERY required
   # job succeeded (a skipped or cancelled one is a failure, never a silent pass). migration-safety-check stays
   # advisory, exactly as before.
@@ -816,7 +831,11 @@ jobs:
           ECS_SERVICES: ${{ vars.ECS_SERVICES }}
           MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
           TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          API_URL: ${{ vars.API_URL }}
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
         run: |
+          # Production cannot succeed without proving the public domain serves the release (API_URL).
+          [ "$TARGET" = production ] && REQUIRED="$REQUIRED API_URL DB_INSTANCE_ID"
           for v in $REQUIRED; do
             [ -n "${!v}" ] || { echo "::error::GitHub environment variable $v is not set"; exit 1; }
           done
@@ -872,14 +891,30 @@ jobs:
           MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
           TASK_NETWORK: ${{ vars.TASK_NETWORK }}
           DEPLOY_ALARMS: ${{ vars.DEPLOY_ALARMS }}
+          API_URL: ${{ vars.API_URL }}
+          SMOKE_FROM_RUNNER: ${{ vars.SMOKE_FROM_RUNNER }}
+        # The job succeeds only when every running task is on the pushed digest and, for production (and any
+        # environment runners can reach), the public domain reports this commit at /api/v1/health/version.
+        # Any failed check rolls api + worker back to the revisions recorded before the deploy.
         run: |
+          verify=()
+          if [ "$TARGET" = production ] || [ "$SMOKE_FROM_RUNNER" = true ]; then verify=(--verify-url "$API_URL"); fi
           bash learnix-infra/scripts/ecs-deploy.sh \
             --cluster "$ECS_CLUSTER" \
             --services "$ECS_SERVICES" \
             --image "$IMAGE" \
             --migrate-family "$MIGRATE_FAMILY" \
             --network "$TASK_NETWORK" \
-            --alarm-names "$DEPLOY_ALARMS"
+            --alarm-names "$DEPLOY_ALARMS" \
+            "${verify[@]}"
+          repository="${IMAGE#*/}"; repository="${repository%:*}"
+          digest=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$GITHUB_SHA" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          {
+            echo "### Released to $TARGET"
+            echo "- commit \`$GITHUB_SHA\`, tree \`$(git rev-parse "HEAD^{tree}")\`"
+            echo "- image \`$IMAGE\`, digest \`$digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the rollback point
         if: always()

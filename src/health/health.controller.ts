@@ -57,6 +57,12 @@ export class HealthController {
     return this.health.getPublicLiveness();
   }
 
+  @Get('version')
+  @ApiOperation({ summary: 'Public build identity (commit SHA) for deploy verification' })
+  public version(): { commit: string | null } {
+    return this.health.getPublicVersion();
+  }
+
   @Get('readiness')
   @ApiOperation({ summary: 'Minimal readiness probe' })
   public async readiness(@Res({ passthrough: true }) response: Response): Promise<unknown> {
