@@ -741,22 +741,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-        # Staging is deployed by the `deploy` job of a push run on develop, so a successful CI/CD push run on
-        # develop means the checks AND the staging rollout both succeeded. A merge into main creates a new
-        # commit, so the comparison is on the TREE (the file contents), not the commit id: the same code
-        # that ran green on develop is what production receives.
-        run: |
-          git fetch --quiet origin develop
-          want=$(git rev-parse "${GITHUB_SHA}^{tree}")
-          found=false
-          for sha in $(gh api "repos/${REPOSITORY}/actions/workflows/ci-cd.yml/runs?branch=develop&event=push&status=success&per_page=50" --jq '.workflow_runs[].head_sha'); do
-            tree=$(git rev-parse "${sha}^{tree}" 2>/dev/null) || continue
-            if [ "$tree" = "$want" ]; then found=true; echo "Staging deployed this exact tree in run for $sha."; break; fi
-          done
-          if [ "$found" != true ]; then
-            echo "::error::No successful staging deploy of this code (tree $want). Merge it into develop and let staging deploy first."
-            exit 1
-          fi
+        # Staging is deployed by the `deploy` job of a push run on develop. A green run alone is NOT proof: a
+        # docs/infra-only push skips `deploy` and the run is still green. scripts/ci/staging-gate.mjs therefore
+        # requires a successful push run on develop of the SAME TREE (a merge into main creates a new commit, so
+        # the comparison is on the file contents, not the commit id) whose `deploy` job itself succeeded. It
+        # fails closed on any API or git error. Tests: scripts/ci/tests/staging-gate.test.mjs.
+        run: node scripts/ci/staging-gate.mjs
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:

@@ -97,7 +97,8 @@ stored in the workflow. Required environment variables are listed in the comment
 - **Production**: automatic on push to `main` (after `ci-gate`), or by `workflow_dispatch`
   (`action=deploy`, `environment=production`). Requires a successful push run of `ci-cd.yml` on `develop` whose
   git TREE equals the tree being deployed (a merge commit on `main` has a new SHA, so the comparison is on
-  content; that run includes its staging rollout), the migration
+  content) and whose own `deploy` job succeeded (`scripts/ci/staging-gate.mjs`; a green run whose `deploy` was
+  skipped, e.g. a docs-only push, is not accepted), the migration
   classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
   `production` environment's reviewers, and an RDS snapshot taken before migrating.
 - Post-deploy verification is `ecs-deploy.sh`'s wait for steady state plus its alarm watch (automatic rollback),
