@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { FindOperator } from 'typeorm';
 
 import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
@@ -111,6 +112,8 @@ interface ManagerState {
   certificate: Record<string, unknown> | null;
   review: Record<string, unknown> | null;
   earning: InstructorEarning | null;
+  /** Another COMPLETED request for the same order, returned to the `id: Not(...)` sibling lookup only. */
+  completedSibling?: MarketplaceRefundRequest | null;
 }
 
 function buildManager(state: ManagerState) {
@@ -132,7 +135,10 @@ function buildManager(state: ManagerState) {
   ]);
 
   const manager = {
-    findOne: jest.fn(async (entity: new () => unknown) => {
+    findOne: jest.fn(async (entity: new () => unknown, options?: { where?: { id?: unknown } }) => {
+      if (entity === MarketplaceRefundRequest && options?.where?.id instanceof FindOperator) {
+        return state.completedSibling ?? null;
+      }
       const key = stateKeyByEntity.get(entity);
       if (!key) throw new Error(`unexpected entity requested: ${String(entity)}`);
       return state[key];
@@ -531,6 +537,70 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
       expect(result.status).toBe(RefundRequestStatus.COMPLETED);
       expect((state.order as MarketplaceOrder).status).toBe(MarketplaceOrderStatus.REFUNDED);
       expect(ledger.post).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('one refund per order (FIA-009)', () => {
+    function serviceFor(manager: unknown, refundImpl = async () => ({ status: 'succeeded' as const, providerReference: 'ref-2' })) {
+      const ledger = buildLedger();
+      const { providers, provider } = buildProviders(refundImpl);
+      const events = new EventEmitter2();
+      const emitted: string[] = [];
+      events.onAny((event) => emitted.push(String(event)));
+      const service = new RefundProcessingService(
+        buildDataSource(manager, defaultOrder({ status: MarketplaceOrderStatus.REFUNDED }), defaultPayment()) as never,
+        ledger as never,
+        buildBalance() as never,
+        providers as never,
+        events,
+      );
+      return { service, ledger, provider, emitted };
+    }
+
+    it('never sends a second refund when another request for the order already completed', async () => {
+      const { manager, saved } = buildManager({
+        // The learner's first attempt failed at the provider; a second request then refunded the order.
+        refundRequest: defaultRefundRequest({
+          status: RefundRequestStatus.FAILED,
+          failure_reason: 'provider outage',
+        }),
+        order: defaultOrder({ status: MarketplaceOrderStatus.REFUNDED, refunded_at: new Date() }),
+        enrollment: defaultEnrollment({ status: MarketplaceEnrollmentStatus.REVOKED }),
+        certificate: null,
+        review: null,
+        earning: defaultEarning({ status: InstructorEarningStatus.REVERSED }),
+        completedSibling: defaultRefundRequest({ id: 'refund-0', status: RefundRequestStatus.COMPLETED }),
+      });
+      const { service, ledger, provider, emitted } = serviceFor(manager);
+
+      const result = await service.process('refund-1');
+
+      expect(provider.refund).not.toHaveBeenCalled();
+      expect(ledger.post).not.toHaveBeenCalled();
+      expect(result.status).toBe(RefundRequestStatus.FAILED);
+      expect(result.failure_reason).toContain('refund-0');
+      expect(saved.MarketplaceRefundRequest).not.toContainEqual(
+        expect.objectContaining({ status: RefundRequestStatus.PROCESSING }),
+      );
+      expect(emitted).not.toContain(MarketplaceRefundFailedEvent.EVENT_NAME);
+    });
+
+    it('never sends a refund for an order already marked refunded, even with no sibling request on record', async () => {
+      const { manager } = buildManager({
+        refundRequest: defaultRefundRequest({ status: RefundRequestStatus.APPROVED }),
+        order: defaultOrder({ status: MarketplaceOrderStatus.REFUNDED, refunded_at: new Date() }),
+        enrollment: defaultEnrollment(),
+        certificate: null,
+        review: null,
+        earning: defaultEarning(),
+      });
+      const { service, provider } = serviceFor(manager);
+
+      const result = await service.process('refund-1');
+
+      expect(provider.refund).not.toHaveBeenCalled();
+      expect(result.status).toBe(RefundRequestStatus.FAILED);
+      expect(result.failure_reason).toMatch(/already refunded/);
     });
   });
 });
