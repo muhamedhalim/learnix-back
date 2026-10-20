@@ -34,6 +34,15 @@ RUN if [ -n "$RDS_CA_BUNDLE_URL" ]; then \
       mkdir -p /app/certs && \
       node -e "fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error(r.status);return r.text()}).then(t=>{if(!t.includes('BEGIN CERTIFICATE'))throw new Error('not a PEM bundle');require('fs').writeFileSync('/app/certs/rds-ca-bundle.pem',t)})" "$RDS_CA_BUNDLE_URL"; \
     fi
+# Debian security updates on top of the pinned base, and no package manager in the runtime: api, worker and
+# migrate start `node` directly (task definitions, docker-entrypoint.sh), never npm/npx/corepack. The base
+# image's perl-base and bundled npm (brace-expansion, undici) carried fixable HIGH/CRITICAL CVEs that failed
+# the release scan before upstream rebuilt node:24-slim.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./

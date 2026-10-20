@@ -87,6 +87,13 @@ test('nothing in the release path hides a failure', () => {
   assert.match(job(ciCd, 'gates'), /BLOCKED[^\n]*exit 1/u);
 });
 
+test('the image scanner runs an explicitly pinned Trivy release, not the action default', () => {
+  const deploy = job(ciCd, 'deploy');
+  assert.match(deploy, /uses: aquasecurity\/trivy-action@[0-9a-f]{40}/u);
+  assert.match(deploy, /\n {10}version: v\d+\.\d+\.\d+\n/u);
+  assert.match(deploy, /exit-code: '1'/u);
+});
+
 test('production deploys require the staging gate and the variables that prove the rollout', () => {
   assert.match(job(ciCd, 'gates'), /node scripts\/ci\/staging-gate\.mjs/u);
   assert.match(job(ciCd, 'deploy'), /REQUIRED="\$REQUIRED API_URL DB_INSTANCE_ID"/u);
