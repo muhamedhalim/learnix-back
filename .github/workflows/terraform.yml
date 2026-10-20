@@ -120,7 +120,7 @@ jobs:
       - run: bash -n learnix-infra/scripts/ecs-deploy.sh
       - run: |
           docker run --rm -v "$PWD/learnix-infra/scripts/tests:/fake" -v "$PWD/learnix-infra/scripts:/src:ro" alpine:3.20 sh -c \
-            "apk add --no-cache bash jq >/dev/null && mkdir -p /work && install -m 755 /fake/fake-aws /usr/local/bin/aws && bash /fake/ecs-deploy.test.sh"
+            "apk add --no-cache bash jq >/dev/null && mkdir -p /work && install -m 755 /fake/fake-aws /usr/local/bin/aws && install -m 755 /fake/fake-curl /usr/local/bin/curl && bash /fake/ecs-deploy.test.sh"
 
   # Plan (pull request, push), drift check (schedule) or the reviewed plan of an apply (dispatch).
   plan:

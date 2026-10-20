@@ -29,7 +29,7 @@ racing CI. All of that is now one run per event, with the deploy a _job_ of that
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                       |
 | push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`)                                                                                                  |
-| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; skipped when the push only touched docs / `learnix-infra` / markdown) |
+| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; skipped only when nothing but docs / `learnix-infra` / markdown changed since the last successful production deployment) |
 | nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                                                                                                                        |
 | `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                                                                                                                    |
 | `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                                                                                                                        |
@@ -101,8 +101,15 @@ stored in the workflow. Required environment variables are listed in the comment
   skipped, e.g. a docs-only push, is not accepted), the migration
   classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
   `production` environment's reviewers, and an RDS snapshot taken before migrating.
-- Post-deploy verification is `ecs-deploy.sh`'s wait for steady state plus its alarm watch (automatic rollback),
-  and the read-only API smoke test when the environment sets `SMOKE_FROM_RUNNER=true`.
+- Post-deploy verification (`ecs-deploy.sh`, automatic rollback on any failure): each service's PRIMARY deployment
+  must be the NEW revision, COMPLETED and alone (an ECS circuit-breaker rollback also ends COMPLETED and is a
+  failure), the alarm watch, every RUNNING task must be on the new revision with the digest ECR holds for the
+  commit tag, and, for production (required `API_URL`) or when `SMOKE_FROM_RUNNER=true`, the public domain must
+  report the commit on 10 consecutive `GET /api/v1/health/version` requests. Then the read-only API smoke test
+  when the environment sets `SMOKE_FROM_RUNNER=true`.
+- "Skipped because nothing in the image changed" is decided against the commit the environment last received
+  (its newest successful GitHub deployment, `scripts/ci/deploy-baseline.mjs`), never against the push's
+  `before`: a push whose predecessor failed to deploy still deploys. No deployment record means deploy.
 - There is no Terraform in this workflow: see 1.4.
 
 ### 1.3 `rollback` and `branch-sync`

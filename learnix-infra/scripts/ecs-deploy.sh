@@ -3,7 +3,8 @@
 #
 #   ecs-deploy.sh --cluster learnix-production --image <ecr-url>:<sha> \
 #       --services api,worker [--migrate-family learnix-production-migrate] \
-#       [--network '<awsvpcConfiguration JSON>'] [--alarm-names a,b,c] [--timeout 900]
+#       [--network '<awsvpcConfiguration JSON>'] [--alarm-names a,b,c] [--timeout 900] \
+#       [--verify-url https://api.learnix.school]
 #   ecs-deploy.sh --cluster learnix-production --rollback --services api,worker --to-file previous.json
 #
 # Steps (deploy):
@@ -14,19 +15,24 @@
 #   2. If --migrate-family is given: register it with the same image, run it once (awsvpc config from
 #      --network = terraform output task_network), wait, and require exit code 0. Migrations are
 #      advisory-locked, so a concurrent run cannot race.
-#   3. update-service for each service, then wait until every deployment reaches COMPLETED. ECS's
-#      circuit breaker rolls a failing deployment back by itself; this script detects that as FAILED.
+#   3. update-service for each service, then wait until each service's PRIMARY deployment is the NEW revision,
+#      COMPLETED and alone. ECS's circuit breaker rolls a failing deployment back by itself, and that rollback
+#      deployment becomes PRIMARY and reaches COMPLETED too: it is a failure here, never a success.
 #   4. Optional --alarm-names: the deploy refuses to start while one of these alarms is already in ALARM
 #      (it could not tell a regression from an old problem), and rolls back if one is in ALARM afterwards.
 #      Only name alarms that react to a bad release (5xx, unhealthy targets, error logs), never ones that
 #      treat missing data as breaching.
+#   5. Every RUNNING task of every service must run the new revision with the image digest ECR holds for the
+#      tag, so no task of an older deployment is still serving.
+#   6. Optional --verify-url (the public API origin): GET /api/v1/health/version through the real domain must
+#      report the image's commit on VERIFY_REQUESTS consecutive requests (default 10).
 #   Any failure after step 3 started -> every service is pointed back at its previous revision.
 #
-# Needs: aws CLI v2, jq. Credentials: the GitHub OIDC deploy role (modules/deploy-role).
+# Needs: aws CLI v2, jq, curl (--verify-url). Credentials: the GitHub OIDC deploy role (modules/deploy-role).
 set -euo pipefail
 
 CLUSTER="" IMAGE="" SERVICES="" MIGRATE_FAMILY="" NETWORK="" ALARM_NAMES="" TIMEOUT=900
-ROLLBACK=false TO_FILE="" STATE_FILE="previous-task-definitions.json"
+ROLLBACK=false TO_FILE="" STATE_FILE="previous-task-definitions.json" VERIFY_URL=""
 
 die() { echo "::error::$*" >&2; exit 1; }
 log() { echo "[ecs-deploy] $*"; }
@@ -43,6 +49,7 @@ while [ $# -gt 0 ]; do
     --rollback) ROLLBACK=true; shift ;;
     --to-file) TO_FILE="$2"; shift 2 ;;
     --state-file) STATE_FILE="$2"; shift 2 ;;
+    --verify-url) VERIFY_URL="${2%/}"; shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -79,16 +86,26 @@ register_with_image() {
     --query 'taskDefinition.taskDefinitionArn' --output text
 }
 
+# Service -> the task definition ARN its PRIMARY deployment must run (set before every wait).
+declare -A EXPECT_TD
+
+# Waits until every service's PRIMARY deployment runs EXPECT_TD[svc], is COMPLETED and is the only deployment
+# left. A PRIMARY on any other revision means ECS rolled the deploy back (or someone else deployed): failure.
 wait_for_services() {
   local deadline=$(( $(date +%s) + TIMEOUT ))
   while :; do
     local pending=0
     for svc in "${SERVICE_LIST[@]}"; do
-      local state
-      state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" \
-        --query 'services[0].deployments[?status==`PRIMARY`]|[0].rolloutState' --output text)
+      local state td count
+      read -r state td count < <(aws ecs describe-services --cluster "$CLUSTER" --services "$svc" \
+        --query 'services[0].[deployments[?status==`PRIMARY`]|[0].rolloutState, deployments[?status==`PRIMARY`]|[0].taskDefinition, length(deployments)]' \
+        --output text | tr -d '\r')
+      if [ -n "${EXPECT_TD[$svc]:-}" ] && [ "$td" != "${EXPECT_TD[$svc]}" ]; then
+        log "$svc: PRIMARY deployment runs $td, expected ${EXPECT_TD[$svc]} (rolled back by ECS or replaced)"
+        return 1
+      fi
       case "$state" in
-        COMPLETED) ;;
+        COMPLETED) [ "$count" = "1" ] || pending=1 ;;
         FAILED) log "$svc: deployment FAILED (circuit breaker)"; return 1 ;;
         *) pending=1 ;;
       esac
@@ -105,7 +122,8 @@ rollback_to() {
   for svc in "${SERVICE_LIST[@]}"; do
     local previous
     previous=$(jq -r --arg s "$svc" '.[$s] // empty' "$file")
-    [ -n "$previous" ] || { log "$svc: no previous revision recorded, skipped"; continue; }
+    [ -n "$previous" ] || { log "$svc: no previous revision recorded, skipped"; EXPECT_TD[$svc]=""; continue; }
+    EXPECT_TD[$svc]="$previous"
     aws ecs update-service --cluster "$CLUSTER" --service "$svc" --task-definition "$previous" \
       --query 'service.taskDefinition' --output text
   done
@@ -163,8 +181,16 @@ if [ -n "$MIGRATE_FAMILY" ]; then
   log "migrations applied"
 fi
 
+# The digest ECR holds for the tag: what every task must end up running.
+repository="${IMAGE#*/}"; repository="${repository%:*}"; tag="${IMAGE##*:}"
+EXPECT_DIGEST=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$tag" \
+  --query 'imageDetails[0].imageDigest' --output text | tr -d '\r')
+case "$EXPECT_DIGEST" in sha256:*) ;; *) die "image $IMAGE is not in ECR (digest '$EXPECT_DIGEST'); push it first" ;; esac
+log "image digest $EXPECT_DIGEST"
+
 # 3. Roll services; roll back on failure.
 for svc in "${SERVICE_LIST[@]}"; do
+  EXPECT_TD[$svc]="${NEW_TD[$svc]}"
   aws ecs update-service --cluster "$CLUSTER" --service "$svc" --task-definition "${NEW_TD[$svc]}" \
     --query 'service.taskDefinition' --output text >/dev/null
 done
@@ -185,4 +211,50 @@ if [ -n "$ALARM_NAMES" ]; then
   fi
 fi
 
-log "deployed $IMAGE to ${SERVICES}"
+# 5. Every running task runs the new revision and digest.
+verify_tasks() {
+  local svc arns bad
+  for svc in "${SERVICE_LIST[@]}"; do
+    arns=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$svc" --desired-status RUNNING \
+      --query 'taskArns' --output text | tr -d '\r')
+    case "$arns" in ''|None) log "$svc: no running task"; return 1 ;; esac
+    # shellcheck disable=SC2086
+    bad=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks $arns --output json \
+      | jq -r --arg td "${NEW_TD[$svc]}" --arg digest "$EXPECT_DIGEST" '
+          .tasks[] | select(.lastStatus != "STOPPED")
+          | select(.taskDefinitionArn != $td or ([.containers[] | select(.imageDigest == $digest)] | length) == 0)
+          | .taskArn + " " + .taskDefinitionArn')
+    if [ -n "$bad" ]; then log "$svc: tasks not on the release: $bad"; return 1; fi
+    log "$svc: every running task is on ${NEW_TD[$svc]} ($EXPECT_DIGEST)"
+  done
+}
+if ! verify_tasks; then
+  rollback_to "$STATE_FILE"
+  die "running tasks did not match the release; rolled back"
+fi
+
+# 6. The public domain (CloudFront -> ALB -> tasks) serves this commit on several consecutive requests.
+verify_domain() {
+  local deadline=$(( $(date +%s) + ${VERIFY_TIMEOUT:-300} )) streak=0 served
+  while :; do
+    served=$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "$VERIFY_URL/api/v1/health/version" 2>/dev/null \
+      | jq -r '(.commit // .data.commit) // empty' 2>/dev/null || true)
+    if [ "$served" = "$tag" ]; then
+      streak=$((streak + 1))
+      [ "$streak" -ge "${VERIFY_REQUESTS:-10}" ] && return 0
+      continue
+    fi
+    streak=0
+    [ "$(date +%s)" -ge "$deadline" ] && { log "$VERIFY_URL serves commit '${served:-unknown}', expected $tag"; return 1; }
+    sleep "${POLL_SECONDS:-15}"
+  done
+}
+if [ -n "$VERIFY_URL" ]; then
+  if ! verify_domain; then
+    rollback_to "$STATE_FILE"
+    die "the public domain did not serve the release; rolled back"
+  fi
+  log "$VERIFY_URL serves $tag"
+fi
+
+log "deployed $IMAGE ($EXPECT_DIGEST) to ${SERVICES}"

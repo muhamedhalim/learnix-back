@@ -120,3 +120,22 @@ describe('HealthService.getReadiness', () => {
     expect(JSON.stringify(result)).not.toContain('secret-bearing');
   });
 });
+
+describe('HealthService.getPublicVersion', () => {
+  const service = (values: Record<string, string>) =>
+    new HealthService(dataSourceWithQuery(jest.fn()), configFor(values));
+
+  it('reports the commit the image was built from', () => {
+    const sha = 'fa1455b0c0ffee0000000000000000000000beef';
+    expect(service({ GIT_SHA: sha }).getPublicVersion()).toEqual({ commit: sha });
+  });
+
+  it('is null when nothing identifies the build', () => {
+    expect(service({}).getPublicVersion()).toEqual({ commit: null });
+  });
+
+  it('never echoes a configured value that is not a commit id', () => {
+    const result = service({ GIT_SHA: 'postgres://user:pw@db/x' }).getPublicVersion();
+    expect(result).toEqual({ commit: null });
+  });
+});
