@@ -12,13 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiParam,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
@@ -39,10 +33,7 @@ import {
   ManualNotificationResponseDto,
 } from '../dto';
 import { Notification, NotificationCampaign, NotificationDelivery } from '../entities';
-import {
-  NotificationChannel,
-  NotificationDeliveryStatus,
-} from '../entities';
+import { NotificationChannel, NotificationDeliveryStatus } from '../entities';
 import { NotificationDeliveryService } from '../services/notification-delivery.service';
 import { PushNotificationJobsService } from '../services/push-notification-jobs.service';
 import { PushDispatchService } from '../services/push-dispatch.service';
@@ -219,9 +210,7 @@ export class AdminNotificationsController {
         read_notifications: readNotifications,
         unread_notifications: totalNotifications - readNotifications,
         read_rate:
-          totalNotifications > 0
-            ? Math.round((readNotifications / totalNotifications) * 100)
-            : 0,
+          totalNotifications > 0 ? Math.round((readNotifications / totalNotifications) * 100) : 0,
         sms_sent: smsSent,
         sms_enabled: this.smsSenderService.isConfigured(),
         by_type: typeStats.reduce<Record<string, number>>((acc, item) => {
@@ -277,10 +266,12 @@ export class AdminNotificationsController {
     if (!delivery) {
       throw new BadRequestException(biBody('Delivery not found', 'Delivery not found'));
     }
-    if (![
+    if (
+      ![
         NotificationDeliveryStatus.FAILED,
         NotificationDeliveryStatus.PROVIDER_UNAVAILABLE,
-      ].includes(delivery.status)) {
+      ].includes(delivery.status)
+    ) {
       throw new BadRequestException(
         biBody(
           'Only failed or unavailable deliveries can be retried here',
@@ -289,22 +280,18 @@ export class AdminNotificationsController {
       );
     }
     if (delivery.channel === NotificationChannel.PUSH) {
-      await this.notificationDeliveries.record(
-        delivery.id,
-        NotificationDeliveryStatus.QUEUED,
-        { provider: delivery.provider ?? 'fcm' },
-      );
+      await this.notificationDeliveries.record(delivery.id, NotificationDeliveryStatus.QUEUED, {
+        provider: delivery.provider ?? 'fcm',
+      });
       try {
         await this.pushJobs.enqueueDelivery(delivery.notification_id, {
           forceNewJob: true,
           retryDeliveryId: delivery.id,
         });
       } catch (error) {
-        await this.notificationDeliveries.record(
-          delivery.id,
-          NotificationDeliveryStatus.FAILED,
-          { error: error instanceof Error ? error.message : String(error) },
-        );
+        await this.notificationDeliveries.record(delivery.id, NotificationDeliveryStatus.FAILED, {
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     } else if (delivery.channel === NotificationChannel.EMAIL) {
@@ -331,7 +318,10 @@ export class AdminNotificationsController {
         ...(typeof payload['html'] === 'string' ? { html: payload['html'] } : {}),
         ...(typeof payload['text'] === 'string' ? { text: payload['text'] } : {}),
       };
-      if (replay.subject === undefined || (replay.html === undefined && replay.text === undefined)) {
+      if (
+        replay.subject === undefined ||
+        (replay.html === undefined && replay.text === undefined)
+      ) {
         // Payloads recorded for a removed remote-template provider carry no rendered content.
         throw new BadRequestException(
           biBody(
@@ -352,11 +342,9 @@ export class AdminNotificationsController {
           ),
         );
       }
-      await this.notificationDeliveries.record(
-        delivery.id,
-        NotificationDeliveryStatus.QUEUED,
-        { provider: this.mail.providerName },
-      );
+      await this.notificationDeliveries.record(delivery.id, NotificationDeliveryStatus.QUEUED, {
+        provider: this.mail.providerName,
+      });
     } else {
       throw new BadRequestException(
         biBody('This channel cannot be retried here', 'This channel cannot be retried here'),
@@ -390,16 +378,14 @@ export class AdminNotificationsController {
   public async getNotificationDetails(
     @Param('notificationId', ParseUUIDPipe) notificationId: string,
   ): Promise<{ data: unknown }> {
-    const details =
-      await this.notificationsService.getNotificationDetails(notificationId);
+    const details = await this.notificationsService.getNotificationDetails(notificationId);
     return { data: details };
   }
 
   @Post(':notificationId/retry')
   @ApiOperation({
     summary: 'Retry a failed notification',
-    description:
-      'Deprecated: retry a specific failed delivery leg instead.',
+    description: 'Deprecated: retry a specific failed delivery leg instead.',
     deprecated: true,
   })
   @ApiParam({

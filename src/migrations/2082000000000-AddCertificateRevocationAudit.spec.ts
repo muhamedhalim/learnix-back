@@ -60,7 +60,9 @@ describe('AddCertificateRevocationAudit2082000000000', () => {
     const query = jest.fn().mockResolvedValue([]);
     await new AddCertificateRevocationAudit2082000000000().down({ query } as never);
 
-    const revert = query.mock.calls.map((call) => String(call[0])).find((sql) => sql.includes('UPDATE'));
+    const revert = query.mock.calls
+      .map((call) => String(call[0]))
+      .find((sql) => sql.includes('UPDATE'));
     expect(revert).toContain(`"revocation_context" ->> 'source' = 'refund_backfill'`);
   });
 });
@@ -70,7 +72,10 @@ describe('AddCertificateRevocationAudit2082000000000 backfill count (FIA-003)', 
   function queryRunner(revokedRows: number) {
     const query = jest.fn(async (statement: string) => {
       if (statement.includes('RETURNING c."id"')) {
-        return [Array.from({ length: revokedRows }, (_, i) => ({ id: `c${String(i)}` })), revokedRows];
+        return [
+          Array.from({ length: revokedRows }, (_, i) => ({ id: `c${String(i)}` })),
+          revokedRows,
+        ];
       }
       if (statement.includes('SELECT COUNT(*)::int AS count')) return [{ count: 4 }];
       return undefined;
@@ -80,13 +85,18 @@ describe('AddCertificateRevocationAudit2082000000000 backfill count (FIA-003)', 
 
   afterEach(() => jest.restoreAllMocks());
 
-  it.each([0, 1, 37])('logs the number of certificates the backfill actually revoked (%i)', async (revoked) => {
-    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+  it.each([0, 1, 37])(
+    'logs the number of certificates the backfill actually revoked (%i)',
+    async (revoked) => {
+      const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await new AddCertificateRevocationAudit2082000000000().up(queryRunner(revoked));
+      await new AddCertificateRevocationAudit2082000000000().up(queryRunner(revoked));
 
-    const line = log.mock.calls.map(([message]) => String(message)).find((message) => message.startsWith('[DEF-019]'));
-    expect(line).toContain(`Revoked ${String(revoked)} certificate(s)`);
-    expect(line).toContain('4 certificate(s) have no purchase record');
-  });
+      const line = log.mock.calls
+        .map(([message]) => String(message))
+        .find((message) => message.startsWith('[DEF-019]'));
+      expect(line).toContain(`Revoked ${String(revoked)} certificate(s)`);
+      expect(line).toContain('4 certificate(s) have no purchase record');
+    },
+  );
 });

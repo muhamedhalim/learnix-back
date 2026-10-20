@@ -4,7 +4,12 @@ import { Queue } from 'bullmq';
 
 import { standaloneQueueOptions } from '../queues/queue-options.util';
 import { QUEUE_NAMES } from '../queues/queues.constants';
-import { DEAD_LETTER_METRIC, QUEUE_BACKLOG_METRIC, QueueMetricsPublisher, summariseCounts } from './queue-metrics.publisher';
+import {
+  DEAD_LETTER_METRIC,
+  QUEUE_BACKLOG_METRIC,
+  QueueMetricsPublisher,
+  summariseCounts,
+} from './queue-metrics.publisher';
 
 // A real BullMQ `Queue` connects as soon as it is constructed and writes its meta hash once ready, so
 // with `redis://localhost:6379` below this spec reached whatever Redis the host happens to run (a
@@ -39,13 +44,15 @@ describe('standaloneQueueOptions', () => {
   });
 
   it('carries the namespace prefix the queue module uses (staging)', () => {
-    expect(standaloneQueueOptions(env({ REDIS_URL: 'redis://localhost:6379', APP_ENV: 'staging' }))).toEqual({
+    expect(
+      standaloneQueueOptions(env({ REDIS_URL: 'redis://localhost:6379', APP_ENV: 'staging' })),
+    ).toEqual({
       connection: { url: 'redis://localhost:6379' },
       prefix: 'learnix:staging',
     });
   });
 
-  it('keeps BullMQ\'s default prefix when there is no namespace', () => {
+  it("keeps BullMQ's default prefix when there is no namespace", () => {
     expect(standaloneQueueOptions(env({ REDIS_URL: 'redis://localhost:6379' }))).toEqual({
       connection: { url: 'redis://localhost:6379' },
     });
@@ -95,20 +102,36 @@ describe('QueueMetricsPublisher', () => {
     );
     publisher.onModuleInit();
     // Replace the real Redis-backed queues with fakes.
-    const internals = publisher as unknown as { queues: Array<{ name: string; getJobCounts: () => Promise<Record<string, number>>; close: () => Promise<void> }> };
+    const internals = publisher as unknown as {
+      queues: Array<{
+        name: string;
+        getJobCounts: () => Promise<Record<string, number>>;
+        close: () => Promise<void>;
+      }>;
+    };
     await Promise.allSettled(internals.queues.map((q) => q.close()));
     internals.queues = [
-      { name: 'email', getJobCounts: () => Promise.resolve({ waiting: 7 }), close: () => Promise.resolve() },
-      { name: 'parent-notifications-dlq', getJobCounts: () => Promise.resolve({ failed: 2 }), close: () => Promise.resolve() },
+      {
+        name: 'email',
+        getJobCounts: () => Promise.resolve({ waiting: 7 }),
+        close: () => Promise.resolve(),
+      },
+      {
+        name: 'parent-notifications-dlq',
+        getJobCounts: () => Promise.resolve({ failed: 2 }),
+        close: () => Promise.resolve(),
+      },
     ];
 
     await expect(publisher.publishOnce()).resolves.toEqual({ backlog: 7, deadLetter: 2 });
     const input = cloudwatch.commandCalls(PutMetricDataCommand)[0]!.args[0].input;
     expect(input.Namespace).toBe('Learnix/Queues');
-    expect(input.MetricData?.map((m) => [m.MetricName, m.Value, m.Dimensions?.[0]?.Value])).toEqual([
-      [QUEUE_BACKLOG_METRIC, 7, 'learnix-staging'],
-      [DEAD_LETTER_METRIC, 2, 'learnix-staging'],
-    ]);
+    expect(input.MetricData?.map((m) => [m.MetricName, m.Value, m.Dimensions?.[0]?.Value])).toEqual(
+      [
+        [QUEUE_BACKLOG_METRIC, 7, 'learnix-staging'],
+        [DEAD_LETTER_METRIC, 2, 'learnix-staging'],
+      ],
+    );
     await publisher.onModuleDestroy();
   });
 
@@ -120,8 +143,16 @@ describe('QueueMetricsPublisher', () => {
     );
     publisher.onModuleInit();
     const internals = publisher as unknown as { queues: unknown[] };
-    await Promise.allSettled((internals.queues as Array<{ close: () => Promise<void> }>).map((q) => q.close()));
-    internals.queues = [{ name: 'email', getJobCounts: () => Promise.resolve({ waiting: 1 }), close: () => Promise.resolve() }];
+    await Promise.allSettled(
+      (internals.queues as Array<{ close: () => Promise<void> }>).map((q) => q.close()),
+    );
+    internals.queues = [
+      {
+        name: 'email',
+        getJobCounts: () => Promise.resolve({ waiting: 1 }),
+        close: () => Promise.resolve(),
+      },
+    ];
     await expect(publisher.publishOnce()).resolves.toBeNull();
     await publisher.onModuleDestroy();
   });
@@ -146,8 +177,12 @@ describe('QueueMetricsPublisher', () => {
     const publisher = new QueueMetricsPublisher(config(values));
     publisher.onModuleInit();
 
-    const expectedOptions = standaloneQueueOptions((key) => (values as Record<string, string>)[key]);
-    expect(jest.mocked(Queue).mock.calls).toEqual(Object.values(QUEUE_NAMES).map((name) => [name, expectedOptions]));
+    const expectedOptions = standaloneQueueOptions(
+      (key) => (values as Record<string, string>)[key],
+    );
+    expect(jest.mocked(Queue).mock.calls).toEqual(
+      Object.values(QUEUE_NAMES).map((name) => [name, expectedOptions]),
+    );
 
     await publisher.onModuleDestroy();
     for (const result of jest.mocked(Queue).mock.results) {
