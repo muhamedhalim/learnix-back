@@ -81,6 +81,19 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
   statement {
+    sid = "TagOwnTaskDefinitionsOnRegister"
+    # ecs-deploy.sh registers each revision with the family's Terraform tags, and RegisterTaskDefinition with
+    # tags is also authorized as ecs:TagResource on the new revision. Allowed only as part of that call and only
+    # for these families, so the role cannot retag anything afterwards.
+    actions   = ["ecs:TagResource"]
+    resources = local.task_definition_arns
+    condition {
+      test     = "StringEquals"
+      variable = "ecs:CreateAction"
+      values   = ["RegisterTaskDefinition"]
+    }
+  }
+  statement {
     sid       = "RollServices"
     actions   = ["ecs:DescribeServices", "ecs:UpdateService"]
     resources = local.service_arns
