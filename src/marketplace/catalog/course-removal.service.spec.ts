@@ -220,7 +220,12 @@ describe('CourseRemovalService (T142)', () => {
       const state = {
         enrollment:
           opts.enrollment === undefined
-            ? { id: 'enrollment-1', learner_id: 'learner-1', course_id: 'course-1', status: MarketplaceEnrollmentStatus.ACTIVE }
+            ? {
+                id: 'enrollment-1',
+                learner_id: 'learner-1',
+                course_id: 'course-1',
+                status: MarketplaceEnrollmentStatus.ACTIVE,
+              }
             : opts.enrollment,
         certificate: opts.certificate === undefined ? null : opts.certificate,
         review: opts.review === undefined ? null : opts.review,
@@ -455,7 +460,11 @@ describe('CourseRemovalService (T142)', () => {
           'learner-1',
           'Course permanently removed',
         );
-        expect(removalsRepo.increment).toHaveBeenCalledWith({ id: 'removal-1' }, 'refunds_failed', 1);
+        expect(removalsRepo.increment).toHaveBeenCalledWith(
+          { id: 'removal-1' },
+          'refunds_failed',
+          1,
+        );
       },
     );
 

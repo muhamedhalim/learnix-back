@@ -5,12 +5,7 @@ import { PreferredLanguage } from '../guardians/entities/preferred-language.enum
 import { renderInvitationEmail } from './local-templates';
 import { parseSesFeedback } from './mail-events.consumer';
 import { MailService } from './mail.service';
-import {
-  classifySesError,
-  formatAddress,
-  resolveSesConfig,
-  SesTransport,
-} from './ses.transport';
+import { classifySesError, formatAddress, resolveSesConfig, SesTransport } from './ses.transport';
 
 const reader = (env: Record<string, string>) => (key: string) => env[key];
 
@@ -26,7 +21,9 @@ describe('resolveSesConfig', () => {
       missing: ['MAIL_FROM_EMAIL'],
     });
     expect(
-      resolveSesConfig(reader({ MAIL_PROVIDER: 'SES', MAIL_FROM_EMAIL: 'no-reply@learnix.school' })),
+      resolveSesConfig(
+        reader({ MAIL_PROVIDER: 'SES', MAIL_FROM_EMAIL: 'no-reply@learnix.school' }),
+      ),
     ).toMatchObject({ state: 'configured', configured: true, region: 'eu-central-1' });
   });
 });
@@ -101,7 +98,11 @@ describe('MailService with SES', () => {
     const service = new MailService({ get: (key: string) => env[key] } as never, queue as never);
     return { service, queue };
   };
-  const sesEnv = { MAIL_PROVIDER: 'ses', MAIL_FROM_EMAIL: 'no-reply@learnix.school', MAIL_FROM_NAME: 'Learnix' };
+  const sesEnv = {
+    MAIL_PROVIDER: 'ses',
+    MAIL_FROM_EMAIL: 'no-reply@learnix.school',
+    MAIL_FROM_NAME: 'Learnix',
+  };
 
   it('reports itself as the SES provider and is configured without any API key', () => {
     const { service } = make(sesEnv);
@@ -119,18 +120,27 @@ describe('MailService with SES', () => {
   it('delivers through SES and returns the provider message id', async () => {
     ses.on(SendEmailCommand).resolves({ MessageId: 'ses-777' });
     const { service } = make(sesEnv);
-    const result = await service.deliver({ to: 'a@b.test', subject: 'Hi', text: 'hi', html: '<p>hi</p>' });
+    const result = await service.deliver({
+      to: 'a@b.test',
+      subject: 'Hi',
+      text: 'hi',
+      html: '<p>hi</p>',
+    });
     expect(result).toEqual({ accepted: true, providerMessageId: 'ses-777' });
   });
 
   it('refuses to send a body-less message instead of sending an empty email', async () => {
     const { service } = make(sesEnv);
-    await expect(service.deliver({ to: 'a@b.test', subject: 'No body' })).rejects.toThrow(/failed/i);
+    await expect(service.deliver({ to: 'a@b.test', subject: 'No body' })).rejects.toThrow(
+      /failed/i,
+    );
     expect(ses.commandCalls(SendEmailCommand)).toHaveLength(0);
   });
 
   it('turns an SES failure into a delivery failure with a classified state', async () => {
-    ses.on(SendEmailCommand).rejects(Object.assign(new Error('paused'), { name: 'SendingPausedException' }));
+    ses
+      .on(SendEmailCommand)
+      .rejects(Object.assign(new Error('paused'), { name: 'SendingPausedException' }));
     const { service } = make(sesEnv);
     await expect(service.deliver({ to: 'a@b.test', subject: 'Hi', text: 'hi' })).rejects.toThrow();
     expect(service.getHealthStatus().state).toBe('authentication_failed');
@@ -142,7 +152,10 @@ describe('MailService with SES', () => {
       to: 'inst@example.test',
       recipientName: 'Sara',
       locale: PreferredLanguage.AR,
-      personalization: { setupUrl: 'https://learnix.school/auth/reset-password?token=abc', expiresAt: '2026-10-12T10:00:00.000Z' },
+      personalization: {
+        setupUrl: 'https://learnix.school/auth/reset-password?token=abc',
+        expiresAt: '2026-10-12T10:00:00.000Z',
+      },
     });
     const job = queue.add.mock.calls[0]![1] as { subject: string; html: string };
     expect(job.subject).toBe('لديك دعوة إلى Learnix');
@@ -154,7 +167,9 @@ describe('MailService with SES', () => {
 describe('renderInvitationEmail', () => {
   it('refuses a missing or non-http link', () => {
     expect(renderInvitationEmail('A', PreferredLanguage.EN, {})).toBeNull();
-    expect(renderInvitationEmail('A', PreferredLanguage.EN, { setupUrl: 'javascript:alert(1)' })).toBeNull();
+    expect(
+      renderInvitationEmail('A', PreferredLanguage.EN, { setupUrl: 'javascript:alert(1)' }),
+    ).toBeNull();
   });
 
   it('escapes the recipient name', () => {
@@ -168,12 +183,16 @@ describe('renderInvitationEmail', () => {
 });
 
 describe('parseSesFeedback', () => {
-  const wrap = (message: unknown) => JSON.stringify({ Type: 'Notification', Message: JSON.stringify(message) });
+  const wrap = (message: unknown) =>
+    JSON.stringify({ Type: 'Notification', Message: JSON.stringify(message) });
 
   it('reads a permanent bounce from an SNS-wrapped event', () => {
     expect(
       parseSesFeedback(
-        wrap({ eventType: 'Bounce', bounce: { bounceType: 'Permanent', bouncedRecipients: [{ emailAddress: 'x@y.test' }] } }),
+        wrap({
+          eventType: 'Bounce',
+          bounce: { bounceType: 'Permanent', bouncedRecipients: [{ emailAddress: 'x@y.test' }] },
+        }),
       ),
     ).toEqual({ kind: 'bounce', permanent: true, recipients: ['x@y.test'] });
   });
@@ -181,11 +200,19 @@ describe('parseSesFeedback', () => {
   it('reads a transient bounce and a complaint', () => {
     expect(
       parseSesFeedback(
-        wrap({ notificationType: 'Bounce', bounce: { bounceType: 'Transient', bouncedRecipients: [{ emailAddress: 'x@y.test' }] } }),
+        wrap({
+          notificationType: 'Bounce',
+          bounce: { bounceType: 'Transient', bouncedRecipients: [{ emailAddress: 'x@y.test' }] },
+        }),
       )?.permanent,
     ).toBe(false);
     expect(
-      parseSesFeedback(wrap({ eventType: 'Complaint', complaint: { complainedRecipients: [{ emailAddress: 'c@y.test' }] } })),
+      parseSesFeedback(
+        wrap({
+          eventType: 'Complaint',
+          complaint: { complainedRecipients: [{ emailAddress: 'c@y.test' }] },
+        }),
+      ),
     ).toEqual({ kind: 'complaint', permanent: true, recipients: ['c@y.test'] });
   });
 

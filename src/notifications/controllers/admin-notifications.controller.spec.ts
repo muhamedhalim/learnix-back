@@ -1,10 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { AdminNotificationsController } from './admin-notifications.controller';
-import {
-  NotificationChannel,
-  NotificationDeliveryStatus,
-} from '../entities';
+import { NotificationChannel, NotificationDeliveryStatus } from '../entities';
 
 describe('AdminNotificationsController', () => {
   const bulk = {

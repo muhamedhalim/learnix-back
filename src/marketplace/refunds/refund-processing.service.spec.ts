@@ -541,14 +541,21 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
   });
 
   describe('one refund per order (FIA-009)', () => {
-    function serviceFor(manager: unknown, refundImpl = async () => ({ status: 'succeeded' as const, providerReference: 'ref-2' })) {
+    function serviceFor(
+      manager: unknown,
+      refundImpl = async () => ({ status: 'succeeded' as const, providerReference: 'ref-2' }),
+    ) {
       const ledger = buildLedger();
       const { providers, provider } = buildProviders(refundImpl);
       const events = new EventEmitter2();
       const emitted: string[] = [];
       events.onAny((event) => emitted.push(String(event)));
       const service = new RefundProcessingService(
-        buildDataSource(manager, defaultOrder({ status: MarketplaceOrderStatus.REFUNDED }), defaultPayment()) as never,
+        buildDataSource(
+          manager,
+          defaultOrder({ status: MarketplaceOrderStatus.REFUNDED }),
+          defaultPayment(),
+        ) as never,
         ledger as never,
         buildBalance() as never,
         providers as never,
@@ -569,7 +576,10 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         certificate: null,
         review: null,
         earning: defaultEarning({ status: InstructorEarningStatus.REVERSED }),
-        completedSibling: defaultRefundRequest({ id: 'refund-0', status: RefundRequestStatus.COMPLETED }),
+        completedSibling: defaultRefundRequest({
+          id: 'refund-0',
+          status: RefundRequestStatus.COMPLETED,
+        }),
       });
       const { service, ledger, provider, emitted } = serviceFor(manager);
 

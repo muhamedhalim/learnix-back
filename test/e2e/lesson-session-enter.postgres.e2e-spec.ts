@@ -310,7 +310,10 @@ describe('lesson session enter — client IP handling (PostgreSQL)', () => {
   describe('POST /lessons/:id/exit — 80% auto-attendance threshold', () => {
     async function exitWith(percent: number) {
       const fixture = await enrolledStudentFixture();
-      await fixture.student.agent.post(`${API_PREFIX}/lessons/${fixture.lesson.id}/enter`).send().expect(201);
+      await fixture.student.agent
+        .post(`${API_PREFIX}/lessons/${fixture.lesson.id}/enter`)
+        .send()
+        .expect(201);
       const res = await fixture.student.agent
         .post(`${API_PREFIX}/lessons/${fixture.lesson.id}/exit`)
         .send({ video_progress_percent: percent, duration_seconds: 60 })

@@ -28,7 +28,10 @@ interface BulkNotificationJob {
 
 const RECIPIENT_BATCH_SIZE = 500;
 
-@Processor(QUEUE_NAMES.BULK_NOTIFICATIONS, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
+@Processor(QUEUE_NAMES.BULK_NOTIFICATIONS, {
+  concurrency: WORKER_CONFIG.concurrency,
+  autorun: WORKER_CONFIG.autorun,
+})
 export class BulkNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(BulkNotificationProcessor.name);
 
@@ -85,7 +88,7 @@ export class BulkNotificationProcessor extends WorkerHost {
                 source_event: 'admin_broadcast',
                 user_id: recipient.id,
                 type: NotificationType.CUSTOM,
-                title: arabic && dto.title_ar ? dto.title_ar : dto.title ?? 'Notification',
+                title: arabic && dto.title_ar ? dto.title_ar : (dto.title ?? 'Notification'),
                 message: arabic && dto.message_ar ? dto.message_ar : dto.message,
                 data: { campaign_id: campaignId, href: '/student/notifications' },
                 is_read: false,
@@ -135,7 +138,9 @@ export class BulkNotificationProcessor extends WorkerHost {
         failed_count: failedCount,
         completed_at: new Date(),
         error_message:
-          failedCount === 0 ? null : `${String(failedCount)} intended recipient(s) were not created`,
+          failedCount === 0
+            ? null
+            : `${String(failedCount)} intended recipient(s) were not created`,
       });
 
       this.logger.log(

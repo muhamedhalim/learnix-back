@@ -38,7 +38,9 @@ describe('e2e harness — HTTP server lifecycle', () => {
         if (raw.includes('\r\n\r\n')) resolve(raw.split('\r\n')[0]!);
       });
       socket.once('error', reject);
-      socket.once('close', () => reject(new Error(`connection closed before a response; got: ${raw}`)));
+      socket.once('close', () =>
+        reject(new Error(`connection closed before a response; got: ${raw}`)),
+      );
       socket.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
     });
   }

@@ -56,11 +56,10 @@ export class PushNotificationJobsService {
         }
       } catch (error) {
         if (options.retryDeliveryId) {
-          await this.deliveries.record(
-            options.retryDeliveryId,
-            NotificationDeliveryStatus.FAILED,
-            { provider: 'fcm', error: error instanceof Error ? error.message : String(error) },
-          );
+          await this.deliveries.record(options.retryDeliveryId, NotificationDeliveryStatus.FAILED, {
+            provider: 'fcm',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
         this.logger.warn(
           `Inline push dispatch failed for notification ${notificationId}: ` +
@@ -76,12 +75,16 @@ export class PushNotificationJobsService {
     const jobId = options.forceNewJob
       ? queueJobId('push', notificationId, 'retry', Date.now().toString(36))
       : queueJobId('push', notificationId);
-    await this.queue.add(JOB_TYPES.PUSH.DELIVER, {
-      notificationId,
-      ...(options.retryDeliveryId ? { retryDeliveryId: options.retryDeliveryId } : {}),
-    } satisfies PushDeliveryJob, {
-      jobId,
-    });
+    await this.queue.add(
+      JOB_TYPES.PUSH.DELIVER,
+      {
+        notificationId,
+        ...(options.retryDeliveryId ? { retryDeliveryId: options.retryDeliveryId } : {}),
+      } satisfies PushDeliveryJob,
+      {
+        jobId,
+      },
+    );
     this.logger.debug(`Enqueued push for notification ${notificationId}`);
   }
 

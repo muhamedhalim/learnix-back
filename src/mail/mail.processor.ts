@@ -4,15 +4,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Job } from 'bullmq';
 import { Repository } from 'typeorm';
 
-import {
-  NotificationDelivery,
-  NotificationDeliveryStatus,
-} from '../notifications/entities';
+import { NotificationDelivery, NotificationDeliveryStatus } from '../notifications/entities';
 import { JOB_TYPES, QUEUE_NAMES, WORKER_CONFIG } from '../queues/queues.constants';
 import { MailService, type MailJob } from './mail.service';
 
 /** The only component that performs an outbound email API call (Amazon SES). */
-@Processor(QUEUE_NAMES.EMAIL, { concurrency: WORKER_CONFIG.concurrency, autorun: WORKER_CONFIG.autorun })
+@Processor(QUEUE_NAMES.EMAIL, {
+  concurrency: WORKER_CONFIG.concurrency,
+  autorun: WORKER_CONFIG.autorun,
+})
 export class MailProcessor extends WorkerHost {
   public constructor(
     private readonly mail: MailService,

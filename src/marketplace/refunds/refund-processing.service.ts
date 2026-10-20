@@ -172,7 +172,9 @@ export class RefundProcessingService {
         ? `Order already refunded by refund request ${completedSibling.id}; no second refund was sent to the provider`
         : 'Order already refunded; no second refund was sent to the provider';
       const closed = await manager.save(MarketplaceRefundRequest, request);
-      this.logger.warn(`Marketplace refund ${request.id} not sent: order ${request.order_id} is already refunded.`);
+      this.logger.warn(
+        `Marketplace refund ${request.id} not sent: order ${request.order_id} is already refunded.`,
+      );
       return { request: closed, alreadyDone: true };
     }
 

@@ -42,7 +42,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
     teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
     otherTeacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
     // The purchased lesson belongs to the logged-in teacher.
-    await dataSource.getRepository(Lesson).update({ id: lesson.id }, { teacher_id: teacher.userId });
+    await dataSource
+      .getRepository(Lesson)
+      .update({ id: lesson.id }, { teacher_id: teacher.userId });
   });
 
   afterAll(async () => {
@@ -52,21 +54,35 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
   async function seedComment(): Promise<Comment> {
     const comments = dataSource.getRepository(Comment);
     return comments.save(
-      comments.create({ lesson_id: lesson.id, student_id: student.userId, comment_text: 'Fixture comment' }),
+      comments.create({
+        lesson_id: lesson.id,
+        student_id: student.userId,
+        comment_text: 'Fixture comment',
+      }),
     );
   }
 
   async function seedLessonReview(): Promise<LessonReview> {
     const reviews = dataSource.getRepository(LessonReview);
     return reviews.save(
-      reviews.create({ lesson_id: lesson.id, student_id: student.userId, rating: 5, comment: 'Clear lesson' }),
+      reviews.create({
+        lesson_id: lesson.id,
+        student_id: student.userId,
+        rating: 5,
+        comment: 'Clear lesson',
+      }),
     );
   }
 
   async function seedProfileReview(): Promise<TeacherReview> {
     const reviews = dataSource.getRepository(TeacherReview);
     return reviews.save(
-      reviews.create({ teacher_id: teacher.userId, student_id: student.userId, rating: 4, comment: 'Helpful' }),
+      reviews.create({
+        teacher_id: teacher.userId,
+        student_id: student.userId,
+        rating: 4,
+        comment: 'Helpful',
+      }),
     );
   }
 
@@ -80,10 +96,13 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
       expect(res.body).toMatchObject({ lesson_id: lesson.id, student_id: student.userId });
       const stored = await dataSource.getRepository(Comment).findBy({ lesson_id: lesson.id });
       expect(stored).toHaveLength(1);
-      expect(stored[0]).toMatchObject({ student_id: student.userId, comment_text: 'When is the next session?' });
+      expect(stored[0]).toMatchObject({
+        student_id: student.userId,
+        comment_text: 'When is the next session?',
+      });
     });
 
-    it("refuses a student without a purchase, even when another student owns one", async () => {
+    it('refuses a student without a purchase, even when another student owns one', async () => {
       const outsider = await createAuthenticatedUser(app, dataSource);
 
       await outsider.agent
@@ -104,12 +123,14 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply_text: 'Thursday at 6' })
         .expect(201);
 
-      const replies = await dataSource.getRepository(CommentReply).findBy({ comment_id: comment.id });
+      const replies = await dataSource
+        .getRepository(CommentReply)
+        .findBy({ comment_id: comment.id });
       expect(replies).toHaveLength(1);
       expect(replies[0]).toMatchObject({ teacher_id: teacher.userId, reply_text: 'Thursday at 6' });
     });
 
-    it("refuses a teacher who does not own the lesson", async () => {
+    it('refuses a teacher who does not own the lesson', async () => {
       const comment = await seedComment();
 
       await otherTeacher.agent
@@ -117,7 +138,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply_text: 'Not my lesson' })
         .expect(403);
 
-      expect(await dataSource.getRepository(CommentReply).countBy({ comment_id: comment.id })).toBe(0);
+      expect(await dataSource.getRepository(CommentReply).countBy({ comment_id: comment.id })).toBe(
+        0,
+      );
     });
   });
 
@@ -127,7 +150,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
       const profileReview = await seedProfileReview();
 
       const res = await teacher.agent.get(`${API_PREFIX}/teacher/reviews`).expect(200);
-      const body = res.body as { data?: Array<{ id: string; review_type: string }> } | Array<{ id: string; review_type: string }>;
+      const body = res.body as
+        | { data?: Array<{ id: string; review_type: string }> }
+        | Array<{ id: string; review_type: string }>;
       const rows = Array.isArray(body) ? body : (body.data ?? []);
       expect(rows.map((r) => [r.id, r.review_type]).sort()).toEqual(
         [
@@ -151,7 +176,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply: 'Thank you' })
         .expect(201);
 
-      const stored = await dataSource.getRepository(LessonReview).findOneByOrFail({ id: review.id });
+      const stored = await dataSource
+        .getRepository(LessonReview)
+        .findOneByOrFail({ id: review.id });
       expect(stored.teacher_reply).toBe('Thank you');
       expect(stored.teacher_reply_at).not.toBeNull();
     });
@@ -164,7 +191,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply: 'Not mine' })
         .expect(403);
 
-      const stored = await dataSource.getRepository(LessonReview).findOneByOrFail({ id: review.id });
+      const stored = await dataSource
+        .getRepository(LessonReview)
+        .findOneByOrFail({ id: review.id });
       expect(stored.teacher_reply).toBeNull();
     });
   });
@@ -178,7 +207,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply: 'Glad it helped' })
         .expect(201);
 
-      const stored = await dataSource.getRepository(TeacherReview).findOneByOrFail({ id: review.id });
+      const stored = await dataSource
+        .getRepository(TeacherReview)
+        .findOneByOrFail({ id: review.id });
       expect(stored.teacher_reply).toBe('Glad it helped');
     });
 
@@ -190,7 +221,9 @@ describe('Lesson comments and teacher review replies (e2e)', () => {
         .send({ reply: 'Not mine' })
         .expect(403);
 
-      const stored = await dataSource.getRepository(TeacherReview).findOneByOrFail({ id: review.id });
+      const stored = await dataSource
+        .getRepository(TeacherReview)
+        .findOneByOrFail({ id: review.id });
       expect(stored.teacher_reply).toBeNull();
     });
   });
