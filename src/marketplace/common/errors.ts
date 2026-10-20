@@ -430,7 +430,10 @@ export function reviewAlreadyExists(): MarketplaceConflictException {
 }
 
 /** FR-209, FR-325 — `minimumMinor` names the exact figure, per currency, so the client never has to hard-code it either. */
-export function payoutBelowMinimum(minimumMinor: number, currency: string): MarketplaceUnprocessableException {
+export function payoutBelowMinimum(
+  minimumMinor: number,
+  currency: string,
+): MarketplaceUnprocessableException {
   return new MarketplaceUnprocessableException(
     MARKETPLACE_ERROR_CODES.PAYOUT_BELOW_MINIMUM,
     `The minimum payout amount is ${minimumMinor} ${currency} minor units`,

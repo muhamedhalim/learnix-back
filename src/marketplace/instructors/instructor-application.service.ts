@@ -254,8 +254,7 @@ export class InstructorApplicationService {
     const limit = Math.min(filter.limit ?? 20, 100);
     const qb = this.applications.createQueryBuilder('a').orderBy('a.submitted_at', 'ASC');
     if (filter.status) qb.andWhere('a.status = :status', { status: filter.status });
-    else
-      qb.andWhere('a.status IN (:...statuses)', { statuses: REVIEWABLE_STATUSES });
+    else qb.andWhere('a.status IN (:...statuses)', { statuses: REVIEWABLE_STATUSES });
     qb.skip((page - 1) * limit).take(limit);
     const [items, total] = await qb.getManyAndCount();
     return { items, total };

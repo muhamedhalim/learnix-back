@@ -13,7 +13,10 @@ import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
  * persist a blank reason that the affected party is then shown.
  */
 export class MarketplaceReasonDto {
-  @ApiProperty({ description: 'Why this decision was made. Shown to the affected party.', maxLength: 1000 })
+  @ApiProperty({
+    description: 'Why this decision was made. Shown to the affected party.',
+    maxLength: 1000,
+  })
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @IsNotEmpty()

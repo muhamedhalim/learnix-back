@@ -89,11 +89,13 @@ function buildService(rows: InstructorApplication[] = []): {
       ),
     ),
     createQueryBuilder: jest.fn(),
-    update: jest.fn(async (where: Record<string, unknown>, patch: Partial<InstructorApplication>) => {
-      const matched = rows.filter((r) => matchesCriteria(r, where));
-      for (const row of matched) Object.assign(row, patch);
-      return { affected: matched.length };
-    }),
+    update: jest.fn(
+      async (where: Record<string, unknown>, patch: Partial<InstructorApplication>) => {
+        const matched = rows.filter((r) => matchesCriteria(r, where));
+        for (const row of matched) Object.assign(row, patch);
+        return { affected: matched.length };
+      },
+    ),
   };
   const activityLogs = {
     getLatestAuditRecord: jest.fn().mockResolvedValue(null),
@@ -452,14 +454,17 @@ describe('InstructorApplicationService', () => {
       InstructorApplicationStatus.APPROVED,
       InstructorApplicationStatus.REJECTED,
       InstructorApplicationStatus.WITHDRAWN,
-    ])('refuses to approve an application in status %s with 409 already-decided', async (status) => {
-      const { service } = buildService([buildApplication({ status })]);
-      const attempt = service.markApproved('app-1', 'admin-1');
-      await expect(attempt).rejects.toBeInstanceOf(ConflictException);
-      await expect(attempt).rejects.toMatchObject({
-        response: { code: 'APPLICATION_ALREADY_DECIDED' },
-      });
-    });
+    ])(
+      'refuses to approve an application in status %s with 409 already-decided',
+      async (status) => {
+        const { service } = buildService([buildApplication({ status })]);
+        const attempt = service.markApproved('app-1', 'admin-1');
+        await expect(attempt).rejects.toBeInstanceOf(ConflictException);
+        await expect(attempt).rejects.toMatchObject({
+          response: { code: 'APPLICATION_ALREADY_DECIDED' },
+        });
+      },
+    );
 
     it('approve and reject are 404 for an unknown id', async () => {
       const { service } = buildService([]);
