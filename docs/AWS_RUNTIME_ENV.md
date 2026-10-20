@@ -60,7 +60,7 @@ Playback = path-scoped signed cookies (15 minutes, one asset per grant) returned
 
 | Variable                                             | Notes                                                                                         |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `MAIL_PROVIDER`                                      | `ses` (the only email provider; unset disables mail).                                                             |
+| `MAIL_PROVIDER`                                      | `ses` (the only email provider; unset disables mail).                                         |
 | `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME`, `MAIL_REPLY_TO` | Verified SES identity.                                                                        |
 | `SES_REGION`, `SES_CONFIGURATION_SET`                | Config set publishes bounces/complaints to SNS -> SQS.                                        |
 | `MAIL_EVENTS_QUEUE_URL`                              | SQS queue of SES feedback (logged + metric; SES account-level suppression does the blocking). |
@@ -112,7 +112,7 @@ the only writable path. Code exports are written there briefly before upload to 
 | Variable        | Value                        | Notes                                                                                                                                                                                                                             |
 | --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FRONTEND_URL`  | `https://learnix.school`     | The Vercel app. Used for reset links, payment return URLs and the backend-to-frontend health probe.                                                                                                                               |
-| `BACKEND_URL`   | `https://api.learnix.school` | Public API origin: EasyKash/Meta/OAuth callbacks, protected download links, absolute media URLs.                                                                                                                                    |
+| `BACKEND_URL`   | `https://api.learnix.school` | Public API origin: EasyKash/Meta/OAuth callbacks, protected download links, absolute media URLs.                                                                                                                                  |
 | `CORS_ORIGINS`  | `https://learnix.school`     | Exact-origin allowlist for credentialed requests (`buildCorsOptions` in `src/common/utils/cors.util.ts`). Must include `FRONTEND_URL`. Production validation rejects wildcards. Never list `*.vercel.app` previews on production. |
 | `COOKIE_DOMAIN` | **unset**                    | Cookies stay host-only on the API host (`SameSite=None; Secure; Partitioned`, `HttpOnly` for the credentials). A parent-domain value would hand staging and production each other's cookies; the isolation guard refuses it.      |
 

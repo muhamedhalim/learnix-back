@@ -209,7 +209,11 @@ describe('LessonSessionsService booking lifecycle', () => {
     const notify = jest
       .spyOn(
         recoveryService as unknown as {
-          notifyBookingEvent: (id: string, event: string, value: LessonSessionBooking) => Promise<void>;
+          notifyBookingEvent: (
+            id: string,
+            event: string,
+            value: LessonSessionBooking,
+          ) => Promise<void>;
         },
         'notifyBookingEvent',
       )
@@ -238,7 +242,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     return { id: lessonId, teacher_id: teacherId, is_group: false, duration: 1800 } as Lesson;
   }
 
-  function scheduledSession(overrides: Partial<ScheduledLessonSession> = {}): ScheduledLessonSession {
+  function scheduledSession(
+    overrides: Partial<ScheduledLessonSession> = {},
+  ): ScheduledLessonSession {
     return {
       id: sessionId,
       lesson_id: lessonId,
@@ -273,7 +279,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     };
   }
 
-  function insertQueryBuilder(overrides: Record<string, jest.Mock> = {}): Record<string, jest.Mock> {
+  function insertQueryBuilder(
+    overrides: Record<string, jest.Mock> = {},
+  ): Record<string, jest.Mock> {
     const query: Record<string, jest.Mock> = {
       insert: jest.fn(() => query),
       into: jest.fn(() => query),
@@ -286,16 +294,18 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     return query;
   }
 
-  function buildService(overrides: {
-    registryFind?: jest.Mock;
-    findConnectedAccount?: jest.Mock;
-    getUsableAccount?: jest.Mock;
-    manager?: Record<string, jest.Mock>;
-    repository?: Record<string, jest.Mock>;
-    repositoriesByEntity?: Map<unknown, Record<string, jest.Mock>>;
-    queryBuilder?: Record<string, jest.Mock>;
-    config?: Record<string, string>;
-  } = {}) {
+  function buildService(
+    overrides: {
+      registryFind?: jest.Mock;
+      findConnectedAccount?: jest.Mock;
+      getUsableAccount?: jest.Mock;
+      manager?: Record<string, jest.Mock>;
+      repository?: Record<string, jest.Mock>;
+      repositoriesByEntity?: Map<unknown, Record<string, jest.Mock>>;
+      queryBuilder?: Record<string, jest.Mock>;
+      config?: Record<string, string>;
+    } = {},
+  ) {
     const manager: Record<string, jest.Mock> = {
       findOne: jest.fn(),
       save: jest.fn(async (a: unknown, b?: unknown) => (b === undefined ? a : b)),
@@ -314,7 +324,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     const queryBuilder = overrides.queryBuilder ?? insertQueryBuilder();
     const dataSource = {
       transaction: jest.fn(async (fn: (m: typeof manager) => unknown) => await fn(manager)),
-      getRepository: jest.fn((entity: unknown) => overrides.repositoriesByEntity?.get(entity) ?? repository),
+      getRepository: jest.fn(
+        (entity: unknown) => overrides.repositoriesByEntity?.get(entity) ?? repository,
+      ),
       createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     } as unknown as DataSource;
     const registry = {
@@ -342,13 +354,23 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     overlapQuery['getExists'] = jest.fn().mockResolvedValue(false);
     const { service, manager, queue } = buildService({
       manager: {
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
+        getRepository: jest
+          .fn()
+          .mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
       },
     });
 
-    const [created] = await service.createManyWithManager(manager as never, individualLesson(), teacherId, [
-      { start_at: new Date(Date.now() + 3600_000).toISOString(), meeting_provider: MeetingProvider.GOOGLE_MEET },
-    ]);
+    const [created] = await service.createManyWithManager(
+      manager as never,
+      individualLesson(),
+      teacherId,
+      [
+        {
+          start_at: new Date(Date.now() + 3600_000).toISOString(),
+          meeting_provider: MeetingProvider.GOOGLE_MEET,
+        },
+      ],
+    );
 
     expect(created).toMatchObject({
       meeting_status: MeetingCreationStatus.NOT_REQUESTED,
@@ -363,13 +385,23 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     overlapQuery['getExists'] = jest.fn().mockResolvedValue(false);
     const { service, manager } = buildService({
       manager: {
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
+        getRepository: jest
+          .fn()
+          .mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
       },
     });
 
-    const [created] = await service.createManyWithManager(manager as never, individualLesson(), teacherId, [
-      { start_at: new Date(Date.now() + 3600_000).toISOString(), meeting_url: 'https://meet.example.test/manual' },
-    ]);
+    const [created] = await service.createManyWithManager(
+      manager as never,
+      individualLesson(),
+      teacherId,
+      [
+        {
+          start_at: new Date(Date.now() + 3600_000).toISOString(),
+          meeting_url: 'https://meet.example.test/manual',
+        },
+      ],
+    );
 
     expect(created).toMatchObject({
       meeting_status: MeetingCreationStatus.READY,
@@ -394,12 +426,17 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       registryFind: jest.fn().mockReturnValue(configuredClient()),
       findConnectedAccount: jest.fn().mockResolvedValue(null),
     });
-    manager.findOne.mockResolvedValueOnce(scheduledSession()).mockResolvedValueOnce(individualLesson());
+    manager.findOne
+      .mockResolvedValueOnce(scheduledSession())
+      .mockResolvedValueOnce(individualLesson());
 
     await expect(
       service.requestMeetingGeneration(lessonId, sessionId, teacherId, MeetingProvider.GOOGLE_MEET),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'MEETING_ACCOUNT_NOT_CONNECTED', provider: MeetingProvider.GOOGLE_MEET }),
+      response: expect.objectContaining({
+        code: 'MEETING_ACCOUNT_NOT_CONNECTED',
+        provider: MeetingProvider.GOOGLE_MEET,
+      }),
     });
   });
 
@@ -408,9 +445,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       registryFind: jest.fn().mockReturnValue(configuredClient()),
       findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
     });
-    manager.findOne.mockResolvedValueOnce(
-      scheduledSession({ meeting_status: MeetingCreationStatus.PENDING }),
-    ).mockResolvedValueOnce(individualLesson());
+    manager.findOne
+      .mockResolvedValueOnce(scheduledSession({ meeting_status: MeetingCreationStatus.PENDING }))
+      .mockResolvedValueOnce(individualLesson());
 
     await expect(
       service.requestMeetingGeneration(lessonId, sessionId, teacherId, MeetingProvider.GOOGLE_MEET),
@@ -436,7 +473,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       registryFind: jest.fn().mockReturnValue(configuredClient()),
       findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
     });
-    manager.findOne.mockResolvedValueOnce(scheduledSession()).mockResolvedValueOnce(individualLesson());
+    manager.findOne
+      .mockResolvedValueOnce(scheduledSession())
+      .mockResolvedValueOnce(individualLesson());
 
     const result = await service.requestMeetingGeneration(
       lessonId,
@@ -459,7 +498,9 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
     });
     manager.findOne
-      .mockResolvedValueOnce(scheduledSession({ meeting_status: MeetingCreationStatus.FAILED, meeting_error: 'boom' }))
+      .mockResolvedValueOnce(
+        scheduledSession({ meeting_status: MeetingCreationStatus.FAILED, meeting_error: 'boom' }),
+      )
       .mockResolvedValueOnce(individualLesson());
 
     const result = await service.requestMeetingGeneration(
@@ -469,7 +510,10 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       MeetingProvider.GOOGLE_MEET,
     );
 
-    expect(result).toMatchObject({ meeting_status: MeetingCreationStatus.PENDING, meeting_error: null });
+    expect(result).toMatchObject({
+      meeting_status: MeetingCreationStatus.PENDING,
+      meeting_error: null,
+    });
     expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
@@ -482,15 +526,17 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       createQueryBuilder: jest.fn().mockReturnValue(
         (() => {
           const q = chainableQuery(['where', 'andWhere']);
-          q['getOne'] = jest.fn().mockResolvedValue({ status: LessonSessionBookingStatus.CONFIRMED });
+          q['getOne'] = jest
+            .fn()
+            .mockResolvedValue({ status: LessonSessionBookingStatus.CONFIRMED });
           return q;
         })(),
       ),
     });
 
-    await expect(service.clearMeetingGeneration(lessonId, sessionId, teacherId)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.clearMeetingGeneration(lessonId, sessionId, teacherId),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('clearMeetingGeneration resets a ready slot and best-effort deletes it at the provider', async () => {
@@ -499,9 +545,13 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     overlapQuery['getOne'] = jest.fn().mockResolvedValue(null);
     const { service, manager, accounts } = buildService({
       registryFind: jest.fn().mockReturnValue(client),
-      getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+      getUsableAccount: jest
+        .fn()
+        .mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
       manager: {
-        getRepository: jest.fn().mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
+        getRepository: jest
+          .fn()
+          .mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlapQuery) }),
       },
     });
     manager.findOne.mockResolvedValueOnce(
@@ -515,14 +565,21 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
 
     const result = await service.clearMeetingGeneration(lessonId, sessionId, teacherId);
 
-    expect(result).toMatchObject({ meeting_status: MeetingCreationStatus.NOT_REQUESTED, meeting_url: null });
+    expect(result).toMatchObject({
+      meeting_status: MeetingCreationStatus.NOT_REQUESTED,
+      meeting_url: null,
+    });
     expect(accounts.getUsableAccount).toHaveBeenCalledWith(teacherId, MeetingProvider.GOOGLE_MEET);
     expect(client.deleteMeeting).toHaveBeenCalledWith('token', 'ext-1');
   });
 
   it('provisionMeeting is a no-op when the row is no longer pending (duplicate job, AD-8)', async () => {
     const { service, repository } = buildService({
-      repository: { update: jest.fn().mockResolvedValue({ affected: 0 }), findOne: jest.fn(), save: jest.fn() },
+      repository: {
+        update: jest.fn().mockResolvedValue({ affected: 0 }),
+        findOne: jest.fn(),
+        save: jest.fn(),
+      },
     });
 
     await service.provisionMeeting(sessionId);
@@ -541,11 +598,16 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     });
     const { service, repository } = buildService({
       registryFind: jest.fn().mockReturnValue(client),
-      getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+      getUsableAccount: jest
+        .fn()
+        .mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
       repository: {
         update: jest.fn().mockResolvedValue({ affected: 1 }),
         findOne: jest.fn().mockResolvedValue(
-          scheduledSession({ meeting_status: MeetingCreationStatus.CREATING, meeting_provider: MeetingProvider.GOOGLE_MEET }),
+          scheduledSession({
+            meeting_status: MeetingCreationStatus.CREATING,
+            meeting_provider: MeetingProvider.GOOGLE_MEET,
+          }),
         ),
         save: jest.fn(async (value: unknown) => value),
       },
@@ -563,14 +625,21 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
   });
 
   it('provisionMeeting marks the session failed when the provider call throws', async () => {
-    const client = configuredClient({ createMeeting: jest.fn().mockRejectedValue(new Error('provider down')) });
+    const client = configuredClient({
+      createMeeting: jest.fn().mockRejectedValue(new Error('provider down')),
+    });
     const { service, repository } = buildService({
       registryFind: jest.fn().mockReturnValue(client),
-      getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+      getUsableAccount: jest
+        .fn()
+        .mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
       repository: {
         update: jest.fn().mockResolvedValue({ affected: 1 }),
         findOne: jest.fn().mockResolvedValue(
-          scheduledSession({ meeting_status: MeetingCreationStatus.CREATING, meeting_provider: MeetingProvider.GOOGLE_MEET }),
+          scheduledSession({
+            meeting_status: MeetingCreationStatus.CREATING,
+            meeting_provider: MeetingProvider.GOOGLE_MEET,
+          }),
         ),
         save: jest.fn(async (value: unknown) => value),
       },
@@ -579,7 +648,10 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     await service.provisionMeeting(sessionId);
 
     expect(repository['save']).toHaveBeenCalledWith(
-      expect.objectContaining({ meeting_status: MeetingCreationStatus.FAILED, meeting_error: 'provider down' }),
+      expect.objectContaining({
+        meeting_status: MeetingCreationStatus.FAILED,
+        meeting_error: 'provider down',
+      }),
     );
   });
 
@@ -594,11 +666,15 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
   }
 
   it('provisionMeeting fires a meeting_creation_failed notification, deduped by attempt (Phase 8)', async () => {
-    const client = configuredClient({ createMeeting: jest.fn().mockRejectedValue(new Error('provider down')) });
+    const client = configuredClient({
+      createMeeting: jest.fn().mockRejectedValue(new Error('provider down')),
+    });
     const userRepo = { findOne: jest.fn().mockResolvedValue(teacherFixture()) };
     const { service, queryBuilder } = buildService({
       registryFind: jest.fn().mockReturnValue(client),
-      getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+      getUsableAccount: jest
+        .fn()
+        .mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
       repository: {
         update: jest.fn().mockResolvedValue({ affected: 1 }),
         findOne: jest.fn().mockResolvedValue(
@@ -755,9 +831,10 @@ describe('LessonSessionsService meeting-URL exposure invariant (Phase 9)', () =>
   });
 
   it('toStudentBooking never includes meeting_host_url or meeting_passcode, held or confirmed', () => {
-    const toStudentBooking = accessPrivate<
-      (booking: LessonSessionBooking, session: ScheduledLessonSession) => Record<string, unknown>
-    >('toStudentBooking');
+    const toStudentBooking =
+      accessPrivate<
+        (booking: LessonSessionBooking, session: ScheduledLessonSession) => Record<string, unknown>
+      >('toStudentBooking');
     const session = fullSession();
     for (const status of [LessonSessionBookingStatus.HELD, LessonSessionBookingStatus.CONFIRMED]) {
       const result = toStudentBooking.call(
@@ -772,11 +849,15 @@ describe('LessonSessionsService meeting-URL exposure invariant (Phase 9)', () =>
   });
 
   it('toStudentBooking exposes meeting_url only once the booking is confirmed — held and payment_review both see null', () => {
-    const toStudentBooking = accessPrivate<
-      (booking: LessonSessionBooking, session: ScheduledLessonSession) => Record<string, unknown>
-    >('toStudentBooking');
+    const toStudentBooking =
+      accessPrivate<
+        (booking: LessonSessionBooking, session: ScheduledLessonSession) => Record<string, unknown>
+      >('toStudentBooking');
     const session = fullSession();
-    for (const status of [LessonSessionBookingStatus.HELD, LessonSessionBookingStatus.PAYMENT_REVIEW]) {
+    for (const status of [
+      LessonSessionBookingStatus.HELD,
+      LessonSessionBookingStatus.PAYMENT_REVIEW,
+    ]) {
       const result = toStudentBooking.call(
         service,
         { id: 'booking-1', status } as LessonSessionBooking,

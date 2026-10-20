@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
@@ -36,11 +23,7 @@ export class ReviewsTeacherController {
     @Query() filter: ReviewFilterDto,
     @GetUser() user: JwtPayload,
   ): Promise<unknown> {
-    return this.reviewsService.getTeacherLessonReviews(
-      user.userId,
-      filter.page,
-      filter.limit,
-    );
+    return this.reviewsService.getTeacherLessonReviews(user.userId, filter.page, filter.limit);
   }
 
   @Post(':reviewId/reply')

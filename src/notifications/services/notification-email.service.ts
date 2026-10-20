@@ -95,9 +95,7 @@ export class NotificationEmailService {
         requestPayload: { ...message },
       });
       if (!claim.claimed) {
-        return claim.delivery.status === NotificationDeliveryStatus.SENT
-          ? 'queued'
-          : 'failed';
+        return claim.delivery.status === NotificationDeliveryStatus.SENT ? 'queued' : 'failed';
       }
       const queued = await this.mail.send({
         ...message,

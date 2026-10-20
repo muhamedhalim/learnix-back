@@ -846,6 +846,9 @@ jobs:
         if: steps.image.outputs.exists == 'false'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1 (the unprefixed tag 0.33.1 does not exist)
         with:
+          # Pinned explicitly: the action's default (v0.65.0) was withdrawn from GitHub releases, so the install
+          # step failed and blocked every deploy (run 39478524694). workflow-policy.test.mjs requires a pin.
+          version: v0.75.0
           image-ref: ${{ env.IMAGE }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true

@@ -25,11 +25,7 @@ import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { queueJobId } from '../queues/job-id.util';
 import { User } from '../users/entities/user.entity';
 import { EGP_CURRENCY, toMinorUnits } from '../payments/money.util';
-import {
-  CancelLessonSessionDto,
-  CreateLessonSessionSlotDto,
-  UpdateLessonSessionDto,
-} from './dto';
+import { CancelLessonSessionDto, CreateLessonSessionSlotDto, UpdateLessonSessionDto } from './dto';
 import { Lesson } from './entities/lesson.entity';
 import {
   ACTIVE_LESSON_SESSION_BOOKING_STATUSES,
@@ -121,7 +117,10 @@ export class LessonSessionsService {
   ): Promise<ScheduledLessonSession[]> {
     if (lesson.is_group || lesson.teacher_id !== teacherId) {
       throw new BadRequestException(
-        biBody('Only an owned Individual lesson can have appointments', 'يمكن إضافة المواعيد إلى درس فردي مملوك فقط'),
+        biBody(
+          'Only an owned Individual lesson can have appointments',
+          'يمكن إضافة المواعيد إلى درس فردي مملوك فقط',
+        ),
       );
     }
     await this.lockTeacherCalendar(manager, teacherId);
@@ -145,7 +144,9 @@ export class LessonSessionsService {
             status: ScheduledLessonSessionStatus.SCHEDULED,
             meeting_url: meetingUrl,
             meeting_provider: meetingProvider,
-            meeting_status: meetingUrl ? MeetingCreationStatus.READY : MeetingCreationStatus.NOT_REQUESTED,
+            meeting_status: meetingUrl
+              ? MeetingCreationStatus.READY
+              : MeetingCreationStatus.NOT_REQUESTED,
             meeting_ready_at: meetingUrl ? new Date() : null,
             cancellation_reason: null,
             cancellation_requested_at: null,
@@ -168,14 +169,16 @@ export class LessonSessionsService {
       .andWhere('session.status = :status', { status: ScheduledLessonSessionStatus.SCHEDULED })
       .andWhere('session.start_at > :cutoff', { cutoff })
       .andWhere('session.meeting_url IS NOT NULL')
-      .andWhere(`NOT EXISTS (
+      .andWhere(
+        `NOT EXISTS (
         SELECT 1 FROM lesson_session_bookings booking
         WHERE booking.scheduled_session_id = session.id
           AND (
             booking.status IN ('payment_review', 'confirmed')
             OR (booking.status = 'held' AND booking.hold_expires_at > NOW())
           )
-      )`)
+      )`,
+      )
       .orderBy('session.start_at', 'ASC')
       .getMany();
     return sessions.map((session) => this.toSafeSession(session));
@@ -307,7 +310,10 @@ export class LessonSessionsService {
     const cutoff = new Date(Date.now() - this.meetingProvisioningStuckMinutes * 60_000);
     const repository = this.dataSource.getRepository(ScheduledLessonSession);
     const stuck = await repository.find({
-      where: { meeting_status: MeetingCreationStatus.CREATING, meeting_requested_at: LessThanOrEqual(cutoff) },
+      where: {
+        meeting_status: MeetingCreationStatus.CREATING,
+        meeting_requested_at: LessThanOrEqual(cutoff),
+      },
       relations: ['lesson'],
     });
     for (const session of stuck) {
@@ -368,7 +374,8 @@ export class LessonSessionsService {
       const session = await this.lockOwnedSession(manager, lessonId, sessionId, teacherId);
       const active = await this.findActiveBooking(manager, session.id);
       const changesTime = dto.start_at !== undefined || dto.end_at !== undefined;
-      if (active && active.status !== LessonSessionBookingStatus.CONFIRMED) throw this.unavailable();
+      if (active && active.status !== LessonSessionBookingStatus.CONFIRMED)
+        throw this.unavailable();
       if (active?.status === LessonSessionBookingStatus.CONFIRMED && changesTime) {
         throw new ConflictException(
           biBody(
@@ -413,7 +420,10 @@ export class LessonSessionsService {
           );
         }
         const nextUrl = dto.meeting_url.trim();
-        if (active?.status === LessonSessionBookingStatus.CONFIRMED && nextUrl !== session.meeting_url) {
+        if (
+          active?.status === LessonSessionBookingStatus.CONFIRMED &&
+          nextUrl !== session.meeting_url
+        ) {
           meetingLinkChangedForBooking = active.id;
         }
         session.meeting_url = nextUrl;
@@ -458,7 +468,8 @@ export class LessonSessionsService {
       await manager.save(session);
       return this.toPrivilegedSession(session);
     });
-    if (confirmedBookingId) await this.notifyBookingEvent(confirmedBookingId, 'cancellation_pending');
+    if (confirmedBookingId)
+      await this.notifyBookingEvent(confirmedBookingId, 'cancellation_pending');
     return result;
   }
 
@@ -482,11 +493,17 @@ export class LessonSessionsService {
       // 2. Individual lesson only.
       if (lesson.is_group) {
         throw new BadRequestException(
-          biBody('Group lessons cannot have meetings', 'لا يمكن أن تحتوي الدروس الجماعية على اجتماعات'),
+          biBody(
+            'Group lessons cannot have meetings',
+            'لا يمكن أن تحتوي الدروس الجماعية على اجتماعات',
+          ),
         );
       }
       // 3. Valid future scheduled session.
-      if (locked.status !== ScheduledLessonSessionStatus.SCHEDULED || locked.start_at <= new Date()) {
+      if (
+        locked.status !== ScheduledLessonSessionStatus.SCHEDULED ||
+        locked.start_at <= new Date()
+      ) {
         throw this.unavailable();
       }
       // 4. Provider selected and configured.
@@ -564,7 +581,9 @@ export class LessonSessionsService {
           locked.meeting_status !== MeetingCreationStatus.READY &&
           locked.meeting_status !== MeetingCreationStatus.FAILED
         ) {
-          throw new ConflictException(biBody('There is no meeting to remove', 'لا يوجد اجتماع لإزالته'));
+          throw new ConflictException(
+            biBody('There is no meeting to remove', 'لا يوجد اجتماع لإزالته'),
+          );
         }
         const active = await this.findActiveBooking(manager, locked.id);
         if (active?.status === LessonSessionBookingStatus.CONFIRMED) {
@@ -596,7 +615,9 @@ export class LessonSessionsService {
       const account = await this.meetingAccounts.getUsableAccount(teacherId, providerToDelete);
       const client = this.meetingProviders.find(providerToDelete);
       if (client && account?.access_token_encrypted) {
-        await client.deleteMeeting(account.access_token_encrypted, externalId).catch(() => undefined);
+        await client
+          .deleteMeeting(account.access_token_encrypted, externalId)
+          .catch(() => undefined);
       }
     }
     return session;
@@ -627,7 +648,9 @@ export class LessonSessionsService {
       : null;
     if (!client || !account || !account.access_token_encrypted) {
       session.meeting_status = MeetingCreationStatus.FAILED;
-      session.meeting_error = !client ? 'Meeting provider is not available' : 'Meeting account is not connected';
+      session.meeting_error = !client
+        ? 'Meeting provider is not available'
+        : 'Meeting account is not connected';
       session.meeting_attempts += 1;
       await repository.save(session).catch(() => undefined);
       // `getUsableAccount` above may have just flipped a CONNECTED account to
@@ -636,9 +659,9 @@ export class LessonSessionsService {
       // `meeting_account_expired` notification (Phase 8), distinct from the
       // per-attempt `meeting_creation_failed` below which always fires.
       if (client) {
-        const accountRow = await this.dataSource
-          .getRepository(TeacherMeetingAccount)
-          .findOne({ where: { teacher_id: session.teacher_id, provider: session.meeting_provider } });
+        const accountRow = await this.dataSource.getRepository(TeacherMeetingAccount).findOne({
+          where: { teacher_id: session.teacher_id, provider: session.meeting_provider },
+        });
         if (
           accountRow &&
           (accountRow.status === TeacherMeetingAccountStatus.EXPIRED ||
@@ -679,7 +702,9 @@ export class LessonSessionsService {
         // (two calls landed two different external ids). This call is the
         // loser — clean up the meeting it just created rather than leave it
         // orphaned on the teacher's account.
-        await client.deleteMeeting(account.access_token_encrypted, result.externalId).catch(() => undefined);
+        await client
+          .deleteMeeting(account.access_token_encrypted, result.externalId)
+          .catch(() => undefined);
         session.meeting_status = MeetingCreationStatus.FAILED;
         session.meeting_error = 'This meeting already exists';
         session.external_meeting_id = null;
@@ -698,7 +723,10 @@ export class LessonSessionsService {
     }
   }
 
-  public async getCheckoutProduct(sessionId: string, manager?: EntityManager): Promise<{
+  public async getCheckoutProduct(
+    sessionId: string,
+    manager?: EntityManager,
+  ): Promise<{
     session: ScheduledLessonSession;
     lesson: Lesson;
   }> {
@@ -746,7 +774,9 @@ export class LessonSessionsService {
       lock: { mode: 'pessimistic_write' },
     });
     const session = booking
-      ? await manager.findOne(ScheduledLessonSession, { where: { id: booking.scheduled_session_id } })
+      ? await manager.findOne(ScheduledLessonSession, {
+          where: { id: booking.scheduled_session_id },
+        })
       : null;
     const now = new Date();
     if (
@@ -786,9 +816,13 @@ export class LessonSessionsService {
       lock: { mode: 'pessimistic_write' },
     });
     const session = booking
-      ? await manager.findOne(ScheduledLessonSession, { where: { id: booking.scheduled_session_id } })
+      ? await manager.findOne(ScheduledLessonSession, {
+          where: { id: booking.scheduled_session_id },
+        })
       : null;
-    const lesson = session ? await manager.findOne(Lesson, { where: { id: session.lesson_id } }) : null;
+    const lesson = session
+      ? await manager.findOne(Lesson, { where: { id: session.lesson_id } })
+      : null;
     if (
       !booking ||
       !session ||
@@ -889,7 +923,8 @@ export class LessonSessionsService {
       .innerJoinAndSelect('session.teacher', 'teacher')
       .innerJoinAndSelect('booking.student', 'student')
       .where('booking.status = :status', { status: LessonSessionBookingStatus.CONFIRMED })
-      .andWhere(`(
+      .andWhere(
+        `(
         ${missingKey('confirmed', 'booking.student_id')}
         OR ${missingKey('confirmed', 'session.teacher_id')}
         OR (
@@ -906,7 +941,9 @@ export class LessonSessionsService {
             OR ${missingKey('reminder_1h', 'session.teacher_id')}
           )
         )
-      )`, { now, oneHourMinusSlack, oneHourPlusSlack, horizonPlusSlack })
+      )`,
+        { now, oneHourMinusSlack, oneHourPlusSlack, horizonPlusSlack },
+      )
       .getMany();
     for (const booking of bookings) {
       await this.notifyBookingEvent(booking.id, 'confirmed', booking);
@@ -929,8 +966,11 @@ export class LessonSessionsService {
       .innerJoinAndSelect('session.teacher', 'teacher')
       .innerJoinAndSelect('booking.student', 'student')
       .where('booking.status = :status', { status: LessonSessionBookingStatus.REFUNDED })
-      .andWhere('session.status = :sessionStatus', { sessionStatus: ScheduledLessonSessionStatus.CANCELLED })
-      .andWhere(`(
+      .andWhere('session.status = :sessionStatus', {
+        sessionStatus: ScheduledLessonSessionStatus.CANCELLED,
+      })
+      .andWhere(
+        `(
         NOT EXISTS (
           SELECT 1 FROM notifications notification
           WHERE notification.dedupe_key = CONCAT(
@@ -943,7 +983,8 @@ export class LessonSessionsService {
             'lesson-session:', session.id, ':booking:', booking.id, ':cancelled:', session.teacher_id
           )
         )
-      )`)
+      )`,
+      )
       .getMany();
     for (const booking of cancelledBookings) {
       await this.notifyBookingEvent(booking.id, 'cancelled', booking);
@@ -957,7 +998,13 @@ export class LessonSessionsService {
 
   private async notifyBookingEvent(
     bookingId: string,
-    event: 'confirmed' | 'reminder_24h' | 'reminder_1h' | 'meeting_link_updated' | 'cancellation_pending' | 'cancelled',
+    event:
+      | 'confirmed'
+      | 'reminder_24h'
+      | 'reminder_1h'
+      | 'meeting_link_updated'
+      | 'cancellation_pending'
+      | 'cancelled',
     _loaded?: LessonSessionBooking,
   ): Promise<void> {
     const booking = await retryTransaction(this.dataSource, async (manager) => {
@@ -976,7 +1023,10 @@ export class LessonSessionsService {
         where: { id: bookingId },
         relations: ['session', 'session.lesson', 'session.teacher', 'student'],
       });
-      if (event === 'cancellation_pending' && current?.session.status !== ScheduledLessonSessionStatus.CANCELLATION_PENDING) {
+      if (
+        event === 'cancellation_pending' &&
+        current?.session.status !== ScheduledLessonSessionStatus.CANCELLATION_PENDING
+      ) {
         return null;
       }
       if (
@@ -1088,7 +1138,9 @@ export class LessonSessionsService {
    * *same* attempt is collapsed by `orIgnore`.
    */
   private async notifyMeetingCreationFailed(session: ScheduledLessonSession): Promise<void> {
-    const teacher = await this.dataSource.getRepository(User).findOne({ where: { id: session.teacher_id } });
+    const teacher = await this.dataSource
+      .getRepository(User)
+      .findOne({ where: { id: session.teacher_id } });
     if (!teacher) return;
     const arabic = teacher.preferred_language === 'ar';
     const start = session.start_at.toISOString();
@@ -1128,7 +1180,9 @@ export class LessonSessionsService {
    * `notifyMeetingCreationFailed` above, which is intentionally per-attempt).
    */
   private async notifyMeetingAccountExpired(account: TeacherMeetingAccount): Promise<void> {
-    const teacher = await this.dataSource.getRepository(User).findOne({ where: { id: account.teacher_id } });
+    const teacher = await this.dataSource
+      .getRepository(User)
+      .findOne({ where: { id: account.teacher_id } });
     if (!teacher) return;
     const arabic = teacher.preferred_language === 'ar';
     const copy = arabic
@@ -1147,12 +1201,22 @@ export class LessonSessionsService {
       sourceEvent: 'meeting_account_expired',
       title: copy.title,
       message: copy.message,
-      data: { meeting_account_id: account.id, provider: account.provider, event: 'meeting_account_expired' },
+      data: {
+        meeting_account_id: account.id,
+        provider: account.provider,
+        event: 'meeting_account_expired',
+      },
     });
   }
 
   private notificationCopy(
-    event: 'confirmed' | 'reminder_24h' | 'reminder_1h' | 'meeting_link_updated' | 'cancellation_pending' | 'cancelled',
+    event:
+      | 'confirmed'
+      | 'reminder_24h'
+      | 'reminder_1h'
+      | 'meeting_link_updated'
+      | 'cancellation_pending'
+      | 'cancelled',
     lessonTitle: string,
     start: string,
     arabic: boolean,
@@ -1160,7 +1224,10 @@ export class LessonSessionsService {
     if (event === 'confirmed') {
       return arabic
         ? { title: 'تم تأكيد الموعد الفردي', message: `تم تأكيد ${lessonTitle} في ${start}.` }
-        : { title: 'One-to-one appointment confirmed', message: `${lessonTitle} is confirmed for ${start}.` };
+        : {
+            title: 'One-to-one appointment confirmed',
+            message: `${lessonTitle} is confirmed for ${start}.`,
+          };
     }
     if (event === 'reminder_24h') {
       return arabic
@@ -1174,13 +1241,22 @@ export class LessonSessionsService {
     }
     if (event === 'meeting_link_updated') {
       return arabic
-        ? { title: 'تم تحديث رابط الاجتماع', message: `تم تحديث رابط اجتماع ${lessonTitle} في ${start}.` }
-        : { title: 'Meeting link updated', message: `The meeting link for ${lessonTitle} at ${start} was updated.` };
+        ? {
+            title: 'تم تحديث رابط الاجتماع',
+            message: `تم تحديث رابط اجتماع ${lessonTitle} في ${start}.`,
+          }
+        : {
+            title: 'Meeting link updated',
+            message: `The meeting link for ${lessonTitle} at ${start} was updated.`,
+          };
     }
     if (event === 'cancelled') {
       return arabic
         ? { title: 'تم إلغاء الموعد', message: `تم إلغاء ${lessonTitle} في ${start} ورد المبلغ.` }
-        : { title: 'Appointment cancelled', message: `${lessonTitle} at ${start} was cancelled and refunded.` };
+        : {
+            title: 'Appointment cancelled',
+            message: `${lessonTitle} at ${start} was cancelled and refunded.`,
+          };
     }
     return arabic
       ? {
@@ -1213,7 +1289,10 @@ export class LessonSessionsService {
       startAt <= new Date()
     ) {
       throw new BadRequestException(
-        biBody('Session times must define a valid future interval', 'يجب أن تحدد أوقات الجلسة فترة صحيحة في المستقبل'),
+        biBody(
+          'Session times must define a valid future interval',
+          'يجب أن تحدد أوقات الجلسة فترة صحيحة في المستقبل',
+        ),
       );
     }
   }
@@ -1295,7 +1374,10 @@ export class LessonSessionsService {
     if (excludeId) query.andWhere('session.id <> :excludeId', { excludeId });
     if (await query.getExists()) {
       throw new ConflictException(
-        biBody('This appointment overlaps another teacher appointment', 'يتداخل هذا الموعد مع موعد آخر للمعلم'),
+        biBody(
+          'This appointment overlaps another teacher appointment',
+          'يتداخل هذا الموعد مع موعد آخر للمعلم',
+        ),
       );
     }
   }
@@ -1371,7 +1453,12 @@ export class LessonSessionsService {
           booking.status === LessonSessionBookingStatus.CONFIRMED ? session.meeting_url : null,
       },
       lesson: lesson
-        ? { id: lesson.id, title: lesson.title, duration: lesson.duration, teacher_id: lesson.teacher_id }
+        ? {
+            id: lesson.id,
+            title: lesson.title,
+            duration: lesson.duration,
+            teacher_id: lesson.teacher_id,
+          }
         : undefined,
       teacher: teacher ? { id: teacher.id, name: teacher.name } : undefined,
     };
@@ -1421,13 +1508,13 @@ export class LessonSessionsService {
       status: booking.status,
       created_at: booking.created_at,
       student:
-        mayShowStudent && booking.student ? { id: booking.student.id, name: booking.student.name } : null,
+        mayShowStudent && booking.student
+          ? { id: booking.student.id, name: booking.student.name }
+          : null,
       order: booking.order
         ? { id: booking.order.id, number: booking.order.order_number, status: booking.order.status }
         : null,
-      payment: booking.payment
-        ? { id: booking.payment.id, status: booking.payment.status }
-        : null,
+      payment: booking.payment ? { id: booking.payment.id, status: booking.payment.status } : null,
     };
   }
 }

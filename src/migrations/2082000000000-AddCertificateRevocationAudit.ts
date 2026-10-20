@@ -41,9 +41,7 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
 
   public async up(q: QueryRunner): Promise<void> {
     await q.query(`ALTER TABLE "certificates" ADD COLUMN IF NOT EXISTS "revoked_by" uuid`);
-    await q.query(
-      `ALTER TABLE "certificates" ADD COLUMN IF NOT EXISTS "revocation_context" jsonb`,
-    );
+    await q.query(`ALTER TABLE "certificates" ADD COLUMN IF NOT EXISTS "revocation_context" jsonb`);
     await q.query(
       `ALTER TABLE "certificate_history" ADD COLUMN IF NOT EXISTS "revocation_context" jsonb`,
     );
@@ -134,9 +132,7 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
              "revoke_reason" = NULL
        WHERE "revocation_context" ->> 'source' = 'refund_backfill'
     `);
-    await q.query(
-      `ALTER TABLE "certificate_history" DROP COLUMN IF EXISTS "revocation_context"`,
-    );
+    await q.query(`ALTER TABLE "certificate_history" DROP COLUMN IF EXISTS "revocation_context"`);
     await q.query(`ALTER TABLE "certificates" DROP COLUMN IF EXISTS "revocation_context"`);
     await q.query(`ALTER TABLE "certificates" DROP COLUMN IF EXISTS "revoked_by"`);
   }

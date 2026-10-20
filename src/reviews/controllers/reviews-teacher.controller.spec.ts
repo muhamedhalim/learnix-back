@@ -33,7 +33,11 @@ describe('ReviewsTeacherController', () => {
 
     await controller.reply('review-1', { reply: 'Thanks' }, authenticatedTeacher);
 
-    expect(reviewsService.replyToLessonReview).toHaveBeenCalledWith('review-1', 'teacher-1', 'Thanks');
+    expect(reviewsService.replyToLessonReview).toHaveBeenCalledWith(
+      'review-1',
+      'teacher-1',
+      'Thanks',
+    );
   });
 
   it('replies to a profile review as the authenticated teacher', async () => {
@@ -41,6 +45,10 @@ describe('ReviewsTeacherController', () => {
 
     await controller.replyToProfileReview('review-2', { reply: 'Thanks' }, authenticatedTeacher);
 
-    expect(reviewsService.replyToTeacherReview).toHaveBeenCalledWith('review-2', 'teacher-1', 'Thanks');
+    expect(reviewsService.replyToTeacherReview).toHaveBeenCalledWith(
+      'review-2',
+      'teacher-1',
+      'Thanks',
+    );
   });
 });

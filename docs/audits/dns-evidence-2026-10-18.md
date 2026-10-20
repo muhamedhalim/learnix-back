@@ -1,4 +1,5 @@
 # learnix.school DNS evidence captured 2026-10-18 (public resolver cache of the Cloudflare era vs Vercel authoritative)
+
 ```
 
 ##### server 1.1.1.1
