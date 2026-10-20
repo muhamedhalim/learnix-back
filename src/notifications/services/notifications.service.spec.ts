@@ -1,4 +1,8 @@
-import { AdminNotificationEvent } from '../constants/admin-notification-events';
+import {
+  ADMIN_INBOX_ALWAYS_ELIGIBLE_EVENTS,
+  AdminNotificationEvent,
+} from '../constants/admin-notification-events';
+import { AdminNotificationCategory } from '../entities/admin-notification-category.enum';
 import { NotificationOrigin } from '../entities/notification-origin.enum';
 import { NotificationsService } from './notifications.service';
 
@@ -37,7 +41,7 @@ function buildService(qb: ReturnType<typeof buildQueryBuilder>) {
 }
 
 describe('NotificationsService.findAllForUser', () => {
-  it("restricts an admin's own inbox to the cataloged admin-notification allow-list", async () => {
+  it("restricts an admin's own inbox to business notifications, excluding monitoring alerts", async () => {
     const qb = buildQueryBuilder();
     const { service } = buildService(qb);
 
@@ -46,10 +50,20 @@ describe('NotificationsService.findAllForUser', () => {
     expect(qb.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('notification.source_event IN'),
       expect.objectContaining({
-        adminEvents: Object.values(AdminNotificationEvent),
-        operationalOrigin: NotificationOrigin.OPERATIONAL,
+        inboxEvents: [...ADMIN_INBOX_ALWAYS_ELIGIBLE_EVENTS],
+        inboxOperationalEvent: AdminNotificationEvent.OPERATIONAL_ALERT,
+        inboxOperationalCategories: [
+          AdminNotificationCategory.FINANCIAL,
+          AdminNotificationCategory.SECURITY,
+        ],
+        inboxOperationalOrigin: NotificationOrigin.OPERATIONAL,
       }),
     );
+    // `operational_alert` is only admitted through its category-gated clause.
+    const params = qb.andWhere.mock.calls.find(([sql]) =>
+      String(sql).includes('source_event IN'),
+    )?.[1] as { inboxEvents: string[] };
+    expect(params.inboxEvents).not.toContain(AdminNotificationEvent.OPERATIONAL_ALERT);
   });
 
   it('does not restrict a student, teacher, or call-center inbox', async () => {
@@ -89,8 +103,11 @@ describe('NotificationsService.getUnreadCount', () => {
     expect(qb.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('notification.source_event IN'),
       expect.objectContaining({
-        adminEvents: Object.values(AdminNotificationEvent),
-        operationalOrigin: NotificationOrigin.OPERATIONAL,
+        inboxEvents: [...ADMIN_INBOX_ALWAYS_ELIGIBLE_EVENTS],
+        inboxOperationalCategories: [
+          AdminNotificationCategory.FINANCIAL,
+          AdminNotificationCategory.SECURITY,
+        ],
       }),
     );
   });
@@ -171,7 +188,11 @@ describe('NotificationsService.createMany (T069)', () => {
   }
 
   function harness(
-    options: { failInsertAtCall?: number; failSaveForUserIds?: string[]; pushManyFails?: boolean } = {},
+    options: {
+      failInsertAtCall?: number;
+      failSaveForUserIds?: string[];
+      pushManyFails?: boolean;
+    } = {},
   ): Harness {
     const calls: string[] = [];
     const valuesArgs: Harness['valuesArgs'] = [];
@@ -196,7 +217,8 @@ describe('NotificationsService.createMany (T069)', () => {
       createQueryBuilder: jest.fn().mockReturnValue(insertQb),
       create: jest.fn((value: unknown) => value),
       save: jest.fn(async (entity: { user_id: string }) => {
-        if (options.failSaveForUserIds?.includes(entity.user_id)) throw new Error('row insert failed');
+        if (options.failSaveForUserIds?.includes(entity.user_id))
+          throw new Error('row insert failed');
         calls.push(`save:${entity.user_id}`);
         return { ...entity, id: `n-${entity.user_id}` };
       }),
@@ -310,7 +332,9 @@ describe('NotificationsService.createMany (T069)', () => {
   it('refuses a row that asks for SMS instead of silently skipping the guardian fan-out', async () => {
     const { service, repo } = harness();
 
-    await expect(service.createMany(rowsFor(2, { send_sms: true }))).rejects.toThrow(/never sends SMS/);
+    await expect(service.createMany(rowsFor(2, { send_sms: true }))).rejects.toThrow(
+      /never sends SMS/,
+    );
     await expect(service.createMany(rowsFor(2, { send_sms: undefined }))).rejects.toThrow(
       /never sends SMS/,
     );

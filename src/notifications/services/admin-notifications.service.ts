@@ -8,12 +8,28 @@ import { UserRole } from '../../users/entities/user-role.enum';
 import {
   ADMIN_NOTIFICATION_CATALOG,
   AdminNotificationEvent,
+  isAdminInboxEligible,
 } from '../constants/admin-notification-events';
 import { AdminNotificationCategory } from '../entities/admin-notification-category.enum';
 import { NotificationOrigin } from '../entities/notification-origin.enum';
 import { NotificationPriority } from '../entities/notification-priority.enum';
 import { NotificationType } from '../entities/notification-type.enum';
 import { NotificationsService } from './notifications.service';
+
+/**
+ * Thrown when a caller tries to put a non-business (technical/monitoring)
+ * signal into the admin inbox. Technical alerts belong on the health console,
+ * email and the alert webhook — see `OperationalAlertService`.
+ */
+export class TechnicalAdminNotificationRejectedError extends Error {
+  public constructor(event: AdminNotificationEvent, category: AdminNotificationCategory) {
+    super(
+      `Admin notification "${event}" with category "${category}" is not a business notification ` +
+        'and is not allowed in the admin inbox',
+    );
+    this.name = 'TechnicalAdminNotificationRejectedError';
+  }
+}
 
 /** Never fan a single alert out to more admins than this. */
 const MAX_ADMIN_RECIPIENTS = 100;
@@ -66,6 +82,12 @@ export class AdminNotificationsService {
     const defaults = ADMIN_NOTIFICATION_CATALOG[event];
     const priority = params.priority ?? defaults.priority;
     const category = params.category ?? defaults.category;
+    // Persistence boundary: a technical/monitoring signal must never become an
+    // admin business notification, whichever producer routes it here. Loud on
+    // purpose — reaching this is a producer bug, not a legitimate skip.
+    if (!isAdminInboxEligible(event, category)) {
+      throw new TechnicalAdminNotificationRejectedError(event, category);
+    }
     const data =
       params.link !== undefined ? { href: params.link, ...(params.data ?? {}) } : params.data;
 

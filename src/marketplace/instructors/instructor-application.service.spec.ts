@@ -98,6 +98,18 @@ describe('InstructorApplicationService', () => {
       expect(applications.save).toHaveBeenCalled();
     });
 
+    it('applies the empty-draft defaults even when omitted DTO fields are explicit undefined keys', async () => {
+      const { service, applications } = buildService([]);
+      // What ValidationPipe({ transform: true }) hands over for an empty request body.
+      await service.createDraft('user-1', { display_name: undefined, years_of_experience: undefined });
+
+      const created = applications.create.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(created['display_name']).toBe('');
+      expect(created['years_of_experience']).toBe(0);
+      expect(created['user_id']).toBe('user-1');
+      expect(created['status']).toBe(InstructorApplicationStatus.DRAFT);
+    });
+
     it('refuses when a unique-index conflict is raised (an open application already exists, FR-015)', async () => {
       const { service, applications } = buildService([]);
       const error = new Error('duplicate key value violates unique constraint "UQ_mp_applications_user_open"');

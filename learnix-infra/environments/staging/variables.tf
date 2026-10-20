@@ -184,6 +184,12 @@ variable "extra_secrets" {
   default = {}
 }
 
+variable "marketplace_enabled" {
+  description = "Registers the Professional Courses Marketplace module in the api/worker (MARKETPLACE_ENABLED). The application defaults to OFF when the variable is absent, and every /api/v1/marketplace/* route then answers 404 \"Cannot GET\" - set it explicitly rather than relying on that default."
+  type        = bool
+  default     = true
+}
+
 variable "extra_environment" {
   description = "Additional non-secret environment variables for api/worker/migrate (e.g. EASYKASH_CASH_EXPIRY_HOURS)."
   type        = map(string)

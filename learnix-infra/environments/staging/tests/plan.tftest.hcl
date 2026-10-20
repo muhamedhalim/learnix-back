@@ -78,7 +78,7 @@ run "default_stage_one" {
   # The backend's production-mode env validation refuses to boot without these (learnix-back
   # src/config/env.validation.ts); keep this list in sync with it.
   assert {
-    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL"] : contains(output.app_environment_keys, k)])
+    condition     = alltrue([for k in ["NODE_ENV", "APP_ENV", "FRONTEND_URL", "BACKEND_URL", "CORS_ORIGINS", "PAYMENT_CAPTURE_GRACE_SECONDS", "PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS", "DB_HOST", "DB_NAME", "REDIS_HOST", "S3_BUCKET", "MAIL_PROVIDER", "SMS_PROVIDER", "PUSH_PROVIDER", "ADMIN_INIT_EMAIL", "MARKETPLACE_ENABLED"] : contains(output.app_environment_keys, k)])
     error_message = "A variable the backend requires in production mode is missing from the task environment."
   }
 }

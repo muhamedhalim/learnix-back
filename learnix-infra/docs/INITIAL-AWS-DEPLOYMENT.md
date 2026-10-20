@@ -69,7 +69,7 @@ DNS, Vercel or production.
 | CORS                                          | Preflight from `https://staging.learnix.school`: 204 with `Allow-Origin` and credentials; from `https://evil.example`: no allow header                                                   |
 | Admin dashboard `/health/all`                 | overall `degraded`, score 96: 24 healthy, 1 warning, 1 degraded, 2 misconfigured, 4 disabled                                                                                             |
 | WAF block for non-allowlisted addresses       | **Not tested** (no second egress IP available)                                                                                                                                           |
-| Non-checks                                    | `/auth/me` and `/marketplace/courses` returned 404 to guessed paths; these are my wrong route guesses, not verified failures                                                             |
+| Non-checks                                    | `/auth/me` returned 404 to a guessed path (the profile route is `/users/me`). **Correction (API audit, 2026-10-19):** `/marketplace/courses` is a real public route; its 404 was the deployed task environment missing `MARKETPLACE_ENABLED=true`, which removes the whole marketplace module (see `learnix-back/docs/audits/API-AUDIT-REPORT.md`)                                                             |
 
 Dashboard items needing attention (none block the API):
 

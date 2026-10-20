@@ -11,7 +11,6 @@ import { PreferredLanguage } from '../../guardians/entities/preferred-language.e
 import { biBody } from '../../i18n/error-translator.util';
 import { User } from '../../users/entities/user.entity';
 import { UserRole } from '../../users/entities/user-role.enum';
-import { AdminNotificationEvent } from '../constants/admin-notification-events';
 import {
   AdminNotificationFilterDto,
   NotificationFilterDto,
@@ -31,6 +30,7 @@ import {
   NotificationType,
 } from '../entities';
 import { NotificationChannelPolicyService } from './notification-channel-policy.service';
+import { applyAdminInboxScope } from './admin-inbox-scope';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { PushNotificationJobsService } from './push-notification-jobs.service';
 import { SmsSenderService } from './sms-sender.service';
@@ -780,13 +780,11 @@ export class NotificationsService {
    * Get paginated notifications for a user.
    *
    * `requesterRole` gates the admin allow-list: when the caller is an admin,
-   * only rows created for a cataloged `AdminNotificationEvent` (or the
-   * long-standing `OPERATIONAL` origin, which predates the catalog) are
-   * returned — everything else this endpoint could theoretically surface
-   * (homework, exam results, gamification, ...) is filtered out so an
-   * admin's personal inbox shows only notifications that need administrative
-   * attention. Every other role is unaffected: the extra clause is never
-   * applied for them.
+   * only business notifications that need administrative attention are
+   * returned (see `applyAdminInboxScope`). Everything else this endpoint could
+   * surface — homework, exam results, gamification, and technical monitoring
+   * alerts (component health, thresholds, job failures) — is filtered out.
+   * Every other role is unaffected: the extra clause is never applied for them.
    */
   public async findAllForUser(
     userId: string,
@@ -802,13 +800,7 @@ export class NotificationsService {
       .where('notification.user_id = :userId', { userId });
 
     if (requesterRole === UserRole.ADMIN) {
-      queryBuilder.andWhere(
-        '(notification.source_event IN (:...adminEvents) OR notification.origin = :operationalOrigin)',
-        {
-          adminEvents: Object.values(AdminNotificationEvent),
-          operationalOrigin: NotificationOrigin.OPERATIONAL,
-        },
-      );
+      applyAdminInboxScope(queryBuilder, 'notification');
     }
 
     // Apply filters
@@ -1012,13 +1004,7 @@ export class NotificationsService {
       .andWhere('notification.is_read = false');
 
     if (requesterRole === UserRole.ADMIN) {
-      queryBuilder.andWhere(
-        '(notification.source_event IN (:...adminEvents) OR notification.origin = :operationalOrigin)',
-        {
-          adminEvents: Object.values(AdminNotificationEvent),
-          operationalOrigin: NotificationOrigin.OPERATIONAL,
-        },
-      );
+      applyAdminInboxScope(queryBuilder, 'notification');
     }
 
     return await queryBuilder.getCount();

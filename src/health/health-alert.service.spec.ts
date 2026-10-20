@@ -1,5 +1,6 @@
 import type { Repository } from 'typeorm';
 
+import { DEFAULT_HEALTH_ALERT_RULES } from '../database/system-seed';
 import { HealthAlertRule } from './entities';
 import { HealthAlertService } from './health-alert.service';
 import type { HealthComponentResult } from './health.types';
@@ -94,6 +95,46 @@ describe('HealthAlertService', () => {
         severity: 'critical',
         channels: expect.objectContaining({ email: true, webhook: true, inApp: true }),
       }),
+    );
+  });
+
+  it.each(['critical', 'warning'] as const)(
+    'dispatches every %s health rule as a technical alert, never as an admin business notification',
+    async (severity) => {
+      const rule = buildRule({
+        severity,
+        key: 'component-degraded',
+        name: 'Component becomes degraded',
+        component_id: null,
+        metric: 'statusRank',
+        threshold: 4,
+      });
+      const { service, alerts } = buildService(rule);
+
+      await service.evaluate([buildComponent({ status: 'degraded', metadata: {} })]);
+
+      // statusRank-based and metric-based rules share this one choke point.
+      expect(alerts.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audience: 'technical',
+          key: 'health-rule:component-degraded:redis',
+        }),
+      );
+    },
+  );
+
+  it('classifies the seeded "Component becomes degraded" rule as technical', async () => {
+    const seeded = DEFAULT_HEALTH_ALERT_RULES.find((rule) => rule.key === 'component-degraded');
+    expect(seeded?.name).toBe('Component becomes degraded');
+    const rule = buildRule({ ...seeded, component_id: null, duration_seconds: 0 } as never);
+    const { service, alerts } = buildService(rule);
+
+    await service.evaluate([
+      buildComponent({ id: 'postgresql', status: 'degraded', metadata: {} }),
+    ]);
+
+    expect(alerts.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ audience: 'technical', title: 'Component becomes degraded' }),
     );
   });
 

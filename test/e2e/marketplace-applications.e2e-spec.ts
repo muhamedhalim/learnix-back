@@ -80,6 +80,17 @@ describe('marketplace applications — contract (contracts §2, §5)', () => {
       expect(withdrawn.body.status).toBe('withdrawn');
     });
 
+    it('opens an empty draft from an empty body instead of failing a NOT NULL constraint', async () => {
+      const learner = await createAuthenticatedUser(app, dataSource);
+
+      const created = await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({}).expect(201);
+
+      expect(created.body.status).toBe('draft');
+      const row = await dataSource.getRepository(InstructorApplication).findOneOrFail({ where: { user_id: learner.userId } });
+      expect(row.display_name).toBe('');
+      expect(row.years_of_experience).toBe(0);
+    });
+
     it('refuses a second open application with 409 (FR-015)', async () => {
       const learner = await createAuthenticatedUser(app, dataSource);
       await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);

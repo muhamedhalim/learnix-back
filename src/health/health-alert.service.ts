@@ -1,4 +1,4 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { Repository } from 'typeorm';
@@ -7,6 +7,7 @@ import { HealthAlertRule } from './entities';
 import type { HealthComponentResult } from './health.types';
 import { OperationalAlertService } from './operational-alert.service';
 import { seedHealthAlertRules } from '../database/system-seed';
+import { biBody } from '../i18n/error-translator.util';
 
 @Injectable()
 export class HealthAlertService implements OnModuleInit {
@@ -40,8 +41,17 @@ export class HealthAlertService implements OnModuleInit {
       >
     >,
   ): Promise<HealthAlertRule> {
-    const rule = await this.rules.findOneByOrFail({ id });
-    Object.assign(rule, patch);
+    // `findOneByOrFail` would throw a raw EntityNotFoundError, which surfaces as a 500.
+    const rule = await this.rules.findOneBy({ id });
+    if (rule === null) {
+      throw new NotFoundException(biBody('Alert rule not found', 'قاعدة التنبيه غير موجودة'));
+    }
+    // The validated DTO carries every omitted field as an own key set to `undefined`; copying those
+    // would blank `channels`/`recipients` and crash the sanitising below on a partial update.
+    Object.assign(
+      rule,
+      Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
+    );
     rule.channels = rule.channels.filter((channel) => ['in_app', 'email'].includes(channel));
     rule.recipients = rule.recipients.slice(0, 20);
     return await this.rules.save(rule);
@@ -98,6 +108,10 @@ export class HealthAlertService implements OnModuleInit {
     const isCritical = rule.severity === 'critical';
     await this.alerts.dispatch({
       key: `health-rule:${rule.key}:${component.id}`,
+      // Threshold/health rules are monitoring signals. They surface on the
+      // health console (incidents), email and the webhook — never in the admin
+      // business inbox. `rule.channels` 'in_app' therefore has no inbox effect.
+      audience: 'technical',
       severity: isCritical ? 'critical' : 'warning',
       title: rule.name,
       message: `${component.name}: ${rule.metric} is ${value.toFixed(2)} (threshold ${rule.threshold.toFixed(2)}).`,

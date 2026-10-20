@@ -154,8 +154,37 @@ describe('FinancialOperationsAlertListener', () => {
         expect.objectContaining({
           key: `${SCHEDULED_JOB_REPEATED_FAILURE_EVENT}:payments.gateway_reconciliation`,
           severity: 'critical',
+          audience: 'technical',
         }),
       );
+    });
+  });
+
+  describe('audience classification', () => {
+    it.each([
+      ['onWebhookDeadLetter', { webhook_event_id: 'e', payment_id: 'p' }],
+      ['onPaymentQuarantined', { payment_id: 'p' }],
+      ['onPaymentReconciliationStuck', { payment_id: 'p' }],
+      ['onFulfillmentCompensationRequired', { payment_id: 'p' }],
+      ['onOutboxDeadLetter', { outbox_event_id: 'o' }],
+      ['onRefundQuarantined', { refund_id: 'r' }],
+      ['onRefundReviewRequired', { refund_id: 'r' }],
+      ['onRefundReconciliationStuck', { refund_id: 'r' }],
+      ['onMaintenanceRepeatedFailure', { task_name: 't' }],
+    ] as const)('%s is a business incident for the admin inbox', async (handler, payload) => {
+      const { listener, dispatch } = buildListener();
+
+      await listener[handler](payload);
+
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ audience: 'business' }));
+    });
+
+    it('a repeatedly failing scheduled job is technical and never an admin notification', async () => {
+      const { listener, dispatch } = buildListener();
+
+      await listener.onScheduledJobRepeatedFailure({ jobName: 'some.job' });
+
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ audience: 'technical' }));
     });
   });
 
