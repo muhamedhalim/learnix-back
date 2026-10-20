@@ -154,12 +154,16 @@ export class InstructorApplicationService {
   public async createDraft(userId: string, fields: UpdateApplicationFields): Promise<InstructorApplication> {
     await this.assertResubmissionAllowed(userId);
     try {
+      // `fields` is a validated DTO instance, whose omitted optional properties are own keys holding
+      // `undefined`. Spreading it first lets the explicit values below win; spreading it last used to
+      // overwrite the `display_name`/`years_of_experience` defaults with `undefined` and made an
+      // empty-body POST fail on a NOT NULL constraint (500).
       const draft = this.applications.create({
+        ...fields,
         user_id: userId,
         status: InstructorApplicationStatus.DRAFT,
         display_name: fields.display_name ?? '',
         years_of_experience: fields.years_of_experience ?? 0,
-        ...fields,
       });
       return await this.applications.save(draft);
     } catch (error) {

@@ -38,6 +38,7 @@ function buildHarness(env: Record<string, string> = {}): Harness {
 
 const criticalAlert: OperationalAlert = {
   key: 'payment.webhook_dead_letter:evt-1',
+  audience: 'business',
   severity: 'critical',
   title: 'Payment webhook dead-lettered',
   message: 'A provider webhook exhausted every attempt.',
@@ -71,16 +72,17 @@ describe('OperationalAlertService', () => {
       expect(params.dedupeKey).toBeUndefined();
     });
 
-    it('categorizes a non-financial, non-security alert key as system', async () => {
+    it('categorizes a refund/finance-prefixed alert key as financial', async () => {
       const { service, adminNotifications } = buildHarness();
 
-      await service.dispatch({ ...criticalAlert, key: 'scheduled_job.repeated_failure:job-1' });
+      await service.dispatch({ ...criticalAlert, key: 'refund.reconciliation_alert:refund-1' });
+      await service.dispatch({ ...criticalAlert, key: 'finance.maintenance.repeated_failure:t' });
 
-      const [, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
-        AdminNotificationEvent,
-        Record<string, unknown>,
-      ];
-      expect(params).toMatchObject({ category: AdminNotificationCategory.SYSTEM });
+      for (const call of adminNotifications.notifyAdmins.mock.calls as Array<
+        [AdminNotificationEvent, Record<string, unknown>]
+      >) {
+        expect(call[1]).toMatchObject({ category: AdminNotificationCategory.FINANCIAL });
+      }
     });
 
     it('categorizes a security/auth-prefixed alert key as security', async () => {
@@ -105,6 +107,79 @@ describe('OperationalAlertService', () => {
         Record<string, unknown>,
       ];
       expect(params).toMatchObject({ priority: NotificationPriority.HIGH });
+    });
+  });
+
+  describe('technical monitoring alerts never reach the admin inbox', () => {
+    const technicalAlert: OperationalAlert = {
+      key: 'health-rule:component-degraded:postgresql',
+      audience: 'technical',
+      severity: 'warning',
+      title: 'Component becomes degraded',
+      message: 'PostgreSQL: statusRank is 4.00 (threshold 4.00).',
+      context: { componentId: 'postgresql', metric: 'statusRank' },
+    };
+
+    it.each([
+      ['health rule', 'health-rule:component-degraded:postgresql'],
+      ['scheduled job', 'scheduled_job.repeated_failure:cleanup'],
+      ['queue backlog', 'health-rule:queue-backlog:queue-mail'],
+      ['a payment-prefixed key declared technical', 'payment.anything:1'],
+    ])('does not create an admin notification for a technical %s alert', async (_label, key) => {
+      const { service, adminNotifications } = buildHarness();
+
+      const outcome = await service.dispatch({ ...technicalAlert, key });
+
+      expect(outcome.inApp).toBe('skipped');
+      expect(adminNotifications.notifyAdmins).not.toHaveBeenCalled();
+    });
+
+    it('does not create an admin notification even when the caller explicitly asks for in-app', async () => {
+      const { service, adminNotifications } = buildHarness();
+
+      const outcome = await service.dispatch({
+        ...technicalAlert,
+        channels: { inApp: true, email: false, webhook: false },
+      });
+
+      expect(outcome.inApp).toBe('skipped');
+      expect(adminNotifications.notifyAdmins).not.toHaveBeenCalled();
+    });
+
+    it('still delivers a technical alert to the external monitoring channels', async () => {
+      const { service, mail, fetchMock } = buildHarness({
+        ALERT_EMAIL_RECIPIENTS: 'oncall@example.com',
+        ALERT_WEBHOOK_URL: 'https://hooks.example.com/abc',
+      });
+
+      const outcome = await service.dispatch(technicalAlert);
+
+      expect(outcome).toMatchObject({ inApp: 'skipped', email: 'sent', webhook: 'sent' });
+      expect(mail.send).toHaveBeenCalledTimes(1);
+      expect(mail.send.mock.calls[0]?.[0]).toMatchObject({
+        subject: expect.stringContaining('Component becomes degraded'),
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a business alert whose key has no business prefix as failed instead of silently filing it', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        const { service, adminNotifications } = buildHarness();
+        // The real AdminNotificationsService throws for this combination.
+        adminNotifications.notifyAdmins.mockRejectedValue(new Error('not a business notification'));
+
+        const outcome = await service.dispatch({ ...criticalAlert, key: 'queue.backlog:mail' });
+
+        expect(outcome.inApp).toBe('failed');
+        const [, params] = adminNotifications.notifyAdmins.mock.calls[0] as [
+          AdminNotificationEvent,
+          Record<string, unknown>,
+        ];
+        expect(params).toMatchObject({ category: AdminNotificationCategory.SYSTEM });
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
   });
 

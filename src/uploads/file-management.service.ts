@@ -38,6 +38,8 @@ interface FileUsageRawRow {
   used_in: FileReferenceDto[] | string | null;
 }
 
+// Lesson videos are no longer uploaded files: `lessons.video_url` was dropped by the RetireBunnyVideo
+// migration and playback goes through `video_asset_id`, so no `video_url` reference is selected here.
 // Usage is intentionally aggregated by PostgreSQL. This keeps both the list and
 // single-file usage paths at a constant number of database round trips.
 const FILE_USAGE_SELECT = `
@@ -51,29 +53,13 @@ const FILE_USAGE_SELECT = `
         SELECT
           'lesson' AS entity_type,
           lesson.id::text AS entity_id,
-          'video_url' AS field_name,
-          jsonb_build_object(
-            'entityType', 'lesson',
-            'entityId', lesson.id,
-            'field', 'video_url',
-            'entityTitle', lesson.title
-          ) AS reference
-        FROM lessons lesson
-        WHERE lesson.deleted_at IS NULL
-          AND POSITION(uploaded_file.filename IN lesson.video_url) > 0
-
-        UNION ALL
-
-        SELECT
-          'lesson',
-          lesson.id::text,
-          'thumbnail',
+          'thumbnail' AS field_name,
           jsonb_build_object(
             'entityType', 'lesson',
             'entityId', lesson.id,
             'field', 'thumbnail',
             'entityTitle', lesson.title
-          )
+          ) AS reference
         FROM lessons lesson
         WHERE lesson.deleted_at IS NULL
           AND POSITION(uploaded_file.filename IN lesson.thumbnail) > 0
