@@ -9,7 +9,12 @@ import type { DataSource } from 'typeorm';
 
 import { User } from '../../src/users/entities';
 import { FINANCE_PERMISSIONS } from '../../src/payments/finance-permissions';
-import { createAuthenticatedUser, createE2EApp, resetDatabase, type AuthenticatedUser } from './fixtures';
+import {
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  type AuthenticatedUser,
+} from './fixtures';
 
 /**
  * API audit — runtime authorization sweep over EVERY registered route.
@@ -97,17 +102,19 @@ function collectRoutes(app: INestApplication): Route[] {
       if (httpMethod === undefined) continue;
       const guards = new Set<string>();
       for (const t of [metatype, handler]) {
-        for (const g of (reflector.get<Array<{ name?: string }>>(GUARDS_METADATA, t as never) ?? [])) {
+        for (const g of reflector.get<Array<{ name?: string }>>(GUARDS_METADATA, t as never) ??
+          []) {
           guards.add(typeof g === 'function' ? (g as { name: string }).name : 'anonymous');
         }
       }
-      const roles = (reflector.getAllAndMerge<string[]>('roles', [handler, metatype]) ?? []).filter((r): r is Role =>
-        (ROLES as readonly string[]).includes(r),
+      const roles = (reflector.getAllAndMerge<string[]>('roles', [handler, metatype]) ?? []).filter(
+        (r): r is Role => (ROLES as readonly string[]).includes(r),
       );
       for (const cp of asArray(Reflect.getMetadata(PATH_METADATA, metatype))) {
         for (const hp of asArray(Reflect.getMetadata(PATH_METADATA, handler))) {
           const bare = pathJoin(cp, hp);
-          const path = httpMethod === 'get' && bare === '/metrics' ? bare : pathJoin('api/v1', cp, hp);
+          const path =
+            httpMethod === 'get' && bare === '/metrics' ? bare : pathJoin('api/v1', cp, hp);
           out.push({
             method: httpMethod.toUpperCase(),
             httpMethod,
@@ -140,7 +147,12 @@ describe('route authorization sweep (every registered route, over HTTP)', () => 
     for (const role of ROLES) {
       agents[role] = await createAuthenticatedUser(app, dataSource, { role });
     }
-    await dataSource.getRepository(User).update({ id: agents.admin.userId }, { finance_permissions: [...FINANCE_PERMISSIONS] as never });
+    await dataSource
+      .getRepository(User)
+      .update(
+        { id: agents.admin.userId },
+        { finance_permissions: [...FINANCE_PERMISSIONS] as never },
+      );
   }, 180_000);
 
   afterAll(async () => {
@@ -148,9 +160,14 @@ describe('route authorization sweep (every registered route, over HTTP)', () => 
   });
 
   async function call(r: Route, as: Role | null): Promise<number> {
-    const base = as === null ? request(server) : (agents[as].agent as unknown as ReturnType<typeof request>);
-    const req = (base as unknown as Record<string, (p: string) => request.Test>)[r.httpMethod](r.concretePath);
-    const res = await (['post', 'put', 'patch'].includes(r.httpMethod) ? req.send({}) : req).timeout({ deadline: 20_000 });
+    const base =
+      as === null ? request(server) : (agents[as].agent as unknown as ReturnType<typeof request>);
+    const req = (base as unknown as Record<string, (p: string) => request.Test>)[r.httpMethod](
+      r.concretePath,
+    );
+    const res = await (
+      ['post', 'put', 'patch'].includes(r.httpMethod) ? req.send({}) : req
+    ).timeout({ deadline: 20_000 });
     return res.status;
   }
 
@@ -169,7 +186,8 @@ describe('route authorization sweep (every registered route, over HTTP)', () => 
         findings.push(`${r.method} ${r.path} -> request failed: ${(e as Error).message}`);
         continue;
       }
-      if (status !== 401) findings.push(`${r.method} ${r.path} -> ${status} (guards: ${r.guards.join('+')})`);
+      if (status !== 401)
+        findings.push(`${r.method} ${r.path} -> ${status} (guards: ${r.guards.join('+')})`);
     }
     expect(findings).toEqual([]);
   }, 600_000);
@@ -184,10 +202,15 @@ describe('route authorization sweep (every registered route, over HTTP)', () => 
       try {
         status = await call(r, wrong);
       } catch (e) {
-        findings.push(`${r.method} ${r.path} as ${wrong} -> request failed: ${(e as Error).message}`);
+        findings.push(
+          `${r.method} ${r.path} as ${wrong} -> request failed: ${(e as Error).message}`,
+        );
         continue;
       }
-      if (status !== 403) findings.push(`${r.method} ${r.path} as ${wrong} (allowed: ${r.roles.join(',')}) -> ${status}`);
+      if (status !== 403)
+        findings.push(
+          `${r.method} ${r.path} as ${wrong} (allowed: ${r.roles.join(',')}) -> ${status}`,
+        );
     }
     expect(findings).toEqual([]);
   }, 600_000);
@@ -202,10 +225,15 @@ describe('route authorization sweep (every registered route, over HTTP)', () => 
         try {
           status = await call(r, role);
         } catch (e) {
-          findings.push(`${r.method} ${r.path} as ${role} -> request failed: ${(e as Error).message}`);
+          findings.push(
+            `${r.method} ${r.path} as ${role} -> request failed: ${(e as Error).message}`,
+          );
           continue;
         }
-        if (status >= 500) findings.push(`${r.method} ${r.path} as ${role} -> ${status} (${r.controller}.${r.handler})`);
+        if (status >= 500)
+          findings.push(
+            `${r.method} ${r.path} as ${role} -> ${status} (${r.controller}.${r.handler})`,
+          );
       }
     }
     expect(findings).toEqual([]);

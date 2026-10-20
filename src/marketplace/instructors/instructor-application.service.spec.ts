@@ -50,9 +50,13 @@ function buildService(rows: InstructorApplication[] = []): {
     save: jest.fn(async (entity: InstructorApplication) => entity),
     findOne: jest.fn(async ({ where }: { where: unknown }) => {
       const conditions = Array.isArray(where) ? where : [where];
-      for (const condition of conditions as Array<Partial<InstructorApplication> & { id?: string }>) {
+      for (const condition of conditions as Array<
+        Partial<InstructorApplication> & { id?: string }
+      >) {
         const match = rows.find((r) =>
-          Object.entries(condition).every(([key, value]) => (r as unknown as Record<string, unknown>)[key] === value),
+          Object.entries(condition).every(
+            ([key, value]) => (r as unknown as Record<string, unknown>)[key] === value,
+          ),
         );
         if (match) return match;
       }
@@ -60,7 +64,9 @@ function buildService(rows: InstructorApplication[] = []): {
     }),
     find: jest.fn(async ({ where }: { where: Partial<InstructorApplication> }) =>
       rows.filter((r) =>
-        Object.entries(where).every(([key, value]) => (r as unknown as Record<string, unknown>)[key] === value),
+        Object.entries(where).every(
+          ([key, value]) => (r as unknown as Record<string, unknown>)[key] === value,
+        ),
       ),
     ),
     createQueryBuilder: jest.fn(),
@@ -101,7 +107,10 @@ describe('InstructorApplicationService', () => {
     it('applies the empty-draft defaults even when omitted DTO fields are explicit undefined keys', async () => {
       const { service, applications } = buildService([]);
       // What ValidationPipe({ transform: true }) hands over for an empty request body.
-      await service.createDraft('user-1', { display_name: undefined, years_of_experience: undefined });
+      await service.createDraft('user-1', {
+        display_name: undefined,
+        years_of_experience: undefined,
+      });
 
       const created = applications.create.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(created['display_name']).toBe('');
@@ -112,7 +121,9 @@ describe('InstructorApplicationService', () => {
 
     it('refuses when a unique-index conflict is raised (an open application already exists, FR-015)', async () => {
       const { service, applications } = buildService([]);
-      const error = new Error('duplicate key value violates unique constraint "UQ_mp_applications_user_open"');
+      const error = new Error(
+        'duplicate key value violates unique constraint "UQ_mp_applications_user_open"',
+      );
       (error as unknown as { code: string }).code = '23505';
       applications.save.mockRejectedValueOnce(error);
 
@@ -142,7 +153,9 @@ describe('InstructorApplicationService', () => {
 
   describe('submit — FR-011 mandatory fields', () => {
     it('transitions draft to submitted when every mandatory field is present, and emits the domain event (T049)', async () => {
-      const { service, eventEmitter } = buildService([buildApplication({ status: InstructorApplicationStatus.DRAFT })]);
+      const { service, eventEmitter } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.DRAFT }),
+      ]);
       const result = await service.submit('user-1');
       expect(result.status).toBe(InstructorApplicationStatus.SUBMITTED);
       expect(result.submitted_at).toBeInstanceOf(Date);
@@ -159,14 +172,17 @@ describe('InstructorApplicationService', () => {
       ['bio', { bio: null }],
       ['specializations', { specializations: [] }],
       ['intended_category_ids', { intended_category_ids: [] }],
-    ])('lists %s as missing and refuses submission when it is absent', async (fieldName, overrides) => {
-      const { service } = buildService([
-        buildApplication({ status: InstructorApplicationStatus.DRAFT, ...overrides }),
-      ]);
-      await expect(service.submit('user-1')).rejects.toMatchObject({
-        response: expect.objectContaining({ details: expect.arrayContaining([fieldName]) }),
-      });
-    });
+    ])(
+      'lists %s as missing and refuses submission when it is absent',
+      async (fieldName, overrides) => {
+        const { service } = buildService([
+          buildApplication({ status: InstructorApplicationStatus.DRAFT, ...overrides }),
+        ]);
+        await expect(service.submit('user-1')).rejects.toMatchObject({
+          response: expect.objectContaining({ details: expect.arrayContaining([fieldName]) }),
+        });
+      },
+    );
 
     it('accepts zero years of experience as present (not missing)', async () => {
       const { service } = buildService([
@@ -195,7 +211,11 @@ describe('InstructorApplicationService', () => {
       await expect(withPortfolio.submit('user-1')).resolves.toBeDefined();
 
       const { service: withNeither } = buildService([
-        buildApplication({ status: InstructorApplicationStatus.DRAFT, professional_links: [], portfolio_items: [] }),
+        buildApplication({
+          status: InstructorApplicationStatus.DRAFT,
+          professional_links: [],
+          portfolio_items: [],
+        }),
       ]);
       await expect(withNeither.submit('user-1')).rejects.toMatchObject({
         response: expect.objectContaining({
@@ -204,13 +224,15 @@ describe('InstructorApplicationService', () => {
       });
     });
 
-    it.each([InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW, InstructorApplicationStatus.APPROVED, InstructorApplicationStatus.WITHDRAWN])(
-      'refuses to submit an application already in status %s',
-      async (status) => {
-        const { service } = buildService([buildApplication({ status })]);
-        await expect(service.submit('user-1')).rejects.toThrow();
-      },
-    );
+    it.each([
+      InstructorApplicationStatus.SUBMITTED,
+      InstructorApplicationStatus.UNDER_REVIEW,
+      InstructorApplicationStatus.APPROVED,
+      InstructorApplicationStatus.WITHDRAWN,
+    ])('refuses to submit an application already in status %s', async (status) => {
+      const { service } = buildService([buildApplication({ status })]);
+      await expect(service.submit('user-1')).rejects.toThrow();
+    });
   });
 
   describe('submit — FR-016 resubmission limits (rejected → submitted)', () => {
@@ -248,13 +270,29 @@ describe('InstructorApplicationService', () => {
       const old = new Date();
       old.setDate(old.getDate() - 100);
       const { service, applications } = buildService([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
       // Two prior rejections already on record, plus this current (third) one.
       applications.find.mockResolvedValueOnce([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
-        buildApplication({ id: 'app-0', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
-        buildApplication({ id: 'app-00', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
+        buildApplication({
+          id: 'app-0',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
+        buildApplication({
+          id: 'app-00',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
 
       await expect(service.submit('user-1')).rejects.toMatchObject({
@@ -266,11 +304,23 @@ describe('InstructorApplicationService', () => {
       const old = new Date();
       old.setDate(old.getDate() - 100);
       const { service, applications } = buildService([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
       applications.find.mockResolvedValueOnce([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
-        buildApplication({ id: 'app-0', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
+        buildApplication({
+          id: 'app-0',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
 
       await expect(service.submit('user-1')).resolves.toBeDefined();
@@ -283,12 +333,28 @@ describe('InstructorApplicationService', () => {
       resetAt.setDate(resetAt.getDate() - 50); // reset happened after the three old rejections
 
       const { service, applications, activityLogs } = buildService([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
       applications.find.mockResolvedValueOnce([
-        buildApplication({ id: 'app-1', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
-        buildApplication({ id: 'app-0', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
-        buildApplication({ id: 'app-00', status: InstructorApplicationStatus.REJECTED, reviewed_at: old }),
+        buildApplication({
+          id: 'app-1',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
+        buildApplication({
+          id: 'app-0',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
+        buildApplication({
+          id: 'app-00',
+          status: InstructorApplicationStatus.REJECTED,
+          reviewed_at: old,
+        }),
       ]);
       activityLogs.getLatestAuditRecord.mockResolvedValueOnce({ created_at: resetAt } as never);
 
@@ -297,24 +363,29 @@ describe('InstructorApplicationService', () => {
   });
 
   describe('withdraw', () => {
-    it.each([InstructorApplicationStatus.DRAFT, InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW])(
-      'withdraws an application in status %s',
-      async (status) => {
-        const { service } = buildService([buildApplication({ status })]);
-        const result = await service.withdraw('user-1');
-        expect(result.status).toBe(InstructorApplicationStatus.WITHDRAWN);
-      },
-    );
+    it.each([
+      InstructorApplicationStatus.DRAFT,
+      InstructorApplicationStatus.SUBMITTED,
+      InstructorApplicationStatus.UNDER_REVIEW,
+    ])('withdraws an application in status %s', async (status) => {
+      const { service } = buildService([buildApplication({ status })]);
+      const result = await service.withdraw('user-1');
+      expect(result.status).toBe(InstructorApplicationStatus.WITHDRAWN);
+    });
 
     it('refuses to withdraw an approved application', async () => {
-      const { service } = buildService([buildApplication({ status: InstructorApplicationStatus.APPROVED })]);
+      const { service } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.APPROVED }),
+      ]);
       await expect(service.withdraw('user-1')).rejects.toThrow();
     });
   });
 
   describe('admin review transitions', () => {
     it('getDossier moves submitted to under_review as a side effect of opening it', async () => {
-      const { service } = buildService([buildApplication({ status: InstructorApplicationStatus.SUBMITTED })]);
+      const { service } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.SUBMITTED }),
+      ]);
       const result = await service.getDossier('app-1');
       expect(result.status).toBe(InstructorApplicationStatus.UNDER_REVIEW);
     });
@@ -337,16 +408,20 @@ describe('InstructorApplicationService', () => {
       },
     );
 
-    it.each([InstructorApplicationStatus.DRAFT, InstructorApplicationStatus.APPROVED, InstructorApplicationStatus.REJECTED, InstructorApplicationStatus.WITHDRAWN])(
-      'refuses to approve an application in status %s',
-      async (status) => {
-        const { service } = buildService([buildApplication({ status })]);
-        await expect(service.markApproved('app-1', 'admin-1')).rejects.toThrow();
-      },
-    );
+    it.each([
+      InstructorApplicationStatus.DRAFT,
+      InstructorApplicationStatus.APPROVED,
+      InstructorApplicationStatus.REJECTED,
+      InstructorApplicationStatus.WITHDRAWN,
+    ])('refuses to approve an application in status %s', async (status) => {
+      const { service } = buildService([buildApplication({ status })]);
+      await expect(service.markApproved('app-1', 'admin-1')).rejects.toThrow();
+    });
 
     it('reject requires and stores a reason (FR-018)', async () => {
-      const { service } = buildService([buildApplication({ status: InstructorApplicationStatus.SUBMITTED })]);
+      const { service } = buildService([
+        buildApplication({ status: InstructorApplicationStatus.SUBMITTED }),
+      ]);
       const result = await service.reject('app-1', 'admin-1', 'Incomplete portfolio');
       expect(result.status).toBe(InstructorApplicationStatus.REJECTED);
       expect(result.decision_reason).toBe('Incomplete portfolio');

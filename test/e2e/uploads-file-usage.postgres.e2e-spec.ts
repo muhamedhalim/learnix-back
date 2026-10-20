@@ -51,23 +51,31 @@ describe('uploaded-file usage projection (API audit)', () => {
     );
   }
 
-  it('lists the uploader\'s files with their real usage, and an unused file has no references', async () => {
+  it("lists the uploader's files with their real usage, and an unused file has no references", async () => {
     const teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
     const used = await seedFile(teacher.userId, 'used-avatar-aaaa.png');
     const unused = await seedFile(teacher.userId, 'unused-bbbb.png');
     await dataSource
       .getRepository(User)
-      .update({ id: teacher.userId }, { profile_picture_url: `/api/v1/media/public/profiles/${used.filename}` });
+      .update(
+        { id: teacher.userId },
+        { profile_picture_url: `/api/v1/media/public/profiles/${used.filename}` },
+      );
 
     const res = await teacher.agent.get(`${API_PREFIX}/uploads/teacher/files`).expect(200);
 
     expect(res.body.meta.total).toBe(2);
-    const byName = new Map<string, { usedIn: Array<{ entityType: string; entityId: string; field: string }> }>(
-      res.body.data.map((f: { filename: string; usedIn: never[] }) => [f.filename, f]),
-    );
+    const byName = new Map<
+      string,
+      { usedIn: Array<{ entityType: string; entityId: string; field: string }> }
+    >(res.body.data.map((f: { filename: string; usedIn: never[] }) => [f.filename, f]));
     expect(byName.get(unused.filename)?.usedIn).toEqual([]);
     expect(byName.get(used.filename)?.usedIn).toEqual([
-      expect.objectContaining({ entityType: 'user', entityId: teacher.userId, field: 'profile_picture_url' }),
+      expect.objectContaining({
+        entityType: 'user',
+        entityId: teacher.userId,
+        field: 'profile_picture_url',
+      }),
     ]);
   });
 

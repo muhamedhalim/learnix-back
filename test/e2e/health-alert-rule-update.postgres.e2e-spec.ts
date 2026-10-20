@@ -57,10 +57,16 @@ describe('health alert rule update (API audit)', () => {
 
   it('refuses anonymous and non-admin callers', async () => {
     const rule = await seededRule();
-    await request(server).patch(`${API_PREFIX}/health/alerts/${rule.id}`).send({ enabled: false }).expect(401);
+    await request(server)
+      .patch(`${API_PREFIX}/health/alerts/${rule.id}`)
+      .send({ enabled: false })
+      .expect(401);
 
     const teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
-    await teacher.agent.patch(`${API_PREFIX}/health/alerts/${rule.id}`).send({ enabled: false }).expect(403);
+    await teacher.agent
+      .patch(`${API_PREFIX}/health/alerts/${rule.id}`)
+      .send({ enabled: false })
+      .expect(403);
   });
 
   it('answers 404 for an unknown rule id and 400 for a malformed one', async () => {
@@ -70,7 +76,10 @@ describe('health alert rule update (API audit)', () => {
       .patch(`${API_PREFIX}/health/alerts/3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b`)
       .send({ enabled: false })
       .expect(404);
-    await admin.agent.patch(`${API_PREFIX}/health/alerts/not-a-uuid`).send({ enabled: false }).expect(400);
+    await admin.agent
+      .patch(`${API_PREFIX}/health/alerts/not-a-uuid`)
+      .send({ enabled: false })
+      .expect(400);
   });
 
   it('applies a partial update and preserves every field that was not sent', async () => {
@@ -83,7 +92,9 @@ describe('health alert rule update (API audit)', () => {
       .expect(200);
     expect(res.body.threshold).toBe(91);
 
-    const after = await dataSource.getRepository(HealthAlertRule).findOneByOrFail({ id: before.id });
+    const after = await dataSource
+      .getRepository(HealthAlertRule)
+      .findOneByOrFail({ id: before.id });
     expect(after.threshold).toBe(91);
     expect(after.enabled).toBe(before.enabled);
     expect(after.channels).toEqual(before.channels);

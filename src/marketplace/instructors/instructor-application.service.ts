@@ -151,7 +151,10 @@ export class InstructorApplicationService {
   }
 
   /** Creates a new draft. Refuses if an open application already exists, or if resubmission is currently blocked. */
-  public async createDraft(userId: string, fields: UpdateApplicationFields): Promise<InstructorApplication> {
+  public async createDraft(
+    userId: string,
+    fields: UpdateApplicationFields,
+  ): Promise<InstructorApplication> {
     await this.assertResubmissionAllowed(userId);
     try {
       // `fields` is a validated DTO instance, whose omitted optional properties are own keys holding
@@ -176,7 +179,10 @@ export class InstructorApplicationService {
   }
 
   /** Edits while `draft` or `rejected` only (contracts §2). */
-  public async updateDraft(userId: string, fields: UpdateApplicationFields): Promise<InstructorApplication> {
+  public async updateDraft(
+    userId: string,
+    fields: UpdateApplicationFields,
+  ): Promise<InstructorApplication> {
     const application = await this.getEditable(userId);
     Object.assign(application, fields);
     return this.applications.save(application);
@@ -216,13 +222,17 @@ export class InstructorApplicationService {
   /** `draft/submitted/under_review → withdrawn`. */
   public async withdraw(userId: string): Promise<InstructorApplication> {
     const application = await this.applications.findOne({
-      where: OPEN_STATUSES.filter((s) => s !== InstructorApplicationStatus.APPROVED).map((status) => ({
-        user_id: userId,
-        status,
-      })),
+      where: OPEN_STATUSES.filter((s) => s !== InstructorApplicationStatus.APPROVED).map(
+        (status) => ({
+          user_id: userId,
+          status,
+        }),
+      ),
     });
     if (!application) {
-      throw new NotFoundException(biBody('No withdrawable application found', 'لا يوجد طلب قابل للسحب'));
+      throw new NotFoundException(
+        biBody('No withdrawable application found', 'لا يوجد طلب قابل للسحب'),
+      );
     }
     application.status = InstructorApplicationStatus.WITHDRAWN;
     return this.applications.save(application);
@@ -230,14 +240,17 @@ export class InstructorApplicationService {
 
   // ---------------------------------------------------------------- admin
 
-  public async listQueue(filter: ApplicationQueueFilter): Promise<{ items: InstructorApplication[]; total: number }> {
+  public async listQueue(
+    filter: ApplicationQueueFilter,
+  ): Promise<{ items: InstructorApplication[]; total: number }> {
     const page = filter.page ?? 1;
     const limit = Math.min(filter.limit ?? 20, 100);
     const qb = this.applications.createQueryBuilder('a').orderBy('a.submitted_at', 'ASC');
     if (filter.status) qb.andWhere('a.status = :status', { status: filter.status });
-    else qb.andWhere('a.status IN (:...statuses)', {
-      statuses: [InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW],
-    });
+    else
+      qb.andWhere('a.status IN (:...statuses)', {
+        statuses: [InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW],
+      });
     qb.skip((page - 1) * limit).take(limit);
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
@@ -272,13 +285,18 @@ export class InstructorApplicationService {
     id: string,
     adminId: string,
   ): Promise<InstructorApplication> {
-    const repo = 'getRepository' in manager ? manager.getRepository(InstructorApplication) : manager;
+    const repo =
+      'getRepository' in manager ? manager.getRepository(InstructorApplication) : manager;
     const application = await repo.findOne({ where: { id } });
     if (
       !application ||
-      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(application.status)
+      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(
+        application.status,
+      )
     ) {
-      throw new NotFoundException(biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'));
+      throw new NotFoundException(
+        biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'),
+      );
     }
     application.status = InstructorApplicationStatus.APPROVED;
     application.reviewed_by = adminId;
@@ -296,7 +314,11 @@ export class InstructorApplicationService {
   }
 
   /** FR-016 — lifts the 3-application block for one applicant. */
-  public async resetAttempts(applicantUserId: string, adminId: string, reason: string): Promise<void> {
+  public async resetAttempts(
+    applicantUserId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<void> {
     await this.activityLogs.recordAuditEvent(
       new MarketplaceApplicationAttemptsResetEvent(adminId, applicantUserId, { reason }),
     );
@@ -314,7 +336,10 @@ export class InstructorApplicationService {
     });
     if (!application) {
       throw new NotFoundException(
-        biBody('No editable application found (must be draft or rejected)', 'لا يوجد طلب قابل للتعديل (يجب أن يكون مسودة أو مرفوضًا)'),
+        biBody(
+          'No editable application found (must be draft or rejected)',
+          'لا يوجد طلب قابل للتعديل (يجب أن يكون مسودة أو مرفوضًا)',
+        ),
       );
     }
     return application;
@@ -324,9 +349,13 @@ export class InstructorApplicationService {
     const application = await this.applications.findOne({ where: { id } });
     if (
       !application ||
-      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(application.status)
+      ![InstructorApplicationStatus.SUBMITTED, InstructorApplicationStatus.UNDER_REVIEW].includes(
+        application.status,
+      )
     ) {
-      throw new NotFoundException(biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'));
+      throw new NotFoundException(
+        biBody('No reviewable application found', 'لا يوجد طلب قابل للمراجعة'),
+      );
     }
     return application;
   }
@@ -340,7 +369,8 @@ export class InstructorApplicationService {
     if (application.years_of_experience === null || application.years_of_experience === undefined) {
       missing.push('years_of_experience');
     }
-    if (!application.specializations || application.specializations.length === 0) missing.push('specializations');
+    if (!application.specializations || application.specializations.length === 0)
+      missing.push('specializations');
     if (!application.intended_category_ids || application.intended_category_ids.length === 0) {
       missing.push('intended_category_ids');
     }
@@ -373,7 +403,8 @@ export class InstructorApplicationService {
     const mostRecent = rejectionsSinceReset[0];
     if (mostRecent?.reviewed_at) {
       const availableFrom = new Date(
-        mostRecent.reviewed_at.getTime() + config.applicationResubmissionWaitDays * 24 * 60 * 60 * 1000,
+        mostRecent.reviewed_at.getTime() +
+          config.applicationResubmissionWaitDays * 24 * 60 * 60 * 1000,
       );
       if (new Date() < availableFrom) {
         throw applicationResubmissionBlocked('wait_period', availableFrom);

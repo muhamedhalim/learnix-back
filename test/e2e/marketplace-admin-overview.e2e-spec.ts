@@ -6,7 +6,13 @@ import type { DataSource } from 'typeorm';
 import request from 'supertest';
 
 import { InstructorApplication } from '../../src/marketplace/instructors/entities/instructor-application.entity';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 
 /**
  * API audit — `GET /marketplace/admin/overview` (FR-286).
@@ -77,15 +83,24 @@ describe('marketplace admin overview (FR-286)', () => {
     await setUserRole(dataSource, admin.userId, 'admin');
 
     const learner = await createAuthenticatedUser(app, dataSource);
-    await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);
-    await learner.agent.patch(`${API_PREFIX}/marketplace/applications/me`).send(submittableApplication).expect(200);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/applications`)
+      .send({ display_name: 'Nour' })
+      .expect(201);
+    await learner.agent
+      .patch(`${API_PREFIX}/marketplace/applications/me`)
+      .send(submittableApplication)
+      .expect(200);
 
     // A draft is not waiting for an admin.
     const draftOverview = await admin.agent.get(OVERVIEW).expect(200);
     expect(draftOverview.body.applications.count).toBe(0);
 
     const before = Date.now();
-    await learner.agent.post(`${API_PREFIX}/marketplace/applications/me/submit`).send({}).expect(201);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/applications/me/submit`)
+      .send({})
+      .expect(201);
 
     const waiting = await admin.agent.get(OVERVIEW).expect(200);
     expect(waiting.body.applications.count).toBe(1);

@@ -60,7 +60,11 @@ function join(...parts: string[]): string {
 function guardNames(reflector: Reflector, targets: Array<object>): string[] {
   const names = new Set<string>();
   for (const target of targets) {
-    const guards = reflector.get<Array<{ name?: string } | (new () => unknown)>>(GUARDS_METADATA, target as never) ?? [];
+    const guards =
+      reflector.get<Array<{ name?: string } | (new () => unknown)>>(
+        GUARDS_METADATA,
+        target as never,
+      ) ?? [];
     for (const g of guards) {
       names.add(typeof g === 'function' ? g.name : (g.constructor?.name ?? 'anonymous'));
     }
@@ -76,7 +80,8 @@ function collectInventory(app: INestApplication): InventoryRow[] {
 
   for (const wrapper of discovery.getControllers()) {
     const { instance, metatype } = wrapper;
-    if (instance === null || instance === undefined || metatype === null || metatype === undefined) continue;
+    if (instance === null || instance === undefined || metatype === null || metatype === undefined)
+      continue;
     const prototype = Object.getPrototypeOf(instance) as object;
     const controllerPaths = asArray(Reflect.getMetadata(PATH_METADATA, metatype));
 
@@ -160,7 +165,9 @@ describe('API route registration parity (declared controllers vs live router)', 
             declaredCount: declaredKeys.size,
             liveCount: live.size,
             undeclaredLive,
-            routes: declared.sort((a, b) => `${a.path} ${a.method}`.localeCompare(`${b.path} ${b.method}`)),
+            routes: declared.sort((a, b) =>
+              `${a.path} ${a.method}`.localeCompare(`${b.path} ${b.method}`),
+            ),
           },
           null,
           2,
@@ -177,7 +184,8 @@ describe('API route registration parity (declared controllers vs live router)', 
       const shape = `${row.method} ${row.path.replace(/:[A-Za-z0-9_]+/g, ':param')}`;
       const owner = `${row.controller}.${row.handler}`;
       const existing = seen.get(shape);
-      if (existing !== undefined && existing !== owner) duplicates.push(`${shape}  <-  ${existing}  |  ${owner}`);
+      if (existing !== undefined && existing !== owner)
+        duplicates.push(`${shape}  <-  ${existing}  |  ${owner}`);
       seen.set(shape, owner);
     }
     expect(duplicates).toEqual([]);
