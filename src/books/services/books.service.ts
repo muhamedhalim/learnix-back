@@ -43,6 +43,9 @@ export class BooksService {
    */
   public async create(teacherId: string, dto: CreateBookDto): Promise<Book> {
     this.assertOwnedBookFileReference(dto.book_file, teacherId);
+    if (dto.cover_image != null && dto.cover_image !== '') {
+      this.assertOwnedCoverReference(dto.cover_image, teacherId);
+    }
 
     // Validate the subject exists and this teacher may use it (approved
     // catalogue, or their own pending submission)
@@ -262,6 +265,9 @@ export class BooksService {
     if (dto.book_file != null && dto.book_file !== book.book_file) {
       this.assertOwnedBookFileReference(dto.book_file, teacherId);
     }
+    if (dto.cover_image != null && dto.cover_image !== '' && dto.cover_image !== book.cover_image) {
+      this.assertOwnedCoverReference(dto.cover_image, teacherId);
+    }
 
     // If updating subject, validate it exists and is usable by this teacher.
     // Skipped when unchanged, so a later suspension does not brick editing.
@@ -316,7 +322,8 @@ export class BooksService {
       dto.cover_image != null &&
       oldCover != null &&
       oldCover !== '' &&
-      dto.cover_image !== oldCover
+      dto.cover_image !== oldCover &&
+      (await this.canPurgeCover(oldCover, teacherId, book.id))
     ) {
       await this.storageService.tryDelete(this.storageService.toKey(oldCover));
     }
@@ -324,6 +331,50 @@ export class BooksService {
     this.logger.log(`Book updated: ${id} by teacher ${teacherId}`);
 
     return await this.findOne(id);
+  }
+
+  /** Teacher image uploads are stored under `images/<teacherId>/`; that prefix is the ownership proof. */
+  private ownedCoverPrefix(teacherId: string): string {
+    return `images/${teacherId}/`;
+  }
+
+  private assertOwnedCoverReference(reference: string, teacherId: string): void {
+    const key = this.storageService.toKey(reference);
+    const prefix = this.ownedCoverPrefix(teacherId);
+    if (
+      !key.startsWith(prefix) ||
+      key.length <= prefix.length ||
+      key.includes('..') ||
+      key.includes('\\') ||
+      key.includes('?') ||
+      key.includes('#')
+    ) {
+      throw new BadRequestException(
+        biBody('Invalid cover image upload reference', 'مرجع صورة الغلاف غير صالح'),
+      );
+    }
+  }
+
+  /**
+   * A stored cover may be deleted only when the teacher provably owns it, or when it is a legacy
+   * un-owned upload that no other book references. A client-supplied reference alone never
+   * authorises deleting a storage object.
+   */
+  private async canPurgeCover(
+    reference: string,
+    ownerId: string,
+    bookId: string,
+  ): Promise<boolean> {
+    const key = this.storageService.toKey(reference);
+    if (key.includes('..')) return false;
+    if (key.startsWith(this.ownedCoverPrefix(ownerId))) return true;
+    if (!/^images\/[^/]+$/u.test(key)) return false;
+    const others = await this.booksRepository
+      .createQueryBuilder('b')
+      .where('b.id <> :bookId', { bookId })
+      .andWhere('b.cover_image LIKE :like', { like: `%${key}` })
+      .getCount();
+    return others === 0;
   }
 
   private assertOwnedBookFileReference(reference: string, teacherId: string): void {
@@ -404,7 +455,11 @@ export class BooksService {
     // Permanent delete → purge the underlying storage objects (private PDF +
     // public cover) so nothing is left orphaned in R2.
     await this.storageService.tryDelete(this.storageService.toKey(book.book_file));
-    if (book.cover_image != null && book.cover_image !== '') {
+    if (
+      book.cover_image != null &&
+      book.cover_image !== '' &&
+      (await this.canPurgeCover(book.cover_image, book.teacher_id, book.id))
+    ) {
       await this.storageService.tryDelete(this.storageService.toKey(book.cover_image));
     }
 

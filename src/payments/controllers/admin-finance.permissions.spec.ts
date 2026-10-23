@@ -100,9 +100,17 @@ describe('admin finance route permissions', () => {
 
   describe('AdminPaymentsController', () => {
     it('requires reports.view for every revenue and purchase read', () => {
-      for (const handler of handlersOf(AdminPaymentsController)) {
+      for (const handler of handlersOf(AdminPaymentsController).filter(
+        (name) => name !== 'extendLessonAccess',
+      )) {
         expect(permissionsFor(AdminPaymentsController, handler)).toContain('reports.view');
       }
+    });
+
+    it('does not let the read-only reports.view permission extend paid access (F-19)', () => {
+      const required = permissionsFor(AdminPaymentsController, 'extendLessonAccess');
+      expect(required).toEqual(['manual_payments.approve']);
+      expect(required).not.toContain('reports.view');
     });
 
     it('applies the requirement at the class level so new routes inherit it', () => {

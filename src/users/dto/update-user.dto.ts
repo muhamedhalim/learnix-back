@@ -1,13 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import {
-  IsEmail,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 import { IsSecureUrl } from '../../common/validators/secure-url.validator';
 import { bi } from '../../i18n/error-translator.util';
@@ -36,6 +29,15 @@ export class UpdateUserDto {
     ),
   })
   public phone?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Required when a user changes their own email or phone number.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  public current_password?: string;
 
   // `parentPhone` removed: guardians are managed through the guardian domain,
   // never as a free-text column on the user an admin can overwrite.

@@ -47,6 +47,49 @@ describe('Access control (e2e)', () => {
     expect(serialized).not.toMatch(/"parent_phone"/);
   });
 
+  it('public GET /students lists only students who opted in (F-04)', async () => {
+    const privateStudent = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const publicStudent = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    await ctx.dataSource.query(
+      `UPDATE student_profiles SET is_public_profile = false WHERE user_id = $1`,
+      [privateStudent.userId],
+    );
+    await ctx.dataSource.query(
+      `UPDATE student_profiles SET is_public_profile = true WHERE user_id = $1`,
+      [publicStudent.userId],
+    );
+
+    const list = await request(server).get(`${API_PREFIX}/students?limit=100`).expect(200);
+    const ids = ((list.body.data ?? list.body) as { user: { id: string } }[]).map((r) => r.user.id);
+    expect(ids).toContain(publicStudent.userId);
+    expect(ids).not.toContain(privateStudent.userId);
+
+    await request(server).get(`${API_PREFIX}/students/${publicStudent.userId}`).expect(200);
+    await request(server).get(`${API_PREFIX}/students/${privateStudent.userId}`).expect(404);
+  });
+
+  it('requires the current password to change own email or phone (F-23)', async () => {
+    const user = await createAuthenticatedUser(ctx.app, ctx.dataSource);
+    const newEmail = `changed-${Date.now()}@example.test`;
+
+    await user.agent.put(`${API_PREFIX}/users/me`).send({ email: newEmail }).expect(403);
+    await user.agent
+      .put(`${API_PREFIX}/users/me`)
+      .send({ email: newEmail, current_password: 'wrong-password-123' })
+      .expect(403);
+    const [unchanged] = (await ctx.dataSource.query(`SELECT email FROM users WHERE id = $1`, [
+      user.userId,
+    ])) as { email: string }[];
+    expect(unchanged?.email).toBe(user.credentials.email.toLowerCase());
+
+    // A name change needs no password; an email change with the right one succeeds.
+    await user.agent.put(`${API_PREFIX}/users/me`).send({ name: 'Renamed User' }).expect(200);
+    await user.agent
+      .put(`${API_PREFIX}/users/me`)
+      .send({ email: newEmail, current_password: user.credentials.password })
+      .expect(200);
+  });
+
   it('rejects anonymous access to an admin-only route', async () => {
     await request(server).get(`${API_PREFIX}/admin/students`).expect(401);
   });

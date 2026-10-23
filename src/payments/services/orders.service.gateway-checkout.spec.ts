@@ -3,7 +3,7 @@ import type { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { Order, OrderStatus, Payment, PaymentChannel, PaymentStatus } from '../entities';
 import type { PaymentGateway } from '../providers/payment-gateway.interface';
-import { OrdersService } from './orders.service';
+import { OrdersService, STALE_CHECKOUT_CLAIM_MS } from './orders.service';
 import type { PaymentProviderRegistry } from './payment-provider-registry.service';
 
 interface CheckoutFixture {
@@ -172,5 +172,29 @@ describe('OrdersService gateway checkout idempotency', () => {
       service.startGatewayCheckout('order-1', 'student-1', checkoutDto),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(provider.createCheckoutOrder).toHaveBeenCalledTimes(1);
+  });
+  it('restarts a PROCESSING claim that never got a provider reference once the grace period has passed (F-07)', async () => {
+    const { service, payment, provider } = checkoutFixture({
+      status: PaymentStatus.PROCESSING,
+      updated_at: new Date(Date.now() - STALE_CHECKOUT_CLAIM_MS - 1_000),
+    });
+
+    await expect(
+      service.startGatewayCheckout('order-1', 'student-1', checkoutDto),
+    ).resolves.toMatchObject({ redirect_url: 'https://easykash.test/checkout' });
+    expect(provider.createCheckoutOrder).toHaveBeenCalledTimes(1);
+    expect(payment.provider_order_reference).toBe('555');
+  });
+
+  it('keeps refusing a fresh PROCESSING claim without a reference', async () => {
+    const { service, provider } = checkoutFixture({
+      status: PaymentStatus.PROCESSING,
+      updated_at: new Date(),
+    });
+
+    await expect(
+      service.startGatewayCheckout('order-1', 'student-1', checkoutDto),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(provider.createCheckoutOrder).not.toHaveBeenCalled();
   });
 });

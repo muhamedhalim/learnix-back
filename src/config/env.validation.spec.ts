@@ -106,3 +106,17 @@ describe('production environment URL validation', () => {
     ).toThrow(/EASYKASH_PAYMENT_OPTIONS/);
   });
 });
+
+describe('NODE_ENV value validation (F-35)', () => {
+  it.each(['Production', 'PRODUCTION', 'prod', 'staging', ''])('rejects NODE_ENV=%j', (value) => {
+    expect(() => validate({ ...baseProductionConfig, NODE_ENV: value })).toThrow(/NODE_ENV/);
+  });
+
+  it.each(['production', 'development', 'test'])('accepts NODE_ENV=%s', (value) => {
+    if (value === 'production') {
+      expect(() => validate({ ...baseProductionConfig, NODE_ENV: value })).not.toThrow();
+      return;
+    }
+    expect(() => validate({ ...baseProductionConfig, NODE_ENV: value })).not.toThrow(/NODE_ENV/);
+  });
+});

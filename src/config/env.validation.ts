@@ -188,7 +188,10 @@ export function validateAwsRuntimeProfile(config: Record<string, unknown>): void
 }
 
 export class EnvironmentVariables {
+  // Only the three known values: a typo such as `Production` would otherwise boot with every
+  // production protection (CSP, reset-token hiding, generic auth errors) silently switched off (F-35).
   @IsOptional()
+  @IsIn(Object.values(Environment))
   public NODE_ENV: Environment = Environment.Development;
 
   /**

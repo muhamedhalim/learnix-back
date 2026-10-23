@@ -44,7 +44,6 @@ export class ProgressService {
     studentId: string,
     lessonId: string,
     watchedDuration: number,
-    totalDurationOverride?: number,
   ): Promise<LessonProgressDto> {
     // Get the lesson to validate it exists and get its duration
     const lesson = await this.lessonRepository.findOne({
@@ -55,12 +54,16 @@ export class ProgressService {
       throw new NotFoundException(biBody('Lesson not found', 'الدرس غير موجود'));
     }
 
-    // Use provided totalDuration or lesson's duration
-    const totalDuration = totalDurationOverride ?? lesson.duration ?? watchedDuration;
+    // The denominator is always the server's own lesson duration. A client-supplied total would let
+    // any buyer post {watched: 1, total: 1}, complete the lesson and earn a certificate (F-08).
+    const totalDuration = lesson.duration ?? 0;
 
     if (totalDuration <= 0) {
       throw new BadRequestException(
-        biBody('Total duration must be greater than 0', 'يجب أن تكون المدة الإجمالية أكبر من 0'),
+        biBody(
+          'Lesson duration is not available yet, so progress cannot be recorded',
+          'مدة الدرس غير متاحة بعد، لذلك لا يمكن تسجيل التقدم',
+        ),
       );
     }
 

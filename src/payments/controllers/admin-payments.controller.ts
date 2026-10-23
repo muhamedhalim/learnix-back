@@ -91,13 +91,8 @@ export class AdminPaymentsController {
     status: HttpStatus.OK,
     description: 'Lesson purchases retrieved successfully',
   })
-  public async getAllLessonPurchases(
-    @Query() pagination: Pagination20Dto,
-  ): Promise<unknown> {
-    return await this.paymentsService.getAllLessonPurchases(
-      pagination.page,
-      pagination.limit,
-    );
+  public async getAllLessonPurchases(@Query() pagination: Pagination20Dto): Promise<unknown> {
+    return await this.paymentsService.getAllLessonPurchases(pagination.page, pagination.limit);
   }
 
   @Get(':id')
@@ -115,7 +110,9 @@ export class AdminPaymentsController {
     return { data: payment };
   }
 
+  // A write that grants paid access: it must not ride on the read-only `reports.view` class permission (F-19).
   @Post(':id/extend')
+  @FinancePermissions('manual_payments.approve')
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Purchase not found',

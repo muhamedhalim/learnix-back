@@ -177,7 +177,6 @@ export class StudentLessonsController {
       userId,
       lessonId,
       dto.watchedDuration,
-      dto.totalDuration,
     );
 
     return {

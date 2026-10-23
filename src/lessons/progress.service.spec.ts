@@ -59,4 +59,36 @@ describe('ProgressService completion events', () => {
 
     expect(events.emit).not.toHaveBeenCalled();
   });
+  it('ignores any client-asserted total: 1 second of a 1 hour lesson is not completion (F-08)', async () => {
+    const service = new ProgressService(
+      progress as never,
+      lessons as never,
+      users as never,
+      events as unknown as EventEmitter2,
+    );
+    lessons.findOne.mockResolvedValue({ id: 'lesson-1', title: 'Algebra', duration: 3600 });
+    progress.findOne.mockResolvedValue(null);
+    progress.create.mockImplementation((value: unknown) => ({ id: 'progress-1', ...value }));
+    progress.save.mockImplementation((value: unknown) => Promise.resolve(value));
+
+    const result = await service.updateProgress('student-1', 'lesson-1', 1);
+
+    expect(result.completed).toBe(false);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it('refuses to record progress when the server does not know the lesson duration', async () => {
+    const service = new ProgressService(
+      progress as never,
+      lessons as never,
+      users as never,
+      events as unknown as EventEmitter2,
+    );
+    lessons.findOne.mockResolvedValue({ id: 'lesson-1', title: 'Algebra', duration: null });
+
+    await expect(service.updateProgress('student-1', 'lesson-1', 1)).rejects.toThrow(
+      'Lesson duration is not available',
+    );
+    expect(progress.save).not.toHaveBeenCalled();
+  });
 });

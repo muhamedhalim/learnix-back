@@ -237,6 +237,17 @@ export class RefundsService {
           ),
         );
       }
+      // Check the capability BEFORE claiming: committing a PROCESSING refund plus a `claimed` attempt and
+      // only then discovering the gateway has no refund API left the refund stuck forever (F-06). A
+      // gateway without one is refunded in its own dashboard and completed through the manual path.
+      if (!this.providers.get(payment.provider).supportsRefunds()) {
+        throw new ConflictException(
+          biBody(
+            'This payment gateway has no refund API. Refund the payment in the gateway dashboard, then complete this refund manually with the provider reference.',
+            'This payment gateway has no refund API. Refund the payment in the gateway dashboard, then complete this refund manually with the provider reference.',
+          ),
+        );
+      }
       const activeAttempt = await manager
         .createQueryBuilder(RefundAttempt, 'attempt')
         .where('attempt.refund_id = :refundId', { refundId: refund.id })

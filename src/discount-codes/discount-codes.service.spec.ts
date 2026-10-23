@@ -3,6 +3,7 @@ import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { toMinorUnits } from '../payments/money.util';
 import { DiscountCodesService } from './discount-codes.service';
 import { DiscountCode, DiscountCodeUsage, DiscountType } from './entities';
 import { ApplicableItem } from './entities/applicable-item.enum';
@@ -82,6 +83,26 @@ describe('DiscountCodesService', () => {
       expect(result.discount_amount).toBe(20);
       expect(result.final_amount).toBe(80);
     });
+
+    it.each([
+      [12.5, 99, 12.38, 86.62],
+      [33.33, 150, 50, 100],
+      [10, 19.9, 1.99, 17.91],
+    ])(
+      'rounds a %s%% discount on %s EGP to whole piastres (F-12)',
+      async (percent, amount, expectedDiscount, expectedFinal) => {
+        codesRepo.findOne.mockResolvedValue(buildCode({ discount_value: percent }));
+
+        const result = await service.verifyCode({ ...dto, amount }, 'user-1');
+
+        expect(result.valid).toBe(true);
+        expect(result.discount_amount).toBe(expectedDiscount);
+        expect(result.final_amount).toBe(expectedFinal);
+        // The order flow converts with toMinorUnits, which rejects more than two decimals.
+        expect(() => toMinorUnits(result.discount_amount ?? 0)).not.toThrow();
+        expect(() => toMinorUnits(result.final_amount ?? 0)).not.toThrow();
+      },
+    );
 
     it('rejects an inactive/unknown code (repo filters is_active)', async () => {
       codesRepo.findOne.mockResolvedValue(null);

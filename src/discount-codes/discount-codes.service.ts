@@ -383,7 +383,10 @@ export class DiscountCodesService {
     // Calculate discount
     let discountAmount = 0;
     if (code.discount_type === DiscountType.PERCENTAGE) {
-      discountAmount = (dto.amount * discountValue) / 100;
+      // Round to whole piastres in integer arithmetic: 12.5% of 99 EGP is 12.375, which the order flow
+      // (toMinorUnits, two decimals max) would reject as an invalid amount and block checkout (F-12).
+      const amountMinor = Math.round(dto.amount * 100);
+      discountAmount = Math.round((amountMinor * discountValue) / 100) / 100;
       if (maxDiscount !== null && Number.isFinite(maxDiscount)) {
         discountAmount = Math.min(discountAmount, maxDiscount);
       }
@@ -400,7 +403,7 @@ export class DiscountCodesService {
       discount_type: code.discount_type,
       discount_value: discountValue,
       discount_amount: discountAmount,
-      final_amount: dto.amount - discountAmount,
+      final_amount: Math.round((dto.amount - discountAmount) * 100) / 100,
     };
   }
 
@@ -426,8 +429,13 @@ export class DiscountCodesService {
         snapshot: null,
       };
     }
-    if (items.length === 0 || items.some((item) => !Number.isSafeInteger(item.amount_minor) || item.amount_minor <= 0)) {
-      throw new BadRequestException(biBody('Cart contains an invalid amount', 'تحتوي السلة على مبلغ غير صالح'));
+    if (
+      items.length === 0 ||
+      items.some((item) => !Number.isSafeInteger(item.amount_minor) || item.amount_minor <= 0)
+    ) {
+      throw new BadRequestException(
+        biBody('Cart contains an invalid amount', 'تحتوي السلة على مبلغ غير صالح'),
+      );
     }
 
     const code = await manager.findOne(DiscountCode, {
@@ -460,11 +468,16 @@ export class DiscountCodesService {
     const qualifying = items.filter(
       (item) =>
         code.applicable_to.includes(item.item_type) &&
-        (code.item_ids === null || code.item_ids.length === 0 || code.item_ids.includes(item.item_id)),
+        (code.item_ids === null ||
+          code.item_ids.length === 0 ||
+          code.item_ids.includes(item.item_id)),
     );
     if (qualifying.length === 0) {
       throw new BadRequestException(
-        biBody('Discount code does not apply to items in this cart', 'كود الخصم لا ينطبق على عناصر السلة'),
+        biBody(
+          'Discount code does not apply to items in this cart',
+          'كود الخصم لا ينطبق على عناصر السلة',
+        ),
       );
     }
     const applicableSubtotal = qualifying.reduce((sum, item) => sum + item.amount_minor, 0);
@@ -488,11 +501,16 @@ export class DiscountCodesService {
     totalDiscount = Math.min(totalDiscount, applicableSubtotal);
     if (totalDiscount <= 0) {
       throw new BadRequestException(
-        biBody('Discount code does not reduce this cart total', 'كود الخصم لا يخفض إجمالي هذه السلة'),
+        biBody(
+          'Discount code does not reduce this cart total',
+          'كود الخصم لا يخفض إجمالي هذه السلة',
+        ),
       );
     }
     const allocations = this.allocateCartDiscount(qualifying, applicableSubtotal, totalDiscount);
-    const allocations_minor = Object.fromEntries(items.map((item) => [item.key, allocations[item.key] ?? 0]));
+    const allocations_minor = Object.fromEntries(
+      items.map((item) => [item.key, allocations[item.key] ?? 0]),
+    );
 
     return {
       discount_code_id: code.id,

@@ -122,7 +122,7 @@ export class UsersController {
     if (userId === undefined || userId === '') {
       throw new ForbiddenException(biBody('User not authenticated', 'المستخدم غير مصادق عليه'));
     }
-    return await this.usersService.update(userId, updateUserDto);
+    return await this.usersService.update(userId, updateUserDto, { requireCurrentPassword: true });
   }
 
   @Put(':id')

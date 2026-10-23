@@ -109,6 +109,7 @@ export class GatewayFinancialStateMachineService {
       }
       if (payment?.cart_checkout_id && payment.order_id === null) {
         if (webhook.outcome === 'succeeded' || webhook.outcome === 'refunded') {
+          const savepoint = await this.openSavepoint(manager);
           try {
             await this.cartCheckout.finalizeSuccessfulGatewayPayment(
               {
@@ -131,8 +132,14 @@ export class GatewayFinancialStateMachineService {
                 webhook.currency,
               );
             }
+            await this.releaseSavepoint(manager, savepoint);
           } catch (error) {
-            if (error instanceof UnprocessableEntityException || error instanceof NotFoundException) {
+            if (
+              error instanceof UnprocessableEntityException ||
+              error instanceof NotFoundException
+            ) {
+              // Discard the finalizer's partial writes before recording the compensation (F-11).
+              await this.rollbackToSavepoint(manager, savepoint);
               await this.cartCheckout.markFulfillmentReconciliation(
                 manager,
                 payment.id,
@@ -173,17 +180,22 @@ export class GatewayFinancialStateMachineService {
       // A provider-refunded transaction is a final fact. Finalize and reverse
       // in the same transaction so a crash cannot leave an active entitlement.
       if (webhook.outcome === 'succeeded' || webhook.outcome === 'refunded') {
+        const savepoint = await this.openSavepoint(manager);
         try {
           await this.finalizer.finalizeSuccessfulPayment(input, manager);
+          await this.releaseSavepoint(manager, savepoint);
         } catch (error) {
-          if (
-            error instanceof UnprocessableEntityException ||
-            error instanceof NotFoundException
-          ) {
+          if (error instanceof UnprocessableEntityException || error instanceof NotFoundException) {
+            // The finalizer may already have written payment COMPLETED / order PAID / entitlement before it
+            // failed. Roll those back to the savepoint instead of committing a half-fulfilled purchase
+            // (F-11), then record the compensation on freshly re-read rows (never on stale entities).
+            await this.rollbackToSavepoint(manager, savepoint);
+            const freshPayment = await manager.findOne(Payment, { where: { id: payment.id } });
+            const freshOrder = await manager.findOne(Order, { where: { id: order.id } });
             await this.recordFulfillmentCompensation(
               manager,
-              payment,
-              order,
+              freshPayment ?? payment,
+              freshOrder ?? order,
               webhook,
               error.message,
             );
@@ -217,6 +229,29 @@ export class GatewayFinancialStateMachineService {
       }
       return 'completed';
     });
+  }
+
+  private savepointSeq = 0;
+
+  private async openSavepoint(manager: import('typeorm').EntityManager): Promise<string> {
+    this.savepointSeq += 1;
+    const name = `gw_finalize_${String(this.savepointSeq)}`;
+    await manager.query(`SAVEPOINT ${name}`);
+    return name;
+  }
+
+  private async releaseSavepoint(
+    manager: import('typeorm').EntityManager,
+    name: string,
+  ): Promise<void> {
+    await manager.query(`RELEASE SAVEPOINT ${name}`);
+  }
+
+  private async rollbackToSavepoint(
+    manager: import('typeorm').EntityManager,
+    name: string,
+  ): Promise<void> {
+    await manager.query(`ROLLBACK TO SAVEPOINT ${name}`);
   }
 
   private async recordFulfillmentCompensation(

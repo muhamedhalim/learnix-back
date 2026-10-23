@@ -185,7 +185,10 @@ export class AttendanceService {
     });
     if (alreadyMarked) {
       throw new ConflictException(
-        biBody('Attendance already marked for this appointment', 'تم تسجيل الحضور لهذا الموعد بالفعل'),
+        biBody(
+          'Attendance already marked for this appointment',
+          'تم تسجيل الحضور لهذا الموعد بالفعل',
+        ),
       );
     }
 
@@ -522,7 +525,10 @@ export class AttendanceService {
     const query = this.attendanceRepository
       .createQueryBuilder('attendance')
       .leftJoinAndSelect('attendance.lesson', 'lesson')
-      .leftJoinAndSelect('lesson.teacher', 'teacher')
+      // Explicit public columns only: a full User row would hand a student the teacher's email, phone,
+      // firebase_uid and finance permissions (F-18).
+      .leftJoin('lesson.teacher', 'teacher')
+      .addSelect(['teacher.id', 'teacher.name', 'teacher.profile_picture_url'])
       .leftJoinAndSelect('lesson.subject', 'subject')
       .where('attendance.student_id = :studentId', { studentId });
 
@@ -583,8 +589,10 @@ export class AttendanceService {
 
     const query = this.attendanceRepository
       .createQueryBuilder('attendance')
-      .leftJoinAndSelect('attendance.student', 'student')
-      .leftJoinAndSelect('attendance.marker', 'marker')
+      .leftJoin('attendance.student', 'student')
+      .addSelect(['student.id', 'student.name', 'student.profile_picture_url'])
+      .leftJoin('attendance.marker', 'marker')
+      .addSelect(['marker.id', 'marker.name'])
       .where('attendance.lesson_id = :lessonId', { lessonId });
 
     // Apply filters
@@ -764,10 +772,10 @@ export class AttendanceService {
         ]);
       this.applyAdminAttendanceFilters(query, filter);
       if (cursor) {
-        query.andWhere(
-          '(attendance.marked_at, attendance.id) < (:cursorMarkedAt, :cursorId)',
-          { cursorMarkedAt: cursor.markedAt, cursorId: cursor.id },
-        );
+        query.andWhere('(attendance.marked_at, attendance.id) < (:cursorMarkedAt, :cursorId)', {
+          cursorMarkedAt: cursor.markedAt,
+          cursorId: cursor.id,
+        });
       }
       this.orderAdminAttendance(query);
       const chunk = await query.take(chunkSize).getMany();

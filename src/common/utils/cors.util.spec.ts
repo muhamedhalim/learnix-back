@@ -50,7 +50,12 @@ describe('Vercel frontend -> AWS API (separate origins) credentialed CORS over H
   app.use(cookieParser('test-secret'));
   app.use(cors(buildCorsOptions(getAllowedFor(FRONTEND), (o) => blocked.push(o))));
   app.post('/api/v1/auth/login', (_req, res) => {
-    res.cookie('access_token', 'v', { httpOnly: true, secure: true, sameSite: 'none', partitioned: true });
+    res.cookie('access_token', 'v', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      partitioned: true,
+    });
     res.json({ ok: true });
   });
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
@@ -111,5 +116,14 @@ describe('Vercel frontend -> AWS API (separate origins) credentialed CORS over H
     const res = await request(app).get('/api/v1/health');
     expect(res.status).toBe(200);
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+  it('allows the Idempotency-Key header the frontend sends on admin/marketplace writes (F-09)', async () => {
+    const res = await request(app)
+      .options('/api/v1/health')
+      .set('Origin', FRONTEND)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,idempotency-key,x-csrf-token');
+    expect(res.headers['access-control-allow-origin']).toBe(FRONTEND);
+    expect(res.headers['access-control-allow-headers']?.toLowerCase()).toContain('idempotency-key');
   });
 });

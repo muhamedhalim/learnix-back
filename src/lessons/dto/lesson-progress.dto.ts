@@ -25,7 +25,7 @@ export class UpdateProgressDto {
 
   @ApiPropertyOptional({
     description:
-      'Total duration of the lesson in seconds (optional, uses lesson.duration if not provided)',
+      'Deprecated and ignored: progress is always computed against the server-side lesson duration.',
     example: 7200,
     minimum: 1,
   })

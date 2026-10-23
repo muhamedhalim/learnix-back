@@ -236,7 +236,37 @@ export class UsersService {
     };
   }
 
-  public async update(id: string, updateUserDto: UpdateUserDto): Promise<unknown> {
+  private async assertCurrentPassword(userId: string, password: string | undefined): Promise<void> {
+    const credentials = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'password_hash'],
+    });
+    const valid =
+      password !== undefined &&
+      password !== '' &&
+      credentials?.password_hash !== null &&
+      credentials?.password_hash !== undefined &&
+      (await bcrypt.compare(password, credentials.password_hash));
+    if (!valid) {
+      throw new ForbiddenException(
+        biBody(
+          'Your current password is required to change your email or phone number',
+          'كلمة المرور الحالية مطلوبة لتغيير البريد الإلكتروني أو رقم الهاتف',
+        ),
+      );
+    }
+  }
+
+  /**
+   * `options.requireCurrentPassword` is set for a user editing their OWN profile: changing the login
+   * email or the phone then needs the current password, so a hijacked session cannot take the account
+   * over permanently (change email, then "forgot password") (F-23).
+   */
+  public async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+    options: { requireCurrentPassword?: boolean } = {},
+  ): Promise<unknown> {
     const user = await this.userRepository.findOne({
       where: { id },
       select: [
@@ -258,6 +288,16 @@ export class UsersService {
     }
 
     const email = updateUserDto.email?.trim().toLowerCase();
+    if (options.requireCurrentPassword === true) {
+      const emailChanged = email !== undefined && email !== '' && email !== user.email;
+      const phoneChanged =
+        updateUserDto.phone !== undefined &&
+        updateUserDto.phone !== '' &&
+        updateUserDto.phone !== user.phone;
+      if (emailChanged || phoneChanged) {
+        await this.assertCurrentPassword(id, updateUserDto.current_password);
+      }
+    }
     if (email !== undefined && email !== '' && email !== user.email) {
       const emailExists = await this.userRepository.findOne({
         where: { email },

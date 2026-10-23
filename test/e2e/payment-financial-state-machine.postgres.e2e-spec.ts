@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { NotFoundException, type INestApplication } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 
 import { Lesson } from '../../src/lessons/entities/lesson.entity';
@@ -35,6 +35,7 @@ import type {
   ProviderTransactionDetails,
   ProviderWebhookEvent,
 } from '../../src/payments/providers/payment-gateway.interface';
+import { PaymentFinalizationService } from '../../src/payments/services/payment-finalization.service';
 import { GatewayFinancialStateMachineService } from '../../src/payments/services/gateway-financial-state-machine.service';
 import { GatewayWebhookService } from '../../src/payments/services/gateway-webhook.service';
 import { PaymentOperationsService } from '../../src/payments/services/payment-operations.service';
@@ -513,6 +514,31 @@ describe('payment financial state machine (PostgreSQL)', () => {
     provider.mockRestore();
   });
 
+  it('leaves no stuck PROCESSING refund or claimed attempt when the gateway has no refund API (F-06)', async () => {
+    const { payment, order, event, teacher, student } = await fixture();
+    await stateMachine.apply(event.id, 'lease-1', payment.id, webhook('succeeded'));
+    const refund = await refunds.request(
+      { order_id: order.id, amount_minor: payment.amount_minor, reason_code: 'test' },
+      teacher.id,
+    );
+    const provider = jest.spyOn(providers, 'get').mockReturnValue({
+      supportsRefunds: () => false,
+      refund: jest.fn(),
+    } as unknown as PaymentGateway);
+
+    await expect(refunds.processGateway(refund.id, student.id)).rejects.toThrow('no refund API');
+    // Retrying stays a clear, identical refusal instead of "already being processed".
+    await expect(refunds.processGateway(refund.id, student.id)).rejects.toThrow('no refund API');
+
+    await expect(
+      dataSource.getRepository(Refund).findOneByOrFail({ id: refund.id }),
+    ).resolves.not.toMatchObject({ status: RefundStatus.PROCESSING });
+    await expect(
+      dataSource.getRepository(RefundAttempt).countBy({ refund_id: refund.id }),
+    ).resolves.toBe(0);
+    provider.mockRestore();
+  });
+
   it('fails closed after an ambiguous provider timeout and refuses a blind resend', async () => {
     const { payment, order, event, teacher, student } = await fixture();
     await stateMachine.apply(event.id, 'lease-1', payment.id, webhook('succeeded'));
@@ -731,6 +757,38 @@ describe('payment financial state machine (PostgreSQL)', () => {
         .getRepository(GatewayWebhookEvent)
         .findOneByOrFail({ provider_event_id: incoming.providerEventId }),
     ).resolves.toMatchObject({ status: 'failed' });
+  });
+
+  it('rolls back the finalizer writes when fulfilment fails after they were made (F-11)', async () => {
+    const { payment, order } = await fixture();
+    const finalizer = app.get(PaymentFinalizationService);
+    const spy = jest
+      .spyOn(finalizer, 'finalizeSuccessfulPayment')
+      .mockImplementation(async (_input, manager) => {
+        // What the real finalizer writes before a later purchase-row step fails.
+        await manager!.update(Payment, payment.id, { status: PaymentStatus.COMPLETED });
+        await manager!.update(Order, order.id, { status: OrderStatus.PAID });
+        throw new NotFoundException('Lesson no longer exists');
+      });
+
+    await webhooks.process(webhookForPayment(payment, 'succeeded', 'partial-fulfilment'));
+    spy.mockRestore();
+
+    await expect(
+      dataSource.getRepository(Payment).findOneByOrFail({ id: payment.id }),
+    ).resolves.toMatchObject({
+      status: PaymentStatus.PROCESSING,
+      reconciliation_status: 'reconciliation_required',
+    });
+    await expect(
+      dataSource.getRepository(Order).findOneByOrFail({ id: order.id }),
+    ).resolves.not.toMatchObject({ status: OrderStatus.PAID });
+    await expect(
+      dataSource.getRepository(Entitlement).countBy({ order_id: order.id }),
+    ).resolves.toBe(0);
+    await expect(
+      dataSource.getRepository(Refund).findOneByOrFail({ order_id: order.id }),
+    ).resolves.toMatchObject({ reason_code: 'fulfillment_compensation' });
   });
 
   it('carries a refunded payout debt forward so a later equal earning cannot be paid twice', async () => {

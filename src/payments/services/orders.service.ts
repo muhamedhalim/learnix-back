@@ -118,6 +118,27 @@ export interface CheckoutQuote {
   discount: Record<string, unknown> | null;
 }
 
+/**
+ * A checkout claim that never obtained a provider reference (provider timeout/5xx, crashed process) is
+ * restartable after this grace period instead of locking the item until the order expires (F-07). The
+ * grace keeps the deliberate "ambiguous failure must not immediately register a second provider order"
+ * rule; the provider order is keyed by `customerReference = paymentId`, so a late duplicate still maps
+ * to the same payment.
+ */
+export const STALE_CHECKOUT_CLAIM_MS = 3 * 60_000;
+
+export function isStaleUnreferencedProcessing(
+  payment: Pick<Payment, 'status' | 'provider_order_reference' | 'updated_at'>,
+  now: number = Date.now(),
+): boolean {
+  return (
+    payment.status === PaymentStatus.PROCESSING &&
+    payment.provider_order_reference === null &&
+    payment.updated_at instanceof Date &&
+    now - payment.updated_at.getTime() >= STALE_CHECKOUT_CLAIM_MS
+  );
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -610,7 +631,7 @@ export class OrdersService {
       if (payment.provider_order_reference !== null) {
         return { order, payment, providerReference: payment.provider_order_reference };
       }
-      if (payment.status === PaymentStatus.PROCESSING) {
+      if (payment.status === PaymentStatus.PROCESSING && !isStaleUnreferencedProcessing(payment)) {
         throw new ConflictException(
           biBody(
             'Checkout is already being prepared',
@@ -618,7 +639,10 @@ export class OrdersService {
           ),
         );
       }
-      if (![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status)) {
+      if (
+        ![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status) &&
+        !isStaleUnreferencedProcessing(payment)
+      ) {
         throw new ConflictException(
           biBody(
             'Payment cannot be started in its current state',
@@ -629,6 +653,8 @@ export class OrdersService {
 
       payment.status = PaymentStatus.PROCESSING;
       payment.failure_reason = null;
+      // Touch the row so a concurrent retry sees a fresh claim and waits its own grace period.
+      payment.updated_at = new Date();
       await manager.save(Payment, payment);
       return { order, payment, providerReference: null };
     });

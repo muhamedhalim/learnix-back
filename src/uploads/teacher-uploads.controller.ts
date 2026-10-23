@@ -17,10 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-import {
-  extensionMatchesMime,
-  hasExpectedMagicBytes,
-} from '../common/utils/file-signature.util';
+import { extensionMatchesMime, hasExpectedMagicBytes } from '../common/utils/file-signature.util';
 import { biBody } from '../i18n/error-translator.util';
 import { MediaService } from '../media/media.service';
 import { StorageService } from '../storage/storage.service';
@@ -81,8 +78,9 @@ export class TeacherUploadsController {
   @Post('image')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE, files: 1 } }))
   @ApiOperation({ summary: 'Upload an image (thumbnail). Returns a public URL.' })
-  public async uploadImage(@UploadedFile() file?: MulterFile) {
-    return this.handle(file, IMAGE_TYPES, MAX_IMAGE, 'images');
+  public async uploadImage(@GetUser() user: JwtPayload, @UploadedFile() file?: MulterFile) {
+    // Per-teacher folder: the prefix is the ownership proof checked before a cover is attached or deleted.
+    return this.handle(file, IMAGE_TYPES, MAX_IMAGE, `images/${user.userId}`);
   }
 
   @Post('file')
@@ -131,9 +129,15 @@ export class TeacherUploadsController {
         biBody('Book files must be PDF', 'يجب أن تكون ملفات الكتب بصيغة PDF'),
       );
     }
-    if (!extensionMatchesMime(file.originalname, file.mimetype) || !hasExpectedMagicBytes(file.mimetype, file.buffer)) {
+    if (
+      !extensionMatchesMime(file.originalname, file.mimetype) ||
+      !hasExpectedMagicBytes(file.mimetype, file.buffer)
+    ) {
       throw new BadRequestException(
-        biBody('File content does not match a valid PDF', 'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù…Ù„Ù PDF ØµØ§Ù„Ø­'),
+        biBody(
+          'File content does not match a valid PDF',
+          'Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ·Ø§Ø¨Ù‚ Ù…Ù„Ù PDF ØµØ§Ù„Ø­',
+        ),
       );
     }
     if (file.size > MAX_BOOK) {
@@ -177,7 +181,10 @@ export class TeacherUploadsController {
       !hasExpectedMagicBytes(file.mimetype, file.buffer)
     ) {
       throw new BadRequestException(
-        biBody('File extension, type, or content is invalid', 'Ø§Ù…ØªØ¯Ø§Ø¯ Ø§Ù„Ù…Ù„Ù Ø£Ùˆ Ù†ÙˆØ¹Ù‡ Ø£Ùˆ Ù…Ø­ØªÙˆØ§Ù‡ ØºÙŠØ± ØµØ§Ù„Ø­'),
+        biBody(
+          'File extension, type, or content is invalid',
+          'Ø§Ù…ØªØ¯Ø§Ø¯ Ø§Ù„Ù…Ù„Ù Ø£Ùˆ Ù†ÙˆØ¹Ù‡ Ø£Ùˆ Ù…Ø­ØªÙˆØ§Ù‡ ØºÙŠØ± ØµØ§Ù„Ø­',
+        ),
       );
     }
     if (file.size > maxBytes) {

@@ -153,66 +153,65 @@ export class StudentsService {
         ttlMs: 60_000,
       },
       async () => {
+        // Fetch basic profile
+        const profile = await this.studentProfilesRepository.findOne({
+          where: { user_id: userId },
+          relations: ['user'],
+        });
 
-    // Fetch basic profile
-    const profile = await this.studentProfilesRepository.findOne({
-      where: { user_id: userId },
-      relations: ['user'],
-    });
+        if (!profile) {
+          throw new NotFoundException(
+            biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
+          );
+        }
 
-    if (!profile) {
-      throw new NotFoundException(
-        biBody('Student profile not found', 'الملف الشخصي للطالب غير موجود'),
-      );
-    }
+        // Fetch purchased lessons with lesson details
+        const lessonPurchases = await this.lessonPurchasesRepository
+          .createQueryBuilder('lp')
+          .leftJoinAndSelect('lp.lesson', 'lesson')
+          .where('lp.student_id = :userId', { userId })
+          .orderBy('lp.created_at', 'DESC')
+          .getMany();
 
-    // Fetch purchased lessons with lesson details
-    const lessonPurchases = await this.lessonPurchasesRepository
-      .createQueryBuilder('lp')
-      .leftJoinAndSelect('lp.lesson', 'lesson')
-      .where('lp.student_id = :userId', { userId })
-      .orderBy('lp.created_at', 'DESC')
-      .getMany();
+        // Fetch exam attempts with exam details
+        const examAttempts = await this.examAttemptsRepository
+          .createQueryBuilder('ea')
+          .leftJoinAndSelect('ea.exam', 'exam')
+          .where('ea.student_id = :userId', { userId })
+          .orderBy('ea.created_at', 'DESC')
+          .getMany();
 
-    // Fetch exam attempts with exam details
-    const examAttempts = await this.examAttemptsRepository
-      .createQueryBuilder('ea')
-      .leftJoinAndSelect('ea.exam', 'exam')
-      .where('ea.student_id = :userId', { userId })
-      .orderBy('ea.created_at', 'DESC')
-      .getMany();
+        // Map to response format
+        const now = new Date();
+        const purchasedLessons = lessonPurchases.map((lp) => ({
+          lessonId: lp.lesson_id,
+          // TypeORM excludes soft-deleted related records from relation loading.
+          // Keep the historical purchase readable when its lesson no longer exists.
+          title: lp.lesson?.title ?? null,
+          attended: Boolean(lp.access_granted_at),
+          purchasedAt: lp.created_at,
+          expiresAt: lp.access_expires_at,
+          pricePaid: lp.price_paid,
+          isExpired: lp.access_expires_at < now,
+        }));
 
-    // Map to response format
-    const now = new Date();
-    const purchasedLessons = lessonPurchases.map((lp) => ({
-      lessonId: lp.lesson_id,
-      // TypeORM excludes soft-deleted related records from relation loading.
-      // Keep the historical purchase readable when its lesson no longer exists.
-      title: lp.lesson?.title ?? null,
-      attended: Boolean(lp.access_granted_at),
-      purchasedAt: lp.created_at,
-      expiresAt: lp.access_expires_at,
-      pricePaid: lp.price_paid,
-      isExpired: lp.access_expires_at < now,
-    }));
+        const exams = examAttempts.map((ea) => ({
+          examId: ea.exam_id,
+          // Exam attempts remain useful in a student's history after an exam has
+          // been soft-deleted, so the response deliberately exposes null metadata.
+          title: ea.exam?.title ?? null,
+          score: ea.score_total,
+          totalMarks: ea.exam?.total_marks ?? null,
+          status: ea.state,
+          submittedAt: ea.submitted_at,
+        }));
 
-    const exams = examAttempts.map((ea) => ({
-      examId: ea.exam_id,
-      // Exam attempts remain useful in a student's history after an exam has
-      // been soft-deleted, so the response deliberately exposes null metadata.
-      title: ea.exam?.title ?? null,
-      score: ea.score_total,
-      totalMarks: ea.exam?.total_marks ?? null,
-      status: ea.state,
-      submittedAt: ea.submitted_at,
-    }));
-
-    // Build complete profile
-    const profileWithDetails: StudentProfileWithDetails = {
-      ...this.mapToProfileWithDetails(profile),
-      purchasedLessons,
-      exams,
-    };
+        // Build complete profile
+        const profileWithDetails: StudentProfileWithDetails = {
+          ...this.mapToProfileWithDetails(profile),
+          purchasedLessons,
+          exams,
+        };
 
         return profileWithDetails;
       },
@@ -316,14 +315,7 @@ export class StudentsService {
     filter: StudentFilterDto,
     options: { publicSearch?: boolean } = {},
   ): Promise<PaginatedResponse<StudentProfileWithDetails>> {
-    const {
-      search,
-      status,
-      sortBy = 'created_at',
-      order = 'desc',
-      page = 1,
-      limit = 20,
-    } = filter;
+    const { search, status, sortBy = 'created_at', order = 'desc', page = 1, limit = 20 } = filter;
 
     const queryBuilder = this.studentProfilesRepository
       .createQueryBuilder('student')
@@ -353,11 +345,15 @@ export class StudentsService {
       );
     }
 
+    // The public directory lists only students who opted in (is_public_profile defaults to false).
+    if (options.publicSearch === true) {
+      queryBuilder.andWhere('student.is_public_profile = :isPublicProfile', {
+        isPublicProfile: true,
+      });
+    }
+
     // Sorting
-    const sortColumn =
-      sortBy === 'name'
-        ? 'user.first_name'
-        : 'student.created_at';
+    const sortColumn = sortBy === 'name' ? 'user.first_name' : 'student.created_at';
     const sortOrder = order.toUpperCase() as 'ASC' | 'DESC';
     queryBuilder.orderBy(sortColumn, sortOrder).addOrderBy('student.id', sortOrder);
 
@@ -459,8 +455,8 @@ export class StudentsService {
   public async findApprovedStudentByIdPublic(id: string): Promise<PublicStudentProfile> {
     const profile = await this.studentProfilesRepository.findOne({
       where: [
-        { id, user: { status: UserStatus.APPROVED } },
-        { user_id: id, user: { status: UserStatus.APPROVED } },
+        { id, is_public_profile: true, user: { status: UserStatus.APPROVED } },
+        { user_id: id, is_public_profile: true, user: { status: UserStatus.APPROVED } },
       ],
       relations: ['user'],
     });

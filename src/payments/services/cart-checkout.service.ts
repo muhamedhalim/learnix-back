@@ -38,7 +38,11 @@ import {
   RefundStatus,
 } from '../entities';
 import { CommissionService } from './commission.service';
-import { OrdersService, type CartCheckoutProduct } from './orders.service';
+import {
+  isStaleUnreferencedProcessing,
+  OrdersService,
+  type CartCheckoutProduct,
+} from './orders.service';
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
 import { RefundsService } from './refunds.service';
@@ -718,12 +722,15 @@ export class CartCheckoutService {
       if (payment.provider_order_reference !== null) {
         return { checkout, payment, orders, reference: payment.provider_order_reference };
       }
-      if (payment.status === PaymentStatus.PROCESSING) {
+      if (payment.status === PaymentStatus.PROCESSING && !isStaleUnreferencedProcessing(payment)) {
         throw new ConflictException(
           biBody('Checkout is already being prepared', 'يجري تجهيز عملية الدفع بالفعل'),
         );
       }
-      if (![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status)) {
+      if (
+        ![PaymentStatus.PENDING, PaymentStatus.FAILED].includes(payment.status) &&
+        !isStaleUnreferencedProcessing(payment)
+      ) {
         throw new ConflictException(
           biBody(
             'Payment cannot be started in its current state',
@@ -733,6 +740,7 @@ export class CartCheckoutService {
       }
       payment.status = PaymentStatus.PROCESSING;
       payment.failure_reason = null;
+      payment.updated_at = new Date();
       checkout.status = CartCheckoutStatus.PAYMENT_PROCESSING;
       checkout.failure_reason = null;
       await manager.save(Payment, payment);
