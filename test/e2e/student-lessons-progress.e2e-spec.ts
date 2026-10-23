@@ -64,7 +64,7 @@ describe('Student lesson progress routing (e2e)', () => {
       title: string,
     ): Promise<string> {
       const [{ id }] = (await ctx.dataSource.query(
-        `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version) VALUES (gen_random_uuid(), $1, $2, $3, 100, 1) RETURNING id`,
+        `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version, duration) VALUES (gen_random_uuid(), $1, $2, $3, 100, 1, 100) RETURNING id`,
         [title, teacherId, subjectId],
       )) as [{ id: string }];
       return id;
@@ -197,7 +197,7 @@ describe('Student lesson progress routing (e2e)', () => {
         `INSERT INTO subjects (id, name) VALUES (gen_random_uuid(), 'Progress Cache Subject') RETURNING id`,
       )) as [{ id: string }];
       const [{ id: lessonId }] = (await ctx.dataSource.query(
-        `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version) VALUES (gen_random_uuid(), 'Progress Cache Lesson', $1, $2, 100, 1) RETURNING id`,
+        `INSERT INTO lessons (id, title, teacher_id, subject_id, price, version, duration) VALUES (gen_random_uuid(), 'Progress Cache Lesson', $1, $2, 100, 1, 100) RETURNING id`,
         [teacherId, subjectId],
       )) as [{ id: string }];
       return { lessonId, subjectId };

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpStatus,
+  Ip,
   Param,
   ParseUUIDPipe,
   Post,
@@ -179,10 +180,14 @@ export class AdminStudentsController {
   public async approve(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() approveDto: ApproveStudentDto,
+    @GetUser() user: JwtPayload,
+    @Ip() ip: string,
   ): Promise<{ message: string; student: unknown }> {
     const student = await this.studentsService.approveStudent(
       id,
       approveDto.notes,
+      user.userId,
+      ip,
     );
     return {
       message: 'Student approved successfully',
@@ -201,8 +206,10 @@ export class AdminStudentsController {
   public async reject(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() rejectDto: RejectStudentDto,
+    @GetUser() user: JwtPayload,
+    @Ip() ip: string,
   ): Promise<{ message: string; student: unknown }> {
-    const student = await this.studentsService.rejectStudent(id, rejectDto);
+    const student = await this.studentsService.rejectStudent(id, rejectDto, user.userId, ip);
     return {
       message: 'Student rejected successfully',
       student,

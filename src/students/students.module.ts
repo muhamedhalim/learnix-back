@@ -1,3 +1,4 @@
+import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -24,6 +25,7 @@ import { StudentsService } from './students.service';
     ]),
     GuardiansModule,
     MetricsModule,
+    ActivityLogsModule,
   ],
   controllers: [
     AdminStudentsController,

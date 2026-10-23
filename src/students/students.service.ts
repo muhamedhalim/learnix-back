@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +16,8 @@ import { GuardiansService } from '../guardians/guardians.service';
 import { biBody } from '../i18n/error-translator.util';
 import { LessonPurchase } from '../payments/entities/lesson-purchase.entity';
 import { User } from '../users/entities/user.entity';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { UserApprovedEvent, UserRejectedEvent } from '../activity-logs/events/audit.events';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
 import {
@@ -122,7 +123,6 @@ export interface StudentStats {
 
 @Injectable()
 export class StudentsService {
-  private readonly logger = new Logger(StudentsService.name);
 
   constructor(
     @InjectRepository(StudentProfile)
@@ -136,6 +136,7 @@ export class StudentsService {
     private readonly applicationCache: ApplicationCacheService,
     private readonly guardiansService: GuardiansService,
     private readonly learningMetrics: LearningMetricsService,
+    private readonly activityLogs: ActivityLogsService,
   ) {}
 
   /**
@@ -498,6 +499,8 @@ export class StudentsService {
   public async approveStudent(
     profileId: string,
     notes?: string,
+    actorId?: string,
+    ipAddress?: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
       where: [{ id: profileId }, { user_id: profileId }],
@@ -520,12 +523,25 @@ export class StudentsService {
 
     await this.usersRepository.save(profile.user);
 
-    // TODO: Store approval notes in audit_logs table
-    // TODO: Send notification to student/parent about approval
-    if (notes !== undefined && notes !== '') {
-      // For now, just log. Later: save to audit_logs table
-      this.logger.log(`Student ${profileId} approved with notes: ${notes}`);
+    // Approval is a reviewable administrative decision: record it in
+    // `audit_logs` like every other admin action. The actor is optional only for
+    // internal callers with no request context; admin routes always supply it.
+    if (actorId) {
+      await this.activityLogs.recordAuditEvent(
+        new UserApprovedEvent(
+          actorId,
+          profile.user.id,
+          {
+            userName: profile.user.name,
+            userEmail: profile.user.email,
+            userRole: 'student',
+            ...(notes?.trim() ? { notes: notes.trim() } : {}),
+          },
+          ipAddress,
+        ),
+      );
     }
+    // TODO: Send notification to student/parent about approval (decision H6)
 
     // Refresh the cached admin dashboard so counters reflect the new status.
     await this.applicationCache.invalidate(['admin_dashboard', 'student_profile']);
@@ -540,6 +556,8 @@ export class StudentsService {
   public async rejectStudent(
     profileId: string,
     dto: RejectStudentDto,
+    actorId?: string,
+    ipAddress?: string,
   ): Promise<StudentProfileWithDetails> {
     const profile = await this.studentProfilesRepository.findOne({
       where: [{ id: profileId }, { user_id: profileId }],
@@ -562,8 +580,22 @@ export class StudentsService {
 
     await this.usersRepository.save(profile.user);
 
-    // TODO: Send notification to student/parent about rejection
-    // TODO: Log audit trail for rejection action
+    if (actorId) {
+      await this.activityLogs.recordAuditEvent(
+        new UserRejectedEvent(
+          actorId,
+          profile.user.id,
+          {
+            userName: profile.user.name,
+            userEmail: profile.user.email,
+            userRole: 'student',
+            reason: dto.reason,
+          },
+          ipAddress,
+        ),
+      );
+    }
+    // TODO: Send notification to student/parent about rejection (decision H6)
 
     // Refresh the cached admin dashboard so counters reflect the new status.
     await this.applicationCache.invalidate(['admin_dashboard', 'student_profile']);

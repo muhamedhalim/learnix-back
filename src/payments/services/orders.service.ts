@@ -1081,9 +1081,10 @@ export class OrdersService {
       );
     }
     if (entitlement || legacyOwned) {
-      throw new ConflictException(
-        biBody('You already have access to this item', 'لديك بالفعل صلاحية الوصول إلى هذا العنصر'),
-      );
+      throw new ConflictException({
+        ...biBody('You already have access to this item', 'لديك بالفعل صلاحية الوصول إلى هذا العنصر'),
+        code: 'ALREADY_OWNED',
+      });
     }
   }
 

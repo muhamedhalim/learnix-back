@@ -488,8 +488,11 @@ export class AttemptService {
         });
         const eqById = new Map(examQuestions.map((eq) => [eq.id, eq]));
 
-        // Flush a final batch of answers supplied with the submit call.
-        if (!options.auto && options.submitDto?.answers) {
+        // Flush a final batch of answers supplied with the submit call. Past
+        // deadline + grace the batch is ignored: the attempt is graded on what
+        // was saved in time, so a delayed auto-submit job (Redis or worker
+        // down) cannot be used to keep editing answers after the clock ran out.
+        if (!options.auto && options.submitDto?.answers && !this.isExpired(attempt, exam.config)) {
           const byEq = new Map(answers.map((a) => [a.exam_question_id, a]));
           const now = new Date();
           for (const item of options.submitDto.answers) {

@@ -393,6 +393,29 @@ describe('Exam attempt reads (postgres)', () => {
       ).toHaveLength(0);
     });
 
+    it('ignores answers sent with a submit after deadline + grace (F-13)', async () => {
+      const seeded = await seed();
+      const attemptId = await startAttempt(seeded);
+      await ds().query(
+        `UPDATE exam_attempts SET deadline_at = now() - interval '10 minutes', started_at = now() - interval '20 minutes' WHERE id = $1`,
+        [attemptId],
+      );
+
+      await seeded.student.agent
+        .post(`${API_PREFIX}/student/exams/attempts/${attemptId}/submit`)
+        .send({
+          answers: [{ exam_question_id: seeded.examQuestionIds[0], response: { text: 'too late' } }],
+        })
+        .expect(201);
+
+      const attempt = await ds().getRepository(ExamAttempt).findOneByOrFail({ id: attemptId });
+      expect(attempt.state).not.toBe('in_progress');
+      const answer = await ds()
+        .getRepository(ExamAttemptAnswer)
+        .findOneByOrFail({ attempt_id: attemptId, exam_question_id: seeded.examQuestionIds[0] });
+      expect(answer.response).toBeNull();
+    });
+
     it('the result costs one exam read (the scoped lookup)', async () => {
       const seeded = await seed();
       const attemptId = await startAttempt(seeded);
