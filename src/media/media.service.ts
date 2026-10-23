@@ -44,8 +44,9 @@ export class MediaService {
       !allowed.includes(folder) ||
       folder.includes('..') ||
       filename.includes('..') ||
-      filename.includes('/') ||
-      filename.includes('\\')
+      filename.includes('\\') ||
+      // Nested keys are allowed (per-owner folders); every segment must be a plain name.
+      filename.split('/').some((segment) => segment === '' || segment === '.')
     ) {
       throw new NotFoundException(biBody('File not found', 'الملف غير موجود'));
     }

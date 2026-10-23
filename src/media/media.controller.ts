@@ -25,7 +25,9 @@ import { MediaService } from './media.service';
 export class MediaController {
   constructor(private readonly media: MediaService) {}
 
-  @Get(':folder/:filename')
+  // `*filename` also matches nested keys such as `images/<teacherId>/<uuid>.png`, the per-teacher
+  // layout that proves upload ownership. Express 5 hands the wildcard over as an array of segments.
+  @Get(':folder/*filename')
   @SkipCsrf()
   @Throttle({ default: THROTTLE.GLOBAL })
   @ApiOperation({
@@ -38,10 +40,10 @@ export class MediaController {
   @ApiResponse({ status: 404, description: 'Not found (unknown key, or folder not public)' })
   public async serve(
     @Param('folder') folder: string,
-    @Param('filename') filename: string,
+    @Param('filename') filename: string | string[],
     @Res() res: Response,
   ): Promise<void> {
-    const key = this.media.resolveKey(folder, filename);
+    const key = this.media.resolveKey(folder, Array.isArray(filename) ? filename.join('/') : filename);
     const object = await this.media.fetchObject(key);
 
     res.setHeader('Content-Type', object.contentType);
