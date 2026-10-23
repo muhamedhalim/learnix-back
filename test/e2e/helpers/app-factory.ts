@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 
 import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
+import { buildCorsOptions } from '../../../src/common/utils/cors.util';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
 import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
 import { GoogleMeetProvider } from '../../../src/lessons/meetings/providers/google-meet/google-meet.provider';
@@ -25,6 +26,12 @@ export interface E2EContext {
 }
 
 export interface E2EOverrides {
+  /**
+   * Install the production CORS policy (`buildCorsOptions`, exactly as `main.ts`
+   * does) for these allowed origins. Off by default so business specs stay
+   * transport-agnostic; the CORS contract spec turns it on.
+   */
+  corsOrigins?: readonly string[];
   storageService?: Partial<StorageService>;
   /**
    * Substitute the push transport. Push is the one notification channel whose
@@ -82,6 +89,10 @@ async function bootstrapE2EApp(
       referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     }),
   );
+
+  if (overrides?.corsOrigins !== undefined) {
+    app.enableCors(buildCorsOptions(overrides.corsOrigins));
+  }
 
   const cookieSecret =
     process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'] ?? 'test-cookie-secret';

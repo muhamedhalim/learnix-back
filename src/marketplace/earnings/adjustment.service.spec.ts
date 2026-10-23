@@ -53,7 +53,23 @@ describe('AdjustmentService (T171)', () => {
   it('allows a debit that leaves the balance at exactly zero', async () => {
     balance.getBalance.mockResolvedValue({ availableMinor: 1000 });
     await service.createAdjustment({ ...input, direction: MarketplaceLedgerDirection.DEBIT, amountMinor: 1000 });
-    expect(ledger.post).toHaveBeenCalled();
+    expect(ledger.post).toHaveBeenCalledTimes(1);
+    expect(ledger.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: MarketplaceLedgerDirection.DEBIT,
+        amountMinor: 1000,
+        entryType: MarketplaceLedgerEntryType.MANUAL_ADJUSTMENT,
+      }),
+      {},
+    );
+  });
+
+  it('refuses a debit one minor unit above the available balance (boundary)', async () => {
+    balance.getBalance.mockResolvedValue({ availableMinor: 999 });
+    await expect(
+      service.createAdjustment({ ...input, direction: MarketplaceLedgerDirection.DEBIT, amountMinor: 1000 }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ADJUSTMENT_WOULD_GO_NEGATIVE' }) });
+    expect(ledger.post).not.toHaveBeenCalled();
   });
 
   it('never checks the balance for a credit adjustment (no negative-balance risk)', async () => {

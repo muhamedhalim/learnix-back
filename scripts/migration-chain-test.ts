@@ -48,6 +48,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { config as loadDotenv } from 'dotenv';
 import { Client } from 'pg';
@@ -67,6 +69,8 @@ interface Report {
   recordedMigrations: number;
   pendingAfterRun: boolean;
   tableCount: number;
+  /** SQL TypeORM would still run to make the migrated schema match the entities. */
+  driftStatements: string[];
   durationMs: number;
 }
 
@@ -199,7 +203,17 @@ async function runChain(
       "SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = 'public'",
     )) as Array<{ count: number }>;
 
+    // Schema drift: what `schema:log` would still change after every migration ran.
+    // The schema builder reads TypeORM's metadata table for generated columns; migrations never
+    // create it (only `synchronize` does), so provide an empty one to let the comparison run.
+    await dataSource.query(
+      'CREATE TABLE IF NOT EXISTS "typeorm_metadata" ("type" varchar NOT NULL, "database" varchar, "schema" varchar, "table" varchar, "name" varchar, "value" text)',
+    );
+    const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
+    const driftStatements = sqlInMemory.upQueries.map((q) => q.query.replace(/\s+/g, ' ').trim());
+
     return {
+      driftStatements,
       discoveredMigrations,
       appliedMigrations: applied.length,
       recordedMigrations: recorded[0]?.count ?? 0,
@@ -211,8 +225,32 @@ async function runChain(
   }
 }
 
+const DRIFT_BASELINE = join(__dirname, 'schema-drift-baseline.json');
+
+/**
+ * Ratchet, not a clean-slate demand: drift that already existed when the check was added is
+ * recorded in the baseline and tolerated; ANY new statement fails the run. Fixing drift shrinks
+ * the baseline (`UPDATE_DRIFT_BASELINE=1 npm run test:migrations` rewrites it, never grows it in CI).
+ */
+function driftProblems(statements: string[]): string[] {
+  const unique = [...new Set(statements)].sort();
+  if (process.env['UPDATE_DRIFT_BASELINE'] === '1') {
+    writeFileSync(DRIFT_BASELINE, `${JSON.stringify(unique, null, 2)}
+`);
+    return [];
+  }
+  const baseline = new Set<string>(
+    existsSync(DRIFT_BASELINE)
+      ? (JSON.parse(readFileSync(DRIFT_BASELINE, 'utf8')) as string[])
+      : [],
+  );
+  return unique
+    .filter((statement) => !baseline.has(statement))
+    .map((statement) => `new schema drift (entity differs from migrated schema): ${statement}`);
+}
+
 function assertReport(report: Report): void {
-  const problems: string[] = [];
+  const problems: string[] = [...driftProblems(report.driftStatements)];
 
   if (report.appliedMigrations !== report.discoveredMigrations) {
     problems.push(
@@ -265,6 +303,7 @@ async function main(): Promise<void> {
     process.stdout.write(`  recorded in table     : ${String(report.recordedMigrations)}\n`);
     process.stdout.write(`  pending after run     : ${String(report.pendingAfterRun)}\n`);
     process.stdout.write(`  public tables created : ${String(report.tableCount)}\n`);
+    process.stdout.write(`  drift statements      : ${String(report.driftStatements.length)} (baseline-tolerated)\n`);
     process.stdout.write(`  duration              : ${String(report.durationMs)}ms\n\n`);
 
     assertReport(report);
