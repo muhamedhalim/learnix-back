@@ -37,14 +37,9 @@ export class NeutralizeGatewayReferenceColumns2207000000000 implements Migration
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Legacy values are still in the paymob_* columns. Do not run this while
-    // any non-Paymob payment exists: its references live only in these columns.
+    // Non-destructive on purpose (F-33): the neutral provider_* columns hold the ONLY copy of every
+    // non-Paymob payment's references, so dropping them would destroy EasyKash references. Reverting
+    // therefore drops just the index; the columns stay and are simply unused by the older code.
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_payments_provider_order_reference"`);
-    await queryRunner.query(
-      `ALTER TABLE "payments" DROP COLUMN IF EXISTS "provider_transaction_id"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "payments" DROP COLUMN IF EXISTS "provider_order_reference"`,
-    );
   }
 }

@@ -360,7 +360,7 @@ describe('the real AppModule refuses to boot on an environment isolation violati
     process.env['R2_PUBLIC_BASE_URL'] = '';
 
     jest.resetModules();
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see doc comment above
+     
     const { AppModule } = require('./app.module') as typeof import('./app.module');
     // Re-required from the SAME fresh module registry as AppModule.
     // jest.resetModules() gives that registry its own copy of every module,
@@ -369,7 +369,7 @@ describe('the real AppModule refuses to boot on an environment isolation violati
     // different identity) after a reset, so `instanceof` against it would fail
     // even on a correct rejection. This is a Jest module-registry artefact, not
     // a real behavioural difference — production only ever has one registry.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
+     
     const { EnvironmentIsolationError: FreshEnvironmentIsolationError } =
       require('./config/environment-isolation.guard') as typeof import('./config/environment-isolation.guard');
 

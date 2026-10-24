@@ -105,9 +105,11 @@ describe('CodeBatchesService', () => {
           actor_id: 'admin-1',
         }),
       );
-      expect(queue.add).toHaveBeenCalledWith(JOB_TYPES.CODE.GENERATE_BATCH, {
-        batchId: 'batch-1',
-      });
+      expect(queue.add).toHaveBeenCalledWith(
+        JOB_TYPES.CODE.GENERATE_BATCH,
+        { batchId: 'batch-1' },
+        { jobId: 'code-batch:batch-1' },
+      );
     });
 
     it('rejects when the target lesson does not exist', async () => {
@@ -228,6 +230,66 @@ describe('CodeBatchesService', () => {
     it('throws when the batch is missing', async () => {
       batchRepo.findOne.mockResolvedValue(null);
       await expect(service.getTimeline('nope')).rejects.toThrow('Batch not found');
+    });
+  });
+
+  describe('generation claim and resume (F-27)', () => {
+    const claimQb = (affected: number) => {
+      const qb: Record<string, jest.Mock> = {};
+      for (const m of ['update', 'set', 'where']) qb[m] = jest.fn(() => qb);
+      qb['execute'] = jest.fn().mockResolvedValue({ affected });
+      batchRepo.createQueryBuilder.mockReturnValue(qb);
+      return qb;
+    };
+
+    it('does nothing when another worker already claimed the batch', async () => {
+      batchRepo.findOne.mockResolvedValue({ id: 'b1', status: 'processing', requested_count: 5 });
+      claimQb(0);
+      await service.runGeneration('b1');
+      expect(auditRepo.insert).not.toHaveBeenCalled();
+      expect(codeRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('claims with a status compare-and-set that only accepts PENDING or a stale PROCESSING batch', async () => {
+      batchRepo.findOne.mockResolvedValue({ id: 'b1', status: 'pending', requested_count: 5 });
+      const qb = claimQb(0);
+      await service.runGeneration('b1');
+      const [clause, params] = qb['where']!.mock.calls[0] as [string, Record<string, unknown>];
+      expect(clause).toContain('status = :pending');
+      expect(clause).toContain('updated_at < :cutoff');
+      expect(params['pending']).toBe('pending');
+      expect(params['processing']).toBe('processing');
+    });
+
+    it('resumes a FAILED batch under a fresh job id', async () => {
+      batchRepo.findOne.mockResolvedValue({
+        id: 'b1',
+        status: 'failed',
+        updated_at: new Date(),
+      });
+      const batch = await service.resumeBatch('b1', 'admin-1');
+      expect(batch.status).toBe('pending');
+      expect(batchRepo.update).toHaveBeenCalledWith('b1', { status: 'pending', error_message: null });
+      const [, data, opts] = queue.add.mock.calls[0] as [string, unknown, { jobId: string }];
+      expect(data).toEqual({ batchId: 'b1' });
+      expect(opts.jobId).toMatch(/^code-batch:b1:resume:/);
+    });
+
+    it('resumes a PROCESSING batch only once it has gone stale', async () => {
+      batchRepo.findOne.mockResolvedValue({ id: 'b1', status: 'processing', updated_at: new Date() });
+      await expect(service.resumeBatch('b1', 'admin-1')).rejects.toThrow('cannot be resumed');
+
+      batchRepo.findOne.mockResolvedValue({
+        id: 'b1',
+        status: 'processing',
+        updated_at: new Date(Date.now() - 20 * 60_000),
+      });
+      await expect(service.resumeBatch('b1', 'admin-1')).resolves.toBeDefined();
+    });
+
+    it('refuses to resume a completed batch', async () => {
+      batchRepo.findOne.mockResolvedValue({ id: 'b1', status: 'completed', updated_at: new Date() });
+      await expect(service.resumeBatch('b1', 'admin-1')).rejects.toThrow('cannot be resumed');
     });
   });
 });

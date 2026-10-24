@@ -8,12 +8,13 @@ import { MailEventsConsumer } from './mail-events.consumer';
 import { MailProcessor } from './mail.processor';
 import { MailService } from './mail.service';
 import { NotificationDelivery } from '../notifications/entities';
+import { EmailSuppression } from './entities/email-suppression.entity';
 
 @Global()
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([NotificationDelivery]),
+    TypeOrmModule.forFeature([NotificationDelivery, EmailSuppression]),
     registerQueues({ name: QUEUE_NAMES.EMAIL, config: QUEUE_CONFIGS[QUEUE_NAMES.EMAIL] }),
   ],
   providers: [MailService, MailEventsConsumer, ...(areQueuesEnabled() ? [MailProcessor] : [])],

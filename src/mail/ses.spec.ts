@@ -95,8 +95,13 @@ describe('MailService with SES', () => {
 
   const make = (env: Record<string, string>) => {
     const queue = { add: jest.fn().mockResolvedValue({ id: '1' }) };
-    const service = new MailService({ get: (key: string) => env[key] } as never, queue as never);
-    return { service, queue };
+    const suppressions = { exists: jest.fn().mockResolvedValue(false) };
+    const service = new MailService(
+      { get: (key: string) => env[key] } as never,
+      queue as never,
+      suppressions as never,
+    );
+    return { service, queue, suppressions };
   };
   const sesEnv = {
     MAIL_PROVIDER: 'ses',
@@ -127,6 +132,15 @@ describe('MailService with SES', () => {
       html: '<p>hi</p>',
     });
     expect(result).toEqual({ accepted: true, providerMessageId: 'ses-777' });
+  });
+
+  it('does not call SES for a suppressed (bounced or complaining) address, case-insensitively (F-34)', async () => {
+    const { service, suppressions } = make(sesEnv);
+    suppressions.exists.mockResolvedValue(true);
+    const result = await service.deliver({ to: ' Gone@B.test ', subject: 'Hi', text: 'hi' });
+    expect(result).toEqual({ accepted: false, reason: 'suppressed' });
+    expect(suppressions.exists).toHaveBeenCalledWith({ where: { email: 'gone@b.test' } });
+    expect(ses.commandCalls(SendEmailCommand)).toHaveLength(0);
   });
 
   it('refuses to send a body-less message instead of sending an empty email', async () => {

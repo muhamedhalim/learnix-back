@@ -52,15 +52,15 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
   async function bootApp(marketplaceEnabled: boolean): Promise<{ app: INestApplication; server: Server }> {
     process.env['MARKETPLACE_ENABLED'] = marketplaceEnabled ? 'true' : 'false';
     jest.resetModules();
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { AppModule } = require('../../src/app.module') as typeof import('../../src/app.module');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { NestFactory } = require('@nestjs/core') as typeof import('@nestjs/core');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { ValidationPipe, RequestMethod } = require('@nestjs/common') as typeof import('@nestjs/common');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { HttpExceptionFilter } = require('../../src/common/filters/http-exception.filter') as typeof import('../../src/common/filters/http-exception.filter');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { ResponseLocalizationInterceptor } = require('../../src/common/interceptors/response-localization.interceptor') as typeof import('../../src/common/interceptors/response-localization.interceptor');
 
     // `abortOnError: false` is required here: Nest's default bootstrap error
@@ -108,9 +108,9 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
       // Loaded fresh, from the same reset module registry as `AppModule` —
       // a statically-imported helper would be a different module instance
       // than the one this freshly-booted app's own `DataSource` belongs to.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const { getUserIdByEmail, setUserStatus } = require('./helpers/database') as typeof import('./helpers/database');
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const { buildRegisterPayload } = require('./factories/user.factory') as typeof import('./factories/user.factory');
       const dataSource = app.get((require('typeorm') as typeof import('typeorm')).DataSource);
 

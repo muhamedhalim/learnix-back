@@ -115,7 +115,7 @@ export class AddCertificateRevocationAudit2082000000000 implements MigrationInte
          )
     `)) as [{ count: number }];
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[DEF-019] Revoked ${String(revokedCount)} certificate(s) whose course purchase was fully refunded. ` +
         `${orphans[0].count} certificate(s) have no purchase record at all and were left untouched (see migration docblock).`,

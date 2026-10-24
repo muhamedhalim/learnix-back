@@ -61,6 +61,21 @@ export class AdminCodeBatchesController {
     return { data };
   }
 
+  @Post(':id/resume')
+  @ApiOperation({
+    summary: 'Resume a stalled or failed batch',
+    description:
+      'Re-queues a FAILED batch, or a PROCESSING batch with no recent progress. Generation continues from the codes already stored.',
+  })
+  @ApiResponse({ status: 409, description: 'Batch is not resumable' })
+  public async resume(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<unknown> {
+    const data = await this.codeBatchesService.resumeBatch(id, user.userId);
+    return { data };
+  }
+
   @Get(':id/timeline')
   @ApiOperation({
     summary: 'Batch activity timeline',

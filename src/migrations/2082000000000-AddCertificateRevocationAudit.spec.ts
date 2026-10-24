@@ -6,7 +6,7 @@ describe('AddCertificateRevocationAudit2082000000000', () => {
       if (String(sql).includes('COUNT(*)::int')) return Promise.resolve([{ count: 0 }]);
       return Promise.resolve([]);
     });
-    // eslint-disable-next-line no-console
+     
     jest.spyOn(console, 'log').mockImplementation(() => undefined);
     await new AddCertificateRevocationAudit2082000000000().up({ query } as never);
     return query;

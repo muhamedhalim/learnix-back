@@ -141,7 +141,7 @@ export class AddParentReports2083000000000 implements MigrationInterface {
           ON "homework_submissions" ("student_id", "submitted_at")
     `);
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[DEF-006] Created parent_reports. Backfilled completed_at on ${String(backfilledCount)} ` +
         `already-completed lesson_progress row(s) from updated_at (see migration docblock for the ` +

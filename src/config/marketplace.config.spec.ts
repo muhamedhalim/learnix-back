@@ -167,9 +167,9 @@ describe('AppModule marketplace registration (T002)', () => {
   it('registers exactly one MarketplaceModule import when the flag is "true"', () => {
     process.env['MARKETPLACE_ENABLED'] = 'true';
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const { AppModule } = require('../app.module') as typeof import('../app.module');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const { MarketplaceModule } =
       require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
     const { MODULE_METADATA } =
@@ -182,12 +182,12 @@ describe('AppModule marketplace registration (T002)', () => {
   it('registers no MarketplaceModule import when the flag is unset — every academic module import is otherwise unchanged', () => {
     delete process.env['MARKETPLACE_ENABLED'];
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const { AppModule } = require('../app.module') as typeof import('../app.module');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const { MarketplaceModule } =
       require('../marketplace/marketplace.module') as typeof import('../marketplace/marketplace.module');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const { UsersModule } =
       require('../users/users.module') as typeof import('../users/users.module');
     const { MODULE_METADATA } =

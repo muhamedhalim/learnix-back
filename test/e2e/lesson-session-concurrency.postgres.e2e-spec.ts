@@ -747,7 +747,7 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
             .sort(),
         };
         if (run === 3) {
-          // eslint-disable-next-line no-console
+           
           console.log(
             `T070 run3 statements: ${String(counter.count())} (${String(counter.statements().filter((s) => s.sql.startsWith('INSERT')).length)} inserts)`,
           );

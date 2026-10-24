@@ -50,7 +50,7 @@ export function formatAddress(email: string, name?: string | null): string {
   const display = name?.trim();
   if (display === undefined || display === '') return email;
   const safe = display.replace(/[\r\n]/g, ' ');
-  // eslint-disable-next-line no-control-regex
+   
   const ascii = /^[\x20-\x7e]*$/.test(safe) && !/["\\<>@,;:]/.test(safe);
   const encoded = ascii ? safe : `=?UTF-8?B?${Buffer.from(safe, 'utf8').toString('base64')}?=`;
   return `${encoded} <${email}>`;

@@ -85,6 +85,9 @@ export interface DashboardAnalytics {
  * generation), advanced filtering, bulk lifecycle actions, audit trail and
  * analytics. Single-code verify/redeem stays in AttendanceCodesService.
  */
+/** A PROCESSING batch with no progress for this long is considered abandoned by its worker. */
+const STALE_PROCESSING_MS = 15 * 60 * 1000;
+
 @Injectable()
 export class CodeBatchesService {
   private readonly logger = new Logger(CodeBatchesService.name);
@@ -166,9 +169,11 @@ export class CodeBatchesService {
       },
     });
 
-    await this.generationQueue.add(JOB_TYPES.CODE.GENERATE_BATCH, {
-      batchId: batch.id,
-    });
+    await this.generationQueue.add(
+      JOB_TYPES.CODE.GENERATE_BATCH,
+      { batchId: batch.id },
+      { jobId: `code-batch:${batch.id}` },
+    );
 
     this.logger.log(`Queued batch ${batch.id} (${String(dto.count)} × ${dto.type}) by ${adminId}`);
     return batch;
@@ -188,13 +193,15 @@ export class CodeBatchesService {
       this.logger.warn(`runGeneration: batch ${batchId} not found`);
       return;
     }
-    if (batch.status !== CodeBatchStatus.PENDING) {
+    // Atomic claim: only one worker can move PENDING -> PROCESSING. A PROCESSING batch whose
+    // progress has not moved for STALE_PROCESSING_MS belonged to a dead worker and is resumable.
+    if (!(await this.claimForGeneration(batch.id))) {
       this.logger.warn(`runGeneration: batch ${batchId} already ${batch.status}; skipping`);
       return;
     }
-
     batch.status = CodeBatchStatus.PROCESSING;
-    await this.batchRepo.save(batch);
+    // The persisted code rows are the source of truth for progress, so a resume never over-generates.
+    batch.generated_count = await this.codeRepo.count({ where: { batch_id: batch.id } });
 
     await this.auditRepo.insert({
       batch_id: batch.id,
@@ -281,6 +288,55 @@ export class CodeBatchesService {
       this.logger.error(`Batch ${batch.id} failed: ${batch.error_message}`);
       throw err;
     }
+  }
+
+  /**
+   * Re-queue a FAILED batch, or one stuck in PROCESSING with no progress. Generation continues from the
+   * codes already persisted, so nothing is duplicated and the requested count is still exact.
+   */
+  public async resumeBatch(batchId: string, adminId: string): Promise<CodeBatch> {
+    const batch = await this.batchRepo.findOne({ where: { id: batchId } });
+    if (!batch) throw new NotFoundException(biBody('Batch not found', 'الدفعة غير موجودة'));
+
+    const stale = Date.now() - batch.updated_at.getTime() >= STALE_PROCESSING_MS;
+    const resumable =
+      batch.status === CodeBatchStatus.FAILED ||
+      (batch.status === CodeBatchStatus.PROCESSING && stale);
+    if (!resumable) {
+      throw new ConflictException(
+        biBody('This batch cannot be resumed', 'لا يمكن استئناف هذه الدفعة'),
+      );
+    }
+
+    await this.batchRepo.update(batch.id, { status: CodeBatchStatus.PENDING, error_message: null });
+    batch.status = CodeBatchStatus.PENDING;
+    batch.error_message = null;
+    await this.generationQueue.add(
+      JOB_TYPES.CODE.GENERATE_BATCH,
+      { batchId: batch.id },
+      { jobId: `code-batch:${batch.id}:resume:${String(Date.now())}` },
+    );
+    this.logger.log(`Batch ${batch.id} re-queued for resume by ${adminId}`);
+    return batch;
+  }
+
+  private async claimForGeneration(batchId: string): Promise<boolean> {
+    const cutoff = new Date(Date.now() - STALE_PROCESSING_MS);
+    const result = await this.batchRepo
+      .createQueryBuilder()
+      .update(CodeBatch)
+      .set({ status: CodeBatchStatus.PROCESSING })
+      .where(
+        'id = :id AND (status = :pending OR (status = :processing AND updated_at < :cutoff))',
+        {
+          id: batchId,
+          pending: CodeBatchStatus.PENDING,
+          processing: CodeBatchStatus.PROCESSING,
+          cutoff,
+        },
+      )
+      .execute();
+    return (result.affected ?? 0) > 0;
   }
 
   /* ============================ Queries ============================ */

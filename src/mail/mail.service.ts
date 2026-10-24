@@ -1,8 +1,10 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 
 import type { Queue } from 'bullmq';
+import { Repository } from 'typeorm';
 
 import { maskEmail } from '../common/utils/mask.util';
 import {
@@ -12,6 +14,7 @@ import {
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
+import { EmailSuppression } from './entities/email-suppression.entity';
 import { renderInvitationEmail } from './local-templates';
 import { MailDeliveryException } from './mail-delivery.exception';
 import {
@@ -79,6 +82,8 @@ export class MailService {
   public constructor(
     private readonly configService: ConfigService,
     @InjectQueue(QUEUE_NAMES.EMAIL) private readonly emailQueue: Queue<MailJob>,
+    @InjectRepository(EmailSuppression)
+    private readonly suppressions: Repository<EmailSuppression>,
   ) {
     this.sesConfig = resolveSesConfig((key) => this.configService.get<string>(key));
     this.ses = this.sesConfig.configured ? new SesTransport(this.sesConfig) : null;
@@ -209,6 +214,13 @@ export class MailService {
         accepted: false,
         ...(recipientDecision.reason === undefined ? {} : { reason: recipientDecision.reason }),
       };
+    }
+
+    // F-34: never mail an address that permanently bounced or complained. Treated as a completed job
+    // (not an error) so BullMQ does not retry a send that is deliberately refused.
+    if (await this.suppressions.exists({ where: { email: message.to.trim().toLowerCase() } })) {
+      this.logger.warn(this.logDetails('blocked_suppressed', message, { reason: 'suppressed' }));
+      return { accepted: false, reason: 'suppressed' };
     }
 
     const attemptedAt = new Date().toISOString();

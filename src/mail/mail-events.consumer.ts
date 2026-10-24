@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 
 import type { Message } from '@aws-sdk/client-sqs';
 
@@ -7,6 +9,7 @@ import { maskEmail } from '../common/utils/mask.util';
 import { startSqsPoller } from '../common/utils/sqs-poller';
 import { runsBackgroundWork } from '../config/process-role';
 import { performanceMetrics } from '../observability/performance-metrics.registry';
+import { EmailSuppression } from './entities/email-suppression.entity';
 
 export interface MailFeedbackEvent {
   kind: 'bounce' | 'complaint';
@@ -69,7 +72,11 @@ export class MailEventsConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MailEventsConsumer.name);
   private poller: { stop: () => Promise<void> } | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(EmailSuppression)
+    private readonly suppressions: Repository<EmailSuppression>,
+  ) {}
 
   public onModuleInit(): void {
     const queueUrl = this.config.get<string>('MAIL_EVENTS_QUEUE_URL')?.trim() ?? '';
@@ -87,9 +94,22 @@ export class MailEventsConsumer implements OnModuleInit, OnModuleDestroy {
     await this.poller?.stop();
   }
 
-  public handle(message: Message): Promise<boolean> {
+  public async handle(message: Message): Promise<boolean> {
     const event = parseSesFeedback(message.Body ?? '');
     if (event !== null) {
+      if (event.permanent && event.recipients.length > 0) {
+        // Idempotent: a redelivered SQS message hits the unique index and is ignored. A storage
+        // failure propagates so the message is retried rather than dropped.
+        await this.suppressions
+          .createQueryBuilder()
+          .insert()
+          .into(EmailSuppression)
+          .values(
+            event.recipients.map((email) => ({ email: email.trim().toLowerCase(), reason: event.kind })),
+          )
+          .orIgnore()
+          .execute();
+      }
       if (event.permanent) performanceMetrics.recordFailure('email');
       this.logger.warn(
         JSON.stringify({
@@ -99,6 +119,6 @@ export class MailEventsConsumer implements OnModuleInit, OnModuleDestroy {
         }),
       );
     }
-    return Promise.resolve(true);
+    return true;
   }
 }

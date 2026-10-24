@@ -33,6 +33,7 @@ describe('MailService', () => {
       service: new MailService(
         config as unknown as ConfigService,
         queue as unknown as Queue<MailJob>,
+        { exists: jest.fn().mockResolvedValue(false) } as never,
       ),
       queue,
     };

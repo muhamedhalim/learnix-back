@@ -70,6 +70,9 @@ export interface DashboardFinancialSnapshot {
   }>;
 }
 
+/** How long after creation an EXPIRED payment keeps being re-inquired for late captures (F-28). */
+const EXPIRED_RECONCILIATION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 @Injectable()
 export class PaymentOperationsService {
   private readonly logger = new Logger(PaymentOperationsService.name);
@@ -319,6 +322,12 @@ export class PaymentOperationsService {
         .andWhere(
           "(payment.failure_reason IS NULL OR payment.failure_reason NOT LIKE 'reconciliation_quarantine:%')",
         )
+        // F-28: an EXPIRED payment can still receive a late capture, but not forever. Beyond the window
+        // it is no longer re-inquired, so the scan stays bounded as expired rows accumulate.
+        .andWhere('(payment.status <> :expiredStatus OR payment.created_at > :expiredCutoff)', {
+          expiredStatus: PaymentStatus.EXPIRED,
+          expiredCutoff: new Date(Date.now() - EXPIRED_RECONCILIATION_WINDOW_MS),
+        })
         .orderBy('payment.created_at', 'ASC')
         .addOrderBy('payment.id', 'ASC')
         .take(100);
