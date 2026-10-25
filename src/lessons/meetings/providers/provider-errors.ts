@@ -22,7 +22,10 @@ export function isRetryableStatus(status: number): boolean {
 }
 
 /** `Retry-After` is either delta-seconds or an HTTP date; anything else is ignored. */
-export function parseRetryAfter(header: string | null | undefined, now = Date.now()): number | null {
+export function parseRetryAfter(
+  header: string | null | undefined,
+  now = Date.now(),
+): number | null {
   if (!header) return null;
   const seconds = Number(header);
   if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
