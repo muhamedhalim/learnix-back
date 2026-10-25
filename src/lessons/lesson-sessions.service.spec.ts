@@ -1179,6 +1179,54 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       await expect(service.sweepCancelledSessionMeetings()).resolves.toBe(1);
       expect(deleteMeeting).toHaveBeenCalledTimes(1);
     });
+
+    describe('notification deep links (href)', () => {
+      const student = { id: 'student-1', email: 'student@example.test', name: 'Student', preferred_language: 'en' } as User;
+
+      it('booking notifications link the student to their lesson page and the teacher to their lessons', async () => {
+        const booking = {
+          id: 'booking-1',
+          status: LessonSessionBookingStatus.CONFIRMED,
+          student,
+          session: readySession({
+            lesson_id: lessonId,
+            start_at: new Date(Date.now() + 24 * 3600_000),
+            teacher: teacherFixture(),
+          }),
+        };
+        const { service, manager, queryBuilder } = buildService();
+        manager.findOne.mockResolvedValue(booking);
+
+        await (
+          service as unknown as { notifyBookingEvent(id: string, event: string): Promise<void> }
+        ).notifyBookingEvent('booking-1', 'reminder_24h');
+
+        const rows = queryBuilder['values'].mock.calls.map((call) => call[0] as { user_id: string; data: { href: string } });
+        expect(rows.find((row) => row.user_id === student.id)?.data.href).toBe(`/student/lessons/${lessonId}`);
+        expect(rows.find((row) => row.user_id === teacherId)?.data.href).toBe('/teacher/lessons');
+      });
+
+      it('meeting-failure and reconnect notifications link the teacher to where they can act', async () => {
+        const userRepo = { findOne: jest.fn().mockResolvedValue(teacherFixture()) };
+        const { service, queryBuilder } = buildService({
+          repositoriesByEntity: new Map([[User, userRepo]]),
+        });
+        const internals = service as unknown as {
+          notifyMeetingCreationFailed(session: ScheduledLessonSession): Promise<void>;
+          notifyMeetingAccountExpired(account: TeacherMeetingAccount): Promise<void>;
+        };
+
+        await internals.notifyMeetingCreationFailed(readySession({ meeting_attempts: 1 }));
+        await internals.notifyMeetingAccountExpired({
+          id: 'account-1',
+          teacher_id: teacherId,
+          provider: MeetingProvider.GOOGLE_MEET,
+        } as TeacherMeetingAccount);
+
+        const hrefs = queryBuilder['values'].mock.calls.map((call) => (call[0] as { data: { href: string } }).data.href);
+        expect(hrefs).toEqual(['/teacher/lessons', '/teacher/integrations']);
+      });
+    });
   });
 });
 

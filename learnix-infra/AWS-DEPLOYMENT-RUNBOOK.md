@@ -48,7 +48,8 @@ a reviewed GitHub workflow run, and every external or irreversible step is yours
    office/VPN IPs, `app_repositories`, desired counts 0) and run the **Terraform** workflow (`target=staging`). ~25 minutes.
 2. **Secrets** (Secrets Manager, `learnix/staging/*`): read the generated `core` values and **escrow
    `MEETING_TOKEN_ENCRYPTION_KEY` and `PAYOUT_ACCOUNT_ENCRYPTION_KEY` outside AWS**; fill `vapid`,
-   `cloudfront-signing`, `paymob` (TEST), `meta-whatsapp`, `meetings` as in phase3-staging.md, then set
+   `cloudfront-signing`, `paymob` (TEST), `meta-whatsapp`, `meetings` as in phase3-staging.md (meetings: see
+   `docs/MEETING-PROVIDERS-SETUP.md`; fill before mapping), then set
    `inject_vapid`, `inject_cloudfront_key`, `video_public_key_pem`, `extra_secrets`, `extra_environment`.
 3. Verify the `mail_allowlist` addresses in SES (sandbox).
 4. **Backend pipeline**: from `terraform output`, set in the `learnix-back` repository's `staging` environment:

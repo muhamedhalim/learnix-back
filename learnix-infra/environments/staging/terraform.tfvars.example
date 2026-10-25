@@ -38,3 +38,16 @@ app_repositories = {
 # SMS: leave null until AWS approves the Egypt sender ID; SMS_MODE=sandbox on staging regardless.
 # sms_sender_id                = "LEARNIX"
 # sms_protect_configuration_id = "protect-0123456789abcdef"
+
+# Meeting providers (sandbox apps): fill <prefix>/meetings FIRST (docs/MEETING-PROVIDERS-SETUP.md), then uncomment ONLY
+# the providers you filled; a mapping to a missing secret key stops the ECS task from starting.
+# extra_secrets = {
+#   GOOGLE_MEET_CLIENT_ID     = { secret = "meetings", key = "GOOGLE_MEET_CLIENT_ID" }
+#   GOOGLE_MEET_CLIENT_SECRET = { secret = "meetings", key = "GOOGLE_MEET_CLIENT_SECRET" }
+#   ZOOM_CLIENT_ID            = { secret = "meetings", key = "ZOOM_CLIENT_ID" }
+#   ZOOM_CLIENT_SECRET        = { secret = "meetings", key = "ZOOM_CLIENT_SECRET" }
+#   ZOOM_WEBHOOK_SECRET_TOKEN = { secret = "meetings", key = "ZOOM_WEBHOOK_SECRET_TOKEN" }
+#   MS_TEAMS_CLIENT_ID        = { secret = "meetings", key = "MS_TEAMS_CLIENT_ID" }
+#   MS_TEAMS_CLIENT_SECRET    = { secret = "meetings", key = "MS_TEAMS_CLIENT_SECRET" }
+# }
+# extra_environment = { MS_TEAMS_TENANT = "organizations" } # Teams only; not secret

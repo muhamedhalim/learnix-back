@@ -22,7 +22,7 @@ locals {
     meta-whatsapp      = "Meta WhatsApp Cloud API access token, phone number id, app secret, verify token"
     vapid              = "Web Push VAPID keys: {VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY}; generate with npx web-push generate-vapid-keys"
     cloudfront-signing = "CloudFront playback signing key: {CLOUDFRONT_PRIVATE_KEY_B64}; PEM private half of the key whose public half is in the CloudFront key group"
-    meetings           = "Zoom / Google / Microsoft OAuth client ids and secrets"
+    meetings           = "Meeting provider OAuth: {GOOGLE_MEET_CLIENT_ID, GOOGLE_MEET_CLIENT_SECRET, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, ZOOM_WEBHOOK_SECRET_TOKEN, MS_TEAMS_CLIENT_ID, MS_TEAMS_CLIENT_SECRET}; fill before mapping via extra_secrets (see docs/MEETING-PROVIDERS-SETUP.md)"
   }
 }
 

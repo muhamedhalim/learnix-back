@@ -1300,6 +1300,9 @@ export class LessonSessionsService {
           booking_id: booking.id,
           event,
           start_at: start,
+          // In-app deep link (the `href` convention the notification lists and push use):
+          // the student's lesson page lists their appointments and the join link.
+          href: recipient === student ? `/student/lessons/${session.lesson_id}` : '/teacher/lessons',
         },
         emailText: `${copy.message}\nTime: ${start}${meetingLine}`,
       });
@@ -1403,6 +1406,7 @@ export class LessonSessionsService {
         lesson_id: session.lesson_id,
         event: 'meeting_creation_failed',
         attempt: session.meeting_attempts,
+        href: '/teacher/lessons',
       },
     });
   }
@@ -1442,6 +1446,7 @@ export class LessonSessionsService {
         meeting_account_id: account.id,
         provider: account.provider,
         event: 'meeting_account_expired',
+        href: '/teacher/integrations',
       },
     });
   }

@@ -30,6 +30,7 @@ output "provider_callback_urls" {
     easykash_return_base   = "${local.api_url}/api/v1/payments/easykash/return"
     meta_whatsapp_webhook  = "${local.api_url}/api/v1/webhooks/whatsapp"
     meeting_oauth_callback = "${local.api_url}/api/v1/teacher/meeting-accounts/callback"
+    zoom_webhook           = "${local.api_url}/api/v1/webhooks/zoom"
   }
 }
 

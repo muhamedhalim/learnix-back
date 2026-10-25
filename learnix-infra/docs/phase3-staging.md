@@ -79,7 +79,8 @@ vercel_environment`; they are compiled into the browser bundle, so redeploy the 
 | `vapid`                     | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys`, then set `inject_vapid = true`                                                                                                                                               |
 | `cloudfront-signing`        | `CLOUDFRONT_PRIVATE_KEY_B64`            | `openssl genrsa -out k.pem 2048`; `openssl rsa -in k.pem -pubout -out pub.pem`; put `base64 -w0 k.pem` in the secret, pass `pub.pem` as `video_public_key_pem`, set `inject_cloudfront_key = true`               |
 | `paymob`                    | the app's `PAYMOB_*` variables          | map each with `extra_secrets` (`ENV_NAME = {secret = "paymob", key = "..."}`); non-secret ids go in `extra_environment`. `PAYMOB_EXPECTED_MODE=test` is fixed by Terraform and the app refuses to boot otherwise |
-| `meta-whatsapp`, `meetings` | provider credentials                    | same mechanism; staging keeps `SMS_MODE=sandbox`                                                                                                                                                                 |
+| `meta-whatsapp`             | provider credentials                    | same mechanism; staging keeps `SMS_MODE=sandbox`                                                                                                                                                                 |
+| `meetings`                  | Google / Zoom / Teams OAuth + Zoom webhook token | provider registration, exact JSON keys and the fill-then-map order: `docs/MEETING-PROVIDERS-SETUP.md`; verify with `learnix-back/docs/meetings-sandbox-verification.md`                          |
 
 ## Things that are manual by design
 

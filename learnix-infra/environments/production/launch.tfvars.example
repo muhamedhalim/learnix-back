@@ -34,6 +34,8 @@ db_instance_class = "db.t4g.small"
 valkey_node_type  = "cache.t4g.micro"
 
 # --- Launch scope: no payments, no SES production mail, no SMS, no Web Push, no signed video ---------------
+# Meeting providers: leave empty until <prefix>/meetings is filled, then add the mappings from
+# terraform.tfvars.example (docs/MEETING-PROVIDERS-SETUP.md). Recommended first: Google Meet only.
 extra_secrets         = {}
 extra_environment     = {}
 inject_vapid          = false

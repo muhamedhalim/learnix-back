@@ -39,9 +39,20 @@ extra_secrets = {
   # Production only. Fill <project>/production/easykash with {EASYKASH_API_KEY, EASYKASH_HMAC_SECRET} first.
   # EASYKASH_API_KEY     = { secret = "easykash", key = "EASYKASH_API_KEY" }
   # EASYKASH_HMAC_SECRET = { secret = "easykash", key = "EASYKASH_HMAC_SECRET" }
+  # --- Meeting providers (docs/MEETING-PROVIDERS-SETUP.md) -------------------------------------------
+  # Fill <prefix>/meetings with the matching JSON keys FIRST, then uncomment ONLY the providers you filled:
+  # a mapping to a key that is missing from the secret stops the ECS task from starting.
+  # GOOGLE_MEET_CLIENT_ID          = { secret = "meetings", key = "GOOGLE_MEET_CLIENT_ID" }
+  # GOOGLE_MEET_CLIENT_SECRET      = { secret = "meetings", key = "GOOGLE_MEET_CLIENT_SECRET" }
+  # ZOOM_CLIENT_ID                 = { secret = "meetings", key = "ZOOM_CLIENT_ID" }
+  # ZOOM_CLIENT_SECRET             = { secret = "meetings", key = "ZOOM_CLIENT_SECRET" }
+  # ZOOM_WEBHOOK_SECRET_TOKEN      = { secret = "meetings", key = "ZOOM_WEBHOOK_SECRET_TOKEN" }
+  # MS_TEAMS_CLIENT_ID             = { secret = "meetings", key = "MS_TEAMS_CLIENT_ID" }
+  # MS_TEAMS_CLIENT_SECRET         = { secret = "meetings", key = "MS_TEAMS_CLIENT_SECRET" }
 }
 extra_environment = {
   # EASYKASH_CASH_EXPIRY_HOURS = "24"   # optional, 1-72
+  # MS_TEAMS_TENANT = "organizations"    # Microsoft Teams only; not secret (work/school, multi-tenant)
 }
 
 # --- SMS (null until AWS approves the Egypt sender ID) ---------------------------------------------------
