@@ -107,7 +107,7 @@
     "helmet": "^8.1.0",
     "ioredis": "^5.11.1",
     "jsqr": "^1.4.0",
-    "multer": "^2.0.2",
+    "multer": "^2.5.0",
     "noto-sans-arabic": "^1.0.2",
     "papaparse": "^5.5.3",
     "passport": "^0.7.0",
@@ -223,7 +223,10 @@
   "overrides": {
     "lodash": "^4.17.23",
     "fast-xml-parser": "^5.10.1",
-    "body-parser": "^2.3.0",
+    "body-parser": "^2.4.0",
+    "@nestjs/platform-express": {
+      "multer": "$multer"
+    },
     "readdir-glob": {
       "brace-expansion": "2.1.7"
     },

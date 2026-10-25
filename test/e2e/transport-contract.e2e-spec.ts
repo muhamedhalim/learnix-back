@@ -20,6 +20,8 @@ const CLIENT_HEADERS = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key', 'Acce
 const EXPECTED_CSRF_EXEMPT = new Set([
   'POST /api/v1/init-admin',
   'POST /api/v1/webhooks/whatsapp',
+  // Zoom signs each delivery with an HMAC over the raw body; CSRF tokens do not apply (@SkipCsrf).
+  'POST /api/v1/webhooks/zoom',
   'POST /api/v1/payments/webhook',
   'POST /api/v1/payments/webhook/callback',
 ]);
