@@ -23,6 +23,7 @@ import { AdminInitializationService } from './admin-init/admin-initialization.se
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { CsrfGuard } from './common/guards/csrf.guard';
+import { rejectBrotliRequestBodies } from './common/middleware/reject-brotli-request-body.middleware';
 import { buildCorsOptions, getAllowedOrigins } from './common/utils/cors.util';
 import { ResponseLocalizationInterceptor } from './common/interceptors/response-localization.interceptor';
 import { AppDataSource } from './data-source';
@@ -145,6 +146,9 @@ async function bootstrap(): Promise<void> {
 
   // Hops between the client and this process: 1 historically; CloudFront + ALB = 2.
   app.set('trust proxy', resolveTrustProxyHops());
+
+  // Before the body parsers Nest registers in init(): brotli request bodies never reach the decoder.
+  app.use(rejectBrotliRequestBodies);
 
   const cookieSecret = process.env['COOKIE_SECRET'] || process.env['JWT_SECRET'];
 

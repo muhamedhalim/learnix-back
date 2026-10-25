@@ -103,7 +103,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -169,7 +169,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -245,7 +245,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -351,7 +351,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
 
       # A shard that was cancelled or timed out may not have uploaded anything; the absence is reported
       # by the verdict below, so a failed download must not hide it.
@@ -424,7 +424,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -488,7 +488,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -549,7 +549,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: Install dependencies
@@ -576,7 +576,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
 
       - name: npm audit (high and above)
@@ -704,7 +704,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.22.1
           cache: npm
       - name: Install dependencies
         run: bash scripts/ci/npm-ci.sh

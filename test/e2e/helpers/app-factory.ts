@@ -11,6 +11,7 @@ import { AppModule } from '../../../src/app.module';
 import { HttpExceptionFilter } from '../../../src/common/filters/http-exception.filter';
 import { buildCorsOptions } from '../../../src/common/utils/cors.util';
 import { CsrfGuard } from '../../../src/common/guards/csrf.guard';
+import { rejectBrotliRequestBodies } from '../../../src/common/middleware/reject-brotli-request-body.middleware';
 import { ResponseLocalizationInterceptor } from '../../../src/common/interceptors/response-localization.interceptor';
 import { GoogleMeetProvider } from '../../../src/lessons/meetings/providers/google-meet/google-meet.provider';
 import type { MeetingProviderClient } from '../../../src/lessons/meetings/providers/meeting-provider.interface';
@@ -78,6 +79,9 @@ async function bootstrapE2EApp(
   // Match `main.ts`: production TLS terminates at the reverse proxy, so
   // `request.secure` must use X-Forwarded-Proto when issuing cookies.
   app.set('trust proxy', 1);
+
+  // Match `main.ts`: brotli request bodies are refused before body parsing.
+  app.use(rejectBrotliRequestBodies);
 
   // Match `main.ts` Helmet hardening so header assertions test real behavior.
   app.use(
