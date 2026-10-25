@@ -174,7 +174,7 @@ describe('meeting generation (PostgreSQL)', () => {
     ).resolves.toMatchObject({ meeting_status: MeetingCreationStatus.NOT_REQUESTED });
   });
 
-  it('rejects a second concurrent Generate while one is pending, and processing reaches ready with exactly one external meeting (AD-8, negative test 3)', async () => {
+  it('rejects a second Generate once a meeting exists, and duplicate processing creates exactly one external meeting (AD-8, negative test 3)', async () => {
     const teacher = await createAuthenticatedUser(app, dataSource, { role: 'teacher' });
     const subject = await makeSubject();
     const lesson = await makeIndividualLesson(teacher.userId, subject.id);
@@ -194,21 +194,22 @@ describe('meeting generation (PostgreSQL)', () => {
       .post(`${API_PREFIX}/teacher/lessons/${lesson.id}/sessions/${String(created.id)}/meeting`)
       .send({});
     expect(first.status).toBe(201);
+    // Queues are disabled for the E2E run (see `areQueuesEnabled`), so Generate
+    // falls back to inline provisioning and the row is already `ready` — a
+    // `pending` row with no consumer would otherwise be a permanent dead end.
     await expect(
       dataSource.getRepository(ScheduledLessonSession).findOneByOrFail({ id: created.id }),
-    ).resolves.toMatchObject({ meeting_status: MeetingCreationStatus.PENDING });
+    ).resolves.toMatchObject({ meeting_status: MeetingCreationStatus.READY });
 
     const second = await teacher.agent
       .post(`${API_PREFIX}/teacher/lessons/${lesson.id}/sessions/${String(created.id)}/meeting`)
       .send({});
     expect(second.status).toBe(409);
 
-    // No real worker consumes the job in this suite (queues are disabled for
-    // the E2E run — see `areQueuesEnabled`), so provisioning is simulated
-    // directly, exactly as `MeetingProvisioningProcessor` would call it.
+    // Duplicate executions of the SAME job (as `MeetingProvisioningProcessor`
+    // would make) must be no-ops (AD-8 layer 2's conditional claim) rather
+    // than creating a second meeting.
     await sessions.provisionMeeting(created.id);
-    // A second, duplicate execution of the SAME job must be a no-op (AD-8
-    // layer 2's conditional claim) rather than creating a second meeting.
     await sessions.provisionMeeting(created.id);
 
     expect(createMeeting).toHaveBeenCalledTimes(1);

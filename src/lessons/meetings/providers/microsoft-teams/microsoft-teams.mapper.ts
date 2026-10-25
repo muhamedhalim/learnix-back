@@ -1,6 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 
-import type { CreateMeetingInput, CreateMeetingResult, MeetingAccountIdentity, MeetingTokenSet } from '../meeting-provider.interface';
+import type {
+  CreateMeetingInput,
+  CreateMeetingResult,
+  MeetingAccountIdentity,
+  MeetingTokenSet,
+  UpdateMeetingInput,
+} from '../meeting-provider.interface';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -58,14 +64,22 @@ export function parseMicrosoftUserInfo(data: unknown): MeetingAccountIdentity {
 }
 
 /**
- * Graph `onlineMeetings` body. Start/end are UTC ISO 8601 (the `Z` suffix
+ * `createOrGet` body. Start/end are UTC ISO 8601 (the `Z` suffix
  * `toISOString()` already produces) — unlike Google/Zoom, the endpoint takes
- * no separate timezone field, so `input.timezone` is not sent. Graph has no
- * documented idempotency key for this endpoint either — the same accepted
- * residual risk noted for Zoom (R-15); de-duplication relies on AD-8 layers
- * 2 and 3.
+ * no separate timezone field, so `input.timezone` is not sent. `externalId` is
+ * the per-request idempotency key: a repeated call returns the existing
+ * meeting instead of creating a duplicate (AD-8).
  */
 export function buildTeamsMeetingBody(input: CreateMeetingInput): Record<string, unknown> {
+  return {
+    externalId: input.idempotencyKey,
+    subject: input.topic,
+    startDateTime: input.startAt.toISOString(),
+    endDateTime: input.endAt.toISOString(),
+  };
+}
+
+export function buildTeamsUpdateBody(input: UpdateMeetingInput): Record<string, unknown> {
   return {
     subject: input.topic,
     startDateTime: input.startAt.toISOString(),

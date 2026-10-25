@@ -10,13 +10,23 @@ import type {
   MeetingProviderClient,
   MeetingProviderConfigurationStatus,
   MeetingTokenSet,
+  UpdateMeetingInput,
 } from '../meeting-provider.interface';
-import { buildTeamsMeetingBody, parseMicrosoftTokenResponse, parseMicrosoftUserInfo, parseTeamsMeeting } from './microsoft-teams.mapper';
+import { isRetryableStatus, parseRetryAfter, RetryableProviderError } from '../provider-errors';
+import {
+  buildTeamsMeetingBody,
+  buildTeamsUpdateBody,
+  parseMicrosoftTokenResponse,
+  parseMicrosoftUserInfo,
+  parseTeamsMeeting,
+} from './microsoft-teams.mapper';
 import type { MicrosoftOnlineMeetingResponse, MicrosoftTokenResponse, MicrosoftUserInfoResponse } from './microsoft-teams.types';
 
 const GRAPH_BASE_URL = 'https://graph.microsoft.com/v1.0';
 const USERINFO_URL = `${GRAPH_BASE_URL}/me`;
 const MEETINGS_URL = `${GRAPH_BASE_URL}/me/onlineMeetings`;
+// Idempotent create: returns the existing meeting for a repeated `externalId`.
+const CREATE_OR_GET_URL = `${MEETINGS_URL}/createOrGet`;
 // `offline_access` is what actually earns a refresh token; the other two are
 // the Graph permissions the meeting flow needs.
 const SCOPES = [
@@ -138,7 +148,7 @@ export class MicrosoftTeamsProvider implements MeetingProviderClient {
   public async createMeeting(input: CreateMeetingInput): Promise<CreateMeetingResult> {
     this.assertConfigured();
     const response = await this.request(
-      MEETINGS_URL,
+      CREATE_OR_GET_URL,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.accessToken}` },
@@ -148,6 +158,19 @@ export class MicrosoftTeamsProvider implements MeetingProviderClient {
     );
     const data = (await response.json()) as MicrosoftOnlineMeetingResponse;
     return parseTeamsMeeting(data);
+  }
+
+  public async updateMeeting(accessToken: string, externalId: string, input: UpdateMeetingInput): Promise<void> {
+    this.assertConfigured();
+    await this.request(
+      meetingUrl(externalId),
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(buildTeamsUpdateBody(input)),
+      },
+      'meeting update',
+    );
   }
 
   public async deleteMeeting(accessToken: string, externalId: string): Promise<void> {
@@ -192,10 +215,17 @@ export class MicrosoftTeamsProvider implements MeetingProviderClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
     const data = (await response.json().catch(() => ({}))) as MicrosoftTokenResponse;
     if (!response.ok) {
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       // `invalid_grant` (AADSTS70008/AADSTS700082) signals the refresh token
       // was revoked, expired, or already consumed — surfaced as
       // reconnect-required so `getUsableAccount` marks the account `revoked`
@@ -216,9 +246,16 @@ export class MicrosoftTeamsProvider implements MeetingProviderClient {
     try {
       response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
     if (!response.ok) {
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       const bodyText = await response.text().catch(() => '');
       this.logger.error(
         `Microsoft Teams ${operation} failed with status ${String(response.status)}: ${bodyText.slice(0, 500)}`,

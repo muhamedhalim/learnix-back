@@ -26,10 +26,16 @@ export class MeetingProvisioningProcessor extends WorkerHost {
   }
 
   public async process(job: Job<MeetingProvisionJob>): Promise<void> {
-    if (job.name !== JOB_TYPES.MEETING.PROVISION) {
-      this.logger.warn(`Unknown job name ${job.name}`);
+    // The last BullMQ attempt must record a definitive result instead of rethrowing.
+    const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+    if (job.name === JOB_TYPES.MEETING.PROVISION) {
+      await this.sessions.provisionMeeting(job.data.sessionId, { finalAttempt });
       return;
     }
-    await this.sessions.provisionMeeting(job.data.sessionId);
+    if (job.name === JOB_TYPES.MEETING.SYNC) {
+      await this.sessions.syncMeetingTime(job.data.sessionId, { finalAttempt });
+      return;
+    }
+    this.logger.warn(`Unknown job name ${job.name}`);
   }
 }

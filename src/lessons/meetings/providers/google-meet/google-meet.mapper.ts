@@ -1,6 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 
-import type { CreateMeetingInput, CreateMeetingResult, MeetingAccountIdentity, MeetingTokenSet } from '../meeting-provider.interface';
+import type {
+  CreateMeetingInput,
+  CreateMeetingResult,
+  MeetingAccountIdentity,
+  MeetingTokenSet,
+  UpdateMeetingInput,
+} from '../meeting-provider.interface';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -53,13 +59,26 @@ export function parseGoogleUserInfo(data: unknown): MeetingAccountIdentity {
 }
 
 /**
+ * Google event ids must be 5-1024 chars of base32hex (`a-v`, `0-9`). The
+ * idempotency key (a session UUID plus a request timestamp) is reduced to that
+ * alphabet, which keeps it deterministic for one Generate request.
+ */
+export function googleEventIdFromKey(idempotencyKey: string): string {
+  const id = idempotencyKey.toLowerCase().replace(/[^a-v0-9]/g, '');
+  if (id.length < 5) throw malformed('idempotency key');
+  return id;
+}
+
+/**
  * `conferenceDataVersion=1` requests a Google Meet link be created alongside
- * the calendar event via `conferenceData.createRequest`. `requestId` is the
- * per-session idempotency key: a retried call with the same id returns the
- * previously created conference instead of a duplicate (AD-8).
+ * the calendar event via `conferenceData.createRequest`. `requestId` only
+ * dedupes the CONFERENCE, not the event, so the event itself also gets a
+ * deterministic `id`: a retried insert then fails with 409 (the provider
+ * adapter fetches the existing event) instead of creating a second event.
  */
 export function buildCalendarEventBody(input: CreateMeetingInput): Record<string, unknown> {
   return {
+    id: googleEventIdFromKey(input.idempotencyKey),
     summary: input.topic,
     start: { dateTime: input.startAt.toISOString(), timeZone: input.timezone },
     end: { dateTime: input.endAt.toISOString(), timeZone: input.timezone },
@@ -70,6 +89,27 @@ export function buildCalendarEventBody(input: CreateMeetingInput): Record<string
       },
     },
   };
+}
+
+export function buildCalendarEventUpdateBody(input: UpdateMeetingInput): Record<string, unknown> {
+  return {
+    summary: input.topic,
+    start: { dateTime: input.startAt.toISOString(), timeZone: input.timezone },
+    end: { dateTime: input.endAt.toISOString(), timeZone: input.timezone },
+  };
+}
+
+/** `pending` = Google is still creating the Meet conference; `failure` = it gave up. */
+export function googleConferenceState(data: unknown): 'ready' | 'pending' | 'failed' {
+  const event = record(data, 'event');
+  if (optionalString(event['hangoutLink'])) return 'ready';
+  const conferenceData = isRecord(event['conferenceData']) ? event['conferenceData'] : undefined;
+  if (!conferenceData) return 'pending';
+  const entryPoints = Array.isArray(conferenceData['entryPoints']) ? conferenceData['entryPoints'] : [];
+  if (entryPoints.some((entry) => isRecord(entry) && entry['entryPointType'] === 'video')) return 'ready';
+  const createRequest = isRecord(conferenceData['createRequest']) ? conferenceData['createRequest'] : undefined;
+  const status = createRequest && isRecord(createRequest['status']) ? createRequest['status'] : undefined;
+  return status?.['statusCode'] === 'failure' ? 'failed' : 'pending';
 }
 
 export function parseGoogleCalendarEvent(data: unknown): CreateMeetingResult {

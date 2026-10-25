@@ -5,6 +5,8 @@ import type { DataSource, EntityManager } from 'typeorm';
 
 import type { MailService } from '../mail/mail.service';
 import { ItemType, type Order, type Payment } from '../payments/entities';
+import { NoopQueue } from '../queues/noop-queue';
+import { JOB_TYPES } from '../queues/queues.constants';
 import { User } from '../users/entities/user.entity';
 import type { Lesson } from './entities/lesson.entity';
 import { LessonSessionBookingStatus } from './entities/lesson-session-booking-status.enum';
@@ -18,6 +20,7 @@ import { TeacherMeetingAccountStatus } from './entities/teacher-meeting-account-
 import { LessonSessionsService } from './lesson-sessions.service';
 import type { MeetingAccountsService } from './meetings/meeting-accounts.service';
 import type { MeetingProviderRegistry } from './meetings/meeting-provider-registry.service';
+import { RetryableProviderError } from './meetings/providers/provider-errors';
 
 function noopMeetingDeps(): {
   registry: MeetingProviderRegistry;
@@ -274,6 +277,7 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
       name: MeetingProvider.GOOGLE_MEET,
       isConfigured: () => true,
       createMeeting: jest.fn(),
+      updateMeeting: jest.fn().mockResolvedValue(undefined),
       deleteMeeting: jest.fn().mockResolvedValue(undefined),
       ...overrides,
     };
@@ -488,8 +492,63 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     expect(queue.add).toHaveBeenCalledWith(
       expect.any(String),
       { sessionId },
-      { jobId: `meeting.provision.${sessionId}` },
+      { jobId: expect.stringMatching(new RegExp(`^meeting\\.provision\\.${sessionId}\\.\\d+$`)) },
     );
+  });
+
+  it('a Retry after a failed attempt enqueues a DIFFERENT job id so BullMQ cannot drop it as a duplicate', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    try {
+      const jobIds: string[] = [];
+      for (const failed of [false, true]) {
+        const { service, manager, queue } = buildService({
+          registryFind: jest.fn().mockReturnValue(configuredClient()),
+          findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
+        });
+        manager.findOne
+          .mockResolvedValueOnce(
+            scheduledSession(failed ? { meeting_status: MeetingCreationStatus.FAILED } : {}),
+          )
+          .mockResolvedValueOnce(individualLesson());
+        await service.requestMeetingGeneration(
+          lessonId,
+          sessionId,
+          teacherId,
+          MeetingProvider.GOOGLE_MEET,
+        );
+        jobIds.push((queue.add as jest.Mock).mock.calls[0][2].jobId as string);
+        jest.advanceTimersByTime(1000);
+      }
+      expect(new Set(jobIds).size).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('provisions inline instead of enqueueing when the queue is a NoopQueue (no Redis)', async () => {
+    const { service, manager, queue, repository } = buildService({
+      registryFind: jest.fn().mockReturnValue(configuredClient()),
+      findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
+    });
+    manager.findOne
+      .mockResolvedValueOnce(scheduledSession())
+      .mockResolvedValueOnce(individualLesson());
+    Object.setPrototypeOf(queue, NoopQueue.prototype);
+    const provision = jest.spyOn(service, 'provisionMeeting').mockResolvedValue(undefined);
+    repository['findOne'].mockResolvedValue(
+      scheduledSession({ meeting_status: MeetingCreationStatus.READY }),
+    );
+
+    const result = await service.requestMeetingGeneration(
+      lessonId,
+      sessionId,
+      teacherId,
+      MeetingProvider.GOOGLE_MEET,
+    );
+
+    expect(provision).toHaveBeenCalledWith(sessionId);
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ meeting_status: MeetingCreationStatus.READY });
   });
 
   it('accepts Retry on a failed slot (negative test 4)', async () => {
@@ -775,6 +834,320 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     expect(queryBuilder['values']).toHaveBeenCalledWith(
       expect.objectContaining({ source_event: 'lesson_session_meeting_creation_failed' }),
     );
+  });
+
+  it('sweep re-enqueues a recently stale pending row once, with a stable recover job id', async () => {
+    const requestedAt = new Date(Date.now() - 20 * 60_000);
+    const pending = scheduledSession({
+      meeting_status: MeetingCreationStatus.PENDING,
+      meeting_provider: MeetingProvider.GOOGLE_MEET,
+      meeting_requested_at: requestedAt,
+    });
+    const { service, repository, queue } = buildService({
+      repository: { find: jest.fn().mockResolvedValue([pending]) },
+    });
+
+    await service.sweepStuckMeetingProvisioning();
+    await service.sweepStuckMeetingProvisioning();
+
+    const ids = (queue.add as jest.Mock).mock.calls.map((call) => call[2].jobId);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).toBe(`meeting.provision.${pending.id}.${requestedAt.getTime()}.recover`);
+    expect(repository['save']).not.toHaveBeenCalled();
+  });
+
+  it('sweep fails a pending row that never started after twice the stuck window', async () => {
+    const pending = scheduledSession({
+      meeting_status: MeetingCreationStatus.PENDING,
+      meeting_provider: MeetingProvider.GOOGLE_MEET,
+      meeting_requested_at: new Date(Date.now() - 40 * 60_000),
+      meeting_attempts: 0,
+    });
+    const { service, repository, queue } = buildService({
+      repository: { find: jest.fn().mockResolvedValue([pending]) },
+      repositoriesByEntity: new Map([[User, { findOne: jest.fn().mockResolvedValue(teacherFixture()) }]]),
+    });
+
+    await service.sweepStuckMeetingProvisioning();
+
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(repository['save']).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meeting_status: MeetingCreationStatus.FAILED,
+        meeting_error: 'Meeting creation did not start',
+      }),
+    );
+  });
+
+  describe('provider lifecycle (Unit B)', () => {
+    const readySession = (overrides: Partial<ScheduledLessonSession> = {}) =>
+      scheduledSession({
+        meeting_status: MeetingCreationStatus.READY,
+        meeting_provider: MeetingProvider.GOOGLE_MEET,
+        external_meeting_id: 'ext-1',
+        meeting_url: 'https://meet.google.com/abc',
+        ...overrides,
+      });
+
+    const provisionSetup = (createMeeting: jest.Mock, overrides: Partial<ScheduledLessonSession> = {}) => {
+      const client = configuredClient({ createMeeting });
+      return buildService({
+        registryFind: jest.fn().mockReturnValue(client),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: {
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+          findOne: jest.fn().mockResolvedValue(
+            scheduledSession({
+              meeting_status: MeetingCreationStatus.CREATING,
+              meeting_provider: MeetingProvider.GOOGLE_MEET,
+              meeting_requested_at: new Date('2026-01-01T00:00:00.000Z'),
+              ...overrides,
+            }),
+          ),
+          save: jest.fn(async (value: unknown) => value),
+        },
+        repositoriesByEntity: new Map([[User, { findOne: jest.fn().mockResolvedValue(teacherFixture()) }]]),
+      });
+    };
+
+    it('provisionMeeting sends a per-request idempotency key (session id + request time)', async () => {
+      const createMeeting = jest.fn().mockResolvedValue({
+        externalId: 'ext-1',
+        joinUrl: 'https://meet.google.com/abc',
+      });
+      const { service } = provisionSetup(createMeeting);
+
+      await service.provisionMeeting(sessionId);
+
+      expect(createMeeting).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: `${sessionId}-${String(new Date('2026-01-01T00:00:00.000Z').getTime())}`,
+        }),
+      );
+    });
+
+    it('a transient provider failure before the final attempt returns the row to pending and rethrows for BullMQ', async () => {
+      const transient = new RetryableProviderError('meeting creation failed with status 503', null, 503);
+      const { service, repository, queryBuilder } = provisionSetup(jest.fn().mockRejectedValue(transient));
+
+      await expect(service.provisionMeeting(sessionId, { finalAttempt: false })).rejects.toBe(transient);
+
+      expect(repository['save']).toHaveBeenCalledWith(
+        expect.objectContaining({ meeting_status: MeetingCreationStatus.PENDING }),
+      );
+      expect(queryBuilder['values']).not.toHaveBeenCalled();
+    });
+
+    it('a transient provider failure on the final attempt is recorded as failed with a retry hint and notified', async () => {
+      const transient = new RetryableProviderError('meeting creation failed with status 429', 5000, 429);
+      const { service, repository, queryBuilder } = provisionSetup(jest.fn().mockRejectedValue(transient));
+
+      await service.provisionMeeting(sessionId, { finalAttempt: true });
+
+      expect(repository['save']).toHaveBeenCalledWith(
+        expect.objectContaining({
+          meeting_status: MeetingCreationStatus.FAILED,
+          meeting_error: 'The meeting provider is temporarily unavailable — please retry',
+          meeting_attempts: 1,
+        }),
+      );
+      expect(queryBuilder['values']).toHaveBeenCalled();
+    });
+
+    it('a transient failure while refreshing the account token also retries instead of failing', async () => {
+      const transient = new RetryableProviderError('token refresh failed with status 502', null, 502);
+      const { service, repository } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient()),
+        getUsableAccount: jest.fn().mockRejectedValue(transient),
+        repository: {
+          update: jest.fn().mockResolvedValue({ affected: 1 }),
+          findOne: jest.fn().mockResolvedValue(
+            scheduledSession({
+              meeting_status: MeetingCreationStatus.CREATING,
+              meeting_provider: MeetingProvider.GOOGLE_MEET,
+            }),
+          ),
+          save: jest.fn(async (value: unknown) => value),
+        },
+      });
+
+      await expect(service.provisionMeeting(sessionId, { finalAttempt: false })).rejects.toBe(transient);
+      expect(repository['save']).toHaveBeenCalledWith(
+        expect.objectContaining({ meeting_status: MeetingCreationStatus.PENDING }),
+      );
+    });
+
+    it('syncMeetingTime pushes the slot\'s current times to the provider meeting', async () => {
+      const updateMeeting = jest.fn().mockResolvedValue(undefined);
+      const session = readySession();
+      const { service } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ updateMeeting })),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: { findOne: jest.fn().mockResolvedValue(session) },
+      });
+
+      await service.syncMeetingTime(sessionId);
+
+      expect(updateMeeting).toHaveBeenCalledWith(
+        'token',
+        'ext-1',
+        expect.objectContaining({ startAt: session.start_at, endAt: session.end_at }),
+      );
+    });
+
+    it('syncMeetingTime keeps the meeting ready and flags meeting_error when the provider update fails', async () => {
+      const updateMeeting = jest.fn().mockRejectedValue(new Error('boom'));
+      const session = readySession();
+      const { service, repository } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ updateMeeting })),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: { findOne: jest.fn().mockResolvedValue(session), save: jest.fn(async (v: unknown) => v) },
+      });
+
+      await service.syncMeetingTime(sessionId);
+
+      expect(repository['save']).toHaveBeenCalledWith(
+        expect.objectContaining({
+          meeting_status: MeetingCreationStatus.READY,
+          meeting_error: 'The meeting time could not be updated at the provider',
+        }),
+      );
+    });
+
+    it('syncMeetingTime rethrows a transient failure before the final attempt so BullMQ retries', async () => {
+      const transient = new RetryableProviderError('meeting update failed with status 503', null, 503);
+      const { service } = buildService({
+        registryFind: jest
+          .fn()
+          .mockReturnValue(configuredClient({ updateMeeting: jest.fn().mockRejectedValue(transient) })),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: { findOne: jest.fn().mockResolvedValue(readySession()) },
+      });
+
+      await expect(service.syncMeetingTime(sessionId, { finalAttempt: false })).rejects.toBe(transient);
+    });
+
+    it('syncMeetingTime ignores manual-link and not-ready sessions', async () => {
+      const updateMeeting = jest.fn();
+      for (const session of [
+        readySession({ meeting_provider: MeetingProvider.MANUAL }),
+        readySession({ meeting_status: MeetingCreationStatus.FAILED }),
+      ]) {
+        const { service } = buildService({
+          registryFind: jest.fn().mockReturnValue(configuredClient({ updateMeeting })),
+          repository: { findOne: jest.fn().mockResolvedValue(session) },
+        });
+        await service.syncMeetingTime(sessionId);
+      }
+      expect(updateMeeting).not.toHaveBeenCalled();
+    });
+
+    it('update() enqueues a uniquely-identified sync job when a ready provider meeting is rescheduled', async () => {
+      const overlap = chainableQuery(['where', 'andWhere']);
+      overlap['getExists'] = jest.fn().mockResolvedValue(false);
+      overlap['getOne'] = jest.fn().mockResolvedValue(null);
+      const { service, manager, queue } = buildService({
+        manager: {
+          getRepository: jest.fn().mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlap) }),
+        },
+      });
+      manager.findOne.mockResolvedValueOnce(readySession());
+      const start = new Date(Date.now() + 5 * 3600_000);
+
+      await service.update(lessonId, sessionId, teacherId, {
+        start_at: start.toISOString(),
+        end_at: new Date(start.getTime() + 3600_000).toISOString(),
+      });
+
+      expect(queue.add).toHaveBeenCalledWith(
+        JOB_TYPES.MEETING.SYNC,
+        { sessionId },
+        { jobId: expect.stringMatching(new RegExp(`^meeting\\.sync\\.${sessionId}\\.\\d+$`)) },
+      );
+    });
+
+    it('update() does not enqueue a sync for a manual-link slot', async () => {
+      const overlap = chainableQuery(['where', 'andWhere']);
+      overlap['getExists'] = jest.fn().mockResolvedValue(false);
+      overlap['getOne'] = jest.fn().mockResolvedValue(null);
+      const { service, manager, queue } = buildService({
+        manager: {
+          getRepository: jest.fn().mockReturnValue({ createQueryBuilder: jest.fn().mockReturnValue(overlap) }),
+        },
+      });
+      manager.findOne.mockResolvedValueOnce(
+        readySession({ meeting_provider: MeetingProvider.MANUAL, external_meeting_id: null }),
+      );
+      const start = new Date(Date.now() + 5 * 3600_000);
+
+      await service.update(lessonId, sessionId, teacherId, {
+        start_at: start.toISOString(),
+        end_at: new Date(start.getTime() + 3600_000).toISOString(),
+      });
+
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+
+    it('releaseCancelledSessionMeeting deletes the provider meeting and clears the local reference', async () => {
+      const deleteMeeting = jest.fn().mockResolvedValue(undefined);
+      const session = readySession({ status: ScheduledLessonSessionStatus.CANCELLED });
+      const { service, repository } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ deleteMeeting })),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: { findOne: jest.fn().mockResolvedValue(session) },
+      });
+
+      await expect(service.releaseCancelledSessionMeeting(sessionId)).resolves.toBe(true);
+
+      expect(deleteMeeting).toHaveBeenCalledWith('token', 'ext-1');
+      expect(repository['update']).toHaveBeenCalledWith(
+        { id: session.id, external_meeting_id: 'ext-1' },
+        expect.objectContaining({ external_meeting_id: null, meeting_url: null }),
+      );
+    });
+
+    it('releaseCancelledSessionMeeting keeps the reference when the teacher has no usable account', async () => {
+      const deleteMeeting = jest.fn();
+      const session = readySession({ status: ScheduledLessonSessionStatus.CANCELLED });
+      const { service, repository } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ deleteMeeting })),
+        getUsableAccount: jest.fn().mockResolvedValue(null),
+        repository: { findOne: jest.fn().mockResolvedValue(session) },
+      });
+
+      await expect(service.releaseCancelledSessionMeeting(sessionId)).resolves.toBe(false);
+
+      expect(deleteMeeting).not.toHaveBeenCalled();
+      expect(repository['update']).not.toHaveBeenCalled();
+    });
+
+    it('releaseCancelledSessionMeeting leaves a still-scheduled session alone', async () => {
+      const deleteMeeting = jest.fn();
+      const { service } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ deleteMeeting })),
+        repository: { findOne: jest.fn().mockResolvedValue(readySession()) },
+      });
+
+      await expect(service.releaseCancelledSessionMeeting(sessionId)).resolves.toBe(false);
+      expect(deleteMeeting).not.toHaveBeenCalled();
+    });
+
+    it('sweepCancelledSessionMeetings releases each recently cancelled provider meeting', async () => {
+      const deleteMeeting = jest.fn().mockResolvedValue(undefined);
+      const cancelled = readySession({ status: ScheduledLessonSessionStatus.CANCELLED });
+      const { service } = buildService({
+        registryFind: jest.fn().mockReturnValue(configuredClient({ deleteMeeting })),
+        getUsableAccount: jest.fn().mockResolvedValue({ id: 'account-1', access_token_encrypted: 'token' }),
+        repository: {
+          find: jest.fn().mockResolvedValue([cancelled]),
+          findOne: jest.fn().mockResolvedValue(cancelled),
+        },
+      });
+
+      await expect(service.sweepCancelledSessionMeetings()).resolves.toBe(1);
+      expect(deleteMeeting).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

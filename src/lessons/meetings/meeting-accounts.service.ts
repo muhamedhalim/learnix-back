@@ -25,6 +25,7 @@ import { MeetingProvider } from '../entities/meeting-provider.enum';
 import { TeacherMeetingAccount } from '../entities/teacher-meeting-account.entity';
 import { TeacherMeetingAccountStatus } from '../entities/teacher-meeting-account-status.enum';
 import { MeetingProviderRegistry } from './meeting-provider-registry.service';
+import { RetryableProviderError } from './providers/provider-errors';
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_STATE_CACHE_PREFIX = 'meeting-oauth-state:';
@@ -280,6 +281,9 @@ export class MeetingAccountsService {
       account.last_error = null;
       return await this.accounts.save(account);
     } catch (error) {
+      // A transient provider failure (timeout, 429, 5xx) says nothing about the
+      // grant: leave the account CONNECTED and let the caller retry later.
+      if (error instanceof RetryableProviderError) throw error;
       // A provider signalling "reconnect required" (e.g. Google's
       // invalid_grant) means the teacher revoked access at the provider —
       // distinct from a merely-expired token, which is an ordinary retry

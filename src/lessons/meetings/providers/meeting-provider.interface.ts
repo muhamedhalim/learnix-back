@@ -27,6 +27,14 @@ export interface CreateMeetingInput {
   idempotencyKey: string;
 }
 
+export interface UpdateMeetingInput {
+  topic: string;
+  startAt: Date;
+  endAt: Date;
+  /** IANA timezone, e.g. "Africa/Cairo". */
+  timezone: string;
+}
+
 export interface CreateMeetingResult {
   externalId: string;
   joinUrl: string;
@@ -56,5 +64,11 @@ export interface MeetingProviderClient {
   refresh(refreshToken: string): Promise<MeetingTokenSet>;
   revoke(tokens: { accessToken: string; refreshToken?: string | null }): Promise<void>;
   createMeeting(input: CreateMeetingInput): Promise<CreateMeetingResult>;
+  /**
+   * Reschedules an existing meeting. Unlike `deleteMeeting` this THROWS on
+   * failure (`RetryableProviderError` for transient ones) so the sync job can
+   * retry and the teacher can be told the provider still has the old time.
+   */
+  updateMeeting(accessToken: string, externalId: string, input: UpdateMeetingInput): Promise<void>;
   deleteMeeting(accessToken: string, externalId: string): Promise<void>;
 }

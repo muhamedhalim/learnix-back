@@ -164,6 +164,8 @@ export const JOB_TYPES = {
   MEETING: {
     /** Create the meeting at the provider for one appointment (Phase 5). */
     PROVISION: 'provision-meeting',
+    /** Push a rescheduled appointment's new time to its provider meeting. */
+    SYNC: 'sync-meeting',
   },
   MARKETPLACE: {
     /** Daily sweep: move eligible earnings from REFUND_CLEARANCE to AVAILABLE_BALANCE (FR-147). */

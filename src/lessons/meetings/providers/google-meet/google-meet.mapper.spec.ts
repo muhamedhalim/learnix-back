@@ -73,6 +73,7 @@ describe('google-meet.mapper', () => {
         idempotencyKey: 'session-abc-123',
       });
       expect(body).toEqual({
+        id: 'sessionabc123',
         summary: 'Algebra 101',
         start: { dateTime: '2026-01-15T10:00:00.000Z', timeZone: 'Africa/Cairo' },
         end: { dateTime: '2026-01-15T10:30:00.000Z', timeZone: 'Africa/Cairo' },

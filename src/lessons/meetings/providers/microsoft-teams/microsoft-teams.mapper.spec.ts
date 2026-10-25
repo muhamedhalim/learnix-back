@@ -85,6 +85,7 @@ describe('microsoft-teams.mapper', () => {
         idempotencyKey: 'session-abc-123',
       });
       expect(body).toEqual({
+        externalId: 'session-abc-123',
         subject: 'Algebra 101',
         startDateTime: '2026-01-15T10:00:00.000Z',
         endDateTime: '2026-01-15T10:30:00.000Z',

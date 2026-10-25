@@ -145,6 +145,9 @@ export class PaymentOperationsService {
       await this.runMonitoredMaintenanceTask('sweep_stuck_meeting_provisioning', () =>
         this.lessonSessions.sweepStuckMeetingProvisioning(),
       );
+      await this.runMonitoredMaintenanceTask('release_cancelled_session_meetings', () =>
+        this.lessonSessions.sweepCancelledSessionMeetings(),
+      );
       await this.runMonitoredMaintenanceTask('release_held_earnings', () =>
         this.settlements.releaseAvailableEarnings(),
       );

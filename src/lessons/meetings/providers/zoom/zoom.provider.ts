@@ -10,8 +10,16 @@ import type {
   MeetingProviderClient,
   MeetingProviderConfigurationStatus,
   MeetingTokenSet,
+  UpdateMeetingInput,
 } from '../meeting-provider.interface';
-import { buildZoomMeetingBody, parseZoomMeeting, parseZoomTokenResponse, parseZoomUserInfo } from './zoom.mapper';
+import { isRetryableStatus, parseRetryAfter, RetryableProviderError } from '../provider-errors';
+import {
+  buildZoomMeetingBody,
+  buildZoomUpdateBody,
+  parseZoomMeeting,
+  parseZoomTokenResponse,
+  parseZoomUserInfo,
+} from './zoom.mapper';
 import type { ZoomMeetingResponse, ZoomTokenResponse, ZoomUserInfoResponse } from './zoom.types';
 
 const AUTH_URL = 'https://zoom.us/oauth/authorize';
@@ -119,17 +127,41 @@ export class ZoomProvider implements MeetingProviderClient {
 
   public async createMeeting(input: CreateMeetingInput): Promise<CreateMeetingResult> {
     this.assertConfigured();
-    const response = await this.request(
-      MEETINGS_URL,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.accessToken}` },
-        body: JSON.stringify(buildZoomMeetingBody(input)),
-      },
-      'meeting creation',
-    );
+    let response: Response;
+    try {
+      response = await this.request(
+        MEETINGS_URL,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${input.accessToken}` },
+          body: JSON.stringify(buildZoomMeetingBody(input)),
+        },
+        'meeting creation',
+      );
+    } catch (error) {
+      // Zoom has no idempotency key (R-15): after a timeout or 5xx the meeting
+      // may already exist, so an automatic retry could orphan a duplicate. Only
+      // a 429 (request rejected before processing) is safe to retry unattended.
+      if (error instanceof RetryableProviderError && error.statusCode !== 429) {
+        throw this.unavailable(`meeting creation failed (${error.message})`);
+      }
+      throw error;
+    }
     const data = (await response.json()) as ZoomMeetingResponse;
     return parseZoomMeeting(data);
+  }
+
+  public async updateMeeting(accessToken: string, externalId: string, input: UpdateMeetingInput): Promise<void> {
+    this.assertConfigured();
+    await this.request(
+      meetingUrl(externalId),
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(buildZoomUpdateBody(input)),
+      },
+      'meeting update',
+    );
   }
 
   public async deleteMeeting(accessToken: string, externalId: string): Promise<void> {
@@ -169,10 +201,17 @@ export class ZoomProvider implements MeetingProviderClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
     const data = (await response.json().catch(() => ({}))) as ZoomTokenResponse;
     if (!response.ok) {
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       // `invalid_grant` is Zoom's signal that the refresh token was revoked,
       // expired, or already consumed by a concurrent refresh (single-use
       // rotation) — surfaced as reconnect-required so `getUsableAccount`
@@ -193,9 +232,16 @@ export class ZoomProvider implements MeetingProviderClient {
     try {
       response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
     if (!response.ok) {
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       const bodyText = await response.text().catch(() => '');
       this.logger.error(`Zoom ${operation} failed with status ${String(response.status)}: ${bodyText.slice(0, 500)}`);
       if (response.status === 401) {

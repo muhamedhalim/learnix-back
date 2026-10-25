@@ -16,9 +16,14 @@ import type {
   MeetingProviderClient,
   MeetingProviderConfigurationStatus,
   MeetingTokenSet,
+  UpdateMeetingInput,
 } from '../meeting-provider.interface';
+import { isRetryableStatus, parseRetryAfter, RetryableProviderError } from '../provider-errors';
 import {
   buildCalendarEventBody,
+  buildCalendarEventUpdateBody,
+  googleConferenceState,
+  googleEventIdFromKey,
   parseGoogleCalendarEvent,
   parseGoogleTokenResponse,
   parseGoogleUserInfo,
@@ -40,6 +45,8 @@ const SCOPES = [
   'openid',
 ];
 const REQUEST_TIMEOUT_MS = 15_000;
+/** Waits between polls while Google finishes creating the Meet conference. */
+const CONFERENCE_POLL_DELAYS_MS = [1_000, 2_000, 3_000];
 
 /**
  * First concrete `MeetingProviderClient` (Phase 4). Consumer Gmail accounts
@@ -152,20 +159,60 @@ export class GoogleMeetProvider implements MeetingProviderClient {
 
   public async createMeeting(input: CreateMeetingInput): Promise<CreateMeetingResult> {
     this.assertConfigured();
-    const response = await this.request(
+    const eventUrl = `${CALENDAR_EVENTS_URL}/${encodeURIComponent(googleEventIdFromKey(input.idempotencyKey))}`;
+    const authHeaders = { Authorization: `Bearer ${input.accessToken}` };
+    let response = await this.request(
       `${CALENDAR_EVENTS_URL}?conferenceDataVersion=1`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${input.accessToken}`,
-        },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(buildCalendarEventBody(input)),
       },
       'meeting creation',
+      [409],
     );
-    const data = (await response.json()) as GoogleCalendarEventResponse;
+    // 409 = this request's deterministic event id already exists (a retried
+    // insert whose first attempt landed): adopt that event, never create another.
+    if (response.status === 409) {
+      response = await this.request(eventUrl, { headers: authHeaders }, 'existing meeting lookup');
+    }
+    let data = (await response.json()) as GoogleCalendarEventResponse;
+
+    // The Meet conference is created asynchronously on some accounts; poll briefly.
+    for (const delayMs of CONFERENCE_POLL_DELAYS_MS) {
+      if (googleConferenceState(data) !== 'pending') break;
+      await this.sleep(delayMs);
+      const polled = await this.request(eventUrl, { headers: authHeaders }, 'meeting lookup');
+      data = (await polled.json()) as GoogleCalendarEventResponse;
+    }
+    const state = googleConferenceState(data);
+    if (state === 'pending') {
+      // The event exists and keeps its id, so the BullMQ retry's insert hits 409 and re-adopts it.
+      throw new RetryableProviderError('Google Meet conference is still being created');
+    }
+    if (state === 'failed') {
+      if (typeof data.id === 'string') await this.deleteMeeting(input.accessToken, data.id);
+      throw this.unavailable('conference creation failed');
+    }
     return parseGoogleCalendarEvent(data);
+  }
+
+  public async updateMeeting(accessToken: string, externalId: string, input: UpdateMeetingInput): Promise<void> {
+    this.assertConfigured();
+    await this.request(
+      `${CALENDAR_EVENTS_URL}/${encodeURIComponent(externalId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(buildCalendarEventUpdateBody(input)),
+      },
+      'meeting update',
+    );
+  }
+
+  /** Overridable in tests so the conference polling does not need real timers. */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   public async deleteMeeting(accessToken: string, externalId: string): Promise<void> {
@@ -205,10 +252,17 @@ export class GoogleMeetProvider implements MeetingProviderClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
     const data = (await response.json().catch(() => ({}))) as GoogleTokenResponse;
     if (!response.ok) {
+      if (isRetryableStatus(response.status)) {
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       // `invalid_grant` is Google's signal that the refresh token was revoked
       // or expired at the provider — distinct from a transient failure, and
       // surfaced as a reconnect-required error so callers (getUsableAccount)
@@ -227,15 +281,35 @@ export class GoogleMeetProvider implements MeetingProviderClient {
     return data;
   }
 
-  private async request(url: string, init: RequestInit, operation: string): Promise<Response> {
+  /** `tolerate` lists non-2xx statuses the caller handles itself (returned, not thrown). */
+  private async request(
+    url: string,
+    init: RequestInit,
+    operation: string,
+    tolerate: readonly number[] = [],
+  ): Promise<Response> {
     let response: Response;
     try {
       response = await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch {
-      throw this.unavailable(`${operation} endpoint was unreachable`);
+      this.logger.warn(`Google Meet ${operation} endpoint was unreachable`);
+      throw new RetryableProviderError(`${operation} endpoint was unreachable`);
     }
+    if (!response.ok && tolerate.includes(response.status)) return response;
     if (!response.ok) {
       const bodyText = await response.text().catch(() => '');
+      // Google reports Calendar quota exhaustion as 403 rateLimitExceeded, not 429.
+      if (
+        isRetryableStatus(response.status) ||
+        (response.status === 403 && /rateLimitExceeded|userRateLimitExceeded/.test(bodyText))
+      ) {
+        this.logger.warn(`Google Meet ${operation} failed with retryable status ${String(response.status)}`);
+        throw new RetryableProviderError(
+          `${operation} failed with status ${String(response.status)}`,
+          parseRetryAfter(response.headers.get('retry-after')),
+          response.status,
+        );
+      }
       this.logger.error(
         `Google Meet ${operation} failed with status ${String(response.status)}: ${bodyText.slice(0, 500)}`,
       );

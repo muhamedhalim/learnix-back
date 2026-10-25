@@ -9,6 +9,7 @@ import { TeacherMeetingAccountStatus } from '../entities/teacher-meeting-account
 import { MeetingAccountsService } from './meeting-accounts.service';
 import { MeetingProviderRegistry } from './meeting-provider-registry.service';
 import type { MeetingProviderClient } from './providers/meeting-provider.interface';
+import { RetryableProviderError } from './providers/provider-errors';
 
 const TEACHER_ID = 'teacher-1';
 
@@ -64,6 +65,7 @@ function fakeGoogleClient(overrides: Partial<MeetingProviderClient> = {}): Meeti
     refresh: jest.fn(),
     revoke: jest.fn(),
     createMeeting: jest.fn(),
+    updateMeeting: jest.fn(),
     deleteMeeting: jest.fn(),
     ...overrides,
   };
@@ -241,6 +243,25 @@ describe('MeetingAccountsService', () => {
     const result = await service.getUsableAccount(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
     expect(result).toBeNull();
     expect(account.status).toBe(TeacherMeetingAccountStatus.REVOKED);
+  });
+
+  it('a transient refresh failure (429/5xx/timeout) rethrows and leaves the account connected', async () => {
+    const account = {
+      teacher_id: TEACHER_ID,
+      provider: MeetingProvider.GOOGLE_MEET,
+      status: TeacherMeetingAccountStatus.CONNECTED,
+      access_token_encrypted: 'stale-access',
+      refresh_token_encrypted: 'stale-refresh',
+      token_expires_at: new Date(Date.now() + 10_000),
+    } as TeacherMeetingAccount;
+    const transient = new RetryableProviderError('token refresh failed with status 503', null, 503);
+    const client = fakeGoogleClient({ refresh: jest.fn().mockRejectedValue(transient) });
+    const repo = fakeAccountsRepo([account]);
+    const service = new MeetingAccountsService(repo, new MeetingProviderRegistry([client]), config(), fakeCache() as never);
+
+    await expect(service.getUsableAccount(TEACHER_ID, MeetingProvider.GOOGLE_MEET)).rejects.toBe(transient);
+    expect(account.status).toBe(TeacherMeetingAccountStatus.CONNECTED);
+    expect(repo.save).not.toHaveBeenCalled();
   });
 
   it('an ordinary (non-auth) refresh failure marks the account expired, not revoked', async () => {

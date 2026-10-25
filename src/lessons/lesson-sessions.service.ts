@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { Queue } from 'bullmq';
-import { DataSource, EntityManager, LessThanOrEqual } from 'typeorm';
+import { DataSource, EntityManager, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 
 import { resolveAppTimeZone } from '../common/utils/app-timezone.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
@@ -23,6 +23,7 @@ import { NotificationType } from '../notifications/entities/notification-type.en
 import { ItemType, Order, Payment } from '../payments/entities';
 import { JOB_TYPES, QUEUE_NAMES } from '../queues/queues.constants';
 import { queueJobId } from '../queues/job-id.util';
+import { NoopQueue } from '../queues/noop-queue';
 import { User } from '../users/entities/user.entity';
 import { EGP_CURRENCY, toMinorUnits } from '../payments/money.util';
 import { CancelLessonSessionDto, CreateLessonSessionSlotDto, UpdateLessonSessionDto } from './dto';
@@ -40,6 +41,7 @@ import { TeacherMeetingAccount } from './entities/teacher-meeting-account.entity
 import { TeacherMeetingAccountStatus } from './entities/teacher-meeting-account-status.enum';
 import { MeetingAccountsService } from './meetings/meeting-accounts.service';
 import { MeetingProviderRegistry } from './meetings/meeting-provider-registry.service';
+import { RetryableProviderError } from './meetings/providers/provider-errors';
 import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 interface DatabaseError {
@@ -310,15 +312,48 @@ export class LessonSessionsService {
     const cutoff = new Date(Date.now() - this.meetingProvisioningStuckMinutes * 60_000);
     const repository = this.dataSource.getRepository(ScheduledLessonSession);
     const stuck = await repository.find({
-      where: {
-        meeting_status: MeetingCreationStatus.CREATING,
-        meeting_requested_at: LessThanOrEqual(cutoff),
-      },
+      where: [
+        {
+          meeting_status: MeetingCreationStatus.CREATING,
+          meeting_requested_at: LessThanOrEqual(cutoff),
+        },
+        {
+          meeting_status: MeetingCreationStatus.PENDING,
+          meeting_requested_at: LessThanOrEqual(cutoff),
+        },
+      ],
       relations: ['lesson'],
     });
+    const giveUpBefore = Date.now() - 2 * this.meetingProvisioningStuckMinutes * 60_000;
     for (const session of stuck) {
+      if (session.meeting_status === MeetingCreationStatus.PENDING && session.meeting_requested_at) {
+        // A `pending` row whose job never ran (lost enqueue, no worker). Give it
+        // one recovery enqueue; the fixed `recover` id keeps repeated sweeps
+        // from stacking jobs. Past twice the cutoff, fail it so the teacher
+        // can Retry instead of being stuck forever.
+        if (session.meeting_requested_at.getTime() > giveUpBefore) {
+          await this.meetingQueue
+            .add(
+              JOB_TYPES.MEETING.PROVISION,
+              { sessionId: session.id },
+              {
+                jobId: queueJobId(
+                  'meeting',
+                  'provision',
+                  session.id,
+                  session.meeting_requested_at.getTime(),
+                  'recover',
+                ),
+              },
+            )
+            .catch(() => undefined);
+          continue;
+        }
+        session.meeting_error = 'Meeting creation did not start';
+      } else {
+        session.meeting_error = 'Meeting creation timed out';
+      }
       session.meeting_status = MeetingCreationStatus.FAILED;
-      session.meeting_error = 'Meeting creation timed out';
       session.meeting_attempts += 1;
       await repository.save(session).catch(() => undefined);
       await this.notifyMeetingCreationFailed(session).catch(() => undefined);
@@ -370,6 +405,7 @@ export class LessonSessionsService {
     dto: UpdateLessonSessionDto,
   ): Promise<Record<string, unknown>> {
     let meetingLinkChangedForBooking: string | null = null;
+    let meetingNeedsTimeSync = false;
     const result = await retryTransaction(this.dataSource, async (manager) => {
       const session = await this.lockOwnedSession(manager, lessonId, sessionId, teacherId);
       const active = await this.findActiveBooking(manager, session.id);
@@ -392,6 +428,12 @@ export class LessonSessionsService {
         await this.lockTeacherCalendar(manager, teacherId);
         await this.assertNoTeacherOverlap(manager, teacherId, startAt, endAt, session.id);
       }
+      meetingNeedsTimeSync =
+        changesTime &&
+        session.meeting_status === MeetingCreationStatus.READY &&
+        !!session.external_meeting_id &&
+        !!session.meeting_provider &&
+        session.meeting_provider !== MeetingProvider.MANUAL;
       session.start_at = startAt;
       session.end_at = endAt;
       if (dto.meeting_provider !== undefined) {
@@ -438,6 +480,7 @@ export class LessonSessionsService {
     if (meetingLinkChangedForBooking) {
       await this.notifyBookingEvent(meetingLinkChangedForBooking, 'meeting_link_updated');
     }
+    if (meetingNeedsTimeSync) await this.enqueueMeetingTimeSync(sessionId);
     return result;
   }
 
@@ -485,6 +528,7 @@ export class LessonSessionsService {
     teacherId: string,
     provider: MeetingProvider | undefined,
   ): Promise<Record<string, unknown>> {
+    let requestedAtMs = 0;
     const session = await retryTransaction(this.dataSource, async (manager) => {
       // 1. Ownership.
       const locked = await this.lockOwnedSession(manager, lessonId, sessionId, teacherId);
@@ -547,17 +591,32 @@ export class LessonSessionsService {
       locked.meeting_provider = resolvedProvider;
       locked.meeting_account_id = account.id;
       locked.meeting_status = MeetingCreationStatus.PENDING;
-      locked.meeting_requested_at = new Date();
+      const requestedAt = new Date();
+      requestedAtMs = requestedAt.getTime();
+      locked.meeting_requested_at = requestedAt;
       locked.meeting_error = null;
       await manager.save(locked);
       return this.toPrivilegedSession(locked);
     });
-    // Enqueued only after commit (AD-9). `jobId` deduplicates a retried
-    // enqueue; the worker's conditional claim is the second independent stop.
+    // Without Redis (`NoopQueue`) nothing would ever consume the job and the
+    // row would sit in `pending` forever, so provision inline instead.
+    if (this.meetingQueue instanceof NoopQueue) {
+      await this.provisionMeeting(sessionId);
+      const refreshed = await this.dataSource
+        .getRepository(ScheduledLessonSession)
+        .findOne({ where: { id: sessionId } });
+      return refreshed ? this.toPrivilegedSession(refreshed) : session;
+    }
+    // Enqueued only after commit (AD-9). The job id carries this request's
+    // timestamp: a fixed per-session id would be silently ignored by BullMQ
+    // while an earlier (completed or failed) job for the same session is
+    // still retained, wedging every Retry/regenerate in `pending`. It still
+    // deduplicates a retried enqueue of the SAME request, and the worker's
+    // conditional claim is the second independent stop.
     await this.meetingQueue.add(
       JOB_TYPES.MEETING.PROVISION,
       { sessionId },
-      { jobId: queueJobId('meeting', 'provision', sessionId) },
+      { jobId: queueJobId('meeting', 'provision', sessionId, requestedAtMs) },
     );
     return session;
   }
@@ -612,7 +671,9 @@ export class LessonSessionsService {
     if (providerToDelete && providerToDelete !== MeetingProvider.MANUAL && externalId) {
       // Best-effort: the local clear must succeed regardless of whether the
       // provider-side delete does (R-18's same reasoning as account disconnect).
-      const account = await this.meetingAccounts.getUsableAccount(teacherId, providerToDelete);
+      const account = await this.meetingAccounts
+        .getUsableAccount(teacherId, providerToDelete)
+        .catch(() => null);
       const client = this.meetingProviders.find(providerToDelete);
       if (client && account?.access_token_encrypted) {
         await client
@@ -626,12 +687,19 @@ export class LessonSessionsService {
   /**
    * Worker entry point (`MeetingProvisioningProcessor`). Conditionally claims
    * the row (`pending` -> `creating`) so a duplicate job is a no-op (AD-8
-   * layer 2), calls the provider, and persists the result. Never throws — a
+   * layer 2), calls the provider, and persists the result. A definitive
    * failure is recorded on the row (`failed` + `meeting_error`) rather than
    * surfaced to BullMQ's retry, since a bad provider/account state will not
    * resolve itself by retrying automatically; the teacher retries explicitly.
+   * The one exception is a TRANSIENT provider failure (timeout, 429, 5xx):
+   * unless this is the `finalAttempt`, the row goes back to `pending` and the
+   * error is rethrown so BullMQ retries with its exponential backoff.
    */
-  public async provisionMeeting(sessionId: string): Promise<void> {
+  public async provisionMeeting(
+    sessionId: string,
+    options: { finalAttempt?: boolean } = {},
+  ): Promise<void> {
+    const finalAttempt = options.finalAttempt ?? true;
     const repository = this.dataSource.getRepository(ScheduledLessonSession);
     const claim = await repository.update(
       { id: sessionId, meeting_status: MeetingCreationStatus.PENDING },
@@ -643,9 +711,18 @@ export class LessonSessionsService {
     if (!session || !session.meeting_provider) return;
 
     const client = this.meetingProviders.find(session.meeting_provider);
-    const account = client
-      ? await this.meetingAccounts.getUsableAccount(session.teacher_id, session.meeting_provider)
-      : null;
+    let account: TeacherMeetingAccount | null = null;
+    try {
+      account = client
+        ? await this.meetingAccounts.getUsableAccount(session.teacher_id, session.meeting_provider)
+        : null;
+    } catch (error) {
+      if (error instanceof RetryableProviderError) {
+        await this.handleRetryableMeetingFailure(session, error, finalAttempt);
+        return;
+      }
+      throw error;
+    }
     if (!client || !account || !account.access_token_encrypted) {
       session.meeting_status = MeetingCreationStatus.FAILED;
       session.meeting_error = !client
@@ -681,9 +758,12 @@ export class LessonSessionsService {
         startAt: session.start_at,
         endAt: session.end_at,
         timezone: resolveAppTimeZone(),
-        // Deterministic per-session key (AD-8 layer 3 / R-13): a well-behaved
-        // provider returns the SAME meeting on a retried call.
-        idempotencyKey: session.id,
+        // Deterministic per-REQUEST key (AD-8 layer 3 / R-13): a retried call
+        // for this Generate returns the SAME meeting, while Remove + regenerate
+        // gets a fresh key (a deleted Google event id cannot be reused).
+        idempotencyKey: session.meeting_requested_at
+          ? `${session.id}-${String(session.meeting_requested_at.getTime())}`
+          : session.id,
       });
       session.external_meeting_id = result.externalId;
       session.meeting_url = result.joinUrl;
@@ -715,12 +795,168 @@ export class LessonSessionsService {
         await this.notifyMeetingCreationFailed(session).catch(() => undefined);
       }
     } catch (error) {
+      if (error instanceof RetryableProviderError) {
+        await this.handleRetryableMeetingFailure(session, error, finalAttempt);
+        return;
+      }
       session.meeting_status = MeetingCreationStatus.FAILED;
       session.meeting_error = error instanceof Error ? error.message : 'Meeting creation failed';
       session.meeting_attempts += 1;
       await repository.save(session).catch(() => undefined);
       await this.notifyMeetingCreationFailed(session).catch(() => undefined);
     }
+  }
+
+  /** After-commit: push the new time to the provider (job, or inline without Redis). */
+  private async enqueueMeetingTimeSync(sessionId: string): Promise<void> {
+    if (this.meetingQueue instanceof NoopQueue) {
+      await this.syncMeetingTime(sessionId).catch(() => undefined);
+      return;
+    }
+    await this.meetingQueue
+      .add(
+        JOB_TYPES.MEETING.SYNC,
+        { sessionId },
+        // Unique per edit so two reschedules are never collapsed into one job.
+        { jobId: queueJobId('meeting', 'sync', sessionId, Date.now()) },
+      )
+      .catch(() => undefined);
+  }
+
+  /**
+   * Transient provider failure during provisioning. Not final: put the row back
+   * to `pending` (so the retry's conditional claim succeeds) and rethrow so
+   * BullMQ backs off and retries. Final: record `failed` for the teacher.
+   */
+  private async handleRetryableMeetingFailure(
+    session: ScheduledLessonSession,
+    error: RetryableProviderError,
+    finalAttempt: boolean,
+  ): Promise<void> {
+    const repository = this.dataSource.getRepository(ScheduledLessonSession);
+    if (!finalAttempt) {
+      session.meeting_status = MeetingCreationStatus.PENDING;
+      await repository.save(session);
+      throw error;
+    }
+    session.meeting_status = MeetingCreationStatus.FAILED;
+    session.meeting_error = 'The meeting provider is temporarily unavailable — please retry';
+    session.meeting_attempts += 1;
+    await repository.save(session).catch(() => undefined);
+    await this.notifyMeetingCreationFailed(session).catch(() => undefined);
+  }
+
+  /**
+   * Pushes a rescheduled slot's new time to its provider meeting. Runs from the
+   * `sync-meeting` job (or inline without Redis). The meeting stays `ready` on
+   * failure — the join link is still valid — and `meeting_error` tells the
+   * teacher the provider still shows the old time.
+   */
+  public async syncMeetingTime(
+    sessionId: string,
+    options: { finalAttempt?: boolean } = {},
+  ): Promise<void> {
+    const finalAttempt = options.finalAttempt ?? true;
+    const repository = this.dataSource.getRepository(ScheduledLessonSession);
+    const session = await repository.findOne({ where: { id: sessionId }, relations: ['lesson'] });
+    if (
+      !session ||
+      session.meeting_status !== MeetingCreationStatus.READY ||
+      !session.external_meeting_id ||
+      !session.meeting_provider ||
+      session.meeting_provider === MeetingProvider.MANUAL ||
+      session.status !== ScheduledLessonSessionStatus.SCHEDULED
+    ) {
+      return;
+    }
+    const client = this.meetingProviders.find(session.meeting_provider);
+    try {
+      const account = client
+        ? await this.meetingAccounts.getUsableAccount(session.teacher_id, session.meeting_provider)
+        : null;
+      if (!client || !account?.access_token_encrypted) {
+        session.meeting_error = 'Could not update the meeting time — reconnect your account';
+        await repository.save(session);
+        return;
+      }
+      await client.updateMeeting(account.access_token_encrypted, session.external_meeting_id, {
+        topic: session.lesson.title,
+        startAt: session.start_at,
+        endAt: session.end_at,
+        timezone: resolveAppTimeZone(),
+      });
+      if (session.meeting_error) {
+        session.meeting_error = null;
+        await repository.save(session);
+      }
+    } catch (error) {
+      if (error instanceof RetryableProviderError && !finalAttempt) throw error;
+      session.meeting_error = 'The meeting time could not be updated at the provider';
+      await repository.save(session).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Deletes the provider meeting of a CANCELLED appointment and clears the
+   * local meeting fields. Idempotent and driven by a sweep, so it also covers
+   * cancellations that complete later (refund of a confirmed booking) without
+   * enqueueing from inside the payments transaction.
+   */
+  public async releaseCancelledSessionMeeting(sessionId: string): Promise<boolean> {
+    const repository = this.dataSource.getRepository(ScheduledLessonSession);
+    const session = await repository.findOne({ where: { id: sessionId } });
+    if (
+      !session ||
+      session.status !== ScheduledLessonSessionStatus.CANCELLED ||
+      !session.external_meeting_id ||
+      !session.meeting_provider ||
+      session.meeting_provider === MeetingProvider.MANUAL
+    ) {
+      return false;
+    }
+    const client = this.meetingProviders.find(session.meeting_provider);
+    const account = client
+      ? await this.meetingAccounts.getUsableAccount(session.teacher_id, session.meeting_provider)
+      : null;
+    // No usable account (disconnected/revoked): keep the reference so a later
+    // sweep can still delete it once the teacher reconnects.
+    if (!client || !account?.access_token_encrypted) return false;
+    await client.deleteMeeting(account.access_token_encrypted, session.external_meeting_id);
+    await repository.update(
+      { id: session.id, external_meeting_id: session.external_meeting_id },
+      {
+        external_meeting_id: null,
+        meeting_url: null,
+        meeting_host_url: null,
+        meeting_passcode: null,
+        meeting_account_id: null,
+        meeting_status: MeetingCreationStatus.NOT_REQUESTED,
+        meeting_error: null,
+        meeting_ready_at: null,
+      },
+    );
+    return true;
+  }
+
+  /** Maintenance sweep: releases provider meetings of recently cancelled appointments. */
+  public async sweepCancelledSessionMeetings(): Promise<number> {
+    const since = new Date(Date.now() - 7 * 24 * 3600_000);
+    const candidates = await this.dataSource.getRepository(ScheduledLessonSession).find({
+      where: {
+        status: ScheduledLessonSessionStatus.CANCELLED,
+        meeting_status: MeetingCreationStatus.READY,
+        cancelled_at: MoreThanOrEqual(since),
+      },
+      select: { id: true, external_meeting_id: true, meeting_provider: true },
+      take: 50,
+    });
+    let released = 0;
+    for (const candidate of candidates) {
+      if (!candidate.external_meeting_id) continue;
+      const done = await this.releaseCancelledSessionMeeting(candidate.id).catch(() => false);
+      if (done) released += 1;
+    }
+    return released;
   }
 
   public async getCheckoutProduct(

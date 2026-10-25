@@ -1,6 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 
-import type { CreateMeetingInput, CreateMeetingResult, MeetingAccountIdentity, MeetingTokenSet } from '../meeting-provider.interface';
+import type {
+  CreateMeetingInput,
+  CreateMeetingResult,
+  MeetingAccountIdentity,
+  MeetingTokenSet,
+  UpdateMeetingInput,
+} from '../meeting-provider.interface';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -83,6 +89,17 @@ export function buildZoomMeetingBody(input: CreateMeetingInput): Record<string, 
       join_before_host: false,
       approval_type: 2,
     },
+  };
+}
+
+/** PATCH body for a reschedule — only the fields that change, leaving `settings` untouched. */
+export function buildZoomUpdateBody(input: UpdateMeetingInput): Record<string, unknown> {
+  const durationMinutes = Math.max(1, Math.round((input.endAt.getTime() - input.startAt.getTime()) / 60_000));
+  return {
+    topic: input.topic,
+    start_time: input.startAt.toISOString(),
+    duration: durationMinutes,
+    timezone: input.timezone,
   };
 }
 
