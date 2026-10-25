@@ -1,0 +1,89 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Identity", "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" },
+    {
+      "Sid": "ReadOnlyDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeClusters", "ecs:DescribeServices", "ecs:ListTasks",
+        "application-autoscaling:DescribeScalableTargets",
+        "rds:DescribeDBInstances", "rds:DescribeDBInstanceAutomatedBackups", "rds:DescribeDBSnapshots",
+        "rds:DescribeEvents", "rds:ListTagsForResource",
+        "elasticache:DescribeReplicationGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "ec2:DescribeVpcs",
+        "cloudwatch:DescribeAlarms",
+        "synthetics:GetCanary",
+        "backup:ListBackupJobs",
+        "mediaconvert:ListJobs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "QueueDepth",
+      "Effect": "Allow",
+      "Action": ["sqs:GetQueueUrl", "sqs:GetQueueAttributes"],
+      "Resource": "arn:aws:sqs:eu-central-1:486940690416:learnix-production-*"
+    },
+    {
+      "Sid": "EcsScaleProductionOnly",
+      "Effect": "Allow",
+      "Action": "ecs:UpdateService",
+      "Resource": "arn:aws:ecs:eu-central-1:486940690416:service/learnix-production/*"
+    },
+    {
+      "Sid": "AutoScalingTargetsVerifyResourceLevel",
+      "Effect": "Allow",
+      "Action": "application-autoscaling:RegisterScalableTarget",
+      "Resource": "*"
+    },
+    {
+      "Sid": "RdsStartStopProductionOnly",
+      "Effect": "Allow",
+      "Action": ["rds:StopDBInstance", "rds:StartDBInstance"],
+      "Resource": "arn:aws:rds:eu-central-1:486940690416:db:learnix-production-pg"
+    },
+    {
+      "Sid": "RdsPrePauseSnapshot",
+      "Effect": "Allow",
+      "Action": ["rds:CreateDBSnapshot", "rds:AddTagsToResource"],
+      "Resource": [
+        "arn:aws:rds:eu-central-1:486940690416:db:learnix-production-pg",
+        "arn:aws:rds:eu-central-1:486940690416:snapshot:pre-pause-*"
+      ]
+    },
+    {
+      "Sid": "KmsForEncryptedSnapshotVerifyNeeded",
+      "Effect": "Allow",
+      "Action": ["kms:CreateGrant", "kms:DescribeKey"],
+      "Resource": "arn:aws:kms:eu-central-1:486940690416:key/f6071b7a-da86-4245-8b62-54d702073c24",
+      "Condition": { "StringEquals": { "kms:ViaService": "rds.eu-central-1.amazonaws.com" } }
+    },
+    {
+      "Sid": "AlarmActionsProductionOnly",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:DisableAlarmActions", "cloudwatch:EnableAlarmActions"],
+      "Resource": "arn:aws:cloudwatch:eu-central-1:486940690416:alarm:learnix-production-*"
+    },
+    {
+      "Sid": "CanaryProductionOnly",
+      "Effect": "Allow",
+      "Action": ["synthetics:StartCanary", "synthetics:StopCanary"],
+      "Resource": "arn:aws:synthetics:eu-central-1:486940690416:canary:learnix-production-he"
+    },
+    {
+      "Sid": "ManifestAndLockObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::learnix-production-logs-486940690416/ops/pause/production/*"
+    },
+    {
+      "Sid": "ManifestListing",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::learnix-production-logs-486940690416",
+      "Condition": { "StringLike": { "s3:prefix": "ops/pause/production/*" } }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Identity", "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" },
+    {
+      "Sid": "ReadOnlyDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeClusters", "ecs:DescribeServices", "ecs:ListTasks",
+        "application-autoscaling:DescribeScalableTargets",
+        "rds:DescribeDBInstances", "rds:DescribeDBInstanceAutomatedBackups", "rds:DescribeDBSnapshots",
+        "rds:DescribeEvents", "rds:ListTagsForResource",
+        "elasticache:DescribeReplicationGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "ec2:DescribeVpcs",
+        "cloudwatch:DescribeAlarms",
+        "backup:ListBackupJobs",
+        "mediaconvert:ListJobs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "QueueDepth",
+      "Effect": "Allow",
+      "Action": ["sqs:GetQueueUrl", "sqs:GetQueueAttributes"],
+      "Resource": "arn:aws:sqs:eu-central-1:486940690416:learnix-staging-*"
+    },
+    {
+      "Sid": "EcsScaleStagingOnly",
+      "Effect": "Allow",
+      "Action": "ecs:UpdateService",
+      "Resource": "arn:aws:ecs:eu-central-1:486940690416:service/learnix-staging/*"
+    },
+    {
+      "Sid": "AutoScalingTargetsVerifyResourceLevel",
+      "Effect": "Allow",
+      "Action": "application-autoscaling:RegisterScalableTarget",
+      "Resource": "*"
+    },
+    {
+      "Sid": "RdsStartStopStagingOnly",
+      "Effect": "Allow",
+      "Action": ["rds:StopDBInstance", "rds:StartDBInstance"],
+      "Resource": "arn:aws:rds:eu-central-1:486940690416:db:learnix-staging-pg"
+    },
+    {
+      "Sid": "RdsPrePauseSnapshot",
+      "Effect": "Allow",
+      "Action": ["rds:CreateDBSnapshot", "rds:AddTagsToResource"],
+      "Resource": [
+        "arn:aws:rds:eu-central-1:486940690416:db:learnix-staging-pg",
+        "arn:aws:rds:eu-central-1:486940690416:snapshot:pre-pause-*"
+      ]
+    },
+    {
+      "Sid": "KmsForEncryptedSnapshotVerifyNeeded",
+      "Effect": "Allow",
+      "Action": ["kms:CreateGrant", "kms:DescribeKey"],
+      "Resource": "arn:aws:kms:eu-central-1:486940690416:key/3f5d151f-585f-4066-9cfc-6ba2be60ced7",
+      "Condition": { "StringEquals": { "kms:ViaService": "rds.eu-central-1.amazonaws.com" } }
+    },
+    {
+      "Sid": "AlarmActionsStagingOnly",
+      "Effect": "Allow",
+      "Action": ["cloudwatch:DisableAlarmActions", "cloudwatch:EnableAlarmActions"],
+      "Resource": "arn:aws:cloudwatch:eu-central-1:486940690416:alarm:learnix-staging-*"
+    },
+    {
+      "Sid": "ManifestAndLockObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::learnix-staging-logs-486940690416/ops/pause/staging/*"
+    },
+    {
+      "Sid": "ManifestListing",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::learnix-staging-logs-486940690416",
+      "Condition": { "StringLike": { "s3:prefix": "ops/pause/staging/*" } }
+    }
+  ]
+}
