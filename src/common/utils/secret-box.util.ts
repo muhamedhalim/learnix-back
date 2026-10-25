@@ -30,12 +30,12 @@ export class SecretBoxKeyError extends Error {}
  * name so every existing call site's error text is unchanged.
  */
 export function decodeSecretBoxKey(keyBase64: string, keyName = 'MEETING_TOKEN_ENCRYPTION_KEY'): Buffer {
-  let key: Buffer;
-  try {
-    key = Buffer.from(keyBase64, 'base64');
-  } catch {
+  // `Buffer.from(..., 'base64')` never throws — it silently skips invalid
+  // characters — so validity has to be checked explicitly (standard or URL-safe alphabet).
+  if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(keyBase64)) {
     throw new SecretBoxKeyError(`${keyName} must be valid base64.`);
   }
+  const key = Buffer.from(keyBase64, 'base64');
   if (key.length !== KEY_LENGTH_BYTES) {
     throw new SecretBoxKeyError(
       `${keyName} must decode to exactly ${KEY_LENGTH_BYTES.toString()} bytes (got ${key.length.toString()}).`,
@@ -86,6 +86,20 @@ export function resolveMeetingEncryptionKey(): string {
     );
   }
   return key;
+}
+
+/**
+ * True when a usable meeting-token key is configured. Used to report meeting
+ * providers as unavailable (instead of failing with an opaque 500 on the first
+ * token read/write) when the deployment is missing or has a malformed key.
+ */
+export function isMeetingEncryptionKeyUsable(): boolean {
+  try {
+    decodeSecretBoxKey(resolveMeetingEncryptionKey());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Backs `marketplace_payout_accounts.account_identifier_encrypted` — a distinct key from meeting tokens, since a bank/wallet identifier and an OAuth token have no reason to share a blast radius. */

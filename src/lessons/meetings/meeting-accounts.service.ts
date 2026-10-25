@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import type { Cache } from 'cache-manager';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import {
@@ -21,11 +21,20 @@ import {
   getConfiguredPublicOrigin,
   parsePublicOrigin,
 } from '../../config/public-url.util';
+import { isMeetingEncryptionKeyUsable } from '../../common/utils/secret-box.util';
+import { MeetingCreationStatus } from '../entities/meeting-creation-status.enum';
 import { MeetingProvider } from '../entities/meeting-provider.enum';
+import { ScheduledLessonSession } from '../entities/scheduled-lesson-session.entity';
 import { TeacherMeetingAccount } from '../entities/teacher-meeting-account.entity';
 import { TeacherMeetingAccountStatus } from '../entities/teacher-meeting-account-status.enum';
 import { MeetingProviderRegistry } from './meeting-provider-registry.service';
 import { RetryableProviderError } from './providers/provider-errors';
+
+function safeEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_STATE_CACHE_PREFIX = 'meeting-oauth-state:';
@@ -35,6 +44,8 @@ interface OAuthStatePayload {
   provider: MeetingProvider;
   nonce: string;
   exp: number;
+  /** UI locale of the teacher who started the flow, so the callback lands them back in it. */
+  locale?: string;
 }
 
 export interface MeetingAccountSummary {
@@ -139,26 +150,64 @@ export class MeetingAccountsService {
     return buildAbsoluteUrl(base, 'api/v1/teacher/meeting-accounts/callback');
   }
 
-  /** Returns the authorize URL the teacher's browser should be sent to. */
-  public startConnect(teacherId: string, provider: MeetingProvider): { authorizeUrl: string } {
+  /**
+   * Returns the authorize URL the teacher's browser should be sent to, plus the
+   * handshake `nonce`. The caller MUST bind the nonce to the initiating browser
+   * (a signed HttpOnly cookie) and hand it back to `completeConnect`: `state`
+   * alone only proves which teacher started the flow, not which browser is
+   * finishing it, so a captured authorize URL opened by a victim would
+   * otherwise link the VICTIM's provider account to the attacker's teacher.
+   */
+  public startConnect(
+    teacherId: string,
+    provider: MeetingProvider,
+    locale?: string,
+  ): { authorizeUrl: string; nonce: string } {
     const client = this.registry.find(provider);
-    if (!client || !client.isConfigured()) {
+    if (!client || !client.isConfigured() || !isMeetingEncryptionKeyUsable()) {
       throw new NotFoundException(
         biBody('This meeting provider is not available', 'مزود الاجتماعات هذا غير متاح'),
       );
     }
+    const nonce = randomUUID();
     const state = this.signState({
       teacherId,
       provider,
-      nonce: randomUUID(),
+      nonce,
       exp: Date.now() + STATE_TTL_MS,
+      ...(locale ? { locale } : {}),
     });
-    return { authorizeUrl: client.buildAuthorizeUrl(state, this.redirectUri()) };
+    return { authorizeUrl: client.buildAuthorizeUrl(state, this.redirectUri()), nonce };
+  }
+
+  /**
+   * The locale signed into `state`, for building the post-callback redirect.
+   * Read-only (does not consume the nonce); undefined for a forged/expired state.
+   */
+  public localeFromState(state: string): string | undefined {
+    try {
+      return this.verifyState(state).locale;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Completes the OAuth handshake and persists (or refreshes) the connection. */
-  public async completeConnect(state: string, code: string): Promise<MeetingAccountSummary> {
+  public async completeConnect(
+    state: string,
+    code: string,
+    browserNonce: string | undefined,
+  ): Promise<MeetingAccountSummary> {
     const payload = this.verifyState(state);
+    // Browser binding: the nonce cookie set when THIS browser called connect
+    // must match the one signed into `state`. Checked before the single-use
+    // nonce is consumed so a foreign browser cannot burn the owner's handshake.
+    if (!browserNonce || !safeEqual(browserNonce, payload.nonce)) {
+      throw new BadRequestException({
+        ...biBody('Invalid connection request', 'طلب ربط الحساب غير صالح'),
+        code: 'MEETING_OAUTH_BINDING',
+      });
+    }
     const nonceKey = `${OAUTH_STATE_CACHE_PREFIX}${payload.nonce}`;
     const alreadyUsed = await this.cache.get(nonceKey);
     if (alreadyUsed) {
@@ -179,6 +228,22 @@ export class MeetingAccountsService {
     const existing = await this.accounts.findOne({
       where: { teacher_id: payload.teacherId, provider: payload.provider },
     });
+    // Reconnecting a DIFFERENT provider account would strand every live meeting
+    // on the old one (later deletes/updates would run with the new token and
+    // fail). Make the teacher remove those meetings first.
+    if (
+      existing?.provider_account_id &&
+      existing.provider_account_id !== tokens.providerAccountId &&
+      (await this.hasLiveMeetings(payload.teacherId, payload.provider))
+    ) {
+      throw new ConflictException({
+        ...biBody(
+          'Remove your upcoming meetings from the previous account before connecting a different one',
+          'أزل اجتماعاتك القادمة من الحساب السابق قبل ربط حساب مختلف',
+        ),
+        code: 'MEETING_ACCOUNT_MISMATCH',
+      });
+    }
     const record =
       existing ??
       this.accounts.create({ teacher_id: payload.teacherId, provider: payload.provider });
@@ -259,43 +324,99 @@ export class MeetingAccountsService {
   ): Promise<TeacherMeetingAccount | null> {
     const account = await this.accounts.findOne({ where: { teacher_id: teacherId, provider } });
     if (!account || account.status !== TeacherMeetingAccountStatus.CONNECTED) return null;
+    if (!this.isExpiringSoon(account)) return account;
+    return await this.refreshUnderLock(teacherId, provider);
+  }
 
-    const expiringSoon =
-      account.token_expires_at && account.token_expires_at.getTime() - Date.now() < 60_000;
-    if (!expiringSoon) return account;
+  private isExpiringSoon(account: TeacherMeetingAccount): boolean {
+    return !!account.token_expires_at && account.token_expires_at.getTime() - Date.now() < 60_000;
+  }
 
-    const client = this.registry.find(provider);
-    if (!client || !account.refresh_token_encrypted) {
-      account.status = TeacherMeetingAccountStatus.EXPIRED;
-      await this.accounts.save(account);
-      return null;
+  /**
+   * Refreshes under a row lock. Zoom's refresh tokens are single-use: two
+   * concurrent refreshes (worker concurrency, the clear path, a sweep) would
+   * make the loser fail with `invalid_grant` and wrongly mark a healthy
+   * account REVOKED. The second caller blocks on the lock, re-reads the row,
+   * and finds the token already refreshed.
+   */
+  private async refreshUnderLock(
+    teacherId: string,
+    provider: MeetingProvider,
+  ): Promise<TeacherMeetingAccount | null> {
+    return await this.accounts.manager.transaction(async (manager) => {
+      const account = await manager.findOne(TeacherMeetingAccount, {
+        where: { teacher_id: teacherId, provider },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!account || account.status !== TeacherMeetingAccountStatus.CONNECTED) return null;
+      if (!this.isExpiringSoon(account)) return account;
+
+      const client = this.registry.find(provider);
+      if (!client || !account.refresh_token_encrypted) {
+        account.status = TeacherMeetingAccountStatus.EXPIRED;
+        await manager.save(account);
+        return null;
+      }
+      try {
+        const refreshed = await client.refresh(account.refresh_token_encrypted);
+        account.access_token_encrypted = refreshed.accessToken;
+        // Some providers (e.g. Zoom) rotate the refresh token on every use — the
+        // new one MUST be persisted here or the connection is permanently bricked.
+        if (refreshed.refreshToken) account.refresh_token_encrypted = refreshed.refreshToken;
+        account.token_expires_at = refreshed.expiresAt;
+        account.last_verified_at = new Date();
+        account.last_error = null;
+        return await manager.save(account);
+      } catch (error) {
+        // A transient provider failure (timeout, 429, 5xx) says nothing about the
+        // grant: leave the account CONNECTED and let the caller retry later.
+        if (error instanceof RetryableProviderError) throw error;
+        // A provider signalling "reconnect required" (e.g. Google's
+        // invalid_grant) means the teacher revoked access at the provider —
+        // distinct from a merely-expired token, which is an ordinary retry
+        // candidate. Any other failure is treated as expired, not revoked.
+        account.status =
+          error instanceof UnauthorizedException
+            ? TeacherMeetingAccountStatus.REVOKED
+            : TeacherMeetingAccountStatus.EXPIRED;
+        account.last_error = error instanceof Error ? error.message : 'Token refresh failed';
+        await manager.save(account);
+        return null;
+      }
+    });
+  }
+
+  private async hasLiveMeetings(teacherId: string, provider: MeetingProvider): Promise<boolean> {
+    const live = await this.accounts.manager.count(ScheduledLessonSession, {
+      where: {
+        teacher_id: teacherId,
+        meeting_provider: provider,
+        meeting_status: MeetingCreationStatus.READY,
+        start_at: MoreThan(new Date()),
+      },
+    });
+    return live > 0;
+  }
+
+  /**
+   * The provider told us (webhook) the teacher removed the app on their side.
+   * Idempotent: unknown accounts and repeated events are no-ops.
+   */
+  public async markRevokedByProviderAccount(
+    provider: MeetingProvider,
+    providerAccountId: string,
+  ): Promise<number> {
+    const rows = await this.accounts.find({
+      where: { provider, provider_account_id: providerAccountId },
+    });
+    for (const row of rows) {
+      row.status = TeacherMeetingAccountStatus.REVOKED;
+      row.access_token_encrypted = null;
+      row.refresh_token_encrypted = null;
+      row.last_error = 'Access was removed at the provider';
+      await this.accounts.save(row);
     }
-    try {
-      const refreshed = await client.refresh(account.refresh_token_encrypted);
-      account.access_token_encrypted = refreshed.accessToken;
-      // Some providers (e.g. Zoom) rotate the refresh token on every use — the
-      // new one MUST be persisted here or the connection is permanently bricked.
-      if (refreshed.refreshToken) account.refresh_token_encrypted = refreshed.refreshToken;
-      account.token_expires_at = refreshed.expiresAt;
-      account.last_verified_at = new Date();
-      account.last_error = null;
-      return await this.accounts.save(account);
-    } catch (error) {
-      // A transient provider failure (timeout, 429, 5xx) says nothing about the
-      // grant: leave the account CONNECTED and let the caller retry later.
-      if (error instanceof RetryableProviderError) throw error;
-      // A provider signalling "reconnect required" (e.g. Google's
-      // invalid_grant) means the teacher revoked access at the provider —
-      // distinct from a merely-expired token, which is an ordinary retry
-      // candidate. Any other failure is treated as expired, not revoked.
-      account.status =
-        error instanceof UnauthorizedException
-          ? TeacherMeetingAccountStatus.REVOKED
-          : TeacherMeetingAccountStatus.EXPIRED;
-      account.last_error = error instanceof Error ? error.message : 'Token refresh failed';
-      await this.accounts.save(account);
-      return null;
-    }
+    return rows.length;
   }
 
   private toSummary(account: TeacherMeetingAccount): MeetingAccountSummary {

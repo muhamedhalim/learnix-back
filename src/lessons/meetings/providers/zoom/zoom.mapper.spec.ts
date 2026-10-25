@@ -93,7 +93,7 @@ describe('zoom.mapper', () => {
       expect(result).toEqual({
         externalId: '89234782634',
         joinUrl: 'https://zoom.us/j/89234782634?pwd=abcdef',
-        hostUrl: 'https://zoom.us/s/89234782634?zak=eyJhbGciOiJIUzI1NiJ9',
+        hostUrl: null, // the host start_url (carries a ZAK token) is intentionally never persisted
         passcode: '123456',
       });
     });

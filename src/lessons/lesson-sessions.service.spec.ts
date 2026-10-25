@@ -235,6 +235,17 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
   const lessonId = 'lesson-1';
   const sessionId = 'session-1';
 
+  // Generation requires a usable token-encryption key (Unit C): without one a
+  // connection could never have been stored.
+  const originalKey = process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+  beforeAll(() => {
+    process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = Buffer.alloc(32, 7).toString('base64');
+  });
+  afterAll(() => {
+    if (originalKey === undefined) delete process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+    else process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = originalKey;
+  });
+
   function chainableQuery(methods: string[]): Record<string, jest.Mock> {
     const query: Record<string, jest.Mock> = {};
     for (const method of methods) query[method] = jest.fn(() => query);
@@ -456,6 +467,26 @@ describe('LessonSessionsService meeting generation (Phase 5)', () => {
     await expect(
       service.requestMeetingGeneration(lessonId, sessionId, teacherId, MeetingProvider.GOOGLE_MEET),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects generation as provider-unavailable when the token-encryption key is missing', async () => {
+    const { service, manager, queue } = buildService({
+      registryFind: jest.fn().mockReturnValue(configuredClient()),
+      findConnectedAccount: jest.fn().mockResolvedValue({ id: 'account-1' }),
+    });
+    manager.findOne
+      .mockResolvedValueOnce(scheduledSession())
+      .mockResolvedValueOnce(individualLesson());
+    const saved = process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+    delete process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+    try {
+      await expect(
+        service.requestMeetingGeneration(lessonId, sessionId, teacherId, MeetingProvider.GOOGLE_MEET),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    } finally {
+      process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = saved;
+    }
+    expect(queue.add).not.toHaveBeenCalled();
   });
 
   it('rejects when the appointment already has a ready meeting', async () => {

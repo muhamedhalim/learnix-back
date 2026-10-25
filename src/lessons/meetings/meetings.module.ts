@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TeacherMeetingAccount } from '../entities/teacher-meeting-account.entity';
 import { TeacherMeetingAccountsController } from './controllers/teacher-meeting-accounts.controller';
 import { TeacherMeetingProvidersController } from './controllers/teacher-meeting-providers.controller';
+import { ZoomWebhookController } from './controllers/zoom-webhook.controller';
 import { MeetingAccountsService } from './meeting-accounts.service';
 import { MeetingProviderRegistry } from './meeting-provider-registry.service';
 import { MEETING_PROVIDERS } from './providers/meeting-provider.interface';
@@ -29,7 +30,7 @@ import { MicrosoftTeamsProvider } from './providers/microsoft-teams/microsoft-te
  */
 @Module({
   imports: [ConfigModule, TypeOrmModule.forFeature([TeacherMeetingAccount])],
-  controllers: [TeacherMeetingProvidersController, TeacherMeetingAccountsController],
+  controllers: [TeacherMeetingProvidersController, TeacherMeetingAccountsController, ZoomWebhookController],
   providers: [
     MeetingProviderRegistry,
     MeetingAccountsService,

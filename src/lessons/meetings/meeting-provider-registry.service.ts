@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 
+import { isMeetingEncryptionKeyUsable } from '../../common/utils/secret-box.util';
 import { MeetingProvider } from '../entities/meeting-provider.enum';
 import { MEETING_PROVIDERS, type MeetingProviderClient } from './providers/meeting-provider.interface';
 
@@ -34,7 +35,7 @@ export class MeetingProviderRegistry {
 
   public isConnectable(name: MeetingProvider): boolean {
     if (name === MeetingProvider.MANUAL) return false;
-    return this.find(name)?.isConfigured() ?? false;
+    return (this.find(name)?.isConfigured() ?? false) && isMeetingEncryptionKeyUsable();
   }
 
   /**
@@ -45,9 +46,12 @@ export class MeetingProviderRegistry {
    * as one that has shipped but has no env vars set.
    */
   public list(): Array<{ provider: MeetingProvider; configured: boolean }> {
+    // Credentials alone are not enough: without a usable token-encryption key a
+    // connection could never be stored, so the card must say "not available".
+    const keyUsable = isMeetingEncryptionKeyUsable();
     return CONNECTABLE_PROVIDERS.map((name) => ({
       provider: name,
-      configured: this.find(name)?.isConfigured() ?? false,
+      configured: keyUsable && (this.find(name)?.isConfigured() ?? false),
     }));
   }
 }

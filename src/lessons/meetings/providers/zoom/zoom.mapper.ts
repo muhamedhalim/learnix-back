@@ -103,13 +103,17 @@ export function buildZoomUpdateBody(input: UpdateMeetingInput): Record<string, u
   };
 }
 
-/** `start_url` is the teacher-only host URL — mapped to `hostUrl`, never `joinUrl` (must never reach a student DTO). */
+/**
+ * `start_url` embeds a host token (ZAK) that lets the bearer start the meeting
+ * as the teacher, so it is deliberately NOT persisted: `hostUrl` stays null and
+ * the teacher starts the meeting by signing in to Zoom with the join link.
+ */
 export function parseZoomMeeting(data: unknown): CreateMeetingResult {
   const body = record(data, 'meeting');
   return {
     externalId: stringValue(body['id'], 'id'),
     joinUrl: stringValue(body['join_url'], 'join_url'),
-    hostUrl: optionalString(body['start_url']),
+    hostUrl: null,
     passcode: optionalString(body['password']),
   };
 }

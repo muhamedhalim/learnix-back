@@ -13,6 +13,7 @@ import { Queue } from 'bullmq';
 import { DataSource, EntityManager, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 
 import { resolveAppTimeZone } from '../common/utils/app-timezone.util';
+import { isMeetingEncryptionKeyUsable } from '../common/utils/secret-box.util';
 import { retryTransaction } from '../common/utils/transaction-retry.util';
 import { biBody } from '../i18n/error-translator.util';
 import { NotificationEmailService } from '../notifications/services/notification-email.service';
@@ -558,7 +559,7 @@ export class LessonSessionsService {
         );
       }
       const client = this.meetingProviders.find(resolvedProvider);
-      if (!client || !client.isConfigured()) {
+      if (!client || !client.isConfigured() || !isMeetingEncryptionKeyUsable()) {
         throw new BadRequestException(
           biBody('This meeting provider is not available', 'مزود الاجتماعات هذا غير متاح'),
         );

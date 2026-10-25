@@ -32,9 +32,13 @@ function fakeCache(): { get: jest.Mock; set: jest.Mock } {
   };
 }
 
-function fakeAccountsRepo(seed: TeacherMeetingAccount[] = []): Repository<TeacherMeetingAccount> {
+function fakeAccountsRepo(
+  seed: TeacherMeetingAccount[] = [],
+  options: { liveMeetings?: number } = {},
+): Repository<TeacherMeetingAccount> {
   const rows = [...seed];
-  return {
+  let tail: Promise<unknown> = Promise.resolve();
+  const repo = {
     findOne: jest.fn(({ where }: { where: Partial<TeacherMeetingAccount> }) =>
       Promise.resolve(
         rows.find(
@@ -43,7 +47,11 @@ function fakeAccountsRepo(seed: TeacherMeetingAccount[] = []): Repository<Teache
       ),
     ),
     find: jest.fn(({ where }: { where: Partial<TeacherMeetingAccount> }) =>
-      Promise.resolve(rows.filter((row) => row.teacher_id === where.teacher_id)),
+      Promise.resolve(
+        rows.filter((row) =>
+          (Object.keys(where) as Array<keyof TeacherMeetingAccount>).every((key) => row[key] === where[key]),
+        ),
+      ),
     ),
     create: jest.fn((partial: Partial<TeacherMeetingAccount>) => ({ ...partial }) as TeacherMeetingAccount),
     save: jest.fn((row: TeacherMeetingAccount) => {
@@ -52,7 +60,22 @@ function fakeAccountsRepo(seed: TeacherMeetingAccount[] = []): Repository<Teache
       else rows.push(row);
       return Promise.resolve(row);
     }),
-  } as unknown as Repository<TeacherMeetingAccount>;
+  };
+  // `manager.transaction` serialises callers, standing in for the row lock the
+  // real implementation takes (`pessimistic_write`).
+  const manager = {
+    transaction: jest.fn((work: (tx: unknown) => Promise<unknown>) => {
+      const run = tail.then(() => work(manager));
+      tail = run.catch(() => undefined);
+      return run;
+    }),
+    findOne: jest.fn((_entity: unknown, { where }: { where: Partial<TeacherMeetingAccount> }) =>
+      repo.findOne({ where }),
+    ),
+    save: jest.fn((row: TeacherMeetingAccount) => repo.save(row)),
+    count: jest.fn(() => Promise.resolve(options.liveMeetings ?? 0)),
+  };
+  return { ...repo, manager } as unknown as Repository<TeacherMeetingAccount>;
 }
 
 function fakeGoogleClient(overrides: Partial<MeetingProviderClient> = {}): MeetingProviderClient {
@@ -72,6 +95,15 @@ function fakeGoogleClient(overrides: Partial<MeetingProviderClient> = {}): Meeti
 }
 
 describe('MeetingAccountsService', () => {
+  const originalKey = process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+  beforeAll(() => {
+    process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = Buffer.alloc(32, 7).toString('base64');
+  });
+  afterAll(() => {
+    if (originalKey === undefined) delete process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+    else process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = originalKey;
+  });
+
   it('connect: startConnect returns an authorize URL for a configured provider', () => {
     const registry = new MeetingProviderRegistry([fakeGoogleClient()]);
     const service = new MeetingAccountsService(fakeAccountsRepo(), registry, config(), fakeCache() as never);
@@ -138,12 +170,12 @@ describe('MeetingAccountsService', () => {
     const cache = fakeCache();
     const service = new MeetingAccountsService(fakeAccountsRepo(), registry, config(), cache as never);
 
-    const { authorizeUrl } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+    const { authorizeUrl, nonce } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
     const state = new URL(authorizeUrl.replace('https://accounts.google.com/o?', 'https://x/?')).searchParams.get(
       'state',
     )!;
 
-    const summary = await service.completeConnect(state, 'auth-code');
+    const summary = await service.completeConnect(state, 'auth-code', nonce);
     expect(summary.connected).toBe(true);
     expect(summary.status).toBe(TeacherMeetingAccountStatus.CONNECTED);
     expect(summary.accountEmail).toBe('teacher@example.test');
@@ -164,20 +196,223 @@ describe('MeetingAccountsService', () => {
     });
     const registry = new MeetingProviderRegistry([client]);
     const service = new MeetingAccountsService(fakeAccountsRepo(), registry, config(), fakeCache() as never);
-    const { authorizeUrl } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+    const { authorizeUrl, nonce } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
     const state = new URL(authorizeUrl.replace('https://accounts.google.com/o?', 'https://x/?')).searchParams.get(
       'state',
     )!;
 
-    await service.completeConnect(state, 'auth-code');
-    await expect(service.completeConnect(state, 'auth-code')).rejects.toThrow(ConflictException);
+    await service.completeConnect(state, 'auth-code', nonce);
+    await expect(service.completeConnect(state, 'auth-code', nonce)).rejects.toThrow(ConflictException);
   });
 
   it('connect: completeConnect rejects a malformed state', async () => {
     const registry = new MeetingProviderRegistry([fakeGoogleClient()]);
     const service = new MeetingAccountsService(fakeAccountsRepo(), registry, config(), fakeCache() as never);
 
-    await expect(service.completeConnect('not-a-real-state', 'auth-code')).rejects.toThrow(BadRequestException);
+    await expect(service.completeConnect('not-a-real-state', 'auth-code', 'n')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  describe('browser binding, account switching and key availability (Unit C)', () => {
+    const identity = (providerAccountId: string) => ({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      expiresAt: new Date(Date.now() + 3600_000),
+      scopes: [],
+      providerAccountId,
+      providerAccountEmail: null,
+      displayName: null,
+    });
+
+    function stateFrom(authorizeUrl: string): string {
+      return new URL(authorizeUrl.replace('https://accounts.google.com/o?', 'https://x/?')).searchParams.get('state')!;
+    }
+
+    it('localeFromState returns the locale signed into the state, and undefined for junk', () => {
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo(),
+        new MeetingProviderRegistry([fakeGoogleClient()]),
+        config(),
+        fakeCache() as never,
+      );
+      const { authorizeUrl } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET, 'ar');
+      const withoutLocale = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+
+      expect(service.localeFromState(stateFrom(authorizeUrl))).toBe('ar');
+      expect(service.localeFromState(stateFrom(withoutLocale.authorizeUrl))).toBeUndefined();
+      expect(service.localeFromState('forged.state')).toBeUndefined();
+    });
+
+    it('rejects a callback whose browser has no binding cookie, without exchanging the code', async () => {
+      const client = fakeGoogleClient({ exchangeCode: jest.fn().mockResolvedValue(identity('g-1')) });
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo(),
+        new MeetingProviderRegistry([client]),
+        config(),
+        fakeCache() as never,
+      );
+      const { authorizeUrl } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+
+      await expect(service.completeConnect(stateFrom(authorizeUrl), 'code', undefined)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'MEETING_OAUTH_BINDING' }),
+      });
+      expect(client.exchangeCode).not.toHaveBeenCalled();
+    });
+
+    it('rejects a callback whose cookie belongs to a different handshake, and does not burn the real one', async () => {
+      const client = fakeGoogleClient({ exchangeCode: jest.fn().mockResolvedValue(identity('g-1')) });
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo(),
+        new MeetingProviderRegistry([client]),
+        config(),
+        fakeCache() as never,
+      );
+      const { authorizeUrl, nonce } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+      const state = stateFrom(authorizeUrl);
+
+      await expect(service.completeConnect(state, 'code', 'attacker-nonce')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      // The legitimate browser can still finish.
+      await expect(service.completeConnect(state, 'code', nonce)).resolves.toMatchObject({ connected: true });
+    });
+
+    it('refuses to reconnect a DIFFERENT provider account while upcoming meetings exist on the old one', async () => {
+      const existing = {
+        teacher_id: TEACHER_ID,
+        provider: MeetingProvider.GOOGLE_MEET,
+        provider_account_id: 'old-account',
+        status: TeacherMeetingAccountStatus.DISCONNECTED,
+      } as TeacherMeetingAccount;
+      const client = fakeGoogleClient({ exchangeCode: jest.fn().mockResolvedValue(identity('new-account')) });
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo([existing], { liveMeetings: 2 }),
+        new MeetingProviderRegistry([client]),
+        config(),
+        fakeCache() as never,
+      );
+      const { authorizeUrl, nonce } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+
+      await expect(service.completeConnect(stateFrom(authorizeUrl), 'code', nonce)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'MEETING_ACCOUNT_MISMATCH' }),
+      });
+      expect(existing.provider_account_id).toBe('old-account');
+    });
+
+    it('allows switching accounts when no upcoming meetings depend on the old one, and re-connecting the same one', async () => {
+      for (const [liveMeetings, accountId] of [
+        [0, 'new-account'],
+        [3, 'old-account'],
+      ] as const) {
+        const existing = {
+          teacher_id: TEACHER_ID,
+          provider: MeetingProvider.GOOGLE_MEET,
+          provider_account_id: 'old-account',
+          status: TeacherMeetingAccountStatus.EXPIRED,
+        } as TeacherMeetingAccount;
+        const client = fakeGoogleClient({ exchangeCode: jest.fn().mockResolvedValue(identity(accountId)) });
+        const service = new MeetingAccountsService(
+          fakeAccountsRepo([existing], { liveMeetings }),
+          new MeetingProviderRegistry([client]),
+          config(),
+          fakeCache() as never,
+        );
+        const { authorizeUrl, nonce } = service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET);
+
+        await expect(service.completeConnect(stateFrom(authorizeUrl), 'code', nonce)).resolves.toMatchObject({
+          connected: true,
+        });
+        expect(existing.provider_account_id).toBe(accountId);
+      }
+    });
+
+    it('startConnect reports the provider unavailable when the token-encryption key is missing or malformed', () => {
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo(),
+        new MeetingProviderRegistry([fakeGoogleClient()]),
+        config(),
+        fakeCache() as never,
+      );
+      const original = process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+      try {
+        delete process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+        expect(() => service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET)).toThrow(NotFoundException);
+        process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = 'not base64 !!';
+        expect(() => service.startConnect(TEACHER_ID, MeetingProvider.GOOGLE_MEET)).toThrow(NotFoundException);
+      } finally {
+        process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = original;
+      }
+    });
+
+    it('the registry reports every provider unconfigured without a usable key', () => {
+      const registry = new MeetingProviderRegistry([fakeGoogleClient()]);
+      const original = process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+      try {
+        expect(registry.list().find((p) => p.provider === MeetingProvider.GOOGLE_MEET)?.configured).toBe(true);
+        delete process.env['MEETING_TOKEN_ENCRYPTION_KEY'];
+        expect(registry.list().every((p) => !p.configured)).toBe(true);
+        expect(registry.isConnectable(MeetingProvider.GOOGLE_MEET)).toBe(false);
+      } finally {
+        process.env['MEETING_TOKEN_ENCRYPTION_KEY'] = original;
+      }
+    });
+
+    it('serialises concurrent refreshes: two callers trigger exactly one provider refresh (single-use refresh tokens)', async () => {
+      const account = {
+        teacher_id: TEACHER_ID,
+        provider: MeetingProvider.GOOGLE_MEET,
+        status: TeacherMeetingAccountStatus.CONNECTED,
+        access_token_encrypted: 'stale',
+        refresh_token_encrypted: 'single-use',
+        token_expires_at: new Date(Date.now() + 5_000),
+      } as TeacherMeetingAccount;
+      const refresh = jest.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { accessToken: 'fresh', refreshToken: 'rotated', expiresAt: new Date(Date.now() + 3600_000), scopes: [] };
+      });
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo([account]),
+        new MeetingProviderRegistry([fakeGoogleClient({ refresh })]),
+        config(),
+        fakeCache() as never,
+      );
+
+      const [first, second] = await Promise.all([
+        service.getUsableAccount(TEACHER_ID, MeetingProvider.GOOGLE_MEET),
+        service.getUsableAccount(TEACHER_ID, MeetingProvider.GOOGLE_MEET),
+      ]);
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(first?.access_token_encrypted).toBe('fresh');
+      expect(second?.access_token_encrypted).toBe('fresh');
+      expect(account.status).toBe(TeacherMeetingAccountStatus.CONNECTED);
+    });
+
+    it('markRevokedByProviderAccount revokes matching connections, clears their tokens, and ignores unknown accounts', async () => {
+      const account = {
+        teacher_id: TEACHER_ID,
+        provider: MeetingProvider.ZOOM,
+        provider_account_id: 'zoom-user-1',
+        status: TeacherMeetingAccountStatus.CONNECTED,
+        access_token_encrypted: 'a',
+        refresh_token_encrypted: 'r',
+      } as TeacherMeetingAccount;
+      const service = new MeetingAccountsService(
+        fakeAccountsRepo([account]),
+        new MeetingProviderRegistry([fakeGoogleClient()]),
+        config(),
+        fakeCache() as never,
+      );
+
+      await expect(service.markRevokedByProviderAccount(MeetingProvider.ZOOM, 'someone-else')).resolves.toBe(0);
+      expect(account.status).toBe(TeacherMeetingAccountStatus.CONNECTED);
+
+      await expect(service.markRevokedByProviderAccount(MeetingProvider.ZOOM, 'zoom-user-1')).resolves.toBe(1);
+      expect(account.status).toBe(TeacherMeetingAccountStatus.REVOKED);
+      expect(account.access_token_encrypted).toBeNull();
+      expect(account.refresh_token_encrypted).toBeNull();
+    });
   });
 
   it('refresh: getUsableAccount returns the existing account untouched when the token is not expiring soon', async () => {

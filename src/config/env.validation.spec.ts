@@ -15,6 +15,38 @@ const baseProductionConfig: Record<string, unknown> = {
   PAYMENT_PROVIDER_CLOCK_SKEW_SECONDS: '120',
 };
 
+describe('meeting token encryption key (production)', () => {
+  const key = Buffer.alloc(32, 9).toString('base64');
+
+  it.each(['GOOGLE_MEET_CLIENT_ID', 'ZOOM_CLIENT_ID', 'MS_TEAMS_CLIENT_ID'])(
+    'requires MEETING_TOKEN_ENCRYPTION_KEY when %s is set',
+    (variable) => {
+      expect(() => validate({ ...baseProductionConfig, [variable]: 'client-id' })).toThrow(
+        /MEETING_TOKEN_ENCRYPTION_KEY is required in production/,
+      );
+      expect(() =>
+        validate({ ...baseProductionConfig, [variable]: 'client-id', MEETING_TOKEN_ENCRYPTION_KEY: key }),
+      ).not.toThrow();
+    },
+  );
+
+  it('does not require the key when no meeting provider is configured', () => {
+    expect(() => validate(baseProductionConfig)).not.toThrow();
+  });
+
+  it('rejects a malformed key', () => {
+    expect(() =>
+      validate({ ...baseProductionConfig, MEETING_TOKEN_ENCRYPTION_KEY: 'not base64 !!' }),
+    ).toThrow(/MEETING_TOKEN_ENCRYPTION_KEY/);
+  });
+
+  it('does not enforce the key outside production', () => {
+    expect(() =>
+      validate({ ...baseProductionConfig, NODE_ENV: 'development', GOOGLE_MEET_CLIENT_ID: 'client-id' }),
+    ).not.toThrow();
+  });
+});
+
 describe('production environment URL validation', () => {
   it('accepts explicitly configured public HTTPS origins', () => {
     expect(() => validate(baseProductionConfig)).not.toThrow();

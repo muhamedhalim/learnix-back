@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import {
+  decodeSecretBoxKey,
   decryptSecret,
   encryptSecret,
   encryptedTextTransformer,
@@ -82,5 +83,15 @@ describe('secret-box.util', () => {
       expect(encryptedTextTransformer.to(null)).toBeNull();
       expect(encryptedTextTransformer.from(null)).toBeNull();
     });
+  });
+});
+
+describe('decodeSecretBoxKey base64 validation', () => {
+  it('rejects characters outside the base64 alphabet instead of silently skipping them', () => {
+    expect(() => decodeSecretBoxKey('not base64 !!')).toThrow(/valid base64/);
+  });
+
+  it('accepts a valid 32-byte key', () => {
+    expect(decodeSecretBoxKey(Buffer.alloc(32, 1).toString('base64'))).toHaveLength(32);
   });
 });

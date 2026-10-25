@@ -714,9 +714,11 @@ export class EnvironmentVariables {
   public LESSON_EXTENSION_DAYS?: number;
 
   // Meeting provider integration (Google Meet / Zoom / Microsoft Teams).
-  // Optional: with no key configured, connecting a meeting account reports
-  // itself unavailable — the same graceful-degradation shape as MailService
-  // and StorageService — rather than the app failing to boot.
+  // Optional in development: with no key configured, meeting providers report
+  // themselves unavailable (registry + connect + generate) — the same
+  // graceful-degradation shape as MailService and StorageService. In
+  // production the key is REQUIRED as soon as any provider client id is set
+  // (see `validateMeetingEncryptionKey`).
   /** Base64-encoded 32-byte AES-256-GCM key encrypting OAuth tokens at rest. */
   @IsString()
   @IsOptional()
@@ -775,6 +777,35 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   public MS_TEAMS_TENANT?: string;
+
+  /** Zoom Marketplace app "Secret Token": verifies webhook signatures (deauthorization). Required for a published Zoom app. */
+  @IsString()
+  @IsOptional()
+  public ZOOM_WEBHOOK_SECRET_TOKEN?: string;
+
+  /** Minutes before a `creating`/`pending` meeting row is considered stuck by the maintenance sweep (default 15). */
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  public MEETING_PROVISIONING_STUCK_MINUTES?: number;
+}
+
+/**
+ * Production must be able to store provider tokens: with a provider client id
+ * set but no encryption key, connecting would 500 and every account row read
+ * would throw. Fails the boot instead of the first teacher's click.
+ */
+function validateMeetingEncryptionKey(config: Record<string, unknown>): void {
+  if (config['NODE_ENV'] !== 'production') return;
+  const providerConfigured = ['GOOGLE_MEET_CLIENT_ID', 'ZOOM_CLIENT_ID', 'MS_TEAMS_CLIENT_ID'].some(
+    (name) => typeof config[name] === 'string' && config[name] !== '',
+  );
+  const key = config['MEETING_TOKEN_ENCRYPTION_KEY'];
+  if (providerConfigured && (typeof key !== 'string' || key === '')) {
+    throw new Error(
+      'Environment validation failed: MEETING_TOKEN_ENCRYPTION_KEY is required in production when a meeting provider (GOOGLE_MEET_CLIENT_ID, ZOOM_CLIENT_ID or MS_TEAMS_CLIENT_ID) is configured.',
+    );
+  }
 }
 
 export function validate(config: Record<string, unknown>): EnvironmentVariables {
@@ -816,6 +847,7 @@ export function validate(config: Record<string, unknown>): EnvironmentVariables 
   validateEasyKashBaseUrl(validatedConfig.EASYKASH_API_BASE_URL);
   validateEasyKashPaymentOptions(validatedConfig.EASYKASH_PAYMENT_OPTIONS);
   validateEasyKashConfiguration(config);
+  validateMeetingEncryptionKey(config);
   if (validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY) {
     try {
       decodeSecretBoxKey(validatedConfig.MEETING_TOKEN_ENCRYPTION_KEY);
