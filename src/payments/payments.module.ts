@@ -1,4 +1,4 @@
-import { forwardRef, Module, OnModuleInit } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -13,6 +13,7 @@ import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 import { Lesson } from '../lessons/entities/lesson.entity';
 import { ScheduledLessonSession } from '../lessons/entities/scheduled-lesson-session.entity';
 import { LessonSessionBooking } from '../lessons/entities/lesson-session-booking.entity';
+import { LessonSessionNotificationService } from '../lessons/lesson-session-notification.service';
 import { LessonSessionsService } from '../lessons/lesson-sessions.service';
 import { MeetingsModule } from '../lessons/meetings/meetings.module';
 import { MeetingProvisioningProcessor } from '../lessons/processors/meeting-provisioning.processor';
@@ -83,7 +84,7 @@ import { SettlementsService } from './services/settlements.service';
     // here), so session lifecycle mail passes the `email_enabled` channel
     // policy instead of calling MailService directly. The existing indirect
     // module cycle is resolved without changing that provider dependency.
-    forwardRef(() => NotificationsModule),
+    NotificationsModule,
     // Supplies CertificateEligibilityService so a completed FULL refund can
     // revoke the course certificate inside the refund transaction (DEF-019).
     // CertificatesModule imports only NotificationsModule + TypeORM features,
@@ -166,6 +167,7 @@ import { SettlementsService } from './services/settlements.service';
     GatewayWebhookService,
     GatewayFinancialStateMachineService,
     LessonSessionsService,
+    LessonSessionNotificationService,
     FinancePermissionsGuard,
     // Worker needs a real queue connection to pull jobs from; skip it
     // entirely when queues are disabled rather than let it attempt one.

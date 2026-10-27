@@ -42,6 +42,7 @@ import { AttemptGradingService } from './services/attempt-grading.service';
 import { AttemptService } from './services/attempt.service';
 import { ExamAiGradingService } from './services/exam-ai-grading.service';
 import { ExamAccessService } from './services/exam-access.service';
+import { StudentExamCatalogService } from './services/student-exam-catalog.service';
 import { ExamAuthoringService } from './services/exam-authoring.service';
 import { ExamGradedPublisher } from './services/exam-graded-publisher.service';
 import { ExamJobsService } from './services/exam-jobs.service';
@@ -108,6 +109,7 @@ import { TeacherGradingService } from './services/teacher-grading.service';
     GradingService,
     QuestionBankService,
     ExamAccessService,
+    StudentExamCatalogService,
     ExamAuthoringService,
     AttemptService,
     AttemptGradingService,

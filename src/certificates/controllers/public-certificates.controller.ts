@@ -9,6 +9,7 @@ import { resolveRequestLocale } from '../../i18n/error-translator.util';
 import { CertificateStatus } from '../entities/certificate-status.enum';
 import type { CertificateTemplateSnapshot } from '../entities/certificate.entity';
 import { CertificatesService } from '../certificates.service';
+import { CertificateVerificationService } from '../certificate-verification.service';
 import { PublicCertificatesFilterDto } from '../dto';
 
 /** Verification lookups are code-guessing targets — tighter than the global cap. */
@@ -17,7 +18,10 @@ const VERIFY_THROTTLE = { ttl: 60_000, limit: 20 };
 @ApiTags('Certificates')
 @Controller('certificates')
 export class PublicCertificatesController {
-  constructor(private readonly certificatesService: CertificatesService) {}
+  constructor(
+    private readonly certificatesService: CertificatesService,
+    private readonly verification: CertificateVerificationService,
+  ) {}
 
   @Get('public')
   @Throttle({ default: THROTTLE.GLOBAL })
@@ -25,7 +29,7 @@ export class PublicCertificatesController {
     summary: 'Public achievements gallery (no auth) — only student-published certificates',
   })
   public gallery(@Query() filter: PublicCertificatesFilterDto): Promise<unknown> {
-    return this.certificatesService.getPublicCertificates(filter);
+    return this.verification.getPublicCertificates(filter);
   }
 
   /**
@@ -55,7 +59,7 @@ export class PublicCertificatesController {
       template_snapshot: CertificateTemplateSnapshot | null;
     };
   }> {
-    const cert = await this.certificatesService.getByVerificationCode(code);
+    const cert = await this.verification.getByVerificationCode(code);
     const templateSnapshot = await this.certificatesService.getRenderableTemplateSnapshot(cert);
     return {
       valid: cert.status === CertificateStatus.ISSUED,
@@ -79,7 +83,7 @@ export class PublicCertificatesController {
   @Header('Content-Type', 'application/pdf')
   @ApiOperation({ summary: 'Download a verified certificate PDF (public)' })
   public async pdf(@Param('code') code: string, @Req() request: Request): Promise<StreamableFile> {
-    const cert = await this.certificatesService.getVerifiedCertificateByCode(code);
+    const cert = await this.verification.getVerifiedCertificateByCode(code);
     const buffer = await this.certificatesService.renderPdf(cert, resolveRequestLocale(request));
     return new StreamableFile(buffer, {
       type: 'application/pdf',

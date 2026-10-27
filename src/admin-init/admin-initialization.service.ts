@@ -7,7 +7,7 @@ import { DataSource, type EntityManager } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { UserRole } from '../users/entities/user-role.enum';
 import { UserStatus } from '../users/entities/user-status.enum';
-import { FINANCE_PERMISSIONS } from '../payments/finance-permissions';
+import { FINANCE_PERMISSIONS } from '../common/auth/finance-permissions';
 
 export type AdminInitOutcome = 'created' | 'already_exists' | 'skipped_missing_env';
 

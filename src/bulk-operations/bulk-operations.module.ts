@@ -1,4 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AttendanceCodesModule } from '../attendance-codes/attendance-codes.module';
@@ -15,7 +15,7 @@ import { BulkNotificationProcessor } from './processors/bulk-notification.proces
 
 @Module({
   imports: [
-    forwardRef(() => AttendanceCodesModule),
+    AttendanceCodesModule,
     ActivityLogsModule,
     GuardiansModule,
     registerQueues({

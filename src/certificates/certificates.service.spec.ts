@@ -20,6 +20,8 @@ import { User } from '../users/entities/user.entity';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CertificatePdfService } from './certificate-pdf.service';
+import { CertificateTemplatesService } from './certificate-templates.service';
+import { CertificateVerificationService } from './certificate-verification.service';
 import { CertificatesService } from './certificates.service';
 import { Certificate } from './entities/certificate.entity';
 import { CertificateAutoIssuanceFailure } from './entities/certificate-auto-issuance-failure.entity';
@@ -53,6 +55,8 @@ function qb(result: number | unknown[]) {
 
 describe('CertificatesService', () => {
   let service: CertificatesService;
+  let templateService: CertificateTemplatesService;
+  let verification: CertificateVerificationService;
 
   const certificates = {
     findOne: jest.fn(),
@@ -142,6 +146,8 @@ describe('CertificatesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CertificatesService,
+        CertificateTemplatesService,
+        CertificateVerificationService,
         { provide: getRepositoryToken(Certificate), useValue: certificates },
         { provide: getRepositoryToken(CertificateHistory), useValue: certificateHistory },
         { provide: getRepositoryToken(CertificateAutoIssuanceFailure), useValue: autoIssuanceFailures },
@@ -160,6 +166,8 @@ describe('CertificatesService', () => {
       ],
     }).compile();
     service = module.get(CertificatesService);
+    templateService = module.get(CertificateTemplatesService);
+    verification = module.get(CertificateVerificationService);
   });
 
   describe('getCourseProgress', () => {
@@ -532,7 +540,7 @@ describe('CertificatesService', () => {
     it('does not expose another teacher’s template', async () => {
       templates.findOne.mockResolvedValue(null);
 
-      await expect(service.getTemplate('template-1', 'teacher-1')).rejects.toBeInstanceOf(
+      await expect(templateService.getTemplate('template-1', 'teacher-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(templates.findOne).toHaveBeenCalledWith({
@@ -545,7 +553,7 @@ describe('CertificatesService', () => {
       templates.create.mockImplementation((value: unknown) => value);
       templates.save.mockImplementation((value: unknown) => Promise.resolve(value));
 
-      const result = await service.createTemplate(input, 'teacher-1');
+      const result = await templateService.createTemplate(input, 'teacher-1');
 
       expect(result).toMatchObject({
         name: 'bCompletion/b',
@@ -562,7 +570,7 @@ describe('CertificatesService', () => {
     });
 
     it('new templates always start as DRAFTS, never defaults', async () => {
-      const result = await service.createTemplate({ name: 'My design' }, 'teacher-1');
+      const result = await templateService.createTemplate({ name: 'My design' }, 'teacher-1');
       expect(result.status).toBe(CertificateTemplateStatus.DRAFT);
       expect(result.is_default).toBe(false);
     });
@@ -575,7 +583,7 @@ describe('CertificatesService', () => {
         body: 'Body',
         status: CertificateTemplateStatus.DRAFT,
       });
-      await expect(service.publishTemplate('t1')).rejects.toBeInstanceOf(BadRequestException);
+      await expect(templateService.publishTemplate('t1')).rejects.toBeInstanceOf(BadRequestException);
       expect(templates.save).not.toHaveBeenCalled();
     });
 
@@ -590,7 +598,7 @@ describe('CertificatesService', () => {
       });
 
       await expect(
-        service.updateTemplate('t1', { body: 'Presented to {{teacher}}' }),
+        templateService.updateTemplate('t1', { body: 'Presented to {{teacher}}' }),
       ).rejects.toThrow('Unsupported certificate placeholders');
       expect(templates.save).not.toHaveBeenCalled();
     });
@@ -606,7 +614,7 @@ describe('CertificatesService', () => {
       };
       templates.findOne.mockResolvedValue(template);
 
-      await service.updateTemplate('t1', {
+      await templateService.updateTemplate('t1', {
         title: 'Updated title',
         name: undefined,
         body: undefined,
@@ -631,7 +639,7 @@ describe('CertificatesService', () => {
         status: CertificateTemplateStatus.DRAFT,
         is_default: false,
       });
-      const result = await service.publishTemplate('t1', 'teacher-1');
+      const result = await templateService.publishTemplate('t1', 'teacher-1');
       expect(result.status).toBe(CertificateTemplateStatus.PUBLISHED);
       expect(result.is_default).toBe(true);
     });
@@ -642,7 +650,7 @@ describe('CertificatesService', () => {
         status: CertificateTemplateStatus.PUBLISHED,
         is_default: true,
       });
-      const result = await service.unpublishTemplate('t1');
+      const result = await templateService.unpublishTemplate('t1');
       expect(result.status).toBe(CertificateTemplateStatus.DRAFT);
       expect(result.is_default).toBe(false);
     });
@@ -663,7 +671,7 @@ describe('CertificatesService', () => {
         is_default: true,
         owner_id: null,
       });
-      const result = await service.duplicateTemplate('t1', undefined, 'teacher-9');
+      const result = await templateService.duplicateTemplate('t1', undefined, 'teacher-9');
       expect(result).toMatchObject({
         name: 'Original (copy)',
         status: CertificateTemplateStatus.DRAFT,
@@ -810,7 +818,7 @@ describe('CertificatesService', () => {
       ]);
       certificates.createQueryBuilder.mockReturnValue(qb([]));
 
-      const result = await service.getIssuableTemplates('teacher-1');
+      const result = await templateService.getIssuableTemplates('teacher-1');
 
       expect(result).toHaveLength(2);
       expect(templates.find).toHaveBeenCalledWith(
@@ -1063,7 +1071,7 @@ describe('CertificatesService', () => {
       ]);
       certificates.createQueryBuilder.mockReturnValue(galleryQb);
 
-      const result = await service.getPublicCertificates({ page: 1, limit: 12 });
+      const result = await verification.getPublicCertificates({ page: 1, limit: 12 });
 
       expect(galleryQb.where).toHaveBeenCalledWith('c.is_public = true');
       expect(galleryQb.andWhere).toHaveBeenCalledWith('c.status = :status', {

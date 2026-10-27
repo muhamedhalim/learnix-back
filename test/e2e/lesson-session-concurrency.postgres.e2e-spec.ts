@@ -12,6 +12,7 @@ import { MeetingCreationStatus } from '../../src/lessons/entities/meeting-creati
 import { MeetingProvider } from '../../src/lessons/entities/meeting-provider.enum';
 import { ScheduledLessonSessionStatus } from '../../src/lessons/entities/scheduled-lesson-session-status.enum';
 import { ScheduledLessonSession } from '../../src/lessons/entities/scheduled-lesson-session.entity';
+import { LessonSessionNotificationService } from '../../src/lessons/lesson-session-notification.service';
 import { LessonSessionsService } from '../../src/lessons/lesson-sessions.service';
 import { NotificationEmailService } from '../../src/notifications/services/notification-email.service';
 import { PaymentsService } from '../../src/payments/services/payments.service';
@@ -42,12 +43,14 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
   let service: LessonSessionsService;
+  let notificationService: LessonSessionNotificationService;
   let payments: PaymentsService;
   let refunds: RefundsService;
 
   beforeAll(async () => {
     ({ app, dataSource } = await createE2EApp());
     service = app.get(LessonSessionsService);
+    notificationService = app.get(LessonSessionNotificationService);
     payments = app.get(PaymentsService);
     refunds = app.get(RefundsService);
   });
@@ -726,7 +729,7 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
         .spyOn(app.get(NotificationEmailService), 'send')
         .mockResolvedValue('sent' as never);
       const clock = jest
-        .spyOn(service as unknown as { currentTime: () => Date }, 'currentTime')
+        .spyOn(notificationService as unknown as { currentTime: () => Date }, 'currentTime')
         .mockReturnValue(frozen);
       const record: Record<string, unknown> = {};
       const counter = new StatementCounter(dataSource);
@@ -734,7 +737,7 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
       for (const run of [1, 2, 3]) {
         email.mockClear();
         counter.start();
-        await service.dispatchScheduledSessionNotifications();
+        await notificationService.dispatchScheduledSessionNotifications();
         counter.stop();
         record[`run${String(run)}`] = {
           notifications: await snapshot(labels),
@@ -836,18 +839,18 @@ describe('one-to-one reservation concurrency (PostgreSQL)', () => {
         .spyOn(app.get(NotificationEmailService), 'send')
         .mockResolvedValue('sent' as never);
       const clock = jest
-        .spyOn(service as unknown as { currentTime: () => Date }, 'currentTime')
+        .spyOn(notificationService as unknown as { currentTime: () => Date }, 'currentTime')
         .mockReturnValue(frozen);
-      await service.dispatchScheduledSessionNotifications();
+      await notificationService.dispatchScheduledSessionNotifications();
       // Let real time pass the 1 ms slack so the boundary-adjacent bookings stop being candidates
       // for the "needs nothing" bookings: only bookings that are NOT fully notified may remain.
       clock.mockReturnValue(new Date(frozen.getTime() + 1_000));
-      await service.dispatchScheduledSessionNotifications();
+      await notificationService.dispatchScheduledSessionNotifications();
       email.mockClear();
 
       const counter = new StatementCounter(dataSource);
       counter.start();
-      await service.dispatchScheduledSessionNotifications();
+      await notificationService.dispatchScheduledSessionNotifications();
       counter.stop();
       email.mockRestore();
       clock.mockRestore();

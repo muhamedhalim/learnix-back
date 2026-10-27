@@ -11,7 +11,7 @@ import {
 import { PreferredLanguage } from '../../guardians/entities/preferred-language.enum';
 import { UserRole } from './user-role.enum';
 import { UserStatus } from './user-status.enum';
-import type { FinancePermission } from '../../payments/finance-permissions';
+import type { FinancePermission } from '../../common/auth/finance-permissions';
 
 @Entity('users')
 export class User {

@@ -28,6 +28,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { THROTTLE } from '../../common/constants';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
+import { CertificateTemplatesService } from '../certificate-templates.service';
 import { CertificatesService } from '../certificates.service';
 import {
   CertificatePreviewDto,
@@ -44,7 +45,10 @@ import {
 @Roles('admin')
 @ApiBearerAuth('JWT-auth')
 export class AdminCertificatesController {
-  constructor(private readonly certificatesService: CertificatesService) {}
+  constructor(
+    private readonly certificatesService: CertificatesService,
+    private readonly templateService: CertificateTemplatesService,
+  ) {}
 
   @Get('analytics')
   @ApiOperation({ summary: 'Platform certificate analytics' })
@@ -68,7 +72,10 @@ export class AdminCertificatesController {
     @Req() request: Request,
   ): Promise<StreamableFile> {
     const certificate = await this.certificatesService.getManagedCertificateForTeacher(id);
-    const pdf = await this.certificatesService.renderPdf(certificate, resolveRequestLocale(request));
+    const pdf = await this.certificatesService.renderPdf(
+      certificate,
+      resolveRequestLocale(request),
+    );
     return new StreamableFile(pdf, {
       type: 'application/pdf',
       disposition: `inline; filename="certificate-${certificate.certificate_number}.pdf"`,
@@ -111,19 +118,19 @@ export class AdminCertificatesController {
   @Get('templates')
   @ApiOperation({ summary: 'List certificate templates (with issued counts)' })
   public templates(): Promise<unknown> {
-    return this.certificatesService.getTemplates();
+    return this.templateService.getTemplates();
   }
 
   @Get('templates/:id')
   @ApiOperation({ summary: 'Get a certificate template' })
   public template(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.getTemplate(id);
+    return this.templateService.getTemplate(id);
   }
 
   @Post('templates')
   @ApiOperation({ summary: 'Create a certificate template (starts as a draft)' })
   public createTemplate(@Body() dto: CreateTemplateDto): Promise<unknown> {
-    return this.certificatesService.createTemplate(dto);
+    return this.templateService.createTemplate(dto);
   }
 
   @Post('templates/preview/pdf')
@@ -152,31 +159,31 @@ export class AdminCertificatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTemplateDto,
   ): Promise<unknown> {
-    return this.certificatesService.updateTemplate(id, dto);
+    return this.templateService.updateTemplate(id, dto);
   }
 
   @Post('templates/:id/publish')
   @ApiOperation({ summary: 'Publish a template (makes it usable for issuance)' })
   public publishTemplate(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.publishTemplate(id);
+    return this.templateService.publishTemplate(id);
   }
 
   @Post('templates/:id/unpublish')
   @ApiOperation({ summary: 'Return a template to draft' })
   public unpublishTemplate(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.unpublishTemplate(id);
+    return this.templateService.unpublishTemplate(id);
   }
 
   @Post('templates/:id/archive')
   @ApiOperation({ summary: 'Archive a template (blocks new issuance)' })
   public archiveTemplate(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.archiveTemplate(id);
+    return this.templateService.archiveTemplate(id);
   }
 
   @Post('templates/:id/duplicate')
   @ApiOperation({ summary: 'Duplicate a template as a new draft' })
   public duplicateTemplate(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.certificatesService.duplicateTemplate(id);
+    return this.templateService.duplicateTemplate(id);
   }
 
   @Delete('templates/:id')
@@ -185,7 +192,7 @@ export class AdminCertificatesController {
   public async deleteTemplate(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ message: string }> {
-    await this.certificatesService.deleteTemplate(id);
+    await this.templateService.deleteTemplate(id);
     return { message: 'Template deleted' };
   }
 }

@@ -4,7 +4,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -35,14 +34,13 @@ import { PreferredLanguage } from '../guardians/entities/preferred-language.enum
 import { User } from '../users/entities/user.entity';
 import { generateCertificateNumber, generateVerificationCode } from './certificate-code.util';
 import { CertificatePdfService } from './certificate-pdf.service';
-import { CertificatePreviewDto, CreateTemplateDto, UpdateTemplateDto } from './dto';
+import { CertificateTemplatesService } from './certificate-templates.service';
+import { CertificatePreviewDto } from './dto';
 import type { CertificateSource, CertificateTemplateSnapshot } from './entities/certificate.entity';
 import { Certificate } from './entities/certificate.entity';
 import { CertificateAutoIssuanceFailure } from './entities/certificate-auto-issuance-failure.entity';
 import { CertificateHistory } from './entities/certificate-history.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
-import { CertificateTemplate } from './entities/certificate-template.entity';
-import { CertificateTemplateStatus } from './entities/certificate-template-status.enum';
 import { exponentialRetryDelayMs } from '../common/utils/backoff.util';
 import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
@@ -109,9 +107,6 @@ export interface PublicCertificateCard {
   issued_at: Date;
 }
 
-/** T038 (W1-C6 d): anonymous, viewer-independent public catalog reads. */
-const PUBLIC_CATALOG_CACHE_TTL_MS = 60_000;
-
 @Injectable()
 export class CertificatesService {
   private readonly logger = new Logger(CertificatesService.name);
@@ -119,8 +114,6 @@ export class CertificatesService {
   constructor(
     @InjectRepository(Certificate)
     private readonly certificatesRepository: Repository<Certificate>,
-    @InjectRepository(CertificateTemplate)
-    private readonly templatesRepository: Repository<CertificateTemplate>,
     @InjectRepository(CertificateHistory)
     private readonly certificateHistoryRepository: Repository<CertificateHistory>,
     @InjectRepository(CertificateAutoIssuanceFailure)
@@ -135,6 +128,7 @@ export class CertificatesService {
     private readonly progressRepository: Repository<LessonProgress>,
     @InjectRepository(PackagePurchase)
     private readonly packagePurchasesRepository: Repository<PackagePurchase>,
+    private readonly templates: CertificateTemplatesService,
     private readonly pdfService: CertificatePdfService,
     private readonly eventEmitter: EventEmitter2,
     private readonly eligibility: CertificateEligibilityService,
@@ -462,12 +456,15 @@ export class CertificatesService {
         }
 
         const template = options.templateId
-          ? await this.resolveIssuanceTemplate(options.templateId, options.restrictTemplateOwner)
+          ? await this.templates.resolveIssuanceTemplate(
+              options.templateId,
+              options.restrictTemplateOwner,
+            )
           : pkg.certificate_template_id
-            ? await this.resolveIssuanceTemplate(pkg.certificate_template_id)
-            : ((await this.findDefaultTemplate(pkg.teacher_id)) ??
-              (await this.findDefaultTemplate()));
-        this.assertTemplateCanBeIssued(template);
+            ? await this.templates.resolveIssuanceTemplate(pkg.certificate_template_id)
+            : ((await this.templates.findDefaultTemplate(pkg.teacher_id)) ??
+              (await this.templates.findDefaultTemplate()));
+        this.templates.assertTemplateCanBeIssued(template);
 
         const certificate = manager.create(Certificate, {
           certificate_number: await this.uniqueNumber(),
@@ -481,7 +478,7 @@ export class CertificatesService {
           template_id: template?.id ?? null,
           // Freeze the design NOW — later template edits must never restyle
           // this certificate.
-          template_snapshot: this.snapshotOf(template),
+          template_snapshot: this.templates.snapshotOf(template),
           status: CertificateStatus.ISSUED,
           revoked_at: null,
           revoke_reason: null,
@@ -654,7 +651,7 @@ export class CertificatesService {
     }
     // Validate the template once, up front, so a bad choice fails fast.
     if (params.templateId) {
-      await this.resolveIssuanceTemplate(params.templateId, teacherId);
+      await this.templates.resolveIssuanceTemplate(params.templateId, teacherId);
     }
 
     let targets: string[];
@@ -899,8 +896,8 @@ export class CertificatesService {
         });
         if (raced) return { certificate: raced, created: false };
 
-        const template = await this.findDefaultTemplate();
-        this.assertTemplateCanBeIssued(template);
+        const template = await this.templates.findDefaultTemplate();
+        this.templates.assertTemplateCanBeIssued(template);
 
         const record = manager.create(Certificate, {
           certificate_number: await this.uniqueNumber(),
@@ -914,7 +911,7 @@ export class CertificatesService {
           teacher_name: input.instructorName,
           completion_percentage: 100,
           template_id: template?.id ?? null,
-          template_snapshot: this.snapshotOf(template),
+          template_snapshot: this.templates.snapshotOf(template),
           status: CertificateStatus.ISSUED,
           revoked_at: null,
           revoke_reason: null,
@@ -1004,88 +1001,6 @@ export class CertificatesService {
     }
     certificate.is_public = isPublic;
     return this.certificatesRepository.save(certificate);
-  }
-
-  /**
-   * The public achievements gallery: only certificates their owners chose to
-   * publish, and only while still valid. Returns a sanitized projection —
-   * the DB id, student id, and grades never leave the server.
-   *
-   * Cached (T038, W1-C6 d), `public_catalog`/`public`, 60 s TTL. Privacy-
-   * sensitive: revoke/reissue (`revokeCertificate`) and the visibility toggle
-   * (`setVisibility`) reach this via the interceptor's global invalidateAll()
-   * fallback (neither route declares `@InvalidatesCache`); the non-HTTP
-   * revoke path (`CertificateEligibilityService.revokeForWithdrawnAccess`,
-   * reachable from refund crons with no HTTP request) invalidates explicitly
-   * — see that method. No rule-7 TTL-drift exception was needed.
-   */
-  public async getPublicCertificates(options: {
-    page?: number;
-    limit?: number;
-    search?: string;
-  }): Promise<PaginatedList<PublicCertificateCard>> {
-    return await this.applicationCache.getOrCompute(
-      {
-        family: 'public_catalog',
-        endpoint: 'certificates.public',
-        scope: 'public',
-        parts: [
-          options.page ?? 1,
-          options.limit ?? 12,
-          (options.search ?? '').trim().toLowerCase(),
-        ],
-        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
-      },
-      async () => await this.computePublicCertificates(options),
-    );
-  }
-
-  private async computePublicCertificates(options: {
-    page?: number;
-    limit?: number;
-    search?: string;
-  }): Promise<PaginatedList<PublicCertificateCard>> {
-    const page = options.page && options.page > 0 ? options.page : 1;
-    const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 50) : 12;
-
-    const qb = this.certificatesRepository
-      .createQueryBuilder('c')
-      .where('c.is_public = true')
-      .andWhere('c.status = :status', { status: CertificateStatus.ISSUED });
-
-    if (options.search?.trim()) {
-      qb.andWhere(
-        '(c.student_name ILIKE :search OR c.course_title ILIKE :search OR c.certificate_number ILIKE :search)',
-        { search: `%${options.search.trim()}%` },
-      );
-    }
-
-    const [rows, total] = await qb
-      .orderBy('c.issued_at', 'DESC')
-      .addOrderBy('c.id', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
-
-    const totalPages = Math.ceil(total / limit);
-    return {
-      data: rows.map((c) => ({
-        publicId: c.verification_code,
-        certificate_number: c.certificate_number,
-        student_name: c.student_name,
-        course_title: c.course_title,
-        teacher_name: c.teacher_name,
-        issued_at: c.issued_at,
-      })),
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-      },
-    };
   }
 
   /**
@@ -1198,30 +1113,6 @@ export class CertificatesService {
     return certificate;
   }
 
-  /** Public verification by code — returns the certificate (any status). */
-  public async getByVerificationCode(code: string): Promise<Certificate> {
-    const certificate = await this.certificatesRepository.findOne({
-      where: { verification_code: code },
-    });
-    if (!certificate) {
-      throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
-    }
-    return certificate;
-  }
-
-  /**
-   * A downloadable public document is available only while the certificate is
-   * valid. A revoked certificate — including one revoked by a full refund —
-   * is never rendered as a document, so it can never be presented as proof.
-   */
-  public async getVerifiedCertificateByCode(code: string): Promise<Certificate> {
-    const certificate = await this.getByVerificationCode(code);
-    if (certificate.status !== CertificateStatus.ISSUED) {
-      throw new NotFoundException(biBody('Certificate not found', 'الشهادة غير موجودة'));
-    }
-    return certificate;
-  }
-
   /* ===================== PDF ===================== */
 
   public async renderPdf(
@@ -1245,9 +1136,9 @@ export class CertificatesService {
   ): Promise<CertificateTemplateSnapshot | null> {
     if (certificate.template_snapshot) return certificate.template_snapshot;
     const template = certificate.template_id
-      ? await this.templatesRepository.findOne({ where: { id: certificate.template_id } })
-      : await this.findDefaultTemplate();
-    return template ? this.snapshotOf(template) : null;
+      ? await this.templates.findById(certificate.template_id)
+      : await this.templates.findDefaultTemplate();
+    return template ? this.templates.snapshotOf(template) : null;
   }
 
   /**
@@ -1259,8 +1150,8 @@ export class CertificatesService {
     dto: CertificatePreviewDto,
     locale: PreferredLanguage = PreferredLanguage.EN,
   ): Promise<Buffer> {
-    const design = this.sanitizeTemplateDto(dto);
-    this.assertTemplatePlaceholders({
+    const design = this.templates.sanitizeTemplateDto(dto);
+    this.templates.assertTemplatePlaceholders({
       body: design.body ?? '',
       body_ar: design.body_ar ?? null,
     });
@@ -1324,7 +1215,7 @@ export class CertificatesService {
       );
     }
 
-    const template = await this.findDefaultTemplate();
+    const template = await this.templates.findDefaultTemplate();
     const sample = this.certificatesRepository.create({
       certificate_number: 'CERT-PREVIEW',
       verification_code: 'PREVIEW',
@@ -1405,320 +1296,7 @@ export class CertificatesService {
 
   /* ===================== Templates ===================== */
 
-  /**
-   * Templates with per-template issued-certificate counts (one grouped query,
-   * no N+1). Teachers see their own templates; admins see all.
-   */
-  public async getTemplates(
-    ownerId?: string,
-  ): Promise<(CertificateTemplate & { issued_count: number })[]> {
-    const templates = await this.templatesRepository.find({
-      ...(ownerId ? { where: { owner_id: ownerId } } : {}),
-      order: { created_at: 'DESC', id: 'DESC' },
-      take: 100,
-    });
-    if (templates.length === 0) return [];
-
-    const counts = await this.certificatesRepository
-      .createQueryBuilder('c')
-      .select('c.template_id', 'template_id')
-      .addSelect('COUNT(*)', 'count')
-      .where('c.template_id IN (:...ids)', { ids: templates.map((t) => t.id) })
-      .groupBy('c.template_id')
-      .getRawMany<{ template_id: string; count: string }>();
-    const countById = new Map(counts.map((r) => [r.template_id, Number.parseInt(r.count, 10)]));
-
-    return templates.map((template) =>
-      Object.assign(template, { issued_count: countById.get(template.id) ?? 0 }),
-    );
-  }
-
-  /** Published platform designs plus the teacher's own published designs. */
-  public async getIssuableTemplates(
-    ownerId: string,
-  ): Promise<(CertificateTemplate & { issued_count: number })[]> {
-    const templates = await this.templatesRepository.find({
-      where: [
-        { owner_id: ownerId, status: CertificateTemplateStatus.PUBLISHED },
-        { owner_id: IsNull(), status: CertificateTemplateStatus.PUBLISHED },
-      ],
-      order: { created_at: 'DESC', id: 'DESC' },
-      take: 100,
-    });
-    if (templates.length === 0) return [];
-
-    const counts = await this.certificatesRepository
-      .createQueryBuilder('c')
-      .select('c.template_id', 'template_id')
-      .addSelect('COUNT(*)', 'count')
-      .where('c.template_id IN (:...ids)', { ids: templates.map((template) => template.id) })
-      .groupBy('c.template_id')
-      .getRawMany<{ template_id: string; count: string }>();
-    const countById = new Map(
-      counts.map((row) => [row.template_id, Number.parseInt(row.count, 10)]),
-    );
-
-    return templates.map((template) =>
-      Object.assign(template, { issued_count: countById.get(template.id) ?? 0 }),
-    );
-  }
-
-  public async getTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
-    const template = await this.templatesRepository.findOne({
-      where: ownerId ? { id, owner_id: ownerId } : { id },
-    });
-    if (!template) {
-      throw new NotFoundException(biBody('Template not found', 'القالب غير موجود'));
-    }
-    return template;
-  }
-
-  /** New templates always start as DRAFTS — publishing is a separate action. */
-  public async createTemplate(
-    dto: CreateTemplateDto,
-    ownerId?: string,
-  ): Promise<CertificateTemplate> {
-    const sanitized = this.sanitizeTemplateDto(dto);
-    const template = this.templatesRepository.create({
-      ...sanitized,
-      owner_id: ownerId ?? null,
-      status: CertificateTemplateStatus.DRAFT,
-      is_default: false,
-    });
-    return this.templatesRepository.save(template);
-  }
-
-  public async updateTemplate(
-    id: string,
-    dto: UpdateTemplateDto,
-    ownerId?: string,
-  ): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(id, ownerId);
-    Object.assign(template, this.sanitizeTemplateDto(dto));
-    if (template.status === CertificateTemplateStatus.PUBLISHED) {
-      this.assertTemplateCanBeIssued(template);
-    }
-    const saved = await this.templatesRepository.save(template);
-    if (saved.is_default) {
-      await this.unsetOtherDefaults(saved.id, saved.owner_id);
-    }
-    return saved;
-  }
-
-  /**
-   * Publish a draft: validates the design is complete, then makes it available
-   * for issuance. A teacher's freshly published design becomes their
-   * auto-issue default (platform/admin templates stay opt-in defaults).
-   * Publishing NEVER creates a certificate — it only unlocks the design.
-   */
-  public async publishTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(id, ownerId);
-
-    this.assertTemplatePlaceholders(template);
-
-    const missing: string[] = [];
-    if (!template.name?.trim()) missing.push('name');
-    if (!template.title?.trim()) missing.push('title');
-    if (!template.body?.trim()) missing.push('body');
-    if (missing.length > 0) {
-      throw new BadRequestException(
-        biBody(
-          `Cannot publish — missing required fields: ${missing.join(', ')}`,
-          `لا يمكن النشر — حقول مطلوبة ناقصة: ${missing.join('، ')}`,
-        ),
-      );
-    }
-
-    template.status = CertificateTemplateStatus.PUBLISHED;
-    if (template.owner_id) {
-      template.is_default = true;
-    }
-    const saved = await this.templatesRepository.save(template);
-    if (saved.is_default) {
-      await this.unsetOtherDefaults(saved.id, saved.owner_id);
-    }
-    return saved;
-  }
-
-  /** Back to draft: hidden from issuance again, freely editable. */
-  public async unpublishTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(id, ownerId);
-    template.status = CertificateTemplateStatus.DRAFT;
-    template.is_default = false;
-    return this.templatesRepository.save(template);
-  }
-
-  /** Archived templates can never be used for new issuance. */
-  public async archiveTemplate(id: string, ownerId?: string): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(id, ownerId);
-    template.status = CertificateTemplateStatus.ARCHIVED;
-    template.is_default = false;
-    return this.templatesRepository.save(template);
-  }
-
-  /** Copy an existing design into a fresh draft owned by the caller. */
-  public async duplicateTemplate(
-    id: string,
-    ownerId?: string,
-    callerOwnerId?: string,
-  ): Promise<CertificateTemplate> {
-    const source = await this.getTemplate(id, ownerId);
-    const copy = this.templatesRepository.create({
-      name: `${source.name} (copy)`.slice(0, 120),
-      title: source.title,
-      title_ar: source.title_ar,
-      body: source.body,
-      body_ar: source.body_ar,
-      signature_name: source.signature_name,
-      signature_title: source.signature_title,
-      signature_title_ar: source.signature_title_ar,
-      accent_color: source.accent_color,
-      layout: source.layout,
-      font: source.font,
-      title_font_size: source.title_font_size,
-      body_font_size: source.body_font_size,
-      text_alignment: source.text_alignment,
-      owner_id: callerOwnerId ?? source.owner_id ?? null,
-      status: CertificateTemplateStatus.DRAFT,
-      is_default: false,
-    });
-    return this.templatesRepository.save(copy);
-  }
-
-  public async deleteTemplate(id: string, ownerId?: string): Promise<void> {
-    const template = await this.getTemplate(id, ownerId);
-    await this.templatesRepository.remove(template);
-  }
-
   /* ===================== Helpers ===================== */
-
-  /** Only PUBLISHED templates may be used as an auto-issue default. */
-  private findDefaultTemplate(ownerId?: string): Promise<CertificateTemplate | null> {
-    return this.templatesRepository.findOne({
-      where: ownerId
-        ? { is_default: true, owner_id: ownerId, status: CertificateTemplateStatus.PUBLISHED }
-        : { is_default: true, owner_id: IsNull(), status: CertificateTemplateStatus.PUBLISHED },
-    });
-  }
-
-  /**
-   * Validate an explicitly chosen issuance template: it must exist, be
-   * PUBLISHED (never a draft or archived design), and — when the issuer is a
-   * teacher — be either a platform template or the teacher's own.
-   */
-  private async resolveIssuanceTemplate(
-    templateId: string,
-    restrictToOwner?: string,
-  ): Promise<CertificateTemplate> {
-    const template = await this.getTemplate(templateId);
-    if (template.status !== CertificateTemplateStatus.PUBLISHED) {
-      throw new BadRequestException(
-        biBody(
-          'Only published templates can be used to issue certificates',
-          'لا يمكن إصدار الشهادات إلا باستخدام قوالب منشورة',
-        ),
-      );
-    }
-    if (restrictToOwner && template.owner_id !== null && template.owner_id !== restrictToOwner) {
-      throw new ForbiddenException(
-        biBody(
-          'You can only use your own or platform templates',
-          'يمكنك استخدام قوالبك أو قوالب المنصة فقط',
-        ),
-      );
-    }
-    return template;
-  }
-
-  /** Published designs are executable certificate content, not free-form copy. */
-  private assertTemplateCanBeIssued(template: CertificateTemplate | null): void {
-    if (!template) return;
-    const missing = [
-      !template.name?.trim() ? 'name' : null,
-      !template.title?.trim() ? 'title' : null,
-      !template.body?.trim() ? 'body' : null,
-    ].filter((field): field is string => field !== null);
-    if (missing.length > 0) {
-      throw new BadRequestException(`Certificate template is incomplete: ${missing.join(', ')}`);
-    }
-    this.assertTemplatePlaceholders(template);
-  }
-
-  /** Reject unsupported placeholders before they are frozen into a certificate. */
-  private assertTemplatePlaceholders(
-    template: Pick<CertificateTemplate, 'body' | 'body_ar'>,
-  ): void {
-    const supported = new Set(['student', 'course', 'date']);
-    const unsupported = new Set<string>();
-    for (const value of [template.body, template.body_ar]) {
-      if (typeof value !== 'string') continue;
-      for (const match of value.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
-        const token = match[1]?.trim().toLowerCase();
-        if (token && !supported.has(token)) unsupported.add(`{{${token}}}`);
-      }
-    }
-    if (unsupported.size > 0) {
-      throw new UnprocessableEntityException(
-        `Unsupported certificate placeholders: ${[...unsupported].join(', ')}. Use {{student}}, {{course}}, or {{date}}.`,
-      );
-    }
-  }
-
-  private snapshotOf(template: CertificateTemplate | null): CertificateTemplateSnapshot | null {
-    if (!template) return null;
-    return {
-      title: template.title,
-      title_ar: template.title_ar,
-      body: template.body,
-      body_ar: template.body_ar,
-      signature_name: template.signature_name,
-      signature_title: template.signature_title,
-      signature_title_ar: template.signature_title_ar,
-      accent_color: template.accent_color,
-      layout: template.layout,
-      font: template.font,
-      title_font_size: template.title_font_size,
-      body_font_size: template.body_font_size,
-      text_alignment: template.text_alignment,
-    };
-  }
-
-  private async unsetOtherDefaults(keepId: string, ownerId: string | null): Promise<void> {
-    const query = this.templatesRepository
-      .createQueryBuilder()
-      .update()
-      .set({ is_default: false })
-      .where('id != :keepId', { keepId })
-      .andWhere('is_default = true');
-    if (ownerId) {
-      query.andWhere('owner_id = :ownerId', { ownerId });
-    } else {
-      query.andWhere('owner_id IS NULL');
-    }
-    await query.execute();
-  }
-
-  /** Text is rendered as escaped text in React/PDFKit; never accept markup. */
-  private sanitizeTemplateDto<T extends CreateTemplateDto | UpdateTemplateDto>(dto: T): T {
-    const sanitized = { ...dto } as Record<string, unknown>;
-    for (const [key, value] of Object.entries(sanitized)) {
-      // Validation DTO instances can carry every optional field as an own
-      // `undefined` property. Leaving those values in a PATCH would erase the
-      // published template's required name/body before it is snapshotted.
-      if (value === undefined) {
-        delete sanitized[key];
-        continue;
-      }
-      if (typeof value === 'string') {
-        sanitized[key] = value
-          .replace(/[<>]/g, '')
-          // eslint-disable-next-line no-control-regex -- stripping control characters is the point
-          .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
-          .trim();
-      }
-    }
-    return sanitized as T;
-  }
 
   private async uniqueNumber(): Promise<string> {
     for (let i = 0; i < 5; i++) {

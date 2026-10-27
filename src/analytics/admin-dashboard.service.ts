@@ -5,7 +5,7 @@ import { DataSource, Repository } from 'typeorm';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
-import type { FinancePermission } from '../payments/finance-permissions';
+import type { FinancePermission } from '../common/auth/finance-permissions';
 import {
   FinancialReportsService,
   type DashboardFinancialSnapshot,

@@ -1,15 +1,11 @@
 import { Controller, Get, Param, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 
 import { OptionalJwtAuthGuard } from '../../../auth/guards/optional-jwt-auth.guard';
 import { ApplicationCacheService } from '../../../common/cache/application-cache.service';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
-import { MarketplaceEnrollmentStatus } from '../../common/enums';
-import { MarketplaceEnrollment } from '../../commerce/entities';
 import type { CatalogListResult } from '../catalog-query.service';
 import { CatalogQueryService } from '../catalog-query.service';
 import type { PublicCourseCurriculum, PublicCourseDetail } from '../course-detail.service';
@@ -35,8 +31,6 @@ export class PublicCatalogController {
     private readonly courseDetail: CourseDetailService,
     private readonly previewAccess: PreviewAccessService,
     private readonly cache: ApplicationCacheService,
-    @InjectRepository(MarketplaceEnrollment)
-    private readonly enrollments: Repository<MarketplaceEnrollment>,
   ) {}
 
   @Get()
@@ -76,15 +70,9 @@ export class PublicCatalogController {
       { family: 'marketplace_catalog', endpoint: 'detail', scope: 'public', parts: ['detail', slug], ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS },
       () => this.courseDetail.getBySlug(slug),
     );
-    const activeEnrollment = user
-      ? await this.enrollments.findOne({
-          where: { learner_id: user.userId, course_id: detail.id, status: MarketplaceEnrollmentStatus.ACTIVE },
-        })
-      : null;
-
     return {
       ...detail,
-      viewer_enrollment: { enrolled: !!activeEnrollment, enrollment_id: activeEnrollment?.id ?? null },
+      viewer_enrollment: await this.courseDetail.getViewerEnrollment(user?.userId, detail.id),
     };
   }
 

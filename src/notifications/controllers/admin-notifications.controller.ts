@@ -13,10 +13,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-
-import { Repository } from 'typeorm';
-
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { BulkOperationsService } from '../../bulk-operations/bulk-operations.service';
 import { GetUser } from '../../common/decorators/get-user.decorator';
@@ -25,24 +21,21 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { biBody } from '../../i18n/error-translator.util';
 import { MailService, type MailMessage } from '../../mail/mail.service';
-import { areQueuesEnabled } from '../../queues/queues.constants';
 import {
   AdminNotificationFilterDto,
   ManualNotificationAudience,
   ManualNotificationDto,
   ManualNotificationResponseDto,
 } from '../dto';
-import { Notification, NotificationCampaign, NotificationDelivery } from '../entities';
 import { NotificationChannel, NotificationDeliveryStatus } from '../entities';
+import { AdminNotificationStatsService } from '../services/admin-notification-stats.service';
 import { NotificationDeliveryService } from '../services/notification-delivery.service';
 import { PushNotificationJobsService } from '../services/push-notification-jobs.service';
-import { PushDispatchService } from '../services/push-dispatch.service';
 import type {
   AdminNotificationView,
   PaginatedNotifications,
 } from '../services/notifications.service';
 import { NotificationsService } from '../services/notifications.service';
-import { SmsSenderService } from '../services/sms-sender.service';
 
 @ApiTags('Admin - Notifications')
 @ApiBearerAuth('JWT-auth')
@@ -53,17 +46,10 @@ export class AdminNotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,
     private readonly bulkOperationsService: BulkOperationsService,
-    private readonly smsSenderService: SmsSenderService,
     private readonly notificationDeliveries: NotificationDeliveryService,
     private readonly pushJobs: PushNotificationJobsService,
-    private readonly pushDispatch: PushDispatchService,
     private readonly mail: MailService,
-    @InjectRepository(Notification)
-    private readonly notificationsRepository: Repository<Notification>,
-    @InjectRepository(NotificationCampaign)
-    private readonly campaignsRepository: Repository<NotificationCampaign>,
-    @InjectRepository(NotificationDelivery)
-    private readonly deliveriesRepository: Repository<NotificationDelivery>,
+    private readonly stats: AdminNotificationStatsService,
   ) {}
 
   @Post('manual')
@@ -143,100 +129,7 @@ export class AdminNotificationsController {
     description: 'Returns notification statistics',
   })
   public async getStatistics(): Promise<{ message: string; data: unknown }> {
-    const totalNotifications = await this.notificationsRepository.count();
-    const readNotifications = await this.notificationsRepository.count({
-      where: { is_read: true },
-    });
-    const smsSent = await this.notificationsRepository.count({
-      where: { sms_sent: true },
-    });
-
-    // Count by type
-    interface TypeStatRaw {
-      type: string;
-      count: string;
-    }
-    const typeStats = await this.notificationsRepository
-      .createQueryBuilder('notification')
-      .select('notification.type', 'type')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('notification.type')
-      .getRawMany<TypeStatRaw>();
-
-    // Notifications in last 24 hours
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-
-    const last24Hours = await this.notificationsRepository
-      .createQueryBuilder('notification')
-      .where('notification.sent_at >= :date', { date: oneDayAgo })
-      .getCount();
-
-    // Notifications in last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const last7Days = await this.notificationsRepository
-      .createQueryBuilder('notification')
-      .where('notification.sent_at >= :date', { date: sevenDaysAgo })
-      .getCount();
-
-    const [campaignStats, deliveryStats, needsAttention] = await Promise.all([
-      this.campaignsRepository
-        .createQueryBuilder('campaign')
-        .select('campaign.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('campaign.status')
-        .getRawMany<{ status: string; count: string }>(),
-      this.deliveriesRepository
-        .createQueryBuilder('delivery')
-        .select('delivery.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .groupBy('delivery.status')
-        .getRawMany<{ status: string; count: string }>(),
-      this.deliveriesRepository.count({
-        where: [
-          { status: NotificationDeliveryStatus.FAILED },
-          { status: NotificationDeliveryStatus.PROVIDER_UNAVAILABLE },
-        ],
-      }),
-    ]);
-    const pushReadiness = this.pushDispatch.readiness();
-
-    return {
-      message: 'Notification statistics retrieved',
-      data: {
-        total_notifications: totalNotifications,
-        read_notifications: readNotifications,
-        unread_notifications: totalNotifications - readNotifications,
-        read_rate:
-          totalNotifications > 0 ? Math.round((readNotifications / totalNotifications) * 100) : 0,
-        sms_sent: smsSent,
-        sms_enabled: this.smsSenderService.isConfigured(),
-        by_type: typeStats.reduce<Record<string, number>>((acc, item) => {
-          acc[item.type] = Number.parseInt(item.count);
-          return acc;
-        }, {}),
-        last_24_hours: last24Hours,
-        last_7_days: last7Days,
-        campaigns: campaignStats.reduce<Record<string, number>>((acc, item) => {
-          acc[item.status] = Number.parseInt(item.count, 10);
-          return acc;
-        }, {}),
-        deliveries: deliveryStats.reduce<Record<string, number>>((acc, item) => {
-          acc[item.status] = Number.parseInt(item.count, 10);
-          return acc;
-        }, {}),
-        needs_attention: needsAttention,
-        readiness: {
-          queues: areQueuesEnabled(),
-          push: pushReadiness.configured,
-          push_provider: pushReadiness.provider,
-          email: this.mail.isConfigured(),
-          sms: this.smsSenderService.isConfigured(),
-        },
-      },
-    };
+    return { message: 'Notification statistics retrieved', data: await this.stats.getStatistics() };
   }
 
   @Get('campaigns')

@@ -26,6 +26,33 @@ describe('AttendanceService record ownership scope', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
+  describe('assertTeacherOwnsLesson', () => {
+    it('returns the lesson for its owner', async () => {
+      const lesson = { id: 'lesson-id', teacher_id: 'teacher-id' };
+      lessonsRepository.findOne.mockResolvedValue(lesson);
+
+      await expect(service.assertTeacherOwnsLesson('lesson-id', 'teacher-id')).resolves.toBe(
+        lesson,
+      );
+    });
+
+    it('answers 403 (not 404) for a lesson that does not exist or is soft-deleted', async () => {
+      lessonsRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.assertTeacherOwnsLesson('missing', 'teacher-id')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it("answers 403 for another teacher's lesson", async () => {
+      lessonsRepository.findOne.mockResolvedValue({ id: 'lesson-id', teacher_id: 'someone-else' });
+
+      await expect(
+        service.assertTeacherOwnsLesson('lesson-id', 'teacher-id'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
   it('updates only a record belonging to the route lesson', async () => {
     const attendance = { id: 'attendance-id', lesson_id: 'lesson-id' } as AttendanceRecord;
     attendanceRepository.findOne.mockResolvedValue(attendance);

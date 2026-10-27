@@ -1,8 +1,17 @@
 import 'reflect-metadata';
 
+import { AnalyticsModule } from '../analytics/analytics.module';
+import { AttendanceCodesModule } from '../attendance-codes/attendance-codes.module';
+import { BulkOperationsModule } from '../bulk-operations/bulk-operations.module';
 import { CartModule } from '../cart/cart.module';
+import { ApplicationCacheModule } from '../common/cache/application-cache.module';
+import { ApplicationCacheService } from '../common/cache/application-cache.service';
+import { DistributedSingleFlightService } from '../common/cache/distributed-single-flight.service';
 import { DiscountCodesModule } from '../discount-codes/discount-codes.module';
 import { DiscountCodesService } from '../discount-codes/discount-codes.service';
+import { AdminNotificationsApiModule } from '../notifications/admin-notifications-api.module';
+import { AdminNotificationsController } from '../notifications/controllers';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PaymentsModule } from './payments.module';
 import { FinancialReportsService } from './services/financial-reports.service';
 import { ManualPaymentsService } from './services/manual-payments.service';
@@ -28,11 +37,55 @@ describe('payments module wiring', () => {
     expect(found).toHaveLength(1);
   });
 
-  it('keeps the remaining forwardRef limited to the NotificationsModule edge (real cycle, Phase 4)', () => {
-    const wrapped = imports(PaymentsModule).filter(isForwardRef);
-    expect(wrapped).toHaveLength(1);
-    expect((wrapped[0] as { forwardRef: () => { name: string } }).forwardRef().name).toBe(
-      'NotificationsModule',
+  it('imports NotificationsModule directly: the Payments → Notifications → … cycle is gone', () => {
+    expect(imports(PaymentsModule).filter(isForwardRef)).toHaveLength(0);
+    expect(imports(PaymentsModule)).toContain(NotificationsModule);
+  });
+
+  describe('former Payments → Notifications → BulkOperations → AttendanceCodes cycle (SOLID Phase 4)', () => {
+    it('has no forwardRef left on any edge of the chain', () => {
+      for (const module of [
+        PaymentsModule,
+        NotificationsModule,
+        BulkOperationsModule,
+        AttendanceCodesModule,
+      ]) {
+        expect(imports(module).filter(isForwardRef)).toHaveLength(0);
+      }
+    });
+
+    it('NotificationsModule no longer depends on BulkOperationsModule or hosts the bulk-using controller', () => {
+      expect(imports(NotificationsModule)).not.toContain(BulkOperationsModule);
+      expect(Reflect.getMetadata('controllers', NotificationsModule)).not.toContain(
+        AdminNotificationsController,
+      );
+    });
+
+    it('AdminNotificationsApiModule composes both and owns the admin notifications controller', () => {
+      expect(imports(AdminNotificationsApiModule)).toEqual(
+        expect.arrayContaining([NotificationsModule, BulkOperationsModule]),
+      );
+      expect(Reflect.getMetadata('controllers', AdminNotificationsApiModule)).toEqual([
+        AdminNotificationsController,
+      ]);
+    });
+
+    it('BulkOperationsModule and AttendanceCodesModule import their dependencies directly', () => {
+      expect(imports(BulkOperationsModule)).toContain(AttendanceCodesModule);
+      expect(imports(AttendanceCodesModule)).toContain(PaymentsModule);
+    });
+  });
+
+  it('lets the cache live in ApplicationCacheModule instead of AnalyticsModule', () => {
+    const provided = Reflect.getMetadata('providers', ApplicationCacheModule) as unknown[];
+    expect(provided).toEqual(
+      expect.arrayContaining([ApplicationCacheService, DistributedSingleFlightService]),
+    );
+    expect(Reflect.getMetadata('providers', AnalyticsModule)).not.toContain(
+      ApplicationCacheService,
+    );
+    expect(Reflect.getMetadata('exports', AnalyticsModule)).not.toContain(
+      DistributedSingleFlightService,
     );
   });
 

@@ -26,6 +26,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { THROTTLE } from '../../common/constants';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
 import { resolveRequestLocale } from '../../i18n/error-translator.util';
+import { CertificateTemplatesService } from '../certificate-templates.service';
 import { CertificatesService } from '../certificates.service';
 import {
   CertificatePreviewDto,
@@ -42,7 +43,10 @@ import {
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherCertificatesController {
-  constructor(private readonly certificatesService: CertificatesService) {}
+  constructor(
+    private readonly certificatesService: CertificatesService,
+    private readonly templateService: CertificateTemplatesService,
+  ) {}
 
   @Get('analytics')
   @ApiOperation({ summary: "Certificate analytics for the teacher's courses" })
@@ -69,8 +73,14 @@ export class TeacherCertificatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() request: Request,
   ): Promise<StreamableFile> {
-    const certificate = await this.certificatesService.getManagedCertificateForTeacher(id, user.userId);
-    const pdf = await this.certificatesService.renderPdf(certificate, resolveRequestLocale(request));
+    const certificate = await this.certificatesService.getManagedCertificateForTeacher(
+      id,
+      user.userId,
+    );
+    const pdf = await this.certificatesService.renderPdf(
+      certificate,
+      resolveRequestLocale(request),
+    );
     return new StreamableFile(pdf, {
       type: 'application/pdf',
       disposition: `inline; filename="certificate-${certificate.certificate_number}.pdf"`,
@@ -114,13 +124,13 @@ export class TeacherCertificatesController {
   @Get('templates')
   @ApiOperation({ summary: 'List my certificate templates' })
   public templates(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.certificatesService.getTemplates(user.userId);
+    return this.templateService.getTemplates(user.userId);
   }
 
   @Get('templates/available')
   @ApiOperation({ summary: 'List published platform and own templates available for issuance' })
   public availableTemplates(@GetUser() user: JwtPayload): Promise<unknown> {
-    return this.certificatesService.getIssuableTemplates(user.userId);
+    return this.templateService.getIssuableTemplates(user.userId);
   }
 
   @Get('templates/:id')
@@ -129,7 +139,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.getTemplate(id, user.userId);
+    return this.templateService.getTemplate(id, user.userId);
   }
 
   @Post('templates')
@@ -138,7 +148,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Body() dto: CreateTemplateDto,
   ): Promise<unknown> {
-    return this.certificatesService.createTemplate(dto, user.userId);
+    return this.templateService.createTemplate(dto, user.userId);
   }
 
   @Post('templates/preview/pdf')
@@ -167,7 +177,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.publishTemplate(id, user.userId);
+    return this.templateService.publishTemplate(id, user.userId);
   }
 
   @Post('templates/:id/unpublish')
@@ -176,7 +186,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.unpublishTemplate(id, user.userId);
+    return this.templateService.unpublishTemplate(id, user.userId);
   }
 
   @Post('templates/:id/archive')
@@ -185,7 +195,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.archiveTemplate(id, user.userId);
+    return this.templateService.archiveTemplate(id, user.userId);
   }
 
   @Post('templates/:id/duplicate')
@@ -194,7 +204,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<unknown> {
-    return this.certificatesService.duplicateTemplate(id, user.userId, user.userId);
+    return this.templateService.duplicateTemplate(id, user.userId, user.userId);
   }
 
   @Patch('templates/:id')
@@ -204,7 +214,7 @@ export class TeacherCertificatesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTemplateDto,
   ): Promise<unknown> {
-    return this.certificatesService.updateTemplate(id, dto, user.userId);
+    return this.templateService.updateTemplate(id, dto, user.userId);
   }
 
   @Delete('templates/:id')
@@ -213,7 +223,7 @@ export class TeacherCertificatesController {
     @GetUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ message: string }> {
-    await this.certificatesService.deleteTemplate(id, user.userId);
+    await this.templateService.deleteTemplate(id, user.userId);
     return { message: 'Template deleted' };
   }
 

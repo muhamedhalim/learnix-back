@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 
-import type { FinancePermission } from '../../payments/finance-permissions';
+import type { FinancePermission } from '../auth/finance-permissions';
 
 export interface JwtPayload {
   userId: string;

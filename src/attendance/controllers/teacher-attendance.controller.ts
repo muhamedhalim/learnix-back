@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpStatus,
   Param,
@@ -20,17 +19,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-
-import { IsNull, Repository } from 'typeorm';
-
 import { HybridAuthGuard } from '../../auth/guards/hybrid-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { JwtPayload } from '../../common/interfaces/user-request.interface';
-import { biBody } from '../../i18n/error-translator.util';
-import { Lesson } from '../../lessons/entities/lesson.entity';
 import { AttendanceService } from '../attendance.service';
 import { AttendanceFilterDto, MarkAttendanceDto, UpdateAttendanceDto } from '../dto';
 
@@ -40,11 +33,7 @@ import { AttendanceFilterDto, MarkAttendanceDto, UpdateAttendanceDto } from '../
 @Roles('teacher')
 @ApiBearerAuth('JWT-auth')
 export class TeacherAttendanceController {
-  constructor(
-    private readonly attendanceService: AttendanceService,
-    @InjectRepository(Lesson)
-    private readonly lessonsRepository: Repository<Lesson>,
-  ) {}
+  constructor(private readonly attendanceService: AttendanceService) {}
 
   /**
    * Mark attendance for a student in a lesson
@@ -65,7 +54,7 @@ export class TeacherAttendanceController {
     @Body() dto: MarkAttendanceDto,
   ): Promise<{ message: string; data: unknown }> {
     // Validate ownership
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
 
     // Override lesson_id from path
     const attendance = await this.attendanceService.markAttendance(
@@ -88,7 +77,7 @@ export class TeacherAttendanceController {
     @Param('sessionId', ParseUUIDPipe) sessionId: string,
     @Body() dto: MarkAttendanceDto,
   ): Promise<{ message: string; data: unknown }> {
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
     const attendance = await this.attendanceService.markScheduledSessionAttendance(
       user.userId,
       lessonId,
@@ -118,7 +107,7 @@ export class TeacherAttendanceController {
     @Body() dto: UpdateAttendanceDto,
   ): Promise<{ message: string; data: unknown }> {
     // Validate ownership
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
 
     const attendance = await this.attendanceService.updateAttendance(
       id,
@@ -153,7 +142,7 @@ export class TeacherAttendanceController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<{ message: string }> {
     // Validate ownership
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
 
     await this.attendanceService.deleteAttendance(id, lessonId);
 
@@ -211,7 +200,7 @@ export class TeacherAttendanceController {
     @Query() filter: AttendanceFilterDto,
   ): Promise<unknown> {
     // Validate ownership
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
 
     return await this.attendanceService.getLessonAttendance(lessonId, filter);
   }
@@ -234,34 +223,8 @@ export class TeacherAttendanceController {
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
   ): Promise<unknown> {
     // Validate ownership
-    await this.validateOwnership(lessonId, user.userId);
+    await this.attendanceService.assertTeacherOwnsLesson(lessonId, user.userId);
 
     return await this.attendanceService.getLessonAttendanceStats(lessonId);
-  }
-
-  /**
-   * Validate teacher owns the lesson
-   */
-  private async validateOwnership(lessonId: string, teacherId: string): Promise<Lesson> {
-    const lesson = await this.lessonsRepository.findOne({
-      where: { id: lessonId, deleted_at: IsNull() },
-    });
-
-    if (!lesson) {
-      throw new ForbiddenException(
-        biBody(`Lesson with ID ${lessonId} not found`, `الدرس ذو المعرف ${lessonId} غير موجود`),
-      );
-    }
-
-    if (lesson.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody(
-          'You can only manage attendance for your own lessons',
-          'يمكنك فقط إدارة الحضور الخاص بدروسك أنت',
-        ),
-      );
-    }
-
-    return lesson;
   }
 }

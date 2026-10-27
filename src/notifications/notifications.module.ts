@@ -1,10 +1,9 @@
 import { HttpModule } from '@nestjs/axios';
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { GuardiansModule } from '../guardians/guardians.module';
-import { BulkOperationsModule } from '../bulk-operations/bulk-operations.module';
 import { areQueuesEnabled, QUEUE_CONFIGS, QUEUE_NAMES } from '../queues/queues.constants';
 import { registerQueues } from '../queues/register-queues.util';
 import { User } from '../users/entities/user.entity';
@@ -12,7 +11,6 @@ import { ChannelRegistryService } from './channels/channel-registry.service';
 import { SmsChannel } from './channels/sms.channel';
 import { WhatsAppMetaChannel } from './channels/whatsapp-meta.channel';
 import {
-  AdminNotificationsController,
   NotificationsController,
   NotificationSettingsController,
   PushDevicesController,
@@ -27,6 +25,7 @@ import {
   ParentMessage,
   PushDevice,
 } from './entities';
+import { AdminNotificationStatsService } from './services/admin-notification-stats.service';
 import { AdminAlertsListener } from './listeners/admin-alerts.listener';
 import { ParentNotificationListener } from './listeners/parent-notification.listener';
 import { PurchaseParentNotificationListener } from './listeners/purchase-parent-notification.listener';
@@ -82,7 +81,6 @@ import { TemplateRendererService } from './templates/template-renderer.service';
 @Module({
   imports: [
     ConfigModule,
-    forwardRef(() => BulkOperationsModule),
     GuardiansModule,
     // The Meta Cloud API adapter is the only HTTP consumer here.
     HttpModule,
@@ -114,7 +112,6 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     ]),
   ],
   controllers: [
-    AdminNotificationsController,
     AdminParentMessagesController,
     NotificationsController,
     NotificationSettingsController,
@@ -125,6 +122,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     NotificationsService,
     NotificationTriggersService,
     AdminNotificationsService,
+    AdminNotificationStatsService,
     AdminAlertsListener,
     SmsSenderService,
     SmsEventsConsumer,
@@ -168,6 +166,7 @@ import { TemplateRendererService } from './templates/template-renderer.service';
     NotificationsService,
     NotificationTriggersService,
     AdminNotificationsService,
+    AdminNotificationStatsService,
     NotificationChannelPolicyService,
     NotificationDeliveryService,
     NotificationEmailService,

@@ -67,6 +67,34 @@ export class AttendanceService {
   /**
    * Mark attendance manually (teacher/admin)
    */
+  /**
+   * The lesson must exist (soft-deleted rows are hidden implicitly) and belong to the teacher.
+   * Both a missing and a foreign lesson answer 403 — pinned by `ownership-status-codes.e2e-spec`
+   * and kept as-is so the endpoint contract does not change.
+   */
+  public async assertTeacherOwnsLesson(lessonId: string, teacherId: string): Promise<Lesson> {
+    const lesson = await this.lessonsRepository.findOne({
+      where: { id: lessonId, deleted_at: IsNull() },
+    });
+
+    if (!lesson) {
+      throw new ForbiddenException(
+        biBody(`Lesson with ID ${lessonId} not found`, `الدرس ذو المعرف ${lessonId} غير موجود`),
+      );
+    }
+
+    if (lesson.teacher_id !== teacherId) {
+      throw new ForbiddenException(
+        biBody(
+          'You can only manage attendance for your own lessons',
+          'يمكنك فقط إدارة الحضور الخاص بدروسك أنت',
+        ),
+      );
+    }
+
+    return lesson;
+  }
+
   public async markAttendance(
     markerId: string | null,
     dto: MarkAttendanceDto,

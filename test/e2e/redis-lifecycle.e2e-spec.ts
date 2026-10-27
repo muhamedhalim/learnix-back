@@ -2,7 +2,7 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { INestApplication } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 
-import { DistributedSingleFlightService } from '../../src/analytics/distributed-single-flight.service';
+import { DistributedSingleFlightService } from '../../src/common/cache/distributed-single-flight.service';
 import { IdempotencyService } from '../../src/idempotency/idempotency.service';
 import { createE2EApp } from './helpers/app-factory';
 

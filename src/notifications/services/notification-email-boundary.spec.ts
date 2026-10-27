@@ -53,12 +53,17 @@ describe('optional-notification vs transactional mail boundary', () => {
     // email in the product. Adding another is fine — updating this list is the
     // point, because it forces the "is this optional or transactional?"
     // question to be answered deliberately.
+    // The call site lives in `LessonSessionNotificationService`; `LessonSessionsService` only
+    // delegates to it and must never reach the mail transport or the gate itself.
+    const notifications = read('lessons', 'lesson-session-notification.service.ts');
     const lessonSessions = read('lessons', 'lesson-sessions.service.ts');
 
-    expect(lessonSessions).toContain('NotificationEmailService');
-    expect(lessonSessions).toContain('this.notificationEmail.send(');
+    expect(notifications).toContain('NotificationEmailService');
+    expect(notifications).toContain('this.notificationEmail.send(');
     // …and it no longer bypasses the gate by calling the transport directly.
-    expect(lessonSessions).not.toContain('this.mailService.send(');
+    expect(notifications).not.toContain('this.mailService.send(');
+    expect(lessonSessions).not.toContain('NotificationEmailService');
+    expect(lessonSessions).not.toContain('MailService');
   });
 
   it('the email gate consults the channel policy before touching the provider', () => {

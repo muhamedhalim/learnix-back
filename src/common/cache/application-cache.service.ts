@@ -8,7 +8,7 @@ import type { Cache } from 'cache-manager';
 import {
   DistributedSingleFlightService,
   type CacheMetricContext,
-} from '../../analytics/distributed-single-flight.service';
+} from './distributed-single-flight.service';
 import { performanceMetrics } from '../../observability/performance-metrics.registry';
 
 /** Cache families are intentionally small, stable, and free of request IDs. */

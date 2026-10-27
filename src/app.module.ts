@@ -26,6 +26,7 @@ import { createClient as createRedisClient, type RedisClientType } from 'redis';
 import { ActivityLogsModule } from './activity-logs/activity-logs.module';
 import { AdminInitModule } from './admin-init/admin-init.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ApplicationCacheModule } from './common/cache/application-cache.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AttendanceModule } from './attendance/attendance.module';
@@ -63,6 +64,7 @@ import { MeetingsModule } from './lessons/meetings/meetings.module';
 import { MailModule } from './mail/mail.module';
 import { MediaModule } from './media/media.module';
 import { StorageModule } from './storage/storage.module';
+import { AdminNotificationsApiModule } from './notifications/admin-notifications-api.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { QueryPerformanceSubscriber } from './observability/query-performance.subscriber';
@@ -363,6 +365,7 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     AttendanceCodesModule,
     GuardiansModule,
     NotificationsModule,
+    AdminNotificationsApiModule,
     // Periodic guardian reports. Must come after NotificationsModule — it
     // produces ParentNotifications and never delivers anything itself.
     ParentReportsModule,
@@ -371,6 +374,7 @@ class ThrottlerStorageLifecycle implements OnModuleDestroy {
     // Phase 5: Books & Attendance & Analytics & Cart
     BooksModule,
     AttendanceModule,
+    ApplicationCacheModule,
     AnalyticsModule,
     ReportsModule,
     CartModule,

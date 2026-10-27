@@ -12,20 +12,26 @@ describe('AdminNotificationsController', () => {
   const deliveries = { findOne: jest.fn(), record: jest.fn().mockResolvedValue(undefined) };
   const pushJobs = { enqueueDelivery: jest.fn().mockResolvedValue(undefined) };
   const mail = { send: jest.fn(), providerName: 'ses' };
+  const stats = { getStatistics: jest.fn() };
   const controller = new AdminNotificationsController(
     {} as never,
     bulk as never,
-    { isConfigured: jest.fn().mockReturnValue(false) } as never,
     deliveries as never,
     pushJobs as never,
-    { readiness: jest.fn().mockReturnValue({ provider: 'fcm', configured: true }) } as never,
     mail as never,
-    {} as never,
-    {} as never,
-    {} as never,
+    stats as never,
   );
 
   beforeEach(() => jest.clearAllMocks());
+
+  it('wraps the statistics service result in the existing { message, data } envelope', async () => {
+    stats.getStatistics.mockResolvedValue({ total_notifications: 3 });
+
+    await expect(controller.getStatistics()).resolves.toEqual({
+      message: 'Notification statistics retrieved',
+      data: { total_notifications: 3 },
+    });
+  });
 
   it('requires an idempotency key before accepting a manual broadcast', async () => {
     await expect(

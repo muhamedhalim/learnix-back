@@ -17,7 +17,7 @@ import { GuardianRelationship } from '../guardians/entities';
 import { PreferredLanguage } from '../guardians/entities/preferred-language.enum';
 import { GuardiansService } from '../guardians/guardians.service';
 import { MailService } from '../mail/mail.service';
-import type { FinancePermission } from '../payments/finance-permissions';
+import type { FinancePermission } from '../common/auth/finance-permissions';
 import { StudentProfile } from '../students/entities/student-profile.entity';
 import { TeacherProfile } from '../teachers/entities/teacher-profile.entity';
 import { User } from '../users/entities/user.entity';

@@ -7,8 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import type { Cache } from 'cache-manager';
 import { createClient } from 'redis';
 
-import { namespacedPrefix } from '../common/utils/redis-namespace.util';
-import { performanceMetrics } from '../observability/performance-metrics.registry';
+import { namespacedPrefix } from '../utils/redis-namespace.util';
+import { performanceMetrics } from '../../observability/performance-metrics.registry';
 
 const CACHE_MISS = Symbol('CACHE_MISS');
 

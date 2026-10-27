@@ -10,7 +10,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, FindOneOptions, In, IsNull, Repository } from 'typeorm';
 
 import { CertificateTemplate, CertificateTemplateStatus } from '../certificates/entities';
 import { ApplicationCacheService } from '../common/cache/application-cache.service';
@@ -441,20 +441,12 @@ export class PackagesService {
 
   /** Teacher detail: distinguish an absent package (404) from another owner's package (403). */
   public async findOneForTeacher(id: string, teacherId: string): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id, deleted_at: IsNull() },
-      select: { id: true, teacher_id: true },
-    });
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${id} not found`, `الباقة بالمعرّف ${id} غير موجودة`),
-      );
-    }
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only access your own packages', 'يمكنك فقط الوصول إلى باقاتك الخاصة'),
-      );
-    }
+    await this.findOwnedPackage(
+      id,
+      teacherId,
+      { en: 'You can only access your own packages', ar: 'يمكنك فقط الوصول إلى باقاتك الخاصة' },
+      { select: { id: true, teacher_id: true } },
+    );
     return this.findOne(id);
   }
 
@@ -496,21 +488,10 @@ export class PackagesService {
     teacherId: string,
     dto: UpdatePackageDto,
   ): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
+    const pkg = await this.findOwnedPackage(packageId, teacherId, {
+      en: 'You can only update your own packages',
+      ar: 'يمكنك تحديث باقاتك الخاصة فقط',
     });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only update your own packages', 'يمكنك تحديث باقاتك الخاصة فقط'),
-      );
-    }
 
     // Only validated when the subject is actually changing: re-checking an
     // unchanged subject_id would make every course on a suspended subject
@@ -546,21 +527,10 @@ export class PackagesService {
    * Delete a package (ownership check)
    */
   public async delete(packageId: string, teacherId: string): Promise<void> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
+    await this.findOwnedPackage(packageId, teacherId, {
+      en: 'You can only delete your own packages',
+      ar: 'يمكنك حذف باقاتك الخاصة فقط',
     });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only delete your own packages', 'يمكنك حذف باقاتك الخاصة فقط'),
-      );
-    }
 
     await this.packagesRepository.softDelete(packageId);
   }
@@ -646,22 +616,12 @@ export class PackagesService {
     teacherId: string,
     dto: AddLessonsDto,
   ): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
-      relations: ['items'],
-    });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
-      );
-    }
+    const pkg = await this.findOwnedPackage(
+      packageId,
+      teacherId,
+      { en: 'You can only modify your own packages', ar: 'يمكنك تعديل باقاتك الخاصة فقط' },
+      { relations: ['items'] },
+    );
 
     const lessonIds = dto.lessons.map((l) => l.lessonId);
     await this.validateLessonsOwnership(lessonIds, teacherId);
@@ -709,22 +669,12 @@ export class PackagesService {
     teacherId: string,
     dto: RemoveLessonsDto,
   ): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
-      relations: ['items'],
-    });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
-      );
-    }
+    await this.findOwnedPackage(
+      packageId,
+      teacherId,
+      { en: 'You can only modify your own packages', ar: 'يمكنك تعديل باقاتك الخاصة فقط' },
+      { relations: ['items'] },
+    );
 
     await retryTransaction(this.dataSource, async (manager) => {
       await this.ensureOpenVersionForEdit(manager, packageId);
@@ -770,21 +720,10 @@ export class PackagesService {
     teacherId: string,
     orderMap: Record<number, number>,
   ): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
+    await this.findOwnedPackage(packageId, teacherId, {
+      en: 'You can only modify your own packages',
+      ar: 'يمكنك تعديل باقاتك الخاصة فقط',
     });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
-      );
-    }
 
     await this.dataSource.transaction(async (manager) => {
       for (const [lessonId, orderIndex] of Object.entries(orderMap)) {
@@ -807,21 +746,10 @@ export class PackagesService {
     teacherId: string,
     isActive: boolean,
   ): Promise<PackageWithDetails> {
-    const pkg = await this.packagesRepository.findOne({
-      where: { id: packageId, deleted_at: IsNull() },
+    const pkg = await this.findOwnedPackage(packageId, teacherId, {
+      en: 'You can only modify your own packages',
+      ar: 'يمكنك تعديل باقاتك الخاصة فقط',
     });
-
-    if (!pkg) {
-      throw new NotFoundException(
-        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
-      );
-    }
-
-    if (pkg.teacher_id !== teacherId) {
-      throw new ForbiddenException(
-        biBody('You can only modify your own packages', 'يمكنك تعديل باقاتك الخاصة فقط'),
-      );
-    }
 
     pkg.is_active = isActive;
     await this.packagesRepository.save(pkg);
@@ -1004,6 +932,32 @@ export class PackagesService {
   }
 
   /* ===================== Course CMS: chapters & status ===================== */
+
+  /**
+   * Loads a non-deleted package for a teacher write/read: an absent package is 404, another
+   * teacher's is 403 with the caller-specific `forbidden` message (each endpoint words its own).
+   * `lookup` carries the few columns/relations a caller needs beyond the default row.
+   */
+  private async findOwnedPackage(
+    packageId: string,
+    teacherId: string,
+    forbidden: { en: string; ar: string },
+    lookup: Pick<FindOneOptions<LessonPackage>, 'select' | 'relations'> = {},
+  ): Promise<LessonPackage> {
+    const pkg = await this.packagesRepository.findOne({
+      where: { id: packageId, deleted_at: IsNull() },
+      ...lookup,
+    });
+    if (!pkg) {
+      throw new NotFoundException(
+        biBody(`Package with ID ${packageId} not found`, `الباقة بالمعرّف ${packageId} غير موجودة`),
+      );
+    }
+    if (pkg.teacher_id !== teacherId) {
+      throw new ForbiddenException(biBody(forbidden.en, forbidden.ar));
+    }
+    return pkg;
+  }
 
   /** Verify the package exists and belongs to the teacher. */
   private async assertOwnership(packageId: string, teacherId: string): Promise<LessonPackage> {

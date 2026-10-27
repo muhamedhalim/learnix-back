@@ -22,8 +22,6 @@ import { Subject } from '../subjects/entities/subject.entity';
 import { User } from '../users/entities/user.entity';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
-import { DistributedSingleFlightService } from './distributed-single-flight.service';
-import { ApplicationCacheService } from '../common/cache/application-cache.service';
 import { QuizAnalyticsController } from './quiz-analytics.controller';
 import { QuizAnalyticsService } from './quiz-analytics.service';
 import { ActivityLogsModule } from '../activity-logs/activity-logs.module';
@@ -60,16 +58,9 @@ import { AdminDashboardService } from './admin-dashboard.service';
   controllers: [AnalyticsController, QuizAnalyticsController],
   providers: [
     AnalyticsService,
-    DistributedSingleFlightService,
-    ApplicationCacheService,
     QuizAnalyticsService,
     AdminDashboardService,
   ],
-  exports: [
-    AnalyticsService,
-    DistributedSingleFlightService,
-    ApplicationCacheService,
-    QuizAnalyticsService,
-  ],
+  exports: [AnalyticsService, QuizAnalyticsService],
 })
 export class AnalyticsModule {}

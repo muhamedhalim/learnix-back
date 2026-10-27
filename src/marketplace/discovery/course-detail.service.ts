@@ -76,6 +76,26 @@ export class CourseDetailService {
     private readonly versions: CourseVersionService,
   ) {}
 
+  /**
+   * FR-090: the caller's own enrollment state for a course. Per-viewer and uncached — callers must
+   * never fold it into the shared, visitor-independent public detail cache entry.
+   */
+  public async getViewerEnrollment(
+    learnerId: string | undefined,
+    courseId: string,
+  ): Promise<{ enrolled: boolean; enrollment_id: string | null }> {
+    const active = learnerId
+      ? await this.enrollments.findOne({
+          where: {
+            learner_id: learnerId,
+            course_id: courseId,
+            status: MarketplaceEnrollmentStatus.ACTIVE,
+          },
+        })
+      : null;
+    return { enrolled: !!active, enrollment_id: active?.id ?? null };
+  }
+
   public async getBySlug(slug: string): Promise<PublicCourseDetail> {
     const course = await this.findVisibleBySlug(slug);
     const snapshot = await this.currentSnapshot(course);

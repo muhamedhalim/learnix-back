@@ -11,6 +11,8 @@ import { PackagePurchase } from '../payments/entities/package-purchase.entity';
 import { User } from '../users/entities/user.entity';
 import { CertificateEligibilityService } from './certificate-eligibility.service';
 import { CertificatePdfService } from './certificate-pdf.service';
+import { CertificateTemplatesService } from './certificate-templates.service';
+import { CertificateVerificationService } from './certificate-verification.service';
 import { CertificatesService } from './certificates.service';
 import {
   AdminCertificatesController,
@@ -18,7 +20,12 @@ import {
   StudentCertificatesController,
   TeacherCertificatesController,
 } from './controllers';
-import { Certificate, CertificateAutoIssuanceFailure, CertificateHistory, CertificateTemplate } from './entities';
+import {
+  Certificate,
+  CertificateAutoIssuanceFailure,
+  CertificateHistory,
+  CertificateTemplate,
+} from './entities';
 import { CertificateIssuanceListener } from './listeners/certificate-issuance.listener';
 import { CertificateNotificationListener } from './listeners/certificate-notification.listener';
 
@@ -47,6 +54,8 @@ import { CertificateNotificationListener } from './listeners/certificate-notific
   ],
   providers: [
     CertificatesService,
+    CertificateTemplatesService,
+    CertificateVerificationService,
     CertificateEligibilityService,
     CertificatePdfService,
     CertificateIssuanceListener,
