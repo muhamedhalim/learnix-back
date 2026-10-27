@@ -209,6 +209,21 @@ describe('marketplace applications — contract (contracts §2, §5)', () => {
       expect(instructorRow?.status).toBe(MarketplaceInstructorStatus.APPROVED);
     });
 
+    it('serves the paginated queue the admin console requests (?page=1&limit=20), not a 404', async () => {
+      const admin = await createAuthenticatedUser(app, dataSource);
+      await setUserRole(dataSource, admin.userId, 'admin');
+
+      const queue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications?page=1&limit=20`)
+        .expect(200);
+      expect(Array.isArray(queue.body.items)).toBe(true);
+      expect(typeof queue.body.total).toBe('number');
+
+      await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications?page=1&limit=500`)
+        .expect(400);
+    });
+
     it('requires a mandatory reason to reject (FR-018, FR-020)', async () => {
       const learner = await createAuthenticatedUser(app, dataSource);
       await learner.agent

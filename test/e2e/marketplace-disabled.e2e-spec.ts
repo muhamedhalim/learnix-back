@@ -96,6 +96,7 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
       await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(404);
       await request(server).get(`${API_PREFIX}/marketplace/categories`).expect(404);
       await request(server).get(`${API_PREFIX}/marketplace/admin/overview`).expect(404);
+      await request(server).get(`${API_PREFIX}/marketplace/admin/applications?page=1&limit=20`).expect(404);
       await request(server).post(`${API_PREFIX}/marketplace/applications`).send({}).expect(404);
     } finally {
       await app.close();
