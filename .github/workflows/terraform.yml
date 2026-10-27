@@ -20,7 +20,7 @@ on:
     branches: [main]
     paths: ['learnix-infra/**', '.github/workflows/terraform.yml']
   schedule:
-    - cron: '0 4 * * *' # drift check, 04:00 UTC (branch-sync in ci-cd.yml runs at 03:00)
+    - cron: '0 4 * * *' # drift check, 04:00 UTC
   workflow_dispatch:
     inputs:
       target:

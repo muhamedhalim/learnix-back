@@ -1,0 +1,232 @@
+name: Deploy to AWS (reusable)
+
+# Called ONLY by ci-cd.yml (`deploy-staging`, `deploy-production`); it has no trigger of its own. It is the one
+# AWS rollout of an environment: build and scan the image, run the migrate task, roll out api + worker with
+# automatic rollback, and prove that every task runs the commit's digest. The caller decides WHEN this may run
+# (after `ci-gate`, the promotion gates and, for production, a green staging rollout of the same commit in the
+# same run). Architecture and rules: docs/CI-CD-ARCHITECTURE.md.
+#
+# GitHub environment variables (staging / production), from `terraform output` in learnix-infra:
+#   AWS_REGION, AWS_DEPLOY_ROLE_ARN (deploy_roles.api), ECR_REPOSITORY_URL (ecr_repositories.api),
+#   ECS_CLUSTER (ecs_cluster), ECS_SERVICES ("api,worker" or "api" on single-role staging),
+#   MIGRATE_FAMILY (migrate_task_definition_family), TASK_NETWORK (task_network, JSON),
+#   DEPLOY_ALARMS (deploy_health_alarms), API_URL (api_url), DB_INSTANCE_ID (production only)
+# Nothing secret is stored here: the job assumes the deploy role through GitHub OIDC.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Target GitHub environment (staging or production)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, migrate and roll out (AWS)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    environment: ${{ inputs.environment }}
+    # One rollout (or rollback) per environment at a time, never cancelled midway: a newer run waits, and only
+    # a run that has not started yet can be replaced by a newer one.
+    concurrency:
+      group: deploy-api-${{ inputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET: ${{ inputs.environment }}
+      IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+    steps:
+      # Full history: scripts/ci/release-decision.sh compares the running commit with this one.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse an unconfigured environment
+        env:
+          REQUIRED: AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY_URL ECS_CLUSTER ECS_SERVICES MIGRATE_FAMILY TASK_NETWORK
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
+          TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          API_URL: ${{ vars.API_URL }}
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
+        run: |
+          # Production cannot succeed without proving the public domain serves the release (API_URL).
+          [ "$TARGET" = production ] && REQUIRED="$REQUIRED API_URL DB_INSTANCE_ID"
+          for v in $REQUIRED; do
+            [ -n "${!v}" ] || { echo "::error::GitHub environment variable $v is not set"; exit 1; }
+          done
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # What the environment RUNS decides what this job does (never run or deployment history, which misses
+      # rollbacks and workstation deploys). Any AWS error fails the job here. Under the per-environment lock
+      # above, a second run for a commit that is already live (duplicate trigger, retry) only verifies it, and
+      # a re-run of an older commit fails instead of rolling the environment back.
+      - name: What does the environment run now?
+        id: decision
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" --status > runtime-state.env
+          bash scripts/ci/release-decision.sh runtime-state.env "$GITHUB_SHA" "$ECR_REPOSITORY_URL" > decision.env
+          cat decision.env >> "$GITHUB_OUTPUT"
+          {
+            echo "### $TARGET: $(sed -n 's/^action=//p' decision.env)"
+            echo "- runs now: \`$(sed -n 's/^running_image=//p' decision.env)\`"
+            echo "- why: $(sed -n 's/^reason=//p' decision.env)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The ECR repositories are IMMUTABLE: a re-run whose push already happened reuses that image (built and
+      # scanned by the earlier attempt of this same commit) instead of failing on `docker push`.
+      - name: Is this commit's image already in ECR?
+        id: image
+        if: steps.decision.outputs.action == 'deploy'
+        run: |
+          repository="${IMAGE#*/}"; repository="${repository%:*}"
+          if digest=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$GITHUB_SHA" \
+            --query 'imageDetails[0].imageDigest' --output text 2>ecr-error.txt); then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Reusing $IMAGE ($digest) pushed by an earlier attempt."
+          elif grep -q ImageNotFoundException ecr-error.txt; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat ecr-error.txt >&2
+            echo "::error::cannot read ECR for $IMAGE"
+            exit 1
+          fi
+
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+        if: steps.image.outputs.exists == 'false'
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: steps.image.outputs.exists == 'false'
+
+      - name: Build (linux/arm64, RDS CA bundle included)
+        if: steps.image.outputs.exists == 'false'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+      - name: Scan the image (fail on fixable HIGH/CRITICAL)
+        if: steps.image.outputs.exists == 'false'
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1 (the unprefixed tag 0.33.1 does not exist)
+        with:
+          # Pinned explicitly: the action's default (v0.65.0) was withdrawn from GitHub releases, so the install
+          # step failed and blocked every deploy (run 39478524694). workflow-policy.test.mjs requires a pin.
+          version: v0.75.0
+          image-ref: ${{ env.IMAGE }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Push (immutable tag = commit)
+        if: steps.image.outputs.exists == 'false'
+        run: docker push "$IMAGE"
+
+      # Production only: a manual snapshot before migrations run. Replaces the old GitHub-artifact
+      # pg_dump, which copied production personal data out of the database account.
+      - name: Pre-deploy database snapshot
+        if: steps.decision.outputs.action == 'deploy' && env.TARGET == 'production'
+        env:
+          DB_INSTANCE_ID: ${{ vars.DB_INSTANCE_ID }}
+        run: |
+          id="pre-deploy-$(date -u +%Y%m%d%H%M)-${GITHUB_SHA::7}"
+          aws rds create-db-snapshot --db-instance-identifier "$DB_INSTANCE_ID" --db-snapshot-identifier "$id" \
+            --tags Key=Purpose,Value=pre-deploy Key=Commit,Value="$GITHUB_SHA" >/dev/null
+          aws rds wait db-snapshot-available --db-snapshot-identifier "$id"
+          status=$(aws rds describe-db-snapshots --db-snapshot-identifier "$id" --query 'DBSnapshots[0].Status' --output text)
+          [ "$status" = available ] || { echo "::error::snapshot $id is '$status', not available"; exit 1; }
+          echo "- pre-deploy snapshot \`$id\` (available)" >> "$GITHUB_STEP_SUMMARY"
+
+      # The job succeeds only when every running task is on the commit's digest and, for production (and any
+      # environment runners can reach), the public domain reports the commit at /api/v1/health/version.
+      # Any failed check rolls api + worker back to the revisions recorded before the deploy.
+      - name: Migrate, then roll out (automatic rollback)
+        if: steps.decision.outputs.action == 'deploy'
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          MIGRATE_FAMILY: ${{ vars.MIGRATE_FAMILY }}
+          TASK_NETWORK: ${{ vars.TASK_NETWORK }}
+          DEPLOY_ALARMS: ${{ vars.DEPLOY_ALARMS }}
+          API_URL: ${{ vars.API_URL }}
+          SMOKE_FROM_RUNNER: ${{ vars.SMOKE_FROM_RUNNER }}
+        run: |
+          verify=()
+          if [ "$TARGET" = production ] || [ "$SMOKE_FROM_RUNNER" = true ]; then verify=(--verify-url "$API_URL"); fi
+          bash learnix-infra/scripts/ecs-deploy.sh \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICES" \
+            --image "$IMAGE" \
+            --migrate-family "$MIGRATE_FAMILY" \
+            --network "$TASK_NETWORK" \
+            --alarm-names "$DEPLOY_ALARMS" \
+            "${verify[@]}"
+
+      # Nothing to roll out: the environment already runs this commit, or one with identical image inputs.
+      # That is only a success once it is PROVEN (every task on that digest, the domain serving that commit).
+      - name: Verify the running release (no rollout needed)
+        if: steps.decision.outputs.action == 'verify-running'
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+          API_URL: ${{ vars.API_URL }}
+          SMOKE_FROM_RUNNER: ${{ vars.SMOKE_FROM_RUNNER }}
+          RUNNING_IMAGE: ${{ steps.decision.outputs.running_image }}
+        run: |
+          verify=()
+          if [ "$TARGET" = production ] || [ "$SMOKE_FROM_RUNNER" = true ]; then verify=(--verify-url "$API_URL"); fi
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" \
+            --verify-only --image "$RUNNING_IMAGE" "${verify[@]}"
+
+      - name: Record what runs
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICES: ${{ vars.ECS_SERVICES }}
+        run: |
+          bash learnix-infra/scripts/ecs-deploy.sh --cluster "$ECS_CLUSTER" --services "$ECS_SERVICES" --status > final-state.env
+          image=$(sed -n 's/^running_image=//p' final-state.env)
+          repository="${image#*/}"; repository="${repository%:*}"
+          digest=$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="${image##*:}" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          {
+            echo "- now running \`$image\`, digest \`$digest\`"
+            echo "- requested commit \`$GITHUB_SHA\`, tree \`$(git rev-parse "HEAD^{tree}")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the rollback point
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          # The attempt number keeps a re-run from colliding with the artifact of the attempt it retries.
+          name: previous-task-definitions-api-${{ env.TARGET }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: previous-task-definitions.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # Staging is behind a WAF IP allowlist that GitHub's runners are not on; enable per environment.
+      - name: Read-only smoke test of the API host through CloudFront
+        if: vars.SMOKE_FROM_RUNNER == 'true'
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: bash scripts/smoke-test.sh "$API_URL"

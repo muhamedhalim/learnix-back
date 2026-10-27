@@ -9,10 +9,10 @@ const TREE = '107212a67a7f53521b532713815691a256e57d46';
 const OTHER = '449d46daff4924df8de1d508ee40fcdb841a1f21';
 const sha = (n) => String(n).repeat(40).slice(0, 40);
 
-const develop = (id, headSha, overrides = {}) => ({
+const mainRun = (id, headSha, overrides = {}) => ({
   id,
   head_sha: headSha,
-  head_branch: 'develop',
+  head_branch: 'main',
   event: 'push',
   conclusion: 'success',
   ...overrides,
@@ -26,9 +26,9 @@ const decide = ({ runs, trees = {}, deploys = {} }) =>
     deployConclusionOf: (id) => deploys[id],
   });
 
-test('accepts a develop push run of the same tree whose deploy job succeeded', () => {
+test('accepts a main push run of the same tree whose deploy job succeeded', () => {
   const outcome = decide({
-    runs: [develop(1, sha(1))],
+    runs: [mainRun(1, sha(1))],
     trees: { [sha(1)]: TREE },
     deploys: { 1: 'success' },
   });
@@ -36,16 +36,16 @@ test('accepts a develop push run of the same tree whose deploy job succeeded', (
   assert.equal(outcome.run.id, 1);
 });
 
-test('the commit id may differ: a merge commit on main shares the tree of the develop commit', () => {
+test('the commit id may differ: a re-created commit shares the tree of the staging-deployed commit', () => {
   const outcome = decide({
-    runs: [develop(7, sha(2))],
+    runs: [mainRun(7, sha(2))],
     trees: { [sha(2)]: TREE },
     deploys: { 7: 'success' },
   });
   assert.equal(outcome.ok, true);
 });
 
-test('rejects when no develop run exists at all (the situation that blocked the release)', () => {
+test('rejects when no main run exists at all', () => {
   const outcome = decide({ runs: [] });
   assert.equal(outcome.ok, false);
   assert.match(outcome.reason, /no successful staging deploy/u);
@@ -53,7 +53,7 @@ test('rejects when no develop run exists at all (the situation that blocked the 
 
 test('rejects a green run of a different tree', () => {
   const outcome = decide({
-    runs: [develop(1, sha(1))],
+    runs: [mainRun(1, sha(1))],
     trees: { [sha(1)]: OTHER },
     deploys: { 1: 'success' },
   });
@@ -63,7 +63,7 @@ test('rejects a green run of a different tree', () => {
 test('a green run whose deploy job was skipped is NOT proof of a staging deploy', () => {
   for (const conclusion of ['skipped', 'failure', 'cancelled', undefined]) {
     const outcome = decide({
-      runs: [develop(1, sha(1))],
+      runs: [mainRun(1, sha(1))],
       trees: { [sha(1)]: TREE },
       deploys: { 1: conclusion },
     });
@@ -74,7 +74,7 @@ test('a green run whose deploy job was skipped is NOT proof of a staging deploy'
 
 test('a later run of the same tree with a real deploy is accepted after an earlier skipped one', () => {
   const outcome = decide({
-    runs: [develop(2, sha(2)), develop(1, sha(1))],
+    runs: [mainRun(2, sha(2)), mainRun(1, sha(1))],
     trees: { [sha(2)]: TREE, [sha(1)]: TREE },
     deploys: { 2: 'skipped', 1: 'success' },
   });
@@ -82,9 +82,9 @@ test('a later run of the same tree with a real deploy is accepted after an earli
   assert.equal(outcome.run.id, 1);
 });
 
-test('only successful push runs on develop count, whatever the API returned', () => {
+test('only successful push runs on main count, whatever the API returned', () => {
   for (const override of [
-    { head_branch: 'main' },
+    { head_branch: 'develop' },
     { head_branch: 'feature/x' },
     { event: 'pull_request' },
     { event: 'workflow_dispatch' },
@@ -92,7 +92,7 @@ test('only successful push runs on develop count, whatever the API returned', ()
     { conclusion: null },
   ]) {
     const outcome = decide({
-      runs: [develop(1, sha(1), override)],
+      runs: [mainRun(1, sha(1), override)],
       trees: { [sha(1)]: TREE },
       deploys: { 1: 'success' },
     });
@@ -101,7 +101,7 @@ test('only successful push runs on develop count, whatever the API returned', ()
 });
 
 test('an unreadable commit (history rewritten) proves nothing', () => {
-  const outcome = decide({ runs: [develop(1, sha(1))], trees: {}, deploys: { 1: 'success' } });
+  const outcome = decide({ runs: [mainRun(1, sha(1))], trees: {}, deploys: { 1: 'success' } });
   assert.equal(outcome.ok, false);
 });
 
@@ -109,7 +109,7 @@ test('a malformed tree id fails closed', () => {
   for (const wantTree of [undefined, '', 'HEAD', 'abc123']) {
     const outcome = findVerifiedStagingRun({
       wantTree,
-      runs: [develop(1, sha(1))],
+      runs: [mainRun(1, sha(1))],
       treeOf: () => wantTree,
       deployConclusionOf: () => 'success',
     });
@@ -131,11 +131,15 @@ test('run() fails closed without a repository and on an API/git error', () => {
 });
 
 test('the workflow runs this script and the deploy job keeps the name the script looks for', () => {
-  const workflow = readFileSync(
-    fileURLToPath(new URL('../../../.github/workflows/ci-cd.yml', import.meta.url)),
-    'utf8',
-  );
-  assert.ok(workflow.includes(`name: ${DEPLOY_JOB_NAME}`), 'deploy job was renamed');
+  const read = (file) =>
+    readFileSync(
+      fileURLToPath(new URL(`../../../.github/workflows/${file}`, import.meta.url)),
+      'utf8',
+    );
+  const workflow = read('ci-cd.yml');
+  const [caller, called] = DEPLOY_JOB_NAME.split(' / ');
+  assert.ok(workflow.includes(`name: ${caller}`), 'staging caller job was renamed');
+  assert.ok(read('deploy-aws.yml').includes(`name: ${called}`), 'deploy job was renamed');
   assert.ok(
     workflow.includes('node scripts/ci/staging-gate.mjs'),
     'gate step no longer runs the script',

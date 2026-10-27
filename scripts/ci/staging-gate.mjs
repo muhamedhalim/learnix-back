@@ -1,15 +1,16 @@
-// The verdict of the "Production needs a green staging deploy of the same code" step of the `gates` job in
-// .github/workflows/ci-cd.yml.
+// The verdict of the "A manual production deploy needs a green staging deploy of the same code" step of the
+// `gates` job in .github/workflows/ci-cd.yml.
 //
-// Production may only receive a tree (the file contents of a commit) that AWS staging has already rolled out.
-// A merge into `main` gets a new commit id, so the comparison is on the tree, never on the commit id.
+// A push to main deploys staging and production in ONE run (production `needs` the staging job), so this gate
+// is only for a manual production dispatch, whose run has no staging job. Production may only receive a tree (the
+// file contents of a commit) that AWS staging has already rolled out; the comparison is on the tree, so a
+// docs-only or re-created commit of the same code is still recognised.
 //
 // A run counts as proof only when ALL of these hold:
-//   * it is a `push` run of ci-cd.yml on `develop` that finished `success`,
+//   * it is a `push` run of ci-cd.yml on `main` that finished `success`,
 //   * the tree of its head commit equals the tree being promoted, and
-//   * its `Build, migrate and roll out (AWS)` job finished `success`.
-// The last point matters: a push that changed only docs / learnix-infra makes the `control` job skip `deploy`,
-// and the run is still green. A green run is proof the checks passed, NOT that staging was deployed.
+//   * its staging rollout job (`Deploy staging / Build, migrate and roll out (AWS)`) finished `success`.
+// The last point matters: a run whose staging rollout was skipped or failed can still be partly green. A green run is proof the checks passed, NOT that staging was deployed.
 //
 // Input (environment):
 //   GITHUB_SHA     the commit being promoted
@@ -22,9 +23,10 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 export const WORKFLOW_FILE = 'ci-cd.yml';
-export const STAGING_BRANCH = 'develop';
-// Must equal the `name:` of the `deploy` job in ci-cd.yml (staging-gate.test.mjs enforces it).
-export const DEPLOY_JOB_NAME = 'Build, migrate and roll out (AWS)';
+export const STAGING_BRANCH = 'main';
+// The API names a called reusable-workflow job "<caller job name> / <called job name>": `name:` of the
+// `deploy-staging` job in ci-cd.yml, then of the `deploy` job in deploy-aws.yml (staging-gate.test.mjs enforces both).
+export const DEPLOY_JOB_NAME = 'Deploy staging / Build, migrate and roll out (AWS)';
 const MAX_PAGES = 10;
 const PER_PAGE = 100;
 
@@ -124,7 +126,7 @@ export function run(env = process.env) {
     return 0;
   }
   console.log(
-    `::error::No successful staging deploy of this code (tree ${wantTree}). Merge it into develop and let staging deploy first.`,
+    `::error::No successful staging deploy of this code (tree ${wantTree}). Push it to main and let the pipeline deploy staging first.`,
   );
   return 1;
 }

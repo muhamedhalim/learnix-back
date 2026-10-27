@@ -11,32 +11,30 @@ secrets from this session (no `gh` CLI, no GitHub Actions API access; every work
 validated by local YAML parsing and, where possible, by running the underlying script locally
 with the same inputs the workflow passes it — never by an actual triggered run).
 
-## 1. Backend — `.github/workflows/ci-cd.yml` (the ONLY workflow)
+## 1. Backend — `.github/workflows/ci-cd.yml` (the ONLY workflow with triggers)
 
-> **Consolidated.** Every backend pipeline lives in one file, `ci-cd.yml`. `ci.yml`, `deploy-aws.yml`,
-> `rollback-aws.yml`, `branch-sync.yml`, `deploy-production.yml` and `deploy-staging.yml` no longer exist (the
+> **Consolidated.** Every backend pipeline is triggered from one file, `ci-cd.yml`; the AWS rollout it calls once per environment is `deploy-aws.yml` (a `workflow_call`-only workflow with no trigger of its own). `ci.yml`, `deploy-aws.yml`,
+> `rollback-aws.yml`, `branch-sync.yml` (the main/develop divergence check was removed with `develop`), `deploy-production.yml` and `deploy-staging.yml` no longer exist (the
 > last two were retired Railway workflows). Do not add another workflow that triggers on `push`,
 > `pull_request` or `workflow_run`, or that deploys: extend `ci-cd.yml` instead.
 
 ### 1.0 Why one push used to start several runs, and the rule now
 
-A push to `main`/`develop` started two workflow runs (`CI` and `Branch sync check`), and the AWS staging
-deploy was a third, reusable workflow whose own triggers had to be kept in step with CI. Earlier revisions also
-ran CI on both `push` and `pull_request` for the same commit, and deployed from separate `push` workflows
-racing CI. All of that is now one run per event, with the deploy a _job_ of that run:
+**Main is the only release branch (2026-10-27).** `develop` no longer deploys, gates a deploy or has to be kept
+in step: a push to `main` runs the whole path, once, for that one commit. Earlier revisions ran CI on both
+`push` and `pull_request` for the same commit, deployed from separate `push` workflows racing CI, and promoted by
+merging `develop` -> `main`. Now there is one run per event, with the rollouts as _jobs_ of that run:
 
-| Event                                    | What runs (all in one `CI/CD` run)                                                                                                                                                                                      |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pull_request`                           | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                                                     |
-| push to `develop`                        | validation -> `ci-gate` -> `gates` -> `deploy` to **staging** (+ advisory `branch-sync`)                                                                                                                                |
-| push to `main`                           | validation -> `ci-gate` -> `gates` -> `deploy` to **production** (waits for the `production` environment reviewers; rebuilds unless production already runs an image-equivalent commit, which is then verified instead) |
-| nightly `schedule`                       | `branch-sync` only (fails the run if `main` is ahead of `develop`)                                                                                                                                                      |
-| `workflow_dispatch` `action=deploy`      | `gates` -> (`db-owner-approval`) -> `deploy` to the chosen environment                                                                                                                                                  |
-| `workflow_dispatch` `action=rollback`    | `rollback` (the environment's own approvals apply)                                                                                                                                                                      |
-| `workflow_dispatch` `action=branch-sync` | `branch-sync` only                                                                                                                                                                                                      |
+| Event                                 | What runs (all in one `CI/CD` run)                                                                                                                                                                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pull_request`                        | every validation job + `ci-gate`. Never deploys, never touches AWS.                                                                                                                                                                                                             |
+| push to `main`                        | validation -> `ci-gate` -> `gates` -> `deploy-staging` -> (`db-owner-approval`) -> `deploy-production` (waits for the `production` environment reviewers). Each rollout rebuilds unless the environment already runs an image-equivalent commit, which is then verified instead |
+| `workflow_dispatch` `action=deploy`   | `gates` -> the chosen environment only, from `main` only. A manual production deploy also needs a successful staging rollout of the same tree (`staging-gate.mjs`) and the same approvals                                                                                       |
+| `workflow_dispatch` `action=rollback` | `rollback` (the environment's own approvals apply)                                                                                                                                                                                                                              |
 
-`control` is the single place that maps an event to these paths (outputs `ci`, `deploy`, `rollback`,
-`branch_sync`, `environment`, `manual`).
+Pushes to any other branch (including `develop`) start nothing; their pull request runs the validation jobs.
+`control` is the single place that maps an event to these paths (outputs `ci`, `deploy`, `deploy_staging`,
+`deploy_production`, `rollback`, `environment`, `manual`).
 
 Job graph:
 
@@ -44,21 +42,30 @@ Job graph:
 control -+- build-test -+- migration-chain ---+
          |              +- e2e-shard x4 -> e2e +
          +- format-check, env-validation, secret-scan,
-         |  dependency-audit, workflow-lint -----+--> ci-gate -> gates -> [db-owner-approval] -> deploy
-         |  (migration-safety-check: advisory)        (staging: push to develop; production: push to main or dispatch)
+         |  dependency-audit, workflow-lint -----+--> ci-gate -> gates -> deploy-staging -> [db-owner-approval] -> deploy-production
+         |  (migration-safety-check: advisory)                     (both call .github/workflows/deploy-aws.yml)
          +- rollback      (dispatch action=rollback)
-         +- branch-sync   (push / nightly / dispatch)
 ```
 
-Concurrency: validation of a PR is cancelled when a newer commit arrives; pushes to `main`/`develop` queue (a
+**How deployment integrity is kept without `develop`.** The same checks still stand between a commit and
+production; what changed is where staging sits. Staging is no longer a separate earlier run on another branch: it
+is the first rollout of the _same run and the same commit_. `deploy-production` `needs` `deploy-staging`, so
+production starts only after this exact commit was built, scanned, migrated and verified in staging (every task on
+the commit's digest, alarms quiet, public domain reporting the commit where reachable). A failed or cancelled
+staging rollout skips production. Destructive migrations are asked of the database owner only after staging has
+run them. The image is rebuilt per environment (each account has its own immutable ECR repository) from the same
+commit, Dockerfile and lockfile, and passes the same Trivy scan each time; the commit SHA, not a branch, is the
+release identity.
+
+Concurrency: validation of a PR is cancelled when a newer commit arrives; pushes to `main` queue (a
 run that is already deploying is never cancelled, and a newer push replaces only a run that has not started);
-manual and scheduled runs have a unique group. `deploy` and `rollback` share the lock `deploy-api-<environment>`
+manual runs have a unique group. The rollouts and `rollback` share the lock `deploy-api-<environment>`
 with `cancel-in-progress: false`, so two operations never touch the same ECS services at once and an
 in-flight rollout is never cancelled.
 
 ### 1.1 Validation jobs
 
-Triggered by `pull_request` and by pushes to `main`/`develop` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
+Triggered by `pull_request` and by pushes to `main` (pushes to other branches are covered by their PR; see `CI-CD-AUDIT-REPORT.md`). Jobs, in the order they appear in the file:
 
 | Job                                    | What it does                                                                                                                                                                                                                                      | New this phase? |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
@@ -73,7 +80,7 @@ Triggered by `pull_request` and by pushes to `main`/`develop` (pushes to other b
 | `workflow-lint`                        | **New.** `actionlint` (pinned by digest) over every workflow file: expression/context typos, bad `needs`, reusable-workflow inputs, shellcheck on `run:` scripts; then shellcheck and the tests of `scripts/ci/`                                  |
 | `ci-gate`                              | `scripts/ci/ci-gate.mjs`: fails unless every required validation job above reported `success` (skipped, cancelled, missing or an empty result list all fail; the failing jobs are named). The only thing `gates`/`deploy` wait for                |
 | `gates`, `db-owner-approval`, `deploy` | Release path, see 1.2                                                                                                                                                                                                                             |
-| `rollback`, `branch-sync`              | Manual rollback and the nightly/push divergence check, see 1.3                                                                                                                                                                                    |
+| `rollback`                             | Manual rollback, see 1.3                                                                                                                                                                                                                          |
 
 #### E2E diagnostics (what to open when `e2e` is red)
 
@@ -91,16 +98,16 @@ CA bundle, scans it (Trivy, fixable HIGH/CRITICAL fail), pushes it to ECR under 
 the service family (so Terraform changes to environment, secrets and sidecars ship with the release), the migrate
 task runs first (must exit 0), then api + worker, with automatic rollback when a deployment fails or one of the
 `DEPLOY_ALARMS` fires. The deploy refuses to start while one of those alarms is already firing. Credentials come from GitHub OIDC (`AWS_DEPLOY_ROLE_ARN`); nothing secret is
-stored in the workflow. Required environment variables are listed in the comment above the `gates` job.
+stored in the workflow. Required environment variables are listed in the header of `deploy-aws.yml`.
 
-- **Staging**: automatic on push to `develop`, only after `ci-gate` passed, in the same run.
-- **Production**: automatic on push to `main` (after `ci-gate`), or by `workflow_dispatch`
-  (`action=deploy`, `environment=production`). Requires a successful push run of `ci-cd.yml` on `develop` whose
-  git TREE equals the tree being deployed (a merge commit on `main` has a new SHA, so the comparison is on
-  content) and whose own `deploy` job succeeded (`scripts/ci/staging-gate.mjs`; a green run whose `deploy` was
-  skipped, e.g. a docs-only push, is not accepted), the migration
-  classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment), the
-  `production` environment's reviewers, and an RDS snapshot taken before migrating.
+- **Staging**: automatic on push to `main`, only after `ci-gate` and `gates` passed, in the same run (`deploy-staging`).
+- **Production**: automatic on push to `main`, only after `deploy-staging` of the same run succeeded (`needs`), the
+  migration classifier (`BLOCKED` fails; `NEEDS_DB_APPROVAL` waits for the `production-db-approval` environment,
+  asked after staging), the `production` environment's reviewers, and an RDS snapshot taken before migrating. By
+  `workflow_dispatch` (`action=deploy`, `environment=production`, from `main`) there is no staging job in the run, so
+  `scripts/ci/staging-gate.mjs` requires a successful push run of `ci-cd.yml` on `main` whose git TREE equals the
+  tree being deployed and whose own `Deploy staging / Build, migrate and roll out (AWS)` job succeeded (a green run
+  whose staging rollout was skipped is not accepted).
 - Post-deploy verification (`ecs-deploy.sh`, automatic rollback on any failure): each service's PRIMARY deployment
   must be the NEW revision, COMPLETED and alone (an ECS circuit-breaker rollback also ends COMPLETED and is a
   failure), the alarm watch, every RUNNING task must be on the new revision with the digest ECR holds for the
@@ -115,13 +122,12 @@ stored in the workflow. Required environment variables are listed in the comment
 
 ### 1.2.1 Release procedure (the only one)
 
-1. Merge the change into `develop` by PR (CI must be green). The push run deploys **staging** and verifies it.
-2. Open the release PR `develop` -> `main`. The push run of `main` waits for the `production` environment's
-   reviewers, checks that staging deployed the same tree (`scripts/ci/staging-gate.mjs`) and classifies migrations
-   (`NEEDS_DB_APPROVAL` waits for `production-db-approval`). Then: RDS snapshot (verified `available`), migrate
-   task (exit 0), rollout of api + worker, task/digest check, 10 x `GET https://api.learnix.school/api/v1/health/version`.
-3. A hotfix on `main` must be merged back into `develop` in the same change (`branch-sync`). A sync PR from `main`
-   into `develop` must have **base `develop`** (PR #20 targeted `main` and synced nothing).
+1. Merge the change into `main` by PR (CI must be green), or push to `main`. That is the only step.
+2. The push run validates, deploys **staging** and verifies it, then (after the `production` environment's
+   reviewers, and `production-db-approval` for a destructive migration) deploys **production**: RDS snapshot (verified
+   `available`), migrate task (exit 0), rollout of api + worker, task/digest check,
+   10 x `GET https://api.learnix.school/api/v1/health/version`.
+3. A hotfix is the same path: push it to `main`. There is no merge-back and no `develop` branch to keep in step.
 4. To retry a failed release, re-run the failed jobs of the same run: the existing image is reused, a commit
    that already runs is only verified. To go back, use `workflow_dispatch` `action=rollback`.
 5. Workstation deploys (`ecs-deploy.sh` run by hand) bypass the reviewers and the staging gate: emergency only,
@@ -129,16 +135,11 @@ stored in the workflow. Required environment variables are listed in the comment
 
 - There is no Terraform in this workflow: see 1.4.
 
-### 1.3 `rollback` and `branch-sync`
+### 1.3 `rollback`
 
 `rollback` (`workflow_dispatch`, `action=rollback`) re-points ECS services at earlier task-definition revisions;
-database changes are not reverted. `branch-sync` (`scripts/ci/branch-sync-check.sh`) fails if `main` has a
-non-merge commit whose change is not in `develop` (a hotfix that was not merged back, plan section 11; a release
-merge commit alone, or a cherry-picked merge-back, is fine) and warns when `develop` drifts over 100 commits
-ahead. It reads the refs that `fetch-depth: 0` already fetched and needs no credentials, so `persist-credentials:
-false` stays; it fails closed when a ref or the full history is missing. On a push it is advisory
-(`continue-on-error`) so that, as before the merge, it cannot turn the run red and block the production gate;
-nightly and manual runs fail normally.
+database changes are not reverted. The former `branch-sync` job and `branch-sync-check.sh` (main/develop
+divergence) were removed: with `main` as the only release branch there is nothing to diverge from.
 
 ### 1.4 Terraform: `terraform.yml`
 
@@ -160,14 +161,13 @@ trusts only the `infra-<env>` GitHub environment. Both are pinned to `muhamedhal
 
 ### 1.5 `scripts/ci/`: the logic that decides pass/fail is in tested scripts
 
-| Script                 | Used by                              | What it guarantees                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm-ci.sh`            | every job that installs dependencies | `npm ci` (deterministic) with at most 3 attempts, only for network errors (`ECONNRESET`, `ETIMEDOUT`, registry 5xx ...); lockfile, auth, 404, integrity and engine errors fail at once. npm's own status is preserved, credentials are masked, the runner's npm log path is printed (the log itself never is). Sets `fetch-retries`, `fetch-timeout`, `--no-audit --no-fund --prefer-offline`. |
-| `changed-files.sh`     | `format-check`                       | NUL-delimited changed `.ts/.tsx/.js/.jsx/.json/.md` files, no deletions; base = event base, else merge-base, else first parent, else the empty tree; fails on unknown head, shallow clone or a git error                                                                                                                                                                                       |
-| `branch-sync-check.sh` | `branch-sync`                        | See 1.3                                                                                                                                                                                                                                                                                                                                                                                        |
-| `ci-gate.mjs`          | `ci-gate`                            | See the job table                                                                                                                                                                                                                                                                                                                                                                              |
-| `e2e-verdict.mjs`      | `e2e`                                | See "E2E diagnostics"                                                                                                                                                                                                                                                                                                                                                                          |
-| `redact.mjs`           | `e2e-shard`, `e2e-verdict.mjs`       | Masks connection strings, bearer tokens, key=value secrets and known token shapes                                                                                                                                                                                                                                                                                                              |
+| Script             | Used by                              | What it guarantees                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm-ci.sh`        | every job that installs dependencies | `npm ci` (deterministic) with at most 3 attempts, only for network errors (`ECONNRESET`, `ETIMEDOUT`, registry 5xx ...); lockfile, auth, 404, integrity and engine errors fail at once. npm's own status is preserved, credentials are masked, the runner's npm log path is printed (the log itself never is). Sets `fetch-retries`, `fetch-timeout`, `--no-audit --no-fund --prefer-offline`. |
+| `changed-files.sh` | `format-check`                       | NUL-delimited changed `.ts/.tsx/.js/.jsx/.json/.md` files, no deletions; base = event base, else merge-base, else first parent, else the empty tree; fails on unknown head, shallow clone or a git error                                                                                                                                                                                       |
+| `ci-gate.mjs`      | `ci-gate`                            | See the job table                                                                                                                                                                                                                                                                                                                                                                              |
+| `e2e-verdict.mjs`  | `e2e`                                | See "E2E diagnostics"                                                                                                                                                                                                                                                                                                                                                                          |
+| `redact.mjs`       | `e2e-shard`, `e2e-verdict.mjs`       | Masks connection strings, bearer tokens, key=value secrets and known token shapes                                                                                                                                                                                                                                                                                                              |
 
 `bash scripts/ci/run-tests.sh` runs their tests (throwaway git repositories, a fake `npm`, `node --test`); the
 `workflow-lint` job runs them and shellchecks the scripts on every change. A retry wrapper cannot confirm that the
@@ -223,10 +223,10 @@ Nothing below is verified: the audit had no GitHub access. Each must be created 
 
 | Setting                               | Value                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Environments                          | `staging`, `production` (required reviewers), `production-db-approval` (DB owners), `infra-staging`, `infra-production`, `infra-management` (required reviewers). Restrict deployment branches: `develop`/`main` only                                                                                                                         |
+| Environments                          | `staging`, `production` (required reviewers), `production-db-approval` (DB owners), `infra-staging`, `infra-production`, `infra-management` (required reviewers). Restrict deployment branches: `main` only (the staging rollout now runs from `main`, so `staging` must allow `main`)                                                        |
 | Variables of `staging` / `production` | `AWS_REGION` (eu-central-1), `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY_URL`, `ECS_CLUSTER`, `ECS_SERVICES`, `MIGRATE_FAMILY`, `TASK_NETWORK`, `DEPLOY_ALARMS`, `API_URL`, `SMOKE_FROM_RUNNER`; production also `DB_INSTANCE_ID`                                                                                                                  |
 | Repository variables (Terraform)      | `AWS_REGION`, `STAGING_PLAN_ROLE_ARN`, `STAGING_APPLY_ROLE_ARN`, `STAGING_TF_STATE_BUCKET`, `STAGING_TF_STATE_KMS_KEY_ARN`, `STAGING_TFVARS_JSON`, the same with `PRODUCTION_`, and for `org/`: `AWS_PLAN_ROLE_ARN`, `AWS_APPLY_ROLE_ARN`, `TF_STATE_BUCKET`, `TF_STATE_KMS_KEY_ARN`, `ORG_TFVARS_JSON`. All are outputs or non-secret values |
-| Branch protection (`main`, `develop`) | Require PRs and the checks `CI gate` and `E2E tests (Postgres + Redis)`; see `BRANCH_PROTECTION_SETUP.md`. Terraform static checks are required for changes under `learnix-infra`                                                                                                                                                             |
+| Branch protection (`main`)            | Require PRs and the checks `CI gate` and `E2E tests (Postgres + Redis)`; see `BRANCH_PROTECTION_SETUP.md`. Terraform static checks are required for changes under `learnix-infra`                                                                                                                                                             |
 | AWS side                              | OIDC provider and roles from `learnix-infra/bootstrap` with `github_repository = muhamedhalim/learnix-back`; the per-environment deploy roles from `modules/deploy-role`                                                                                                                                                                      |
 | Other automation on the same branches | Railway's GitHub integration (retired) must be disconnected; Vercel's Git integration deploys the frontend (intended, a separate target)                                                                                                                                                                                                      |
 
