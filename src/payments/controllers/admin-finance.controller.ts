@@ -39,7 +39,7 @@ import { FinancePermissions } from '../decorators/finance-permissions.decorator'
 import { FinanceAuditService } from '../services/finance-audit.service';
 import { FinancePermissionsGuard } from '../guards/finance-permissions.guard';
 import { OrdersService } from '../services/orders.service';
-import { PaymentOperationsService } from '../services/payment-operations.service';
+import { FinancialReportsService } from '../services/financial-reports.service';
 import { RefundsService } from '../services/refunds.service';
 import { SettlementsService } from '../services/settlements.service';
 import type { Response } from 'express';
@@ -72,7 +72,7 @@ export class AdminFinanceController {
     private readonly manualPayments: ManualPaymentsService,
     private readonly refunds: RefundsService,
     private readonly settlements: SettlementsService,
-    private readonly operations: PaymentOperationsService,
+    private readonly financialReports: FinancialReportsService,
     private readonly financeAudit: FinanceAuditService,
   ) {}
 
@@ -289,25 +289,25 @@ export class AdminFinanceController {
   @Get('reconciliation')
   @FinancePermissions('reconciliation.review')
   public async reconciliation() {
-    return { data: await this.operations.reconciliationReport() };
+    return { data: await this.financialReports.reconciliationReport() };
   }
 
   @Get('reports')
   @FinancePermissions('reports.view')
   public async reports(@Query() filter: FinancialReportFilterDto) {
-    return { data: await this.operations.financialReport(filter) };
+    return { data: await this.financialReports.financialReport(filter) };
   }
 
   @Get('reports/reconciliation-warnings')
   @FinancePermissions('reconciliation.review')
   public async reportReconciliationWarnings() {
-    return { data: await this.operations.reportReconciliationWarnings() };
+    return { data: await this.financialReports.reportReconciliationWarnings() };
   }
 
   @Get('reports/export')
   @FinancePermissions('reports.export')
   public async exportReports(@Query() filter: FinancialReportFilterDto, @Res() response: Response) {
-    const csv = await this.operations.financialReportCsv(filter);
+    const csv = await this.financialReports.financialReportCsv(filter);
     response.setHeader('Content-Type', 'text/csv; charset=utf-8');
     response.setHeader('Content-Disposition', 'attachment; filename="financial-report.csv"');
     response.send(csv);

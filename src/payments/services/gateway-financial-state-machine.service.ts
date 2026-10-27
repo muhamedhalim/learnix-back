@@ -16,6 +16,7 @@ import type { ProviderWebhookEvent } from '../providers/payment-gateway.interfac
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { CartCheckoutService } from './cart-checkout.service';
 import { RefundsService } from './refunds.service';
+import { markWebhookEventProcessed } from '../finance-persistence';
 
 /**
  * The one transaction boundary for successful and refunded provider events.
@@ -96,15 +97,7 @@ export class GatewayFinancialStateMachineService {
             .orIgnore()
             .execute();
         }
-        event.status = 'processed';
-        event.processed_at = new Date();
-        event.error_message = null;
-        event.last_error = null;
-        event.lease_token = null;
-        event.claimed_by = null;
-        event.lease_expires_at = null;
-        event.next_retry_at = null;
-        await manager.save(event);
+        await markWebhookEventProcessed(manager, event);
         return 'completed';
       }
       if (payment?.cart_checkout_id && payment.order_id === null) {
@@ -150,15 +143,7 @@ export class GatewayFinancialStateMachineService {
             }
             throw error;
           }
-          event.status = 'processed';
-          event.processed_at = new Date();
-          event.error_message = null;
-          event.last_error = null;
-          event.lease_token = null;
-          event.claimed_by = null;
-          event.lease_expires_at = null;
-          event.next_retry_at = null;
-          await manager.save(event);
+          await markWebhookEventProcessed(manager, event);
         }
         return 'completed';
       }
@@ -216,16 +201,7 @@ export class GatewayFinancialStateMachineService {
         );
       }
       if (webhook.outcome === 'succeeded' || webhook.outcome === 'refunded') {
-        event.status = 'processed';
-        event.processed_at = new Date();
-        event.error_message = null;
-        event.last_error = null;
-        event.lease_token = null;
-        event.claimed_by = null;
-        event.lease_expires_at = null;
-        event.heartbeat_at = null;
-        event.next_retry_at = null;
-        await manager.save(event);
+        await markWebhookEventProcessed(manager, event);
       }
       return 'completed';
     });

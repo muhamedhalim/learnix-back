@@ -62,6 +62,7 @@ import { GatewayFinancialStateMachineService } from './services/gateway-financia
 import { ManualPaymentsService } from './services/manual-payments.service';
 import { OrdersService } from './services/orders.service';
 import { PaymentFinalizationService } from './services/payment-finalization.service';
+import { FinancialReportsService } from './services/financial-reports.service';
 import { PaymentOperationsService } from './services/payment-operations.service';
 import { PaymentProviderRegistry } from './services/payment-provider-registry.service';
 import { FinancePermissionsGuard } from './guards/finance-permissions.guard';
@@ -72,7 +73,7 @@ import { SettlementsService } from './services/settlements.service';
 
 @Module({
   imports: [
-    forwardRef(() => DiscountCodesModule),
+    DiscountCodesModule,
     ConfigModule,
     // Supplies ScheduledJobMonitorService to the payment-critical @Cron jobs
     // (finance maintenance, gateway reconciliation, webhook recovery). Safe to
@@ -161,6 +162,7 @@ import { SettlementsService } from './services/settlements.service';
     SettlementsService,
     FinanceAuditService,
     PaymentOperationsService,
+    FinancialReportsService,
     GatewayWebhookService,
     GatewayFinancialStateMachineService,
     LessonSessionsService,
@@ -186,6 +188,7 @@ import { SettlementsService } from './services/settlements.service';
     EntitlementsService,
     PaymentFinalizationService,
     PaymentOperationsService,
+    FinancialReportsService,
     LessonSessionsService,
     // Lets marketplace code reuse the exact same HMAC-verified,
     // idempotency-guarded webhook entry point academic checkout uses,

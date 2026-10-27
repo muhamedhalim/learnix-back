@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { DataSource, In, IsNull, MoreThan, Repository, SelectQueryBuilder } from 'typeorm';
@@ -133,7 +133,6 @@ export class PaymentsService {
     @InjectRepository(BookPurchase)
     private readonly bookPurchasesRepository: Repository<BookPurchase>,
     private readonly dataSource: DataSource,
-    @Inject(forwardRef(() => DiscountCodesService))
     private readonly discountCodesService: DiscountCodesService,
     private readonly ordersService: OrdersService,
     private readonly finalizer: PaymentFinalizationService,

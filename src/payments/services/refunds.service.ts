@@ -40,13 +40,13 @@ import {
   Payment,
   PaymentAuditLog,
   PaymentChannel,
-  PaymentDomainEvent,
   PaymentStatus,
   Refund,
   RefundAttempt,
   RefundStatus,
 } from '../entities';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
+import { writeDomainEvent, writePaymentAudit } from '../finance-persistence';
 
 /**
  * Requested/completed refund amount exceeds the order's remaining refundable
@@ -142,7 +142,7 @@ export class RefundsService {
         reason_code: refund.reason_code,
         entitlement_policy: refund.metadata?.['entitlement_policy'],
       });
-      await this.event(manager, 'refund.requested', `refund:${refund.id}:requested`, {
+      await writeDomainEvent(manager, 'refund.requested', `refund:${refund.id}:requested`, {
         refund_id: refund.id,
         order_id: order.id,
       });
@@ -152,59 +152,6 @@ export class RefundsService {
 
   public async processGateway(refundId: string, adminId: string): Promise<Refund> {
     return this.processGatewayClaimed(refundId, adminId);
-    /* legacy implementation retained below as an unreachable compatibility reference
-    const refund = await this.refunds.findOne({ where: { id: refundId } });
-    if (!refund || refund.channel !== PaymentChannel.GATEWAY || !refund.payment_id) {
-      throw new NotFoundException(
-        biBody('Gateway refund not found', 'طلب استرداد البوابة غير موجود'),
-      );
-    }
-    const payment = await this.payments.findOne({ where: { id: refund.payment_id } });
-    if (!payment?.provider || !payment.provider_reference) {
-      throw new ConflictException(
-        biBody(
-          'Payment has no reconcilable provider reference',
-          'عملية الدفع لا تحتوي على مرجع مزود قابل للتسوية',
-        ),
-      );
-    }
-    const provider = this.providers.get(payment.provider);
-    if (!provider.supportsRefunds()) {
-      await this.refundAttempts.update(attempt.id, {
-        status: 'failed_definitive',
-        completed_at: new Date(),
-        lease_expires_at: null,
-        last_error: 'Configured gateway does not support refunds',
-      });
-      throw new ConflictException(
-        biBody(
-          'Configured gateway does not support API refunds; record an externally confirmed refund instead',
-          'بوابة الدفع الحالية لا تدعم الاسترداد الآلي؛ سجل الاسترداد المؤكد خارجياً',
-        ),
-      );
-    }
-    await this.refunds.update(refund.id, {
-      status: RefundStatus.PROCESSING,
-      approved_by: adminId,
-    });
-    const providerResult = await provider.refund({
-      providerReference: payment.provider_reference,
-      amountMinor: refund.amount_minor,
-      currency: refund.currency,
-      idempotencyKey: `refund-${refund.id}`,
-    });
-    if (providerResult.status === 'succeeded') {
-      return this.complete(
-        refund.id,
-        {
-          external_method: payment.provider,
-          external_reference: providerResult.providerReference,
-        },
-        adminId,
-        true,
-      );
-    }
-    return (await this.refunds.findOne({ where: { id: refund.id } })) ?? refund; */
   }
 
   private async processGatewayClaimed(refundId: string, adminId: string): Promise<Refund> {
@@ -447,14 +394,14 @@ export class RefundsService {
       }
       await this.reverseLedger(manager, order, refund, refundedBefore);
       await this.notification(manager, order, refund);
-      await this.event(manager, 'refund.completed', `refund:${refund.id}:completed`, {
+      await writeDomainEvent(manager, 'refund.completed', `refund:${refund.id}:completed`, {
         refund_id: refund.id,
         order_id: order.id,
         amount_minor: refund.amount_minor,
         currency: refund.currency,
       });
       if (order.status === OrderStatus.REFUNDED) {
-        await this.event(
+        await writeDomainEvent(
           manager,
           'entitlement.revoked',
           `refund:${refund.id}:entitlement-revoked`,
@@ -491,81 +438,6 @@ export class RefundsService {
       amountMinor,
       currency,
     );
-    /* legacy implementation retained below as an unreachable compatibility reference
-    const payment = await this.payments.findOne({ where: { id: paymentId } });
-    if (!payment?.order_id) {
-      throw new NotFoundException(
-        biBody('Canonical payment order not found', 'طلب الدفع الأساسي غير موجود'),
-      );
-    }
-    let refund = await this.refunds.findOne({
-      where: { order_id: payment.order_id, status: RefundStatus.PROCESSING },
-    });
-    if (!refund) {
-      const order = await this.orders.findOne({ where: { id: payment.order_id } });
-      if (!order) throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
-      const remaining = order.final_amount_minor - order.refunded_amount_minor;
-      if (
-        ![OrderStatus.PAID, OrderStatus.PARTIALLY_REFUNDED].includes(order.status) ||
-        amountMinor > remaining ||
-        currency.toUpperCase() !== order.currency.toUpperCase()
-      ) {
-        throw new BadRequestException(
-          biBody(
-            'Provider refund does not match the remaining paid order amount and currency',
-            'استرداد المزود لا يطابق المبلغ المدفوع المتبقي وعملة الطلب',
-          ),
-        );
-      }
-      refund = await this.refunds.save(
-        this.refunds.create({
-          order_id: order.id,
-          payment_id: payment.id,
-          channel: PaymentChannel.GATEWAY,
-          amount_minor: amountMinor,
-          currency,
-          status: RefundStatus.PROCESSING,
-          reason_code: 'provider_refund',
-          reason: 'Provider reported a completed refund',
-          internal_note: null,
-          external_method: payment.provider,
-          external_reference: externalReference,
-          proof_file_key: null,
-          requested_by: order.student_id,
-          approved_by: null,
-          completed_by: null,
-          completed_at: null,
-          metadata: { provider_notification: true },
-        }),
-      );
-    } else {
-      const order = await this.orders.findOne({ where: { id: payment.order_id } });
-      const remaining = order ? order.final_amount_minor - order.refunded_amount_minor : -1;
-      if (
-        !order ||
-        order.status !== OrderStatus.PAID ||
-        amountMinor !== remaining ||
-        currency.toUpperCase() !== order.currency.toUpperCase() ||
-        refund.amount_minor !== amountMinor ||
-        refund.currency.toUpperCase() !== currency.toUpperCase()
-      ) {
-        throw new BadRequestException(
-          biBody(
-            'Provider refund does not match the pending refund or remaining paid order amount',
-            'استرداد المزود لا يطابق الاسترداد المعلق أو مبلغ الطلب المدفوع المتبقي',
-          ),
-        );
-      }
-    }
-    return this.complete(
-      refund.id,
-      {
-        external_method: payment.provider ?? 'gateway',
-        external_reference: externalReference,
-      },
-      refund.requested_by,
-      true,
-    ); */
   }
 
   private async completeProviderNotificationLocked(
@@ -810,7 +682,7 @@ export class RefundsService {
         },
       });
       if (!revoked) continue;
-      await this.event(
+      await writeDomainEvent(
         manager,
         'certificate.revoked',
         `refund:${refund.id}:certificate-revoked:${revoked.id}`,
@@ -1040,35 +912,12 @@ export class RefundsService {
     refund: Refund,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await manager.insert(PaymentAuditLog, {
-      actor_id: actorId,
+    await writePaymentAudit(manager, {
+      actorId,
       action,
-      resource_type: 'refund',
-      resource_id: refund.id,
-      details: details as never,
-      ip_address: null,
+      resourceType: 'refund',
+      resourceId: refund.id,
+      details,
     });
-  }
-
-  private async event(
-    manager: EntityManager,
-    name: string,
-    dedupeKey: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    await manager
-      .createQueryBuilder()
-      .insert()
-      .into(PaymentDomainEvent)
-      .values({
-        event_name: name,
-        dedupe_key: dedupeKey,
-        payload: payload as never,
-        published_at: null,
-        attempts: 0,
-        last_error: null,
-      })
-      .orIgnore()
-      .execute();
   }
 }

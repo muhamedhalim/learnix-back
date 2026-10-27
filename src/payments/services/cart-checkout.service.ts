@@ -32,7 +32,6 @@ import {
   Payment,
   PaymentAuditLog,
   PaymentChannel,
-  PaymentDomainEvent,
   PaymentStatus,
   Refund,
   RefundStatus,
@@ -46,6 +45,7 @@ import {
 import { PaymentFinalizationService } from './payment-finalization.service';
 import { PaymentProviderRegistry } from './payment-provider-registry.service';
 import { RefundsService } from './refunds.service';
+import { writeDomainEvent } from '../finance-persistence';
 
 export interface CartGatewayCheckoutResult {
   checkout_id: string;
@@ -256,7 +256,7 @@ export class CartCheckoutService {
       },
       ip_address: null,
     });
-    await this.insertEvent(manager, 'cart_checkout.paid', `cart-checkout:${checkout.id}:paid`, {
+    await writeDomainEvent(manager, 'cart_checkout.paid', `cart-checkout:${checkout.id}:paid`, {
       checkout_id: checkout.id,
       payment_id: payment.id,
       order_ids: childOrders.map((order) => order.id),
@@ -298,7 +298,7 @@ export class CartCheckoutService {
         details: { payment_id: payment.id, reason },
         ip_address: null,
       });
-      await this.insertEvent(
+      await writeDomainEvent(
         manager,
         'cart_checkout.failed',
         `cart-checkout:${checkout.id}:failed`,
@@ -439,7 +439,7 @@ export class CartCheckoutService {
       details: { payment_id: payment.id, source_reference: sourceReference, reason },
       ip_address: null,
     });
-    await this.insertEvent(
+    await writeDomainEvent(
       manager,
       'cart_checkout.fulfillment_compensation_required',
       `cart-checkout:${checkout.id}:fulfillment-compensation`,
@@ -498,7 +498,7 @@ export class CartCheckoutService {
           { cart_checkout_id: checkout.id, status: OrderStatus.AWAITING_PAYMENT },
           { status: OrderStatus.EXPIRED },
         );
-        await this.insertEvent(
+        await writeDomainEvent(
           manager,
           'cart_checkout.expired',
           `cart-checkout:${checkout.id}:expired`,
@@ -984,27 +984,5 @@ export class CartCheckoutService {
   private orderNumber(): string {
     const day = new Date().toISOString().slice(0, 10).replaceAll('-', '');
     return `LX-${day}-${randomBytes(5).toString('hex').toUpperCase()}`;
-  }
-
-  private async insertEvent(
-    manager: EntityManager,
-    eventName: string,
-    dedupeKey: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    await manager
-      .createQueryBuilder()
-      .insert()
-      .into(PaymentDomainEvent)
-      .values({
-        event_name: eventName,
-        dedupe_key: dedupeKey,
-        payload,
-        published_at: null,
-        attempts: 0,
-        last_error: null,
-      } as never)
-      .orIgnore()
-      .execute();
   }
 }

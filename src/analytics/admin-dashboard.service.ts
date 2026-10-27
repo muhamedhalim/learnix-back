@@ -7,9 +7,9 @@ import { ApplicationCacheService } from '../common/cache/application-cache.servi
 import type { JwtPayload } from '../common/interfaces/user-request.interface';
 import type { FinancePermission } from '../payments/finance-permissions';
 import {
-  PaymentOperationsService,
+  FinancialReportsService,
   type DashboardFinancialSnapshot,
-} from '../payments/services/payment-operations.service';
+} from '../payments/services/financial-reports.service';
 import { User } from '../users/entities/user.entity';
 import { AnalyticsService } from './analytics.service';
 import type { AdminDashboardDto, LegacyAdminDashboardDto } from './dto';
@@ -53,7 +53,7 @@ export class AdminDashboardService {
     @InjectRepository(User) private readonly users: Repository<User>,
     private readonly dataSource: DataSource,
     private readonly cache: ApplicationCacheService,
-    private readonly payments: PaymentOperationsService,
+    private readonly payments: FinancialReportsService,
     private readonly activityLogs: ActivityLogsService,
     private readonly legacyAnalytics: AnalyticsService,
   ) {}

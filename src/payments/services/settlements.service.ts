@@ -38,12 +38,12 @@ import {
   OrderStatus,
   PaymentAuditLog,
   PaymentChannel,
-  PaymentDomainEvent,
   Settlement,
   SettlementEntry,
   SettlementStatus,
 } from '../entities';
 import { fromMinorUnits } from '../money.util';
+import { writeDomainEvent, writePaymentAudit } from '../finance-persistence';
 
 interface SumRow {
   value: string | null;
@@ -402,11 +402,16 @@ export class SettlementsService {
               amount_minor: amountMinor,
             })),
           });
-          await this.event(manager, 'settlement.created', `settlement:${settlement.id}:created`, {
-            settlement_id: settlement.id,
-            teacher_id: settlement.teacher_id,
-            payout_amount_minor: settlement.payout_amount_minor,
-          });
+          await writeDomainEvent(
+            manager,
+            'settlement.created',
+            `settlement:${settlement.id}:created`,
+            {
+              settlement_id: settlement.id,
+              teacher_id: settlement.teacher_id,
+              payout_amount_minor: settlement.payout_amount_minor,
+            },
+          );
           return settlement;
         },
         { isolationLevel: 'SERIALIZABLE' },
@@ -713,11 +718,16 @@ export class SettlementsService {
             transfer_date: settlement.paid_at.toISOString(),
             execution_idempotency_key: executionKey,
           });
-          await this.event(manager, 'settlement.completed', `settlement:${settlement.id}:paid`, {
-            settlement_id: settlement.id,
-            teacher_id: settlement.teacher_id,
-            payout_amount_minor: settlement.payout_amount_minor,
-          });
+          await writeDomainEvent(
+            manager,
+            'settlement.completed',
+            `settlement:${settlement.id}:paid`,
+            {
+              settlement_id: settlement.id,
+              teacher_id: settlement.teacher_id,
+              payout_amount_minor: settlement.payout_amount_minor,
+            },
+          );
           await this.notify(
             manager,
             settlement.teacher_id,
@@ -1070,7 +1080,7 @@ export class SettlementsService {
             reference: `release:${locked.id}:available`,
           },
         ]);
-        await this.event(
+        await writeDomainEvent(
           manager,
           'teacher_earning.available',
           `ledger:${locked.id}:available-event`,
@@ -1261,7 +1271,7 @@ export class SettlementsService {
       await this.audit(manager, adminId, `settlement_${targetStatus}`, settlement, {
         reason: reason.trim(),
       });
-      await this.event(
+      await writeDomainEvent(
         manager,
         `settlement.${targetStatus}`,
         `settlement:${settlement.id}:${targetStatus}`,
@@ -1282,36 +1292,13 @@ export class SettlementsService {
     settlement: Settlement,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await manager.insert(PaymentAuditLog, {
-      actor_id: actorId,
+    await writePaymentAudit(manager, {
+      actorId,
       action,
-      resource_type: 'settlement',
-      resource_id: settlement.id,
+      resourceType: 'settlement',
+      resourceId: settlement.id,
       details: { teacher_id: settlement.teacher_id, ...details },
-      ip_address: null,
     });
-  }
-
-  private async event(
-    manager: EntityManager,
-    name: string,
-    dedupeKey: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    await manager
-      .createQueryBuilder()
-      .insert()
-      .into(PaymentDomainEvent)
-      .values({
-        event_name: name,
-        dedupe_key: dedupeKey,
-        payload: payload as never,
-        published_at: null,
-        attempts: 0,
-        last_error: null,
-      })
-      .orIgnore()
-      .execute();
   }
 
   private async notify(

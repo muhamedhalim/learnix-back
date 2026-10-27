@@ -3,8 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  forwardRef,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -48,11 +46,11 @@ import {
   Payment,
   PaymentAuditLog,
   PaymentChannel,
-  PaymentDomainEvent,
   PaymentStatus,
 } from '../entities';
 import { normalizeManualPaymentConfiguration } from '../manual-payment-method-configuration';
 import { PaymentFinalizationService } from './payment-finalization.service';
+import { writeDomainEvent, writePaymentAudit } from '../finance-persistence';
 
 interface ReceiptFile {
   buffer: Buffer;
@@ -72,7 +70,6 @@ export class ManualPaymentsService {
     private readonly dataSource: DataSource,
     private readonly storage: StorageService,
     private readonly finalizer: PaymentFinalizationService,
-    @Inject(forwardRef(() => DiscountCodesService))
     private readonly discounts: DiscountCodesService,
     private readonly lessonSessions: LessonSessionsService,
   ) {}
@@ -306,7 +303,7 @@ export class ManualPaymentsService {
           } as never,
           ip_address: null,
         });
-        await this.insertEvent(
+        await writeDomainEvent(
           manager,
           'manual_payment.submitted',
           `manual-submission:${submission.id}:submitted`,
@@ -514,7 +511,7 @@ export class ManualPaymentsService {
         reason_code: dto.reason_code,
         reason: dto.reason ?? null,
       });
-      await this.insertEvent(
+      await writeDomainEvent(
         manager,
         'manual_payment.rejected',
         `manual-submission:${submission.id}:rejected`,
@@ -584,7 +581,7 @@ export class ManualPaymentsService {
         reason_code: dto.reason_code,
         reason: dto.reason ?? null,
       });
-      await this.insertEvent(
+      await writeDomainEvent(
         manager,
         'manual_payment.cancelled',
         `manual-submission:${submission.id}:cancelled`,
@@ -635,7 +632,7 @@ export class ManualPaymentsService {
           reason: dto.reason ?? null,
         },
       );
-      await this.insertEvent(
+      await writeDomainEvent(
         manager,
         'manual_payment.more_information_required',
         `manual-submission:${submission.id}:more-info`,
@@ -886,36 +883,7 @@ export class ManualPaymentsService {
     resourceId: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    await manager.insert(PaymentAuditLog, {
-      actor_id: actorId,
-      action,
-      resource_type: resourceType,
-      resource_id: resourceId,
-      details: details as never,
-      ip_address: null,
-    });
-  }
-
-  private async insertEvent(
-    manager: EntityManager,
-    eventName: string,
-    dedupeKey: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    await manager
-      .createQueryBuilder()
-      .insert()
-      .into(PaymentDomainEvent)
-      .values({
-        event_name: eventName,
-        dedupe_key: dedupeKey,
-        payload: payload as never,
-        published_at: null,
-        attempts: 0,
-        last_error: null,
-      })
-      .orIgnore()
-      .execute();
+    await writePaymentAudit(manager, { actorId, action, resourceType, resourceId, details });
   }
 
   private async closeUnpaidPayment(

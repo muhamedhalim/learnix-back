@@ -1,21 +1,11 @@
-import { PaymentOperationsService } from './payment-operations.service';
+import { FinancialReportsService } from './financial-reports.service';
 
-describe('PaymentOperationsService financial reporting', () => {
+describe('FinancialReportsService financial reporting', () => {
   const dataSource = { query: jest.fn() };
-  const service = new PaymentOperationsService(
-    {} as never,
-    {} as never,
+  const service = new FinancialReportsService(
     {} as never,
     {} as never,
     dataSource as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
     { getOrCompute: jest.fn((_d: unknown, compute: () => unknown) => compute()) } as never,
   );
 
@@ -34,7 +24,11 @@ describe('PaymentOperationsService financial reporting', () => {
    */
   it('recognizes revenue from settled orders with finalised payments at paid_at', async () => {
     await service.financialReport({
-      from: '2026-01-01', to: '2026-01-31', currency: 'EGP', page: 1, limit: 20,
+      from: '2026-01-01',
+      to: '2026-01-31',
+      currency: 'EGP',
+      page: 1,
+      limit: 20,
     });
 
     const queryText = dataSource.query.mock.calls.map(([sql]) => String(sql)).join('\n');

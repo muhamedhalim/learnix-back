@@ -43,6 +43,7 @@ import { CertificateHistory } from './entities/certificate-history.entity';
 import { CertificateStatus } from './entities/certificate-status.enum';
 import { CertificateTemplate } from './entities/certificate-template.entity';
 import { CertificateTemplateStatus } from './entities/certificate-template-status.enum';
+import { exponentialRetryDelayMs } from '../common/utils/backoff.util';
 import { CronSingleRunner } from '../common/utils/cron-lock.util';
 
 export const CERTIFICATE_ISSUED_EVENT = 'certificate.issued';
@@ -611,7 +612,7 @@ export class CertificatesService {
         where: { student_id: studentId, lesson_id: lessonId, package_id: packageId },
       }));
     const attempts = (failure?.attempts ?? 0) + 1;
-    const retryDelayMs = Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7));
+    const retryDelayMs = exponentialRetryDelayMs(attempts);
     await this.autoIssuanceFailuresRepository.save(
       Object.assign(
         failure ??
