@@ -49,19 +49,24 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
    * always core-registered — the cross-copy mismatch, not a genuinely
    * missing provider.
    */
-  async function bootApp(marketplaceEnabled: boolean): Promise<{ app: INestApplication; server: Server }> {
+  async function bootApp(
+    marketplaceEnabled: boolean,
+  ): Promise<{ app: INestApplication; server: Server }> {
     process.env['MARKETPLACE_ENABLED'] = marketplaceEnabled ? 'true' : 'false';
     jest.resetModules();
-     
+
     const { AppModule } = require('../../src/app.module') as typeof import('../../src/app.module');
-     
+
     const { NestFactory } = require('@nestjs/core') as typeof import('@nestjs/core');
-     
-    const { ValidationPipe, RequestMethod } = require('@nestjs/common') as typeof import('@nestjs/common');
-     
-    const { HttpExceptionFilter } = require('../../src/common/filters/http-exception.filter') as typeof import('../../src/common/filters/http-exception.filter');
-     
-    const { ResponseLocalizationInterceptor } = require('../../src/common/interceptors/response-localization.interceptor') as typeof import('../../src/common/interceptors/response-localization.interceptor');
+
+    const { ValidationPipe, RequestMethod } =
+      require('@nestjs/common') as typeof import('@nestjs/common');
+
+    const { HttpExceptionFilter } =
+      require('../../src/common/filters/http-exception.filter') as typeof import('../../src/common/filters/http-exception.filter');
+
+    const { ResponseLocalizationInterceptor } =
+      require('../../src/common/interceptors/response-localization.interceptor') as typeof import('../../src/common/interceptors/response-localization.interceptor');
 
     // `abortOnError: false` is required here: Nest's default bootstrap error
     // handler calls `process.exit(1)` on an uncaught exception, which — inside
@@ -75,9 +80,18 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
     // both external Express middleware with no NestJS DI identity, so no
     // module-registry-freshness concern for these two specifically.
     app.set('trust proxy', 1);
-    app.use(cookieParser(process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'] ?? 'test-cookie-secret'));
+    app.use(
+      cookieParser(
+        process.env['COOKIE_SECRET'] ?? process.env['JWT_SECRET'] ?? 'test-cookie-secret',
+      ),
+    );
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+      }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalInterceptors(new ResponseLocalizationInterceptor());
@@ -96,7 +110,9 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
       await request(server).get(`${API_PREFIX}/marketplace/courses`).expect(404);
       await request(server).get(`${API_PREFIX}/marketplace/categories`).expect(404);
       await request(server).get(`${API_PREFIX}/marketplace/admin/overview`).expect(404);
-      await request(server).get(`${API_PREFIX}/marketplace/admin/applications?page=1&limit=20`).expect(404);
+      await request(server)
+        .get(`${API_PREFIX}/marketplace/admin/applications?page=1&limit=20`)
+        .expect(404);
       await request(server).post(`${API_PREFIX}/marketplace/applications`).send({}).expect(404);
     } finally {
       await app.close();
@@ -109,10 +125,12 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
       // Loaded fresh, from the same reset module registry as `AppModule` —
       // a statically-imported helper would be a different module instance
       // than the one this freshly-booted app's own `DataSource` belongs to.
-       
-      const { getUserIdByEmail, setUserStatus } = require('./helpers/database') as typeof import('./helpers/database');
-       
-      const { buildRegisterPayload } = require('./factories/user.factory') as typeof import('./factories/user.factory');
+
+      const { getUserIdByEmail, setUserStatus } =
+        require('./helpers/database') as typeof import('./helpers/database');
+
+      const { buildRegisterPayload } =
+        require('./factories/user.factory') as typeof import('./factories/user.factory');
       const dataSource = app.get((require('typeorm') as typeof import('typeorm')).DataSource);
 
       const credentials = buildRegisterPayload();
@@ -128,9 +146,11 @@ describe('marketplace-disabled academic behaviour (Phase 13, T204)', () => {
 
       // The academic public catalogue (courses/packages) — an entirely
       // different route namespace from `/marketplace/*` — is unaffected.
-      await request(server).get(`${API_PREFIX}/packages`).expect((res) => {
-        expect(res.status).toBeLessThan(500);
-      });
+      await request(server)
+        .get(`${API_PREFIX}/packages`)
+        .expect((res) => {
+          expect(res.status).toBeLessThan(500);
+        });
     } finally {
       await app.close();
     }
