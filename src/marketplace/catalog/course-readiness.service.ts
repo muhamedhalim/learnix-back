@@ -6,6 +6,7 @@ import { AwsVideoService, awsAssetId, isAwsRef } from '../../video/aws-video.ser
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
 import { LessonContentType } from '../common/enums';
+import { CurrencyRegistryService } from '../common/currency-registry.service';
 import { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection } from './entities';
 
 export interface ReadinessItem {
@@ -33,6 +34,7 @@ export class CourseReadinessService {
     private readonly sections: Repository<MarketplaceCourseSection>,
     @InjectRepository(MarketplaceCourseLesson)
     private readonly lessons: Repository<MarketplaceCourseLesson>,
+    private readonly currencies: CurrencyRegistryService,
     @Optional() private readonly awsVideo?: AwsVideoService,
   ) {}
 
@@ -69,9 +71,10 @@ export class CourseReadinessService {
         passed:
           course.price_minor !== null &&
           course.price_minor !== undefined &&
-          course.price_minor >= 0,
+          course.price_minor >= 0 &&
+          (await this.priceAllowed(course)),
       },
-      { key: 'currency', passed: !!course.currency?.trim() },
+      { key: 'currency', passed: !!course.currency?.trim() && (await this.currencyEnabled(course.currency)) },
       { key: 'cover_image', passed: !!course.cover_image_key?.trim() },
       { key: 'at_least_one_section', passed: sectionCount >= 1 },
       { key: 'minimum_lessons', passed: totalLessons >= config.minLessonsForPublication },
@@ -86,6 +89,27 @@ export class CourseReadinessService {
     ];
 
     return { ready: items.every((item) => item.passed), items };
+  }
+
+  /** FR-325: only a currency the registry has enabled can be sold or paid out in. */
+  private async currencyEnabled(code: string): Promise<boolean> {
+    try {
+      await this.currencies.resolve(code);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A paid price must sit inside its currency's bounds; zero is always allowed (FR-057). */
+  private async priceAllowed(course: MarketplaceCourse): Promise<boolean> {
+    if (course.price_minor === 0) return true;
+    try {
+      await this.currencies.assertPriceInBounds(course.currency, course.price_minor);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

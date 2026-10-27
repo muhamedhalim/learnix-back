@@ -178,6 +178,19 @@ function buildService(
   // T073: the latest review decision per rejected course, read in one statement.
   const decisions = { query: jest.fn().mockResolvedValue([]) };
 
+  // Mirrors the seeded registry: only EGP is enabled, with the launch price bounds.
+  const currencies = {
+    resolve: jest.fn(async (code: string) => {
+      if (code !== 'EGP') throw Object.assign(new Error(`Currency ${code} is not enabled`), { status: 400 });
+      return { code };
+    }),
+    assertPriceInBounds: jest.fn(async (_code: string, priceMinor: number) => {
+      if (priceMinor !== 0 && (priceMinor < 5000 || priceMinor > 2_000_000)) {
+        throw Object.assign(new Error('Price out of bounds'), { status: 400 });
+      }
+    }),
+  };
+
   const service = new CourseAuthoringService(
     courses as never,
     sections as never,
@@ -185,8 +198,9 @@ function buildService(
     enrollments as never,
     sanitization,
     decisions as never,
+    currencies as never,
   );
-  return { service, courses, sections, lessons, enrollments, manager, decisions };
+  return { service, courses, sections, lessons, enrollments, manager, decisions, currencies };
 }
 
 describe('CourseAuthoringService', () => {
@@ -264,7 +278,7 @@ describe('CourseAuthoringService', () => {
         category_id: 'cat-1',
         level: CourseLevel.BEGINNER,
         language: 'en',
-        price_minor: 1000,
+        price_minor: 10_000,
         currency: 'EGP',
         cover_image_key: 'covers/1.jpg',
       });
@@ -292,6 +306,90 @@ describe('CourseAuthoringService', () => {
       const { service } = buildService([course], [], []);
       const result = await service.updateCourse('instr-1', 'course-1', { title: 'New title' });
       expect(result.title).toBe('New title');
+    });
+
+    it('creates a paid course only in an enabled currency and inside its price bounds', async () => {
+      const base = {
+        title: 'New Course',
+        summary: 'A summary',
+        description: 'A description',
+        category_id: 'cat-1',
+        level: CourseLevel.BEGINNER,
+        language: 'en',
+        cover_image_key: 'covers/1.jpg',
+      };
+      const { service, courses } = buildService([], [], []);
+      await expect(service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'USD' })).rejects.toThrow(/not enabled/);
+      await expect(service.createCourse('instr-1', { ...base, price_minor: 100, currency: 'EGP' })).rejects.toThrow(/out of bounds/);
+      expect(courses.save).not.toHaveBeenCalled();
+      await expect(service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'EGP' })).resolves.toBeDefined();
+      await expect(service.createCourse('instr-1', { ...base, price_minor: 0, currency: 'EGP' })).resolves.toBeDefined();
+    });
+  });
+
+  describe('applyCourseUpdate: only real changes count (FR-070 – FR-072)', () => {
+    const fullForm = (course: Partial<MarketplaceCourse>) => ({
+      title: course.title,
+      summary: course.summary,
+      description: course.description,
+      category_id: course.category_id,
+      level: course.level,
+      language: course.language,
+      price_minor: course.price_minor,
+      currency: course.currency,
+      cover_image_key: course.cover_image_key,
+      learning_outcomes: course.learning_outcomes,
+      prerequisites: course.prerequisites,
+      target_audience: course.target_audience,
+      certificate_enabled: course.certificate_enabled,
+    });
+
+    it('reports no changed fields, and does not write, when the whole form is sent back unchanged', async () => {
+      const course = buildCourse({
+        title: 'Same', summary: 'S', description: 'D', category_id: 'cat-1', level: CourseLevel.BEGINNER, language: 'en',
+        price_minor: 10_000, currency: 'EGP', cover_image_key: 'k', learning_outcomes: ['a'], prerequisites: [],
+        target_audience: [], certificate_enabled: false,
+      });
+      const { service, courses } = buildService([course], [], []);
+      const result = await service.applyCourseUpdate('instr-1', 'course-1', fullForm(course));
+      expect(result.changedFields).toEqual([]);
+      expect(courses.save).not.toHaveBeenCalled();
+    });
+
+    it('treats null and an empty string as the same empty value', async () => {
+      const course = buildCourse({ title: 'T', title_ar: null, description_ar: null } as never);
+      const { service } = buildService([course], [], []);
+      const result = await service.applyCourseUpdate('instr-1', 'course-1', { title: 'T', title_ar: '', description_ar: '' });
+      expect(result.changedFields).toEqual([]);
+    });
+
+    it('lists exactly the fields that differ', async () => {
+      const course = buildCourse({ title: 'Old', price_minor: 10_000, currency: 'EGP', learning_outcomes: ['a'] });
+      const { service } = buildService([course], [], []);
+      const result = await service.applyCourseUpdate('instr-1', 'course-1', {
+        title: 'New', price_minor: 12_000, currency: 'EGP', learning_outcomes: ['a'],
+      });
+      expect(result.changedFields.sort()).toEqual(['price_minor', 'title']);
+      expect(result.course.price_minor).toBe(12_000);
+    });
+
+    it('validates currency and price only when one of them changes', async () => {
+      const legacy = buildCourse({ title: 'Old', price_minor: 10_000, currency: 'USD' });
+      const { service, currencies } = buildService([legacy], [], []);
+      // A legacy non-EGP draft can still be retitled: the unchanged money fields are not re-checked.
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { title: 'New', price_minor: 10_000, currency: 'USD' }),
+      ).resolves.toMatchObject({ changedFields: ['title'] });
+      expect(currencies.resolve).not.toHaveBeenCalled();
+      // Changing the price is checked against the (non-enabled) currency.
+      await expect(service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 20_000 })).rejects.toThrow(/not enabled/);
+    });
+
+    it('refuses a new price outside the bounds without saving', async () => {
+      const course = buildCourse({ price_minor: 10_000, currency: 'EGP' });
+      const { service, courses } = buildService([course], [], []);
+      await expect(service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 100 })).rejects.toThrow(/out of bounds/);
+      expect(courses.save).not.toHaveBeenCalled();
     });
   });
 

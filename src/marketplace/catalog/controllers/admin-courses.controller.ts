@@ -23,8 +23,9 @@ import { AwsVideoService, awsAssetId, isAwsRef } from '../../../video/aws-video.
 import { PlaybackCookiesInterceptor } from '../../../video/playback-cookies';
 import { MarketplaceReasonDto } from '../../common/dto/reason.dto';
 import { CourseAuthoringService } from '../course-authoring.service';
+import { CourseEditClassifierService } from '../course-edit-classifier.service';
 import { CourseLifecycleService } from '../course-lifecycle.service';
-import { CourseStatusQueryDto } from '../dto/course-query.dto';
+import { AdminCourseQueryDto } from '../dto/course-query.dto';
 import { RejectCourseDto } from '../dto/reject-course.dto';
 import type {
   MarketplaceCourse,
@@ -42,6 +43,7 @@ export class AdminCoursesController {
   constructor(
     private readonly authoring: CourseAuthoringService,
     private readonly lifecycle: CourseLifecycleService,
+    private readonly editClassifier: CourseEditClassifierService,
     private readonly awsVideo: AwsVideoService,
   ) {}
 
@@ -49,8 +51,8 @@ export class AdminCoursesController {
   @ApiOperation({
     summary: 'Every course, any state, any instructor, ordered by waiting time (FR-282)',
   })
-  public async list(@Query() query: CourseStatusQueryDto): Promise<MarketplaceCourse[]> {
-    return this.authoring.listAllCourses(query.status);
+  public async list(@Query() query: AdminCourseQueryDto): Promise<MarketplaceCourse[]> {
+    return this.authoring.listAllCourses(query.status, query.pending_edit);
   }
 
   @Get(':id/content')
@@ -131,6 +133,34 @@ export class AdminCoursesController {
     @GetUser() admin: JwtPayload,
   ): Promise<void> {
     await this.lifecycle.reject(admin.userId, id, dto.reasons, dto.item_notes ?? {});
+  }
+
+  /**
+   * FR-071: a material edit to a published course (price, currency, category, level, language,
+   * certificate, or any curriculum change) waits here for a decision. Approval snapshots the working
+   * row as the new public version; rejection leaves the public version untouched and tells the
+   * instructor why. Until now the pending marker was set but nothing could ever clear it.
+   */
+  @Post(':id/pending-edit/approve')
+  // Course row, snapshot version, review decision and `audit_logs` (T031).
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
+  @ApiOperation({ summary: 'Approve the pending material edit of a published course (FR-071)' })
+  public async approvePendingEdit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() admin: JwtPayload,
+  ): Promise<void> {
+    await this.editClassifier.approvePendingEdit(id, admin.userId);
+  }
+
+  @Post(':id/pending-edit/reject')
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
+  @ApiOperation({ summary: 'Reject the pending material edit of a published course; reasons mandatory (FR-071)' })
+  public async rejectPendingEdit(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RejectCourseDto,
+    @GetUser() admin: JwtPayload,
+  ): Promise<void> {
+    await this.editClassifier.rejectPendingEdit(id, admin.userId, dto.reasons);
   }
 
   @Post(':id/unpublish')

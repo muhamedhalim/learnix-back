@@ -104,6 +104,31 @@ describe('LessonVideoService', () => {
       });
     });
 
+    it('refuses to start or complete an upload while the course is under review (FR-063)', async () => {
+      const { service, directUploads } = buildService(
+        buildCourse({ status: 'submitted_for_review' } as never),
+        [buildSection()],
+        [buildLesson()],
+      );
+      const expected = { response: expect.objectContaining({ code: 'COURSE_NOT_EDITABLE_UNDER_REVIEW' }) };
+      await expect(
+        service.startAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', UPLOAD),
+      ).rejects.toMatchObject(expected);
+      await expect(
+        service.completeAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', 'upload-1'),
+      ).rejects.toMatchObject(expected);
+      expect(directUploads.init).not.toHaveBeenCalled();
+    });
+
+    it('still lets the owner poll the status of a video while the course is under review', async () => {
+      const { service } = buildService(
+        buildCourse({ status: 'submitted_for_review' } as never),
+        [buildSection()],
+        [buildLesson({ video_id: 'aws:asset-1' } as never)],
+      );
+      await expect(service.getVideoStatus('instr-1', 'course-1', 'lesson-1')).resolves.toBeDefined();
+    });
+
     it('refuses when the course belongs to a different instructor (no IDOR)', async () => {
       const { service, directUploads } = buildService(
         buildCourse({ instructor_id: 'instr-1' }),

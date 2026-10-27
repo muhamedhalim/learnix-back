@@ -15,10 +15,19 @@ function buildApplication(overrides: Partial<InstructorApplication> = {}): Instr
 function buildService(row: InstructorApplication | null): {
   service: ApplicationDocumentsService;
   storage: jest.Mocked<MarketplaceStorageService>;
-  applications: { findOne: jest.Mock; save: jest.Mock };
+  applications: { findOne: jest.Mock; count: jest.Mock; save: jest.Mock };
 } {
   const applications = {
-    findOne: jest.fn().mockResolvedValue(row),
+    // Honours the `where` list the service passes: only a draft/rejected row is "editable".
+    findOne: jest.fn(async (options?: { where?: unknown }) => {
+      if (!row) return null;
+      const where = options?.where;
+      if (Array.isArray(where)) {
+        return where.some((condition: { status?: string }) => condition.status === row.status) ? row : null;
+      }
+      return row;
+    }),
+    count: jest.fn(async () => (row ? 1 : 0)),
     save: jest.fn(async (entity: InstructorApplication) => entity),
   };
   const storage = {
@@ -54,6 +63,24 @@ describe('ApplicationDocumentsService', () => {
     it('refuses when the application is not draft or rejected', async () => {
       const { service } = buildService(buildApplication({ status: 'submitted' } as never));
       await expect(service.upload('user-1', validInput)).rejects.toThrow();
+    });
+
+    it('answers 404 when the user has no application and 403 when none is editable', async () => {
+      await expect(buildService(null).service.upload('user-1', validInput)).rejects.toMatchObject({ status: 404 });
+      const { service } = buildService(buildApplication({ status: 'submitted' } as never));
+      await expect(service.upload('user-1', validInput)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('looks for the newest draft or rejected application, not just any row of the user', async () => {
+      const { service, applications } = buildService(buildApplication({ status: 'rejected' } as never));
+      await service.upload('user-1', validInput);
+      expect(applications.findOne).toHaveBeenCalledWith({
+        where: [
+          { user_id: 'user-1', status: 'draft' },
+          { user_id: 'user-1', status: 'rejected' },
+        ],
+        order: { created_at: 'DESC' },
+      });
     });
 
     it('refuses an unsupported file type — no identity-document kind exists to mislabel into (FR-010)', async () => {

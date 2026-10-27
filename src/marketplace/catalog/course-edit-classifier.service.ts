@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
+import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { biBody } from '../../i18n/error-translator.util';
 import { CourseReviewDecisionValue, MarketplaceCourseStatus } from '../common/enums';
+import {
+  MarketplaceCoursePendingEditApprovedEvent,
+  MarketplaceCoursePendingEditRejectedEvent,
+} from '../events/audit.events';
 import { CourseVersionService } from './course-version.service';
 import { MarketplaceCourse, MarketplaceCourseReviewDecision } from './entities';
 import type { UpdateCourseDto } from './dto/course.dto';
@@ -39,6 +44,7 @@ export class CourseEditClassifierService {
     @InjectRepository(MarketplaceCourseReviewDecision)
     private readonly decisions: Repository<MarketplaceCourseReviewDecision>,
     private readonly versions: CourseVersionService,
+    private readonly activityLogs: ActivityLogsService,
   ) {}
 
   public classifyCourseFieldEdit(changedFields: (keyof UpdateCourseDto)[]): CourseEditClassification {
@@ -56,10 +62,17 @@ export class CourseEditClassifierService {
     changedFields: (keyof UpdateCourseDto)[],
     actorId: string,
   ): Promise<void> {
+    // Nothing really changed (a form saved as it was): there is nothing to classify or publish.
+    if (changedFields.length === 0) return;
+
     const course = await this.courses.findOne({ where: { id: courseId } });
     if (!course || course.status !== MarketplaceCourseStatus.PUBLISHED) return;
 
     if (this.classifyCourseFieldEdit(changedFields) === 'cosmetic') {
+      // A snapshot captures the whole working row. While a material edit is still awaiting an
+      // administrator, snapshotting here would publish that unapproved edit along with the typo fix,
+      // so the cosmetic change simply rides along with the pending review.
+      if (course.pending_review_since) return;
       await this.versions.publishSnapshot(courseId, actorId);
       return;
     }
@@ -75,9 +88,16 @@ export class CourseEditClassifierService {
 
   /** Admin approval: a fresh snapshot goes live and the pending marker clears. */
   public async approvePendingEdit(courseId: string, adminId: string): Promise<void> {
-    await this.getPendingOrThrow(courseId);
-    await this.versions.publishSnapshot(courseId, adminId);
-    await this.courses.update({ id: courseId }, { pending_review_since: null });
+    const course = await this.getPendingOrThrow(courseId);
+    const pendingSince = course.pending_review_since as Date;
+    await this.claimPending(courseId);
+    try {
+      await this.versions.publishSnapshot(courseId, adminId);
+    } catch (error) {
+      // The edit is still unreviewed: put the marker back so it stays in the queue.
+      await this.courses.update({ id: courseId }, { pending_review_since: pendingSince });
+      throw error;
+    }
     await this.decisions.save(
       this.decisions.create({
         course_id: courseId,
@@ -87,12 +107,15 @@ export class CourseEditClassifierService {
         reviewed_by: adminId,
       }),
     );
+    await this.activityLogs.recordAuditEvent(
+      new MarketplaceCoursePendingEditApprovedEvent(adminId, courseId, { courseTitle: course.title }),
+    );
   }
 
   /** Admin rejection: the pending marker clears; the live row's edit is left as-is for the instructor to revise — nothing new ever went public, so there is nothing to revert. */
   public async rejectPendingEdit(courseId: string, adminId: string, reasons: string[]): Promise<void> {
-    await this.getPendingOrThrow(courseId);
-    await this.courses.update({ id: courseId }, { pending_review_since: null });
+    const course = await this.getPendingOrThrow(courseId);
+    await this.claimPending(courseId);
     await this.decisions.save(
       this.decisions.create({
         course_id: courseId,
@@ -102,6 +125,25 @@ export class CourseEditClassifierService {
         reviewed_by: adminId,
       }),
     );
+    await this.activityLogs.recordAuditEvent(
+      new MarketplaceCoursePendingEditRejectedEvent(adminId, courseId, { courseTitle: course.title, reasons }),
+    );
+  }
+
+  /**
+   * Clears the marker with one conditional UPDATE, so of two administrators deciding at once only
+   * the first still matches (the same check-and-set `CourseLifecycleService.applyDecision` uses).
+   */
+  private async claimPending(courseId: string): Promise<void> {
+    const result = await this.courses.update(
+      { id: courseId, pending_review_since: Not(IsNull()) },
+      { pending_review_since: null },
+    );
+    if (!result.affected) {
+      throw new ConflictException(
+        biBody('This edit was already decided', 'تم البت في هذا التعديل بالفعل'),
+      );
+    }
   }
 
   private async markPendingIfPublished(course: MarketplaceCourse): Promise<void> {

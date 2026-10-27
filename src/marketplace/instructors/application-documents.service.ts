@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
+import { InstructorApplicationStatus } from '../common/enums';
 import { MarketplaceStorageService } from '../common/marketplace-storage.service';
 import { InstructorApplication } from './entities/instructor-application.entity';
 
@@ -35,11 +36,20 @@ export class ApplicationDocumentsService {
 
   /** Uploads one document and appends its private storage key to the applicant's own draft/rejected application. */
   public async upload(userId: string, input: UploadApplicationDocumentInput): Promise<{ key: string }> {
-    const application = await this.applications.findOne({ where: { user_id: userId } });
+    // The newest draft/rejected application — the one `PATCH applications/me` and `submit` act on.
+    // Picking "any row of this user" attached the file to an older application (or refused it) when
+    // the applicant had been rejected before and had since opened a new draft.
+    const application = await this.applications.findOne({
+      where: [
+        { user_id: userId, status: InstructorApplicationStatus.DRAFT },
+        { user_id: userId, status: InstructorApplicationStatus.REJECTED },
+      ],
+      order: { created_at: 'DESC' },
+    });
     if (!application) {
-      throw new NotFoundException(biBody('No application found', 'لا يوجد طلب'));
-    }
-    if (!['draft', 'rejected'].includes(application.status)) {
+      if ((await this.applications.count({ where: { user_id: userId } })) === 0) {
+        throw new NotFoundException(biBody('No application found', 'لا يوجد طلب'));
+      }
       throw new ForbiddenException(
         biBody('Documents can only be uploaded to a draft or rejected application', 'يمكن رفع المستندات فقط لطلب في حالة مسودة أو مرفوض'),
       );

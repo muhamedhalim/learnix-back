@@ -6,6 +6,7 @@ import { LessonsModule } from '../../lessons/lessons.module';
 import { UploadModule } from '../../uploads/upload.module';
 import { VideoModule } from '../../video/video.module';
 import { MarketplaceEnrollment } from '../commerce/entities';
+import { EarningsModule } from '../earnings/earnings.module';
 import { InstructorsModule } from '../instructors/instructors.module';
 import { CategoryService } from './category.service';
 import { AdminCategoriesController } from './controllers/admin-categories.controller';
@@ -50,6 +51,9 @@ import {
     // `@ApprovedInstructor()`) is provided and exported by InstructorsModule
     // — a sibling under MarketplaceModule does not share its DI container.
     InstructorsModule,
+    // `CurrencyRegistryService`: authoring and readiness price a course only in an enabled currency (FR-325).
+    // EarningsModule does not import the catalogue, so this is one-way.
+    EarningsModule,
   ],
   controllers: [
     AdminCategoriesController,

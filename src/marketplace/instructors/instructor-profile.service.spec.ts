@@ -80,6 +80,38 @@ describe('InstructorProfileService', () => {
       ]);
     });
 
+    it('queues nothing when a whole untouched form is saved, with empty strings for the null optional fields', async () => {
+      const instructor = buildInstructor({
+        display_name: 'Nour',
+        headline: 'Senior Engineer',
+        photo_key: null,
+        headline_ar: null,
+        bio_ar: null,
+        education: [],
+      } as never);
+      const { service } = buildService(instructor);
+      const result = await service.updateProfile('user-1', {
+        display_name: 'Nour',
+        headline: 'Senior Engineer',
+        photo_key: '',
+        headline_ar: '',
+        bio_ar: '',
+        education: [],
+      } as never);
+
+      expect(result.pending_profile_changes).toBeNull();
+    });
+
+    it('still queues a real change next to untouched empty fields', async () => {
+      const instructor = buildInstructor({ photo_key: null, headline_ar: null } as never);
+      const { service } = buildService(instructor);
+      const result = await service.updateProfile('user-1', { photo_key: '', headline_ar: '', headline: 'Staff Engineer' } as never);
+
+      expect(result.pending_profile_changes).toEqual([
+        expect.objectContaining({ field: 'headline', previous_value: 'Senior Engineer', proposed_value: 'Staff Engineer' }),
+      ]);
+    });
+
     it('re-editing an already-pending field updates the proposal but keeps previous_value pinned to the live value', async () => {
       const instructor = buildInstructor({
         display_name: 'Nour',

@@ -30,6 +30,15 @@ import { InstructorAccountService } from './instructor-account.service';
 const RESET_ATTEMPTS_ACTION = 'marketplace_application_attempts_reset';
 const RESET_ATTEMPTS_TARGET_TYPE = 'marketplace_applicant';
 
+/** Open statuses plus `rejected`: what `GET applications/me` shows the applicant. */
+const CURRENT_STATUSES = [
+  InstructorApplicationStatus.DRAFT,
+  InstructorApplicationStatus.SUBMITTED,
+  InstructorApplicationStatus.UNDER_REVIEW,
+  InstructorApplicationStatus.APPROVED,
+  InstructorApplicationStatus.REJECTED,
+];
+
 /** Statuses in which an application is still "open" — blocks a second draft (FR-015). */
 const OPEN_STATUSES = [
   InstructorApplicationStatus.DRAFT,
@@ -85,9 +94,15 @@ export class InstructorApplicationService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  /**
+   * The applicant's current application: the newest one that is open **or rejected**. A rejected
+   * application has to stay visible, because its decision reason is the only way the applicant
+   * learns why, and it is the row they edit and resubmit (`getEditable`). A withdrawn one is the
+   * applicant's own choice to drop it, so it is not returned and they start afresh.
+   */
   public async getMine(userId: string): Promise<InstructorApplication | null> {
     return this.applications.findOne({
-      where: OPEN_STATUSES.map((status) => ({ user_id: userId, status })),
+      where: CURRENT_STATUSES.map((status) => ({ user_id: userId, status })),
       order: { created_at: 'DESC' },
     });
   }

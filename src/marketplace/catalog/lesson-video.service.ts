@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
+import { MarketplaceCourseStatus } from '../common/enums';
+import { courseNotEditableWhileUnderReview } from '../common/errors';
 import {
   DirectUploadsService,
   type InitDirectUploadResult,
@@ -45,7 +47,7 @@ export class LessonVideoService {
     lessonId: string,
     input: { filename: string; contentType: string; size: number },
   ): Promise<InitDirectUploadResult> {
-    await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId);
+    await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId, { forEdit: true });
     this.assertAwsEnabled();
     // The upload session belongs to the signed-in USER; every later call re-checks that identity.
     return this.directUploads!.init(userId, { purpose: 'lesson_video', ...input });
@@ -110,7 +112,7 @@ export class LessonVideoService {
     lessonId: string,
     uploadId: string,
   ): Promise<{ video_id: string; status: 'processing' | 'failed' }> {
-    const lesson = await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId);
+    const lesson = await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId, { forEdit: true });
     this.assertAwsEnabled();
     const completed = await this.directUploads!.complete(userId, uploadId);
     if (completed.purpose !== 'lesson_video') {
@@ -159,12 +161,17 @@ export class LessonVideoService {
     instructorId: string,
     courseId: string,
     lessonId: string,
+    options: { forEdit?: boolean } = {},
   ): Promise<MarketplaceCourseLesson> {
     const course = await this.courses.findOne({
       where: { id: courseId, instructor_id: instructorId },
     });
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
+    }
+    // FR-063: like every other curriculum write, a video cannot be swapped while a review is pending.
+    if (options.forEdit && course.status === MarketplaceCourseStatus.SUBMITTED_FOR_REVIEW) {
+      throw courseNotEditableWhileUnderReview();
     }
     const lesson = await this.lessons
       .createQueryBuilder('l')
