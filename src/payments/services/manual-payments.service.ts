@@ -671,7 +671,12 @@ export class ManualPaymentsService {
         'method',
         'method.id = submission.manual_payment_method_id',
       )
-      .leftJoinAndMapOne('submission.student', User, 'student', 'student.id = submission.student_id')
+      .leftJoinAndMapOne(
+        'submission.student',
+        User,
+        'student',
+        'student.id = submission.student_id',
+      )
       // Keep the student projection to id/name/email — the join must not hydrate the whole user row.
       .select(['submission', 'order', 'method', 'student.id', 'student.name', 'student.email']);
     if (filter.status) query.where('submission.status = :status', { status: filter.status });
