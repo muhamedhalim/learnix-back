@@ -101,7 +101,9 @@ export class CourseDetailService {
     const snapshot = await this.currentSnapshot(course);
 
     const [enrollmentCount, ratingRows, related] = await Promise.all([
-      this.enrollments.count({ where: { course_id: course.id, status: MarketplaceEnrollmentStatus.ACTIVE } }),
+      this.enrollments.count({
+        where: { course_id: course.id, status: MarketplaceEnrollmentStatus.ACTIVE },
+      }),
       // At most five rows (one per rating) instead of every review row.
       this.reviews
         .createQueryBuilder('review')
@@ -181,7 +183,10 @@ export class CourseDetailService {
     return this.catalogQuery
       .baseVisibleQuery()
       .andWhere('course.id != :courseId', { courseId: excludeCourseId })
-      .andWhere('(course.category_id = :categoryId OR course.instructor_id = :instructorId)', { categoryId, instructorId })
+      .andWhere('(course.category_id = :categoryId OR course.instructor_id = :instructorId)', {
+        categoryId,
+        instructorId,
+      })
       .orderBy('course.instructor_id = :instructorId', 'DESC')
       .addOrderBy('course.first_published_at', 'DESC')
       .limit(limit)
@@ -190,7 +195,10 @@ export class CourseDetailService {
 
   /** FR-087: not-published / removed / suspended-instructor is a 404, exactly like "doesn't exist" — never a 403 that would confirm the row is there. */
   public async findVisibleBySlug(slug: string): Promise<MarketplaceCourse> {
-    const course = await this.catalogQuery.baseVisibleQuery().andWhere('course.slug = :slug', { slug }).getOne();
+    const course = await this.catalogQuery
+      .baseVisibleQuery()
+      .andWhere('course.slug = :slug', { slug })
+      .getOne();
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }

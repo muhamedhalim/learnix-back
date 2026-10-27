@@ -41,7 +41,9 @@ describe('Redis lifecycle (e2e)', () => {
 
     const throttler = app.get<ThrottlerWithRedisClient>(ThrottlerStorage);
     const idempotency = app.get(IdempotencyService) as unknown as ServiceWithRedisClient;
-    const singleFlight = app.get(DistributedSingleFlightService) as unknown as ServiceWithRedisClient;
+    const singleFlight = app.get(
+      DistributedSingleFlightService,
+    ) as unknown as ServiceWithRedisClient;
     const cacheManager = app.get<CacheClient>(CACHE_MANAGER);
 
     expect(throttler.redis?.status).toBe('ready');

@@ -155,7 +155,11 @@ export class ApplicationCacheService {
     await Promise.all(
       families.map(async (family) => {
         await this.cacheManager.set(this.versionKey(tenant, family), randomUUID(), 86_400_000);
-        performanceMetrics.recordCache({ family, endpoint: 'invalidation', outcome: 'invalidation' });
+        performanceMetrics.recordCache({
+          family,
+          endpoint: 'invalidation',
+          outcome: 'invalidation',
+        });
       }),
     );
   }
@@ -177,7 +181,11 @@ export class ApplicationCacheService {
           randomUUID(),
           86_400_000,
         );
-        performanceMetrics.recordCache({ family, endpoint: 'invalidation', outcome: 'invalidation' });
+        performanceMetrics.recordCache({
+          family,
+          endpoint: 'invalidation',
+          outcome: 'invalidation',
+        });
       }),
     );
   }

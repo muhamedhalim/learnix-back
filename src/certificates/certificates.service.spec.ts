@@ -67,7 +67,12 @@ describe('CertificatesService', () => {
     createQueryBuilder: jest.fn(),
   };
   const certificateHistory = { create: jest.fn(), save: jest.fn() };
-  const autoIssuanceFailures = { find: jest.fn(), findOne: jest.fn(), create: jest.fn(), save: jest.fn() };
+  const autoIssuanceFailures = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+  };
   const templates = {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -111,7 +116,9 @@ describe('CertificatesService', () => {
   };
   const manager = {
     getRepository: jest.fn((entity: unknown) => repositoryFor(entity)),
-    findOne: jest.fn((entity: unknown, options: unknown) => repositoryFor(entity).findOne?.(options)),
+    findOne: jest.fn((entity: unknown, options: unknown) =>
+      repositoryFor(entity).findOne?.(options),
+    ),
     save: jest.fn((entity: unknown, value: unknown) => repositoryFor(entity).save?.(value)),
     create: jest.fn((entity: unknown, value: unknown) => repositoryFor(entity).create?.(value)),
   };
@@ -150,7 +157,10 @@ describe('CertificatesService', () => {
         CertificateVerificationService,
         { provide: getRepositoryToken(Certificate), useValue: certificates },
         { provide: getRepositoryToken(CertificateHistory), useValue: certificateHistory },
-        { provide: getRepositoryToken(CertificateAutoIssuanceFailure), useValue: autoIssuanceFailures },
+        {
+          provide: getRepositoryToken(CertificateAutoIssuanceFailure),
+          useValue: autoIssuanceFailures,
+        },
         { provide: getRepositoryToken(CertificateTemplate), useValue: templates },
         { provide: getRepositoryToken(LessonPackage), useValue: packages },
         { provide: getRepositoryToken(LessonPackageItem), useValue: packageItems },
@@ -285,9 +295,9 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(null);
       eligibility.lockActivePurchase.mockResolvedValue(null);
 
-      await expect(
-        service.issueForCourse('S1', 'P1', { force: true }),
-      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      await expect(service.issueForCourse('S1', 'P1', { force: true })).rejects.toBeInstanceOf(
+        UnprocessableEntityException,
+      );
       expect(certificates.save).not.toHaveBeenCalled();
     });
 
@@ -363,7 +373,9 @@ describe('CertificatesService', () => {
         body: 'Presented to {{student}} for {{course}}.',
       });
       certificates.create.mockImplementation((v: unknown) => v);
-      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+      certificates.save.mockImplementation((v: Certificate) =>
+        Promise.resolve({ ...v, id: 'new' }),
+      );
 
       const result = await service.issueMarketplaceCertificate(input);
 
@@ -378,7 +390,9 @@ describe('CertificatesService', () => {
         status: CertificateStatus.ISSUED,
         template_id: 't1',
       });
-      expect(templates.findOne).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ is_default: true }) }));
+      expect(templates.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ is_default: true }) }),
+      );
       expect(emitter.emit).toHaveBeenCalledWith(
         'certificate.issued',
         expect.objectContaining({ studentId: 'S1', packageId: null }),
@@ -389,7 +403,9 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(null);
       templates.findOne.mockResolvedValue(null);
       certificates.create.mockImplementation((v: unknown) => v);
-      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+      certificates.save.mockImplementation((v: Certificate) =>
+        Promise.resolve({ ...v, id: 'new' }),
+      );
 
       const result = await service.issueMarketplaceCertificate(input);
 
@@ -401,7 +417,9 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(null);
       templates.findOne.mockResolvedValue(null);
       certificates.create.mockImplementation((v: unknown) => v);
-      certificates.save.mockImplementation((v: Certificate) => Promise.resolve({ ...v, id: 'new' }));
+      certificates.save.mockImplementation((v: Certificate) =>
+        Promise.resolve({ ...v, id: 'new' }),
+      );
 
       await service.issueMarketplaceCertificate(input);
 
@@ -420,7 +438,9 @@ describe('CertificatesService', () => {
       certificates.findOne.mockResolvedValue(found);
 
       await expect(service.getMarketplaceCertificateForCourse('S1', 'MC1')).resolves.toBe(found);
-      expect(certificates.findOne).toHaveBeenCalledWith({ where: { student_id: 'S1', marketplace_course_id: 'MC1' } });
+      expect(certificates.findOne).toHaveBeenCalledWith({
+        where: { student_id: 'S1', marketplace_course_id: 'MC1' },
+      });
     });
   });
 
@@ -435,12 +455,14 @@ describe('CertificatesService', () => {
       );
     });
 
-    it('omits the source filter entirely when none is given (the academic /student/certificates route\'s existing behaviour, unchanged)', async () => {
+    it("omits the source filter entirely when none is given (the academic /student/certificates route's existing behaviour, unchanged)", async () => {
       certificates.findAndCount.mockResolvedValue([[], 0]);
 
       await service.getMyCertificates('S1', 1, 20);
 
-      expect(certificates.findAndCount).toHaveBeenCalledWith(expect.objectContaining({ where: { student_id: 'S1' } }));
+      expect(certificates.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { student_id: 'S1' } }),
+      );
     });
   });
 
@@ -493,7 +515,9 @@ describe('CertificatesService', () => {
 
     it('records a failed automatic issuance for bounded retry', async () => {
       purchases.createQueryBuilder.mockReturnValue(qb([{ package_id: 'P1' }]));
-      jest.spyOn(service, 'getCourseProgress').mockResolvedValue({ total: 2, completed: 2, percentage: 100 });
+      jest
+        .spyOn(service, 'getCourseProgress')
+        .mockResolvedValue({ total: 2, completed: 2, percentage: 100 });
       jest.spyOn(service, 'issueForCourse').mockRejectedValue(new Error('database unavailable'));
       autoIssuanceFailures.findOne.mockResolvedValue(null);
       autoIssuanceFailures.create.mockImplementation((value: unknown) => value);
@@ -583,7 +607,9 @@ describe('CertificatesService', () => {
         body: 'Body',
         status: CertificateTemplateStatus.DRAFT,
       });
-      await expect(templateService.publishTemplate('t1')).rejects.toBeInstanceOf(BadRequestException);
+      await expect(templateService.publishTemplate('t1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
       expect(templates.save).not.toHaveBeenCalled();
     });
 

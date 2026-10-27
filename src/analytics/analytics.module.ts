@@ -56,11 +56,7 @@ import { AdminDashboardService } from './admin-dashboard.service';
     ]),
   ],
   controllers: [AnalyticsController, QuizAnalyticsController],
-  providers: [
-    AnalyticsService,
-    QuizAnalyticsService,
-    AdminDashboardService,
-  ],
+  providers: [AnalyticsService, QuizAnalyticsService, AdminDashboardService],
   exports: [AnalyticsService, QuizAnalyticsService],
 })
 export class AnalyticsModule {}

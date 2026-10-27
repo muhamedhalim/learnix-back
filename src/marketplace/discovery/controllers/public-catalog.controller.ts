@@ -59,15 +59,26 @@ export class PublicCatalogController {
 
   @Get(':slug')
   @UseGuards(OptionalJwtAuthGuard)
-  @ApiOperation({ summary: 'Public course detail (FR-083); 404, never 403, when not visible (FR-087)' })
-  public async detail(@Param('slug') slug: string, @GetUser() user: JwtPayload | undefined): Promise<PublicCourseDetailResponse> {
+  @ApiOperation({
+    summary: 'Public course detail (FR-083); 404, never 403, when not visible (FR-087)',
+  })
+  public async detail(
+    @Param('slug') slug: string,
+    @GetUser() user: JwtPayload | undefined,
+  ): Promise<PublicCourseDetailResponse> {
     // Only the anonymous, visitor-independent half of the response is
     // cached. `viewer_enrollment` is this specific caller's own private
     // access state — computed fresh on every request, never cached, so
     // caching this endpoint can never leak one learner's enrollment status
     // into another visitor's (or an anonymous visitor's) cached response.
     const detail = await this.cache.getOrCompute(
-      { family: 'marketplace_catalog', endpoint: 'detail', scope: 'public', parts: ['detail', slug], ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS },
+      {
+        family: 'marketplace_catalog',
+        endpoint: 'detail',
+        scope: 'public',
+        parts: ['detail', slug],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
       () => this.courseDetail.getBySlug(slug),
     );
     return {
@@ -80,7 +91,13 @@ export class PublicCatalogController {
   @ApiOperation({ summary: 'Sections and lessons, titles + durations only (FR-083, FR-084)' })
   public async curriculum(@Param('slug') slug: string): Promise<PublicCourseCurriculum> {
     return this.cache.getOrCompute(
-      { family: 'marketplace_catalog', endpoint: 'curriculum', scope: 'public', parts: ['curriculum', slug], ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS },
+      {
+        family: 'marketplace_catalog',
+        endpoint: 'curriculum',
+        scope: 'public',
+        parts: ['curriculum', slug],
+        ttlMs: PUBLIC_CATALOG_CACHE_TTL_MS,
+      },
       () => this.courseDetail.getCurriculumBySlug(slug),
     );
   }
@@ -88,7 +105,10 @@ export class PublicCatalogController {
   @Get(':slug/preview/:lessonId')
   @UseInterceptors(PlaybackCookiesInterceptor)
   @ApiOperation({ summary: 'Signed playback for a free-preview lesson only (FR-048, FR-084)' })
-  public async preview(@Param('slug') slug: string, @Param('lessonId') lessonId: string): Promise<PreviewLessonContent> {
+  public async preview(
+    @Param('slug') slug: string,
+    @Param('lessonId') lessonId: string,
+  ): Promise<PreviewLessonContent> {
     return this.previewAccess.getPreviewLesson(slug, lessonId);
   }
 }
