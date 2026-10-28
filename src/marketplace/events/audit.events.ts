@@ -239,6 +239,26 @@ export class MarketplaceCourseRemovedEvent extends AuditEvent {
   }
 }
 
+/** An administrator recorded a refund they paid back outside the gateway API (D1). */
+export class MarketplaceRefundManuallyCompletedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    refundRequestId: string,
+    details: { orderId: string; refundReference: string; amountMinor: number; currency: string },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'marketplace_refund_manually_completed',
+      'marketplace_refund_request',
+      refundRequestId,
+      null,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
 export class MarketplaceRefundDecisionEvent extends AuditEvent {
   constructor(
     adminId: string,

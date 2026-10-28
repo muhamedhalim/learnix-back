@@ -1,12 +1,14 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, Not } from 'typeorm';
 
+import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { Certificate } from '../../certificates/entities/certificate.entity';
 import { CertificateStatus } from '../../certificates/entities/certificate-status.enum';
 import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { Payment } from '../../payments/entities/payment.entity';
+import type { PaymentGateway } from '../../payments/providers/payment-gateway.interface';
 import { PaymentProviderRegistry } from '../../payments/services/payment-provider-registry.service';
 import { MarketplaceEnrollment, MarketplaceOrder } from '../commerce/entities';
 import {
@@ -20,13 +22,22 @@ import {
 import { BalanceService } from '../earnings/balance.service';
 import { InstructorEarning } from '../earnings/entities/instructor-earning.entity';
 import { LedgerService } from '../earnings/ledger.service';
+import { MarketplaceRefundManuallyCompletedEvent } from '../events/audit.events';
 import {
   MarketplaceEarningReversedEvent,
+  MarketplaceRefundAwaitingPayoutEvent,
   MarketplaceRefundCompletedEvent,
   MarketplaceRefundFailedEvent,
 } from '../events/domain.events';
 import { MarketplaceCourseReview } from '../reviews/entities/marketplace-course-review.entity';
 import { MarketplaceRefundRequest } from './entities';
+
+/**
+ * `failure_reason` of an approved request whose gateway cannot refund through an API: the money has to
+ * be paid back by hand and recorded with `completeManually`. A code, not prose, so the admin queue can
+ * show it in the reader's language. It marks "waiting for a person", not an error.
+ */
+export const MANUAL_REFUND_REQUIRED = 'manual_refund_required';
 
 interface ClaimResult {
   request: MarketplaceRefundRequest;
@@ -60,6 +71,7 @@ export class RefundProcessingService {
     private readonly balance: BalanceService,
     private readonly providers: PaymentProviderRegistry,
     private readonly eventEmitter: EventEmitter2,
+    private readonly activityLogs: ActivityLogsService,
   ) {}
 
   public async process(refundRequestId: string): Promise<MarketplaceRefundRequest> {
@@ -82,7 +94,14 @@ export class RefundProcessingService {
 
     let providerReference: string;
     try {
-      providerReference = await this.callGateway(order, request.id);
+      const { payment, provider } = await this.resolveProvider(order);
+      if (!provider.supportsRefunds()) {
+        // No refund API (EasyKash): this is not a failure. The request waits, approved, for an
+        // administrator to pay it back and record it. Sending it to the provider would only fail
+        // and tell the learner their refund "could not be completed".
+        return retryTransaction(this.dataSource, (manager) => this.markAwaitingManual(manager, request.id));
+      }
+      providerReference = await this.callGateway(order, payment.provider_reference as string, provider, request.id);
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown provider error';
       this.logger.error(`Marketplace refund ${request.id} failed at the provider: ${reason}`);
@@ -96,19 +115,24 @@ export class RefundProcessingService {
     );
   }
 
-  private async callGateway(order: MarketplaceOrder, refundRequestId: string): Promise<string> {
+  private async resolveProvider(order: MarketplaceOrder): Promise<{ payment: Payment; provider: PaymentGateway }> {
     const payment = order.payment_id
       ? await this.dataSource.getRepository(Payment).findOne({ where: { id: order.payment_id } })
       : null;
     if (!payment?.provider || !payment.provider_reference) {
       throw new Error('Order has no reconcilable provider reference');
     }
-    const provider = this.providers.get(payment.provider);
-    if (!provider.supportsRefunds()) {
-      throw new Error(`Configured gateway (${payment.provider}) does not support API refunds`);
-    }
+    return { payment, provider: this.providers.get(payment.provider) };
+  }
+
+  private async callGateway(
+    order: MarketplaceOrder,
+    providerReference: string,
+    provider: PaymentGateway,
+    refundRequestId: string,
+  ): Promise<string> {
     const result = await provider.refund({
-      providerReference: payment.provider_reference,
+      providerReference,
       amountMinor: order.net_amount_minor,
       currency: order.currency,
       idempotencyKey: `marketplace-refund:${refundRequestId}`,
@@ -179,9 +203,164 @@ export class RefundProcessingService {
     }
 
     request.status = RefundRequestStatus.PROCESSING;
-    request.failure_reason = null;
+    // Keep the "waiting for a manual payout" marker across a re-run, so the learner is told once
+    // (`markAwaitingManual` sets it again, and an API refund or a failure overwrites it).
+    request.failure_reason =
+      request.failure_reason === MANUAL_REFUND_REQUIRED ? MANUAL_REFUND_REQUIRED : null;
     const saved = await manager.save(MarketplaceRefundRequest, request);
     return { request: saved, alreadyDone: false };
+  }
+
+  /** PROCESSING -> APPROVED, flagged as waiting for a manual payout. Idempotent; never regresses a completed refund. */
+  private async markAwaitingManual(
+    manager: EntityManager,
+    refundRequestId: string,
+  ): Promise<MarketplaceRefundRequest> {
+    const request = await manager.findOne(MarketplaceRefundRequest, {
+      where: { id: refundRequestId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!request) {
+      throw new NotFoundException(biBody('Refund request not found', 'طلب الاسترداد غير موجود'));
+    }
+    if (request.status === RefundRequestStatus.COMPLETED) {
+      return request;
+    }
+    const alreadyAnnounced = request.failure_reason === MANUAL_REFUND_REQUIRED;
+    request.status = RefundRequestStatus.APPROVED;
+    request.failure_reason = MANUAL_REFUND_REQUIRED;
+    const saved = await manager.save(MarketplaceRefundRequest, request);
+    if (!alreadyAnnounced) {
+      this.eventEmitter.emit(
+        MarketplaceRefundAwaitingPayoutEvent.EVENT_NAME,
+        new MarketplaceRefundAwaitingPayoutEvent(saved.id, saved.order_id),
+      );
+    }
+    return saved;
+  }
+
+  /**
+   * D1: the payment gateway has no refund API, so an administrator pays the learner back outside the
+   * system (gateway dashboard, bank transfer, wallet) and records the reference here. Only then is
+   * anything reversed: access, certificate, review and the instructor's earning stay as they are until
+   * the money has really moved, so a learner is never cut off and then left unpaid.
+   *
+   * Refused when the gateway CAN refund through its API (that path is `process()`), when the order
+   * was already refunded (by this or another request), and when the reference already closed a
+   * different refund. Calling it again with the same reference returns the completed request.
+   */
+  public async completeManually(
+    adminId: string,
+    refundRequestId: string,
+    rawReference: string,
+  ): Promise<MarketplaceRefundRequest> {
+    const refundReference = rawReference?.trim() ?? '';
+    if (refundReference === '') {
+      throw new BadRequestException(
+        biBody('A refund reference is required', 'مرجع الاسترداد مطلوب'),
+      );
+    }
+
+    const outcome = await retryTransaction(this.dataSource, async (manager) => {
+      const request = await manager.findOne(MarketplaceRefundRequest, {
+        where: { id: refundRequestId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!request) {
+        throw new NotFoundException(biBody('Refund request not found', 'طلب الاسترداد غير موجود'));
+      }
+      if (request.status === RefundRequestStatus.COMPLETED) {
+        if (request.refund_reference === refundReference) {
+          return { request, order: null, alreadyDone: true };
+        }
+        throw new ConflictException(
+          biBody(
+            'This refund was already completed with a different reference',
+            'تم إكمال هذا الاسترداد بالفعل بمرجع مختلف',
+          ),
+        );
+      }
+      if (request.status === RefundRequestStatus.PROCESSING) {
+        throw new ConflictException(
+          biBody('This refund is already being processed', 'يجري بالفعل معالجة هذا الاسترداد'),
+        );
+      }
+      if (
+        request.status !== RefundRequestStatus.APPROVED &&
+        request.status !== RefundRequestStatus.FAILED
+      ) {
+        throw new ConflictException(
+          biBody(
+            'This refund request must be approved before it can be completed',
+            'يجب الموافقة على طلب الاسترداد هذا قبل إكماله',
+          ),
+        );
+      }
+
+      const order = await manager.findOne(MarketplaceOrder, {
+        where: { id: request.order_id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!order) {
+        throw new NotFoundException(biBody('Order not found', 'الطلب غير موجود'));
+      }
+      const payment = order.payment_id
+        ? await manager.findOne(Payment, { where: { id: order.payment_id } })
+        : null;
+      if (!payment?.provider) {
+        throw new ConflictException(
+          biBody(
+            'This order has no payment to refund',
+            'لا توجد عملية دفع مرتبطة بهذا الطلب لاستردادها',
+          ),
+        );
+      }
+      if (this.providers.get(payment.provider).supportsRefunds()) {
+        throw new ConflictException(
+          biBody(
+            'This payment gateway refunds through its API. Retry the refund instead of completing it by hand.',
+            'تسترد بوابة الدفع هذه عبر واجهتها البرمجية. أعد محاولة الاسترداد بدلاً من إكماله يدوياً.',
+          ),
+        );
+      }
+
+      // An order is refunded at most once (FIA-009).
+      const completedSibling = await manager.findOne(MarketplaceRefundRequest, {
+        where: { order_id: request.order_id, id: Not(request.id), status: RefundRequestStatus.COMPLETED },
+      });
+      if (order.status === MarketplaceOrderStatus.REFUNDED || completedSibling) {
+        throw new ConflictException(
+          biBody('This order has already been refunded', 'تم استرداد قيمة هذا الطلب بالفعل'),
+        );
+      }
+      // One payout cannot close two refunds.
+      const reused = await manager.findOne(MarketplaceRefundRequest, {
+        where: { refund_reference: refundReference, id: Not(request.id) },
+      });
+      if (reused) {
+        throw new ConflictException(
+          biBody(
+            'This reference was already used to complete another refund',
+            'تم استخدام هذا المرجع بالفعل لإكمال استرداد آخر',
+          ),
+        );
+      }
+
+      const completed = await this.completeReversal(manager, request.id, refundReference);
+      return { request: completed, order, alreadyDone: false };
+    });
+
+    if (!outcome.alreadyDone && outcome.order) {
+      await this.activityLogs.recordAuditEvent(
+        new MarketplaceRefundManuallyCompletedEvent(adminId, outcome.request.id, {
+          orderId: outcome.order.id,
+          refundReference,
+          amountMinor: outcome.order.net_amount_minor,
+          currency: outcome.order.currency,
+        }),
+      );
+    }
+    return outcome.request;
   }
 
   private async markFailed(

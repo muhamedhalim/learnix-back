@@ -215,6 +215,19 @@ export class MarketplaceRefundCompletedEvent {
   ) {}
 }
 
+/**
+ * The refund was approved, but the payment gateway has no refund API, so an administrator has to pay
+ * it back by hand and record it (`RefundProcessingService.completeManually`). Not a failure: nothing
+ * went wrong, and the learner should not be told one did.
+ */
+export class MarketplaceRefundAwaitingPayoutEvent {
+  public static readonly EVENT_NAME = 'marketplace.refund.awaiting_payout';
+  constructor(
+    public readonly refundRequestId: string,
+    public readonly orderId: string,
+  ) {}
+}
+
 export class MarketplaceRefundFailedEvent {
   public static readonly EVENT_NAME = 'marketplace.refund.failed';
   constructor(

@@ -28,6 +28,8 @@ const EXPECTED_EVENT_NAMES = [
   'marketplace.refund.requested',
   'marketplace.refund.refused',
   'marketplace.refund.completed',
+  // Added for D1 (not in plan.md §7): an approved refund waiting for a manual payout is not a failure.
+  'marketplace.refund.awaiting_payout',
   'marketplace.refund.failed',
   'marketplace.payout.requested',
   'marketplace.payout.approved',

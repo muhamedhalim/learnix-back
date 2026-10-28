@@ -355,14 +355,9 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
 
   it('refuses a second, differently-keyed open request for the same order while one is already open (UQ_mp_refunds_open_per_order)', async () => {
     const { learner, order } = await actors();
-    // The first request is eligible, so it auto-processes and — with no
-    // reachable gateway here — settles into FAILED, which is a terminal,
-    // non-open state; open a genuinely non-terminal race instead by
-    // asserting the DB-level guard directly through two concurrent
-    // in-flight creations is out of scope for HTTP timing, so this proves
-    // the ineligible (REJECTED-then-still-blocked-while-processing) shape:
-    // two distinct idempotency keys against the same order never produce
-    // two simultaneously-open rows.
+    // EasyKash has no refund API, so the first (eligible) request is approved and waits for a
+    // manual payout. That is an open state (UQ_mp_refunds_open_per_order): two distinct
+    // idempotency keys against the same order never produce two simultaneously-open rows.
     await learner.agent
       .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
       .set('Idempotency-Key', `refund-a-${Date.now()}`)
@@ -374,17 +369,29 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       .set('Idempotency-Key', `refund-b-${Date.now()}`)
       .send({ reason: 'Second attempt' });
 
-    // FAILED is terminal (not in the partial index), so a genuinely new
-    // request is allowed to open — this proves the guard's boundary, not a
-    // rejection: a fresh row is created, never a silent merge.
-    expect([200, 201]).toContain(secondAttempt.status);
+    expect(secondAttempt.status).toBe(409);
+    expect(secondAttempt.body.code).toBe('REFUND_ALREADY_OPEN');
     expect(
       await dataSource.getRepository(MarketplaceRefundRequest).countBy({ order_id: order.id }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
-  describe('provider-failure handling (T138) — this e2e environment has no reachable EasyKash credentials', () => {
-    it('fails closed for an eligible request: no revocation, no reversal, no ledger entry — the learner is informed via the response', async () => {
+  /** A gateway that CAN refund through an API, so a failure is a provider failure and not "no API". */
+  function gatewayWithRefundApi(payment: Payment, refund: () => Promise<{ providerReference: string; status: 'succeeded' | 'processing' }>) {
+    const gateway = app.get(PaymentProviderRegistry).get(payment.provider);
+    const supportsRefunds = jest.spyOn(gateway, 'supportsRefunds').mockReturnValue(true);
+    const providerRefund = jest.spyOn(gateway, 'refund').mockImplementation(refund);
+    return {
+      providerRefund,
+      restore: () => {
+        supportsRefunds.mockRestore();
+        providerRefund.mockRestore();
+      },
+    };
+  }
+
+  describe('a gateway without a refund API (D1) — EasyKash', () => {
+    it('approves an eligible request and leaves it waiting for a manual payout: nothing is revoked, reversed or posted, and it is not reported as a failure', async () => {
       const { learner, order, enrollment } = await actors();
 
       const res = await learner.agent
@@ -393,8 +400,8 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .send({ reason: 'Not what I expected' })
         .expect(201);
 
-      expect(res.body.status).toBe(RefundRequestStatus.FAILED);
-      expect(res.body.failure_reason).toEqual(expect.any(String));
+      expect(res.body.status).toBe(RefundRequestStatus.APPROVED);
+      expect(res.body.failure_reason).toBe('manual_refund_required');
 
       await expect(
         dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
@@ -410,7 +417,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       ).toBe(2);
     });
 
-    it('leaves a retryable FAILED request that a second attempt can pick back up cleanly (FR-193 — no inconsistent partial state)', async () => {
+    it('keeps exactly one open request while it waits', async () => {
       const { learner, order } = await actors();
       await learner.agent
         .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
@@ -422,7 +429,132 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .getRepository(MarketplaceRefundRequest)
         .findBy({ order_id: order.id });
       expect(requests).toHaveLength(1);
-      expect(requests[0]!.status).toBe(RefundRequestStatus.FAILED);
+      expect(requests[0]!.status).toBe(RefundRequestStatus.APPROVED);
+    });
+
+    it('completes only when an administrator records the payout, and then reverses everything once', async () => {
+      const { learner, order, enrollment, admin } = await actors();
+      const requested = await learner.agent
+        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+        .set('Idempotency-Key', `refund-${Date.now()}`)
+        .send({ reason: 'Not what I expected' })
+        .expect(201);
+      const route = `${API_PREFIX}/marketplace/admin/refunds/${requested.body.id}/complete-manually`;
+
+      // It is in the admin queue, waiting.
+      await grantRefundPermission(admin.userId);
+      const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/refunds?status=approved`).expect(200);
+      expect((queue.body.data as Array<{ id: string }>).map((r) => r.id)).toContain(requested.body.id);
+
+      // Permission, learner access and input are checked first.
+      await learner.agent.post(route).send({ refundReference: 'BANK-1' }).expect(403);
+      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+      await admin.agent.post(route).send({ refundReference: 'BANK-1' }).expect(403);
+      await grantRefundPermission(admin.userId);
+      await admin.agent.post(route).send({}).expect(400);
+      await admin.agent.post(route).send({ refundReference: '   ' }).expect(400);
+      await expect(
+        dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+      ).resolves.toMatchObject({ status: MarketplaceOrderStatus.PAID });
+
+      // Recording the payout completes it.
+      const done = await admin.agent.post(route).send({ refundReference: '  BANK-TRANSFER-8841  ' }).expect(201);
+      expect(done.body).toMatchObject({
+        id: requested.body.id,
+        status: RefundRequestStatus.COMPLETED,
+        refund_reference: 'BANK-TRANSFER-8841',
+        failure_reason: null,
+      });
+      await expect(
+        dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+      ).resolves.toMatchObject({ status: MarketplaceOrderStatus.REFUNDED });
+      await expect(
+        dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
+      ).resolves.toMatchObject({ status: 'revoked' });
+      await expect(
+        dataSource.getRepository(InstructorEarning).findOneByOrFail({ order_id: order.id }),
+      ).resolves.toMatchObject({ status: 'reversed' });
+      const ledgerRows = await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id });
+      expect(ledgerRows).toBe(4);
+
+      // Who did it is on record.
+      const audit = (await dataSource.query(
+        "SELECT admin_id, details FROM audit_logs WHERE action = 'marketplace_refund_manually_completed'",
+      )) as Array<{ admin_id: string; details: { refundReference: string } }>;
+      expect(audit).toHaveLength(1);
+      expect(audit[0]!.admin_id).toBe(admin.userId);
+      expect(audit[0]!.details.refundReference).toBe('BANK-TRANSFER-8841');
+
+      // Repeating it changes nothing; a different reference is refused.
+      await admin.agent.post(route).send({ refundReference: 'BANK-TRANSFER-8841' }).expect(201);
+      await admin.agent.post(route).send({ refundReference: 'SOMETHING-ELSE' }).expect(409);
+      await expect(
+        dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
+      ).resolves.toBe(ledgerRows);
+    });
+
+    it('cannot be used to skip a real refund on a gateway that has a refund API', async () => {
+      const { learner, order, enrollment, admin, payment } = await actors();
+      await grantRefundPermission(admin.userId);
+      const requested = await learner.agent
+        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+        .set('Idempotency-Key', `refund-${Date.now()}`)
+        .send({ reason: 'Changed my mind' })
+        .expect(201);
+      expect(requested.body.status).toBe(RefundRequestStatus.APPROVED);
+
+      const api = gatewayWithRefundApi(payment, async () => ({ providerReference: 'x', status: 'succeeded' }));
+      try {
+        await admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/refunds/${requested.body.id}/complete-manually`)
+          .send({ refundReference: 'BANK-1' })
+          .expect(409);
+      } finally {
+        api.restore();
+      }
+      await expect(
+        dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
+      ).resolves.toMatchObject({ status: 'active' });
+    });
+
+    it('lets the retry button run again without announcing it a second time or failing it', async () => {
+      const { learner, order, admin } = await actors();
+      await grantRefundPermission(admin.userId);
+      const requested = await learner.agent
+        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+        .set('Idempotency-Key', `refund-${Date.now()}`)
+        .send({ reason: 'Eligible' })
+        .expect(201);
+      const retried = await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/refunds/${requested.body.id}/retry`)
+        .expect(201);
+      expect(retried.body.status).toBe(RefundRequestStatus.APPROVED);
+      expect(retried.body.failure_reason).toBe('manual_refund_required');
+    });
+  });
+
+  describe('provider-failure handling (T138) — a gateway WITH a refund API that errors', () => {
+    it('fails closed: no revocation, no reversal, no ledger entry, and the request stays retryable (FR-193)', async () => {
+      const { learner, order, enrollment, payment } = await actors();
+      const api = gatewayWithRefundApi(payment, () => Promise.reject(new Error('provider down')));
+      try {
+        const res = await learner.agent
+          .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+          .set('Idempotency-Key', `refund-${Date.now()}`)
+          .send({ reason: 'Not what I expected' })
+          .expect(201);
+        expect(res.body.status).toBe(RefundRequestStatus.FAILED);
+        expect(res.body.failure_reason).toContain('provider down');
+      } finally {
+        api.restore();
+      }
+      await expect(
+        dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: order.id }),
+      ).resolves.toMatchObject({ status: MarketplaceOrderStatus.PAID, refunded_at: null });
+      await expect(
+        dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
+      ).resolves.toMatchObject({ status: 'active' });
+      expect(await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id })).toBe(2);
     });
   });
 
@@ -452,7 +584,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .expect(403);
     });
 
-    it('grants a rejected request discretionarily, marks it discretionary, and (with no reachable gateway here) fails closed on processing', async () => {
+    it('grants a rejected request discretionarily, marks it discretionary, and (EasyKash has no refund API) leaves it waiting for a manual payout', async () => {
       const { learner, order, admin } = await actors();
       await grantRefundPermission(admin.userId);
       const justExpired = new Date(
@@ -472,59 +604,67 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .expect(201);
 
       expect(granted.body.is_discretionary).toBe(true);
-      expect(granted.body.status).toBe(RefundRequestStatus.FAILED);
+      expect(granted.body.status).toBe(RefundRequestStatus.APPROVED);
+      expect(granted.body.failure_reason).toBe('manual_refund_required');
     });
 
     it('retries a FAILED refund on admin request; denies it without marketplace.refunds.process', async () => {
-      const { learner, order, admin } = await actors();
-      const failed = await learner.agent
-        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
-        .set('Idempotency-Key', `refund-${Date.now()}`)
-        .send({ reason: 'Eligible but no gateway here' })
-        .expect(201);
-      expect(failed.body.status).toBe(RefundRequestStatus.FAILED);
+      const { learner, order, admin, payment } = await actors();
+      const api = gatewayWithRefundApi(payment, () => Promise.reject(new Error('provider down')));
+      try {
+        const failed = await learner.agent
+          .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+          .set('Idempotency-Key', `refund-${Date.now()}`)
+          .send({ reason: 'Eligible but the provider is down' })
+          .expect(201);
+        expect(failed.body.status).toBe(RefundRequestStatus.FAILED);
 
-      await dataSource
-        .getRepository(User)
-        .update({ id: admin.userId }, { finance_permissions: [] });
-      await admin.agent
-        .post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`)
-        .expect(403);
+        await dataSource
+          .getRepository(User)
+          .update({ id: admin.userId }, { finance_permissions: [] });
+        await admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`)
+          .expect(403);
 
-      await grantRefundPermission(admin.userId);
-      const retried = await admin.agent
-        .post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`)
-        .expect(201);
-      expect(retried.body.id).toBe(failed.body.id);
-      // Still no reachable gateway here, so the retry fails the same way — proves the endpoint
-      // actually re-dispatches to RefundProcessingService rather than short-circuiting.
-      expect(retried.body.status).toBe(RefundRequestStatus.FAILED);
+        await grantRefundPermission(admin.userId);
+        const retried = await admin.agent
+          .post(`${API_PREFIX}/marketplace/admin/refunds/${failed.body.id}/retry`)
+          .expect(201);
+        expect(retried.body.id).toBe(failed.body.id);
+        // Still down, so the retry fails the same way — proves the endpoint actually re-dispatches
+        // to RefundProcessingService rather than short-circuiting.
+        expect(retried.body.status).toBe(RefundRequestStatus.FAILED);
+        expect(api.providerRefund).toHaveBeenCalledTimes(2);
+      } finally {
+        api.restore();
+      }
     });
 
     it('never refunds an order twice: retrying a stale FAILED request after a later one refunded the order sends nothing (FIA-009)', async () => {
       const { learner, order, admin, payment } = await actors();
       await grantRefundPermission(admin.userId);
-      const first = await learner.agent
-        .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
-        .set('Idempotency-Key', `refund-first-${Date.now()}`)
-        .send({ reason: 'Provider outage on the first try' })
-        .expect(201);
-      expect(first.body.status).toBe(RefundRequestStatus.FAILED);
-
-      // The provider recovers (test double only — no live call) and a second request refunds the order.
-      const gateway = app.get(PaymentProviderRegistry).get(payment.provider);
-      const supportsRefunds = jest.spyOn(gateway, 'supportsRefunds').mockReturnValue(true);
-      const providerRefund = jest
-        .spyOn(gateway, 'refund')
-        .mockResolvedValue({ providerReference: `test-refund-${order.id}`, status: 'succeeded' });
+      // The provider is down for the first request and recovers for the second (test double only — no live call).
+      let calls = 0;
+      const api = gatewayWithRefundApi(payment, async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('Provider outage on the first try');
+        return { providerReference: `test-refund-${order.id}`, status: 'succeeded' };
+      });
       try {
+        const first = await learner.agent
+          .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
+          .set('Idempotency-Key', `refund-first-${Date.now()}`)
+          .send({ reason: 'Provider outage on the first try' })
+          .expect(201);
+        expect(first.body.status).toBe(RefundRequestStatus.FAILED);
+
         const second = await learner.agent
           .post(`${API_PREFIX}/marketplace/me/orders/${order.id}/refund`)
           .set('Idempotency-Key', `refund-second-${Date.now()}`)
           .send({ reason: 'Second try' })
           .expect(201);
         expect(second.body.status).toBe(RefundRequestStatus.COMPLETED);
-        expect(providerRefund).toHaveBeenCalledTimes(1);
+        expect(api.providerRefund).toHaveBeenCalledTimes(2);
         const ledgerRowsAfterRefund = await dataSource
           .getRepository(MarketplaceLedgerEntry)
           .countBy({ order_id: order.id });
@@ -533,7 +673,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
           .post(`${API_PREFIX}/marketplace/admin/refunds/${first.body.id}/retry`)
           .expect(201);
 
-        expect(providerRefund).toHaveBeenCalledTimes(1);
+        expect(api.providerRefund).toHaveBeenCalledTimes(2);
         expect(retried.body.status).toBe(RefundRequestStatus.FAILED);
         expect(retried.body.failure_reason).toContain(second.body.id);
         // Nothing was reversed a second time either.
@@ -541,8 +681,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
           dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
         ).resolves.toBe(ledgerRowsAfterRefund);
       } finally {
-        supportsRefunds.mockRestore();
-        providerRefund.mockRestore();
+        api.restore();
       }
 
       const rows = await dataSource

@@ -1,4 +1,5 @@
 import {
+  MarketplaceRefundAwaitingPayoutEvent,
   MarketplaceRefundCompletedEvent,
   MarketplaceRefundFailedEvent,
   MarketplaceRefundRefusedEvent,
@@ -88,6 +89,25 @@ describe('RefundNotificationListener (T147, FR-273)', () => {
 
     expect(notifications.create).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: 'learner-1', title: 'Refund could not be completed' }),
+      false,
+    );
+  });
+
+  it('tells the learner an approved refund is on its way, not that it failed (D1)', async () => {
+    const { listener, notifications } = buildListener();
+    await listener.handleAwaitingPayout(new MarketplaceRefundAwaitingPayoutEvent('refund-1', 'order-1'));
+
+    expect(notifications.create).toHaveBeenCalledTimes(1);
+    expect(notifications.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user_id: 'learner-1',
+        title: 'Refund approved',
+        message: expect.stringContaining('React Basics'),
+      }),
+      false,
+    );
+    expect(notifications.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Refund could not be completed' }),
       false,
     );
   });
