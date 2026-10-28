@@ -63,6 +63,21 @@ export class AdminInstructorsController {
     return this.instructors.suspend(id, admin.userId, dto.reason);
   }
 
+  /**
+   * An account provisioned from a public application has no password until the applicant uses the emailed
+   * link, and "Forgot password" ignores such accounts, so a lost first email would lock the instructor out.
+   */
+  @Post(':id/resend-setup-link')
+  // Writes `users` (the single-use setup token) and `audit_logs`; `admin_dashboard` reads audit logs (T031).
+  @InvalidatesCache(['admin_dashboard'])
+  @ApiOperation({ summary: 'Re-send the password-setup link to an instructor who has not set a password' })
+  public async resendSetupLink(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() admin: JwtPayload,
+  ): Promise<{ sent: true }> {
+    return this.instructors.resendSetupLink(id, admin.userId);
+  }
+
   @Post(':id/reinstate')
   // Same write set as suspend: `marketplace_instructors` + `audit_logs` (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])

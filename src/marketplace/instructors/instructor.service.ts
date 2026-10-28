@@ -1,4 +1,10 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, Repository } from 'typeorm';
@@ -11,6 +17,7 @@ import {
   MarketplaceApplicationApprovedEvent,
   MarketplaceApplicationRejectedEvent,
   MarketplaceInstructorReinstatedEvent,
+  MarketplaceInstructorSetupLinkResentEvent,
   MarketplaceInstructorSuspendedEvent,
 } from '../events/audit.events';
 import {
@@ -24,6 +31,19 @@ import { InstructorApplicationService } from './instructor-application.service';
 import { InstructorAccountService } from './instructor-account.service';
 import { InstructorApplication } from './entities/instructor-application.entity';
 import { MarketplaceInstructor } from './entities/marketplace-instructor.entity';
+
+const POSTGRES_UNIQUE_VIOLATION = '23505';
+
+/**
+ * What approving an application tells the administrator about the applicant's login:
+ * - `sent`: a freshly provisioned account was emailed its password-setup link;
+ * - `failed`: it was provisioned but the email could not be queued, so the instructor cannot sign in
+ *   until an administrator resends the link;
+ * - `not_needed`: the applicant already had an account and signs in as before.
+ */
+export type AccountSetupEmailOutcome = 'sent' | 'failed' | 'not_needed';
+
+export type ApprovedInstructor = MarketplaceInstructor & { account_setup_email: AccountSetupEmailOutcome };
 
 @Injectable()
 export class InstructorService {
@@ -58,7 +78,7 @@ export class InstructorService {
    * a deadlock-retried attempt commit an audit row for a database write
    * that never landed, or the successful retry double it.
    */
-  public async approveApplication(applicationId: string, adminId: string): Promise<MarketplaceInstructor> {
+  public async approveApplication(applicationId: string, adminId: string): Promise<ApprovedInstructor> {
     const { instructor, application, account, applicantUserId } = await retryTransaction(
       this.dataSource,
       async (manager) => {
@@ -74,13 +94,37 @@ export class InstructorService {
           : null;
       if (account !== null) {
         application.user_id = account.user.id;
-        await manager.getRepository(InstructorApplication).save(application);
+        try {
+          await manager.getRepository(InstructorApplication).save(application);
+        } catch (error) {
+          // The account found for the applicant's email already has an open application of its own.
+          if ((error as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION) {
+            throw new ConflictException(
+              biBody(
+                'The account with this applicant\'s email already has another open application. Reject this one or resolve the other first.',
+                'الحساب المرتبط ببريد مقدّم الطلب لديه طلب آخر مفتوح. ارفض هذا الطلب أو عالج الآخر أولاً.',
+              ),
+            );
+          }
+          throw error;
+        }
       }
 
       const applicantUserId = application.user_id;
       if (applicantUserId === null) {
         throw new ConflictException(
           biBody('Could not resolve the applicant account', 'تعذّر تحديد حساب مقدّم الطلب'),
+        );
+      }
+
+      // One capability record per person. An applicant who is already an instructor (or whose email
+      // belongs to one) used to hit the unique index and surface as a 500.
+      if (await manager.findOne(MarketplaceInstructor, { where: { user_id: applicantUserId } })) {
+        throw new ConflictException(
+          biBody(
+            'This applicant is already an instructor. Reject this application.',
+            'مقدّم الطلب مدرّب بالفعل. ارفض هذا الطلب.',
+          ),
         );
       }
 
@@ -123,13 +167,50 @@ export class InstructorService {
       new ApplicationApprovedDomainEvent(applicationId, applicantUserId, instructor.id),
     );
 
-    // Only a freshly provisioned account needs to choose a password. Sending
-    // fails loudly in logs but never unwinds the approval above.
+    // Only a freshly provisioned account needs to choose a password. A failure to send is logged and
+    // reported in the result, but never unwinds (or fails) the approval above.
+    let accountSetupEmail: AccountSetupEmailOutcome = 'not_needed';
     if (account?.created === true) {
-      await this.accounts.sendAccountSetupLink(account.user);
+      accountSetupEmail = (await this.accounts.sendAccountSetupLink(account.user)) ? 'sent' : 'failed';
     }
 
-    return instructor;
+    return Object.assign(instructor, { account_setup_email: accountSetupEmail });
+  }
+
+  /**
+   * Re-sends the password-setup link to an instructor who was provisioned from a public application and
+   * has not set a password. Refused when the account already has one (it can sign in or use "Forgot
+   * password"), and answered 503 when the email still cannot be queued, so the administrator knows.
+   */
+  public async resendSetupLink(instructorId: string, adminId: string): Promise<{ sent: true }> {
+    const instructor = await this.instructors.findOne({ where: { id: instructorId } });
+    if (!instructor) {
+      throw new NotFoundException(biBody('Instructor not found', 'المدرّب غير موجود'));
+    }
+    const outcome = await this.accounts.resendSetupLink(instructor.user_id);
+    if (outcome === 'has_password') {
+      throw new ConflictException(
+        biBody(
+          'This account already has a password. The instructor can sign in or use "Forgot password".',
+          'لهذا الحساب كلمة مرور بالفعل. يمكن للمدرّب تسجيل الدخول أو استخدام "نسيت كلمة المرور".',
+        ),
+      );
+    }
+    if (outcome === 'not_found') {
+      throw new NotFoundException(biBody('Instructor account not found', 'حساب المدرّب غير موجود'));
+    }
+    if (outcome === 'failed') {
+      throw new ServiceUnavailableException(
+        biBody(
+          'The email could not be queued. Check the email configuration and try again.',
+          'تعذّر وضع البريد في قائمة الإرسال. تحقق من إعدادات البريد وحاول مرة أخرى.',
+        ),
+      );
+    }
+    await this.activityLogs.recordAuditEvent(
+      new MarketplaceInstructorSetupLinkResentEvent(adminId, instructor.id, { instructorName: instructor.display_name }),
+    );
+    return { sent: true };
   }
 
   public async rejectApplication(applicationId: string, adminId: string, reason: string): Promise<void> {

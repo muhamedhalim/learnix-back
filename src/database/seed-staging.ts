@@ -50,6 +50,7 @@ import { typeOrmArtifactPaths } from '../data-source';
 import { resolveDatabaseSsl } from '../common/utils/database-ssl.util';
 
 import { AttendanceRecord } from '../attendance/entities/attendance-record.entity';
+import { FINANCE_PERMISSIONS } from '../common/auth/finance-permissions';
 import { LessonSession } from '../attendance/entities/lesson-session.entity';
 import { Book } from '../books/entities/book.entity';
 import { Certificate } from '../certificates/entities/certificate.entity';
@@ -310,7 +311,11 @@ async function seedUsers(
     });
   }
 
-  const admin = await users.save(build(UserRole.ADMIN, 1, 'admin', 0));
+  // The seeded administrator holds every finance permission, as the production bootstrap admin does
+  // (`admin-initialization.service.ts`); with `[]` every finance-gated page answered 403 on staging.
+  const adminUser = build(UserRole.ADMIN, 1, 'admin', 0);
+  adminUser.finance_permissions = [...FINANCE_PERMISSIONS];
+  const admin = await users.save(adminUser);
 
   const teachers: User[] = [];
   for (let index = 1; index <= COUNTS.teachers; index++) {

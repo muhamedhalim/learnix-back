@@ -68,6 +68,21 @@ export class MarketplaceApplicationAttemptsResetEvent extends AuditEvent {
   }
 }
 
+/** An administrator re-sent the password-setup link of an account provisioned from a public application. */
+export class MarketplaceInstructorSetupLinkResentEvent extends AuditEvent {
+  constructor(adminId: string, instructorId: string, details: { instructorName: string }, ipAddress?: string) {
+    super(
+      adminId,
+      'marketplace_instructor_setup_link_resent',
+      'marketplace_instructor',
+      instructorId,
+      details.instructorName,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
 export class MarketplaceInstructorSuspendedEvent extends AuditEvent {
   constructor(
     adminId: string,
