@@ -9,6 +9,7 @@ import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/c
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T110 — contracts §4's free-enrollment block end to end (FR-111 – FR-114,
@@ -59,7 +60,7 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
         language: 'en',
         price_minor: 0,
         currency: 'EGP',
-        cover_image_key: 'covers/free-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Get started'],
       })
       .expect(201);
@@ -147,7 +148,7 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
         language: 'en',
         price_minor: 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/paid-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Pay up'],
       })
       .expect(201);

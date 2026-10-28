@@ -25,6 +25,7 @@ import { SettlementStatus } from '../../src/payments/entities/settlement-status.
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T203 (US11, release gate), Deps: T175. `marketplace-payouts.e2e-spec.ts`
@@ -84,7 +85,7 @@ describe('dual-capability isolation — academic activity never touches marketpl
         language: 'en',
         price_minor: 200000,
         currency: 'EGP',
-        cover_image_key: 'covers/dual-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Understand isolation'],
       })
       .expect(201);

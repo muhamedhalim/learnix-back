@@ -7,6 +7,7 @@ import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/c
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildEnrollmentFixture, buildInstructorFixture, buildOrderFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T079 — contracts §1 (public catalogue). Covers FR-076–FR-091: listing,
@@ -65,7 +66,7 @@ describe('marketplace public catalogue — contract (contracts §1)', () => {
         language: 'en',
         price_minor: opts.priceMinor ?? 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/backend-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Build a REST API'],
       })
       .expect(201);
@@ -264,7 +265,7 @@ describe('marketplace public catalogue — contract (contracts §1)', () => {
         language: 'en',
         price_minor: 0,
         currency: 'EGP',
-        cover_image_key: 'covers/draft.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
       })
       .expect(201);
 
@@ -306,7 +307,7 @@ describe('marketplace public catalogue — contract (contracts §1)', () => {
         language: 'en',
         price_minor: 0,
         currency: 'EGP',
-        cover_image_key: 'covers/x.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Learn something'],
       })
       .expect(201);

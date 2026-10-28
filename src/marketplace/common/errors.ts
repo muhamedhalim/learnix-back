@@ -90,6 +90,8 @@ export const MARKETPLACE_ERROR_CODES = {
   ADJUSTMENT_WOULD_GO_NEGATIVE: 'ADJUSTMENT_WOULD_GO_NEGATIVE',
   /** FR-284 — only a currently-published course can be added to the featured set. */
   COURSE_NOT_FEATURABLE: 'COURSE_NOT_FEATURABLE',
+  /** A course cover or profile photo must be an image uploaded through the marketplace upload route, not an arbitrary URL or someone else's file. */
+  INVALID_IMAGE_REFERENCE: 'INVALID_IMAGE_REFERENCE',
 } as const;
 
 export type MarketplaceErrorCode =
@@ -257,6 +259,14 @@ export function pageSizeExceedsMaximum(maximum: number): MarketplaceBadRequestEx
     MARKETPLACE_ERROR_CODES.PAGE_SIZE_EXCEEDS_MAXIMUM,
     `Page size cannot exceed ${maximum}`,
     `لا يمكن أن يتجاوز حجم الصفحة ${maximum}`,
+  );
+}
+
+export function invalidImageReference(): MarketplaceBadRequestException {
+  return new MarketplaceBadRequestException(
+    MARKETPLACE_ERROR_CODES.INVALID_IMAGE_REFERENCE,
+    'The image must be uploaded through the platform; external links are not accepted',
+    'يجب رفع الصورة عبر المنصة؛ لا تُقبل الروابط الخارجية',
   );
 }
 

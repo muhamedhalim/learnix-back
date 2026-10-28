@@ -165,6 +165,40 @@ export class MarketplaceCourseRejectedEvent extends AuditEvent {
   }
 }
 
+/** An administrator's decision on a material edit to an already-published course (FR-071). */
+export class MarketplaceCoursePendingEditApprovedEvent extends AuditEvent {
+  constructor(adminId: string, courseId: string, details: { courseTitle: string }, ipAddress?: string) {
+    super(
+      adminId,
+      'marketplace_course_pending_edit_approved',
+      'marketplace_course',
+      courseId,
+      details.courseTitle,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
+export class MarketplaceCoursePendingEditRejectedEvent extends AuditEvent {
+  constructor(
+    adminId: string,
+    courseId: string,
+    details: { courseTitle: string; reasons: string[] },
+    ipAddress?: string,
+  ) {
+    super(
+      adminId,
+      'marketplace_course_pending_edit_rejected',
+      'marketplace_course',
+      courseId,
+      details.courseTitle,
+      details,
+      ipAddress ?? null,
+    );
+  }
+}
+
 /**
  * FR-068 — an *administrator's* unpublish, with its mandatory reason; a
  * plain instructor unpublish (FR-069, their own choice, no reason) is a

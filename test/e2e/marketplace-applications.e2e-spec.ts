@@ -17,6 +17,7 @@ import {
   resetDatabase,
   setUserRole,
 } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Contract tests for contracts §2 (learner-facing applications) and the
@@ -32,7 +33,7 @@ describe('marketplace applications — contract (contracts §2, §5)', () => {
 
   const submittableApplication = {
     display_name: 'Nour Ahmed',
-    photo_key: 'https://cdn.example.com/photos/nour.jpg',
+    photo_key: TEST_IMAGE_KEY,
     headline: 'Senior Software Engineer',
     bio: 'Ten years building backend systems.',
     years_of_experience: 10,

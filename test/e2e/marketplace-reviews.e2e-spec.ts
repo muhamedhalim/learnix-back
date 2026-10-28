@@ -9,6 +9,7 @@ import { MarketplaceInstructor } from '../../src/marketplace/instructors/entitie
 import { MarketplaceCourseReview } from '../../src/marketplace/reviews/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 10's independent test (tasks.md): an enrolled learner posts, edits
@@ -55,7 +56,7 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
         language: 'en',
         price_minor: 0,
         currency: 'EGP',
-        cover_image_key: 'covers/reviews-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Finish the course'],
       })
       .expect(201);

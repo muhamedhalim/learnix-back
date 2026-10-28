@@ -20,6 +20,7 @@ import {
   type E2EContext,
 } from './fixtures';
 import { createEnrolledStudent } from './helpers/enrolled-student';
+import { TEST_IMAGE_KEY, TEST_IMAGE_KEY_2 } from './helpers/images';
 
 /**
  * Wave 1 (T030, T031, T032, T035): which cache-invalidation call each kind of
@@ -239,7 +240,7 @@ describe('cache invalidation declarations (e2e, T030/T031/T032/T035)', () => {
         language: 'en',
         price_minor: priceMinor,
         currency: 'EGP',
-        cover_image_key: 'covers/declarations-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       };
     }
@@ -309,7 +310,7 @@ describe('cache invalidation declarations (e2e, T030/T031/T032/T035)', () => {
 
       await instructor.agent
         .patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
-        .send({ cover_image_key: 'covers/declarations-102.jpg' })
+        .send({ cover_image_key: TEST_IMAGE_KEY_2 })
         .expect(200);
 
       expect(invalidatedFamilySets()).toEqual([['marketplace_catalog']]);

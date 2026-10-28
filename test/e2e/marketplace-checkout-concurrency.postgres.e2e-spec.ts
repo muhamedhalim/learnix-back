@@ -20,6 +20,7 @@ import {
   resetDatabase,
   setUserRole,
 } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 jest.setTimeout(180_000);
 
@@ -99,7 +100,7 @@ describe('marketplace checkout — concurrent initiation (e2e, Postgres)', () =>
         language: 'en',
         price_minor: 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/backend-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Build a REST API'],
       })
       .expect(201);

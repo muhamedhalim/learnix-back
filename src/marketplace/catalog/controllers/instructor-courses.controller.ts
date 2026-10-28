@@ -64,9 +64,10 @@ export class InstructorCoursesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCourseDto,
   ): Promise<MarketplaceCourse> {
-    const updated = await this.authoring.updateCourse(instructor.id, id, dto);
-    await this.editClassifier.handleCourseFieldEdit(id, Object.keys(dto) as (keyof UpdateCourseDto)[], instructor.id);
-    return updated;
+    // Classify what really changed, not which keys the client sent: forms are saved whole.
+    const { course, changedFields } = await this.authoring.applyCourseUpdate(instructor.id, id, dto);
+    await this.editClassifier.handleCourseFieldEdit(id, changedFields, instructor.id);
+    return course;
   }
 
   @Delete(':id')

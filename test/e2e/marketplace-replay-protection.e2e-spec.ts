@@ -24,6 +24,7 @@ import { PaymentOperationsService } from '../../src/payments/services/payment-op
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T211 (US11 Phase 14, security hardening audit). FR-305/FR-190: every
@@ -111,7 +112,7 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         language: 'en',
         price_minor: 200000,
         currency: 'EGP',
-        cover_image_key: 'covers/replay-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);
@@ -268,7 +269,7 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
         language: 'en',
         price_minor: 150000,
         currency: 'EGP',
-        cover_image_key: 'covers/refundreplay-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);

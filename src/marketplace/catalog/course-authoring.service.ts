@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, IsNull, Not, Repository } from 'typeorm';
 
 import { SanitizationService } from '../../common/sanitization/sanitization.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
@@ -8,6 +8,8 @@ import { biBody } from '../../i18n/error-translator.util';
 import { MarketplaceEnrollment } from '../commerce/entities';
 import { MarketplaceCourseStatus } from '../common/enums';
 import { courseFreePreviewBoundExceeded, courseHasEnrollments, courseNotEditableWhileUnderReview } from '../common/errors';
+import { CurrencyRegistryService } from '../common/currency-registry.service';
+import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import { slugify } from '../common/utils/slugify.util';
 import type { CreateCourseDto, CreateSectionDto, UpdateCourseDto, UpdateSectionDto } from './dto/course.dto';
 import type { CreateLessonDto, UpdateLessonDto } from './dto/lesson.dto';
@@ -25,6 +27,19 @@ import {
  * fetch each rejected course's decisions separately. Other statuses omit the field.
  */
 export type OwnCourseListItem = MarketplaceCourse & { latest_review_reasons?: string[] | null };
+
+/** What an update actually changed: the classifier must look at values, not at which keys the client sent. */
+export interface CourseUpdateResult {
+  course: MarketplaceCourse;
+  changedFields: (keyof UpdateCourseDto)[];
+}
+
+/** `null`, `undefined` and `''` are the same "empty" value; arrays and objects compare structurally. */
+function sameValue(a: unknown, b: unknown): boolean {
+  const normalise = (value: unknown): string =>
+    value === null || value === undefined || value === '' ? '' : JSON.stringify(value);
+  return normalise(a) === normalise(b);
+}
 
 /**
  * FR-041 – FR-050, FR-054. Course, section and lesson authoring for the
@@ -50,6 +65,7 @@ export class CourseAuthoringService {
     private readonly sanitization: SanitizationService,
     @InjectRepository(MarketplaceCourseReviewDecision)
     private readonly decisions: Repository<MarketplaceCourseReviewDecision>,
+    private readonly currencies: CurrencyRegistryService,
   ) {}
 
   // -------------------------------------------------------------- course
@@ -87,9 +103,13 @@ export class CourseAuthoringService {
   }
 
   /** FR-282: every course, any state, any instructor — admin-only, not scoped by `instructorId`. */
-  public async listAllCourses(status?: MarketplaceCourseStatus): Promise<MarketplaceCourse[]> {
+  public async listAllCourses(status?: MarketplaceCourseStatus, pendingEdit?: boolean): Promise<MarketplaceCourse[]> {
     return this.courses.find({
-      where: status ? { status } : {},
+      where: {
+        ...(status ? { status } : {}),
+        // FR-071: published courses whose material edit still awaits a decision.
+        ...(pendingEdit ? { status: MarketplaceCourseStatus.PUBLISHED, pending_review_since: Not(IsNull()) } : {}),
+      },
       // Waiting-time ordering — the same role `updated_at` plays for `IDX_mp_courses_review_queue`.
       order: { updated_at: 'ASC' },
     });
@@ -115,6 +135,8 @@ export class CourseAuthoringService {
 
   /** FR-041: only an approved, non-suspended instructor may create — enforced by `ApprovedInstructorGuard`, not here. */
   public async createCourse(instructorId: string, dto: CreateCourseDto): Promise<MarketplaceCourse> {
+    await this.assertSellable(dto.currency, dto.price_minor);
+    assertMarketplaceImageKey(dto.cover_image_key);
     const course = this.courses.create({
       instructor_id: instructorId,
       category_id: dto.category_id,
@@ -141,28 +163,72 @@ export class CourseAuthoringService {
   }
 
   public async updateCourse(instructorId: string, courseId: string, dto: UpdateCourseDto): Promise<MarketplaceCourse> {
+    return (await this.applyCourseUpdate(instructorId, courseId, dto)).course;
+  }
+
+  /**
+   * Applies only what actually differs from the stored course and reports which fields those are.
+   * Clients send the whole form on every save, so the keys of the body say nothing about what the
+   * instructor changed; classifying the edit (FR-070 – FR-072) from the keys made every save of a
+   * published course "material" and left it waiting for a review that never ended.
+   */
+  public async applyCourseUpdate(instructorId: string, courseId: string, dto: UpdateCourseDto): Promise<CourseUpdateResult> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
 
-    if (dto.title !== undefined) course.title = this.sanitization.sanitizeStrict(dto.title);
-    if (dto.title_ar !== undefined) course.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
-    if (dto.summary !== undefined) course.summary = this.sanitization.sanitizeStrict(dto.summary);
-    if (dto.summary_ar !== undefined) course.summary_ar = this.sanitization.sanitizeStrict(dto.summary_ar);
-    if (dto.description !== undefined) course.description = this.sanitization.sanitizeBasic(dto.description);
-    if (dto.description_ar !== undefined) course.description_ar = this.sanitization.sanitizeBasic(dto.description_ar);
-    if (dto.category_id !== undefined) course.category_id = dto.category_id;
-    if (dto.level !== undefined) course.level = dto.level;
-    if (dto.language !== undefined) course.language = dto.language;
-    if (dto.price_minor !== undefined) course.price_minor = dto.price_minor;
-    if (dto.currency !== undefined) course.currency = dto.currency;
-    if (dto.cover_image_key !== undefined) course.cover_image_key = dto.cover_image_key;
-    if (dto.promo_video_id !== undefined) course.promo_video_id = dto.promo_video_id;
-    if (dto.learning_outcomes !== undefined) course.learning_outcomes = dto.learning_outcomes;
-    if (dto.prerequisites !== undefined) course.prerequisites = dto.prerequisites;
-    if (dto.target_audience !== undefined) course.target_audience = dto.target_audience;
-    if (dto.certificate_enabled !== undefined) course.certificate_enabled = dto.certificate_enabled;
+    const strict = (value: string | null | undefined): string | null | undefined =>
+      value == null ? value : this.sanitization.sanitizeStrict(value);
+    const basic = (value: string | null | undefined): string | null | undefined =>
+      value == null ? value : this.sanitization.sanitizeBasic(value);
 
-    return this.courses.save(course);
+    const proposed: Partial<Record<keyof UpdateCourseDto, unknown>> = {};
+    if (dto.title !== undefined) proposed.title = strict(dto.title);
+    if (dto.title_ar !== undefined) proposed.title_ar = strict(dto.title_ar);
+    if (dto.summary !== undefined) proposed.summary = strict(dto.summary);
+    if (dto.summary_ar !== undefined) proposed.summary_ar = strict(dto.summary_ar);
+    if (dto.description !== undefined) proposed.description = basic(dto.description);
+    if (dto.description_ar !== undefined) proposed.description_ar = basic(dto.description_ar);
+    if (dto.category_id !== undefined) proposed.category_id = dto.category_id;
+    if (dto.level !== undefined) proposed.level = dto.level;
+    if (dto.language !== undefined) proposed.language = dto.language;
+    if (dto.price_minor !== undefined) proposed.price_minor = dto.price_minor;
+    if (dto.currency !== undefined) proposed.currency = dto.currency;
+    if (dto.cover_image_key !== undefined) proposed.cover_image_key = dto.cover_image_key;
+    if (dto.promo_video_id !== undefined) proposed.promo_video_id = dto.promo_video_id;
+    if (dto.learning_outcomes !== undefined) proposed.learning_outcomes = dto.learning_outcomes;
+    if (dto.prerequisites !== undefined) proposed.prerequisites = dto.prerequisites;
+    if (dto.target_audience !== undefined) proposed.target_audience = dto.target_audience;
+    if (dto.certificate_enabled !== undefined) proposed.certificate_enabled = dto.certificate_enabled;
+
+    assertMarketplaceImageKey(dto.cover_image_key, course.cover_image_key);
+
+    const live = course as unknown as Record<string, unknown>;
+    const changedFields = (Object.keys(proposed) as (keyof UpdateCourseDto)[]).filter(
+      (field) => !sameValue(live[field], proposed[field]),
+    );
+    if (changedFields.length === 0) return { course, changedFields };
+
+    // Only when money-related fields really change: an unrelated edit must not be blocked by a
+    // legacy course that predates the currency rule (readiness still stops it at submission).
+    if (changedFields.includes('currency') || changedFields.includes('price_minor')) {
+      await this.assertSellable(
+        (proposed.currency ?? course.currency) as string,
+        (proposed.price_minor ?? course.price_minor) as number,
+      );
+    }
+
+    for (const field of changedFields) live[field] = proposed[field];
+    return { course: await this.courses.save(course), changedFields };
+  }
+
+  /**
+   * FR-325: a course may only be priced in an enabled currency and, when it is paid, inside that
+   * currency's bounds. The registry is the single source (today: EGP only), so the instructor gets
+   * a 400 here instead of a course nobody can pay for or be paid out on.
+   */
+  private async assertSellable(currency: string, priceMinor: number): Promise<void> {
+    await this.currencies.resolve(currency);
+    await this.currencies.assertPriceInBounds(currency, priceMinor);
   }
 
   /**

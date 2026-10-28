@@ -31,6 +31,7 @@ import { User, UserRole } from '../../src/users/entities';
 import { UserStatus } from '../../src/users/entities/user-status.enum';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T202 (US11, release gate), deps: T201. `PaymentOperationsService.financialReport()`
@@ -192,7 +193,7 @@ describe('academic reporting invariance — report figures never move when marke
         language: 'en',
         price_minor: 200000,
         currency: 'EGP',
-        cover_image_key: 'covers/repinv-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);

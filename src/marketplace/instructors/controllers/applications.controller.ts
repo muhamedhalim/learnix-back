@@ -8,6 +8,7 @@ import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { biBody } from '../../../i18n/error-translator.util';
+import { MAX_MARKETPLACE_IMAGE_BYTES, MarketplaceImageService, type UploadedImageFile } from '../../common/marketplace-image.service';
 import { ApplicationDocumentsService, MAX_DOCUMENT_SIZE_BYTES } from '../application-documents.service';
 import { UpdateInstructorApplicationDto } from '../dto';
 import { InstructorApplication } from '../entities';
@@ -26,6 +27,7 @@ export class ApplicationsController {
   constructor(
     private readonly applications: InstructorApplicationService,
     private readonly documents: ApplicationDocumentsService,
+    private readonly images: MarketplaceImageService,
   ) {}
 
   @Get('me')
@@ -86,5 +88,22 @@ export class ApplicationsController {
       contentType: file.mimetype,
       size: file.size,
     });
+  }
+
+  /**
+   * The applicant's photo. Unlike `me/documents` (private, reviewer-only) this is a public image: it
+   * becomes the instructor's public profile photo on approval (FR-026). Returns a storage key; send it
+   * as `photo_key` on the application.
+   */
+  @Post('me/photo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_MARKETPLACE_IMAGE_BYTES, files: 1 } }))
+  @Throttle({ default: THROTTLE.FILE_UPLOAD })
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload the applicant photo (JPEG, PNG or WebP, up to 5 MB). Returns a storage key.' })
+  public async uploadPhoto(
+    @GetUser() user: JwtPayload,
+    @UploadedFile() file?: UploadedImageFile,
+  ): Promise<{ key: string }> {
+    return this.images.upload(user.userId, file);
   }
 }

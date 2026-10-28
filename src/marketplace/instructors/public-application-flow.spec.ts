@@ -28,7 +28,6 @@ import { InstructorService } from './instructor.service';
 /** A complete application body, so FR-011's mandatory set is satisfied. */
 const COMPLETE_FIELDS = {
   display_name: 'Nour Ahmed',
-  photo_key: 'photos/nour.jpg',
   headline: 'Senior Engineer',
   bio: 'Fifteen years of backend work.',
   years_of_experience: 12,
@@ -107,6 +106,22 @@ describe('public instructor application (no account required)', () => {
     expect(applications.save).not.toHaveBeenCalled();
   });
 
+  it('does not require a photo from someone who cannot upload one yet, and refuses a URL in its place (MP-10)', async () => {
+    const { service, applications } = buildApplicationService();
+    await expect(
+      service.submitPublic({ email: 'nour@example.com', phone: '01011111111' }, { ...COMPLETE_FIELDS }),
+    ).resolves.toBeDefined();
+    expect(applications.save).toHaveBeenCalledTimes(1);
+
+    await expect(
+      service.submitPublic(
+        { email: 'other@example.com', phone: '01022222222' },
+        { ...COMPLETE_FIELDS, photo_key: 'https://tracker.example/p.gif' },
+      ),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }) });
+    expect(applications.save).toHaveBeenCalledTimes(1);
+  });
+
   it('enforces FR-011 and names each missing field instead of storing a stub', async () => {
     const { service, applications } = buildApplicationService();
 
@@ -118,7 +133,7 @@ describe('public instructor application (no account required)', () => {
     ).rejects.toMatchObject({
       response: expect.objectContaining({
         code: 'APPLICATION_NOT_READY_FOR_SUBMISSION',
-        details: expect.arrayContaining(['photo_key', 'headline', 'bio']),
+        details: expect.arrayContaining(['headline', 'bio']),
       }),
     });
 

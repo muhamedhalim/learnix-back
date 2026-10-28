@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { biBody } from '../../i18n/error-translator.util';
+import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import { MarketplaceInstructorProfileChangesDecisionEvent } from '../events/audit.events';
 import type {
   ApplicationCertificationEntry,
@@ -62,6 +63,17 @@ function isReviewRequiredField(field: string): field is ReviewRequiredField {
 }
 
 /**
+ * `null`, `undefined` and `''` are the same "no value": the profile form shows an empty field for a
+ * null column and sends `''` back when saved. Comparing them as different queued every untouched
+ * optional field for administrator review on every save.
+ */
+function sameProfileValue(a: unknown, b: unknown): boolean {
+  const normalise = (value: unknown): string =>
+    value === null || value === undefined || value === '' ? '' : JSON.stringify(value);
+  return normalise(a) === normalise(b);
+}
+
+/**
  * FR-025 – FR-029: the instructor's own read/edit of their public profile,
  * plus the admin decision that clears or discards what FR-029 queued.
  * Capability lifecycle (approve/suspend/reinstate) stays in
@@ -97,6 +109,10 @@ export class InstructorProfileService {
     const pending = [...(instructor.pending_profile_changes ?? [])];
     const now = new Date().toISOString();
 
+    // The stored photo and a photo already queued for review are both "unchanged" values.
+    const queuedPhoto = pending.find((change) => change.field === 'photo_key')?.proposed_value;
+    if (fields.photo_key !== queuedPhoto) assertMarketplaceImageKey(fields.photo_key, instructor.photo_key);
+
     for (const [field, proposedValue] of Object.entries(fields)) {
       if (proposedValue === undefined) continue;
 
@@ -105,7 +121,7 @@ export class InstructorProfileService {
         const existingChange = existingIndex >= 0 ? pending[existingIndex] : undefined;
         const previousValue = existingChange ? existingChange.previous_value : live[field];
 
-        if (JSON.stringify(proposedValue) === JSON.stringify(previousValue)) {
+        if (sameProfileValue(proposedValue, previousValue)) {
           if (existingIndex >= 0) pending.splice(existingIndex, 1);
           continue;
         }

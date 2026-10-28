@@ -18,6 +18,7 @@ import { GatewayWebhookService } from '../../src/payments/services/gateway-webho
 import { PaymentOperationsService } from '../../src/payments/services/payment-operations.service';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T207 (US11 Phase 14, release-adjacent security hardening). FR-298/FR-299
@@ -83,7 +84,7 @@ describe('marketplace authorization matrix — cross-tenant IDOR returns 404, ne
         language: 'en',
         price_minor: 150000,
         currency: 'EGP',
-        cover_image_key: 'covers/authz-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);

@@ -7,6 +7,7 @@ import { MarketplaceInstructor } from '../../src/marketplace/instructors/entitie
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
 import { StatementCounter } from './helpers/statement-counter';
+import { TEST_IMAGE_KEY, TEST_IMAGE_KEY_2 } from './helpers/images';
 
 /**
  * T055 — contracts §3 (course authoring) and §5 (course moderation).
@@ -53,7 +54,7 @@ describe('marketplace course lifecycle — contract (contracts §3, §5)', () =>
     language: 'en',
     price_minor: 5000,
     currency: 'EGP',
-    cover_image_key: 'covers/backend-101.jpg',
+    cover_image_key: TEST_IMAGE_KEY,
     learning_outcomes: ['Build a REST API'],
   });
 
@@ -143,7 +144,7 @@ describe('marketplace course lifecycle — contract (contracts §3, §5)', () =>
     // Instructor fixes and resubmits.
     await instructorUser.agent
       .patch(`${API_PREFIX}/marketplace/instructor/courses/${courseId}`)
-      .send({ cover_image_key: 'covers/backend-101-hd.jpg' })
+      .send({ cover_image_key: TEST_IMAGE_KEY_2 })
       .expect(200);
     await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
 

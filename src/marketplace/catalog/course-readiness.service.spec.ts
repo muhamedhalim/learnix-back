@@ -11,7 +11,7 @@ function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCou
     category_id: 'cat-1',
     level: CourseLevel.BEGINNER,
     language: 'en',
-    price_minor: 1000,
+    price_minor: 10_000,
     currency: 'EGP',
     cover_image_key: 'covers/1.jpg',
     learning_outcomes: ['Outcome 1'],
@@ -46,13 +46,24 @@ function buildService(
   };
   const lessons = { createQueryBuilder: jest.fn().mockReturnValue(qb) };
   const awsVideo = { getStatus: awsStatus };
+  // The seeded registry: only EGP is enabled, with the launch price bounds.
+  const currencies = {
+    resolve: jest.fn(async (code: string) => {
+      if (code !== 'EGP') throw new Error('not enabled');
+      return { code };
+    }),
+    assertPriceInBounds: jest.fn(async (_code: string, price: number) => {
+      if (price !== 0 && (price < 5000 || price > 2_000_000)) throw new Error('out of bounds');
+    }),
+  };
   const service = new CourseReadinessService(
     courses as never,
     sections as never,
     lessons as never,
+    currencies as never,
     awsVideo as never,
   );
-  return { service, awsStatus };
+  return { service, awsStatus, currencies };
 }
 
 const READY_LESSONS: MarketplaceCourseLesson[] = [
@@ -110,6 +121,20 @@ describe('CourseReadinessService', () => {
     const { service } = buildService(buildCourse({ learning_outcomes: [] }), 1, READY_LESSONS);
     const result = await service.evaluate('course-1');
     expect(result.items.find((i) => i.key === 'learning_outcomes')?.passed).toBe(false);
+  });
+
+  it('refuses a currency the registry has not enabled, and nothing else (FR-325)', async () => {
+    const { service } = buildService(buildCourse({ currency: 'USD' }), 1, READY_LESSONS);
+    const result = await service.evaluate('course-1');
+    expect(result.ready).toBe(false);
+    expect(result.items.find((i) => i.key === 'currency')?.passed).toBe(false);
+  });
+
+  it('refuses a paid price outside the currency bounds, while a free course is always in bounds', async () => {
+    const tooLow = await buildService(buildCourse({ price_minor: 100 }), 1, READY_LESSONS).service.evaluate('course-1');
+    expect(tooLow.items.find((i) => i.key === 'price')?.passed).toBe(false);
+    const free = await buildService(buildCourse({ price_minor: 0 }), 1, READY_LESSONS).service.evaluate('course-1');
+    expect(free.items.find((i) => i.key === 'price')?.passed).toBe(true);
   });
 
   it('throws when the course does not exist', async () => {

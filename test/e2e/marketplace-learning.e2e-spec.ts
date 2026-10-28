@@ -15,6 +15,7 @@ import {
   resetDatabase,
   setUserRole,
 } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 8's independent test (tasks.md): complete a short and a long
@@ -73,7 +74,7 @@ describe('marketplace learning — progress, completion, certificates (Phase 8)'
         language: 'en',
         price_minor: 0,
         currency: 'EGP',
-        cover_image_key: 'covers/learning-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Finish the course'],
         certificate_enabled: opts.certificateEnabled ?? true,
       })

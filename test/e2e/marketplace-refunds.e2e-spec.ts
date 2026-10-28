@@ -29,6 +29,7 @@ import { PaymentProviderRegistry } from '../../src/payments/services/payment-pro
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 9's independent test (tasks.md): an eligible request refunds fully
@@ -91,7 +92,7 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         language: 'en',
         price_minor: opts.priceMinor ?? 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/refunds-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Understand refunds'],
       })
       .expect(201);

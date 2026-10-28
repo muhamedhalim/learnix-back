@@ -293,13 +293,17 @@ export class InstructorCurriculumController {
     @Param('lessonId', ParseUUIDPipe) lessonId: string,
     @Body() dto: CompleteInstructorVideoUploadDto,
   ): Promise<unknown> {
-    return this.lessonVideo.completeAwsUpload(
+    const result = await this.lessonVideo.completeAwsUpload(
       instructor.id,
       instructor.user_id,
       courseId,
       lessonId,
       dto.upload_id,
     );
+    // Lesson content is always a material change (FR-070): a video attached to a published course
+    // goes through review like any other curriculum edit.
+    await this.editClassifier.handleCurriculumEdit(courseId);
+    return result;
   }
 
   @Get('lessons/:lessonId/video-status')
