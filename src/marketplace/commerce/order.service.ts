@@ -9,12 +9,17 @@ import type { PaginationMeta } from '../../common/interfaces/pagination.interfac
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { CatalogQueryService } from '../discovery/catalog-query.service';
 import { MarketplaceOrderStatus } from '../common/enums';
-import { courseNotPurchasable, orderAlreadyOpen, selfPurchaseNotAllowed } from '../common/errors';
+import { Payment } from '../../payments/entities/payment.entity';
+import { PaymentStatus } from '../../payments/entities/payment-status.enum';
+import { courseIsFree, courseNotPurchasable, orderAlreadyOpen, selfPurchaseNotAllowed } from '../common/errors';
 import { MarketplaceOrderCreatedEvent } from '../events/domain.events';
 import { MarketplaceCommissionService } from '../earnings/commission.service';
 import { MarketplaceOrder } from './entities';
 
 const POSTGRES_UNIQUE_VIOLATION = '23505';
+
+/** An `awaiting_payment` order older than this whose payment never went through no longer blocks a new attempt. */
+const STALE_ORDER_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /**
  * FR-093 – FR-098. A `MarketplaceOrder` is the full commercial snapshot of
@@ -42,13 +47,22 @@ export class MarketplaceOrderService {
    * settlement is unaffected by the course being unpublished afterwards
    * (T100) — this method is only ever the creation gate.
    */
-  public async createOrder(learnerId: string, courseId: string, initialStatus: MarketplaceOrderStatus = MarketplaceOrderStatus.AWAITING_PAYMENT): Promise<MarketplaceOrder> {
+  public async createOrder(
+    learnerId: string,
+    courseId: string,
+    initialStatus: MarketplaceOrderStatus = MarketplaceOrderStatus.AWAITING_PAYMENT,
+    options: { allowFree?: boolean } = {},
+  ): Promise<MarketplaceOrder> {
     const course = await this.catalogQuery.baseVisibleQuery().andWhere('course.id = :id', { id: courseId }).getOne();
     if (!course) {
       throw courseNotPurchasable();
     }
     if (course.instructor.user_id === learnerId) {
       throw selfPurchaseNotAllowed();
+    }
+    // MP-17: a free course has nothing to charge; only the free-enrollment flow may open an order for one.
+    if (course.price_minor === 0 && !options.allowFree) {
+      throw courseIsFree();
     }
 
     const existing = await this.orders
@@ -57,7 +71,7 @@ export class MarketplaceOrderService {
       .andWhere('o.course_id = :courseId', { courseId })
       .andWhere("o.status IN ('awaiting_payment', 'paid')")
       .getOne();
-    if (existing) {
+    if (existing && !(await this.expireIfAbandoned(existing))) {
       throw orderAlreadyOpen();
     }
 
@@ -105,6 +119,25 @@ export class MarketplaceOrderService {
       new MarketplaceOrderCreatedEvent(saved.id, learnerId, courseId),
     );
     return saved;
+  }
+
+  /**
+   * MP-17: an unpaid order otherwise blocks the learner from ever buying again. Only an order that is
+   * old AND whose payment either never started or ended unsuccessfully is closed; one with a payment
+   * still in flight (or captured) is left alone so a late webhook can still settle it.
+   */
+  private async expireIfAbandoned(existing: MarketplaceOrder): Promise<boolean> {
+    if (existing.status !== MarketplaceOrderStatus.AWAITING_PAYMENT) return false;
+    if (!(existing.created_at instanceof Date) || Date.now() - existing.created_at.getTime() < STALE_ORDER_AFTER_MS) return false;
+    if (existing.payment_id) {
+      const payment = await this.orders.manager.findOne(Payment, { where: { id: existing.payment_id } });
+      if (payment && payment.status !== PaymentStatus.FAILED && payment.status !== PaymentStatus.EXPIRED) return false;
+    }
+    const result = await this.orders.update(
+      { id: existing.id, status: MarketplaceOrderStatus.AWAITING_PAYMENT },
+      { status: MarketplaceOrderStatus.EXPIRED },
+    );
+    return (result.affected ?? 0) > 0;
   }
 
   public async getOwnOrder(learnerId: string, orderId: string): Promise<MarketplaceOrder | null> {

@@ -68,7 +68,7 @@ export class PayoutRequestService {
   public async createRequest(instructorId: string, input: CreatePayoutRequestInput, idempotencyKey: string): Promise<MarketplacePayoutRequest> {
     const existing = await this.payoutRequests.findOne({ where: { idempotency_key: idempotencyKey } });
     if (existing) {
-      return existing;
+      return this.replayOrRefuse(existing, instructorId);
     }
 
     const account = await this.payoutAccounts.findOne({ where: { id: input.payoutAccountId, instructor_id: instructorId } });
@@ -123,7 +123,7 @@ export class PayoutRequestService {
         const dbError = error as { code?: string };
         if (dbError.code === '23505') {
           const raced = await manager.findOne(MarketplacePayoutRequest, { where: { idempotency_key: idempotencyKey } });
-          if (raced) return raced;
+          if (raced) return this.replayOrRefuse(raced, instructorId);
         }
         throw error;
       }
@@ -139,6 +139,17 @@ export class PayoutRequestService {
 
       return request;
     });
+  }
+
+  /**
+   * The key is unique across all instructors, so a replay is only a replay for its owner. Another
+   * instructor's request is never returned (MP-18): the colliding key is refused as a conflict.
+   */
+  private replayOrRefuse(request: MarketplacePayoutRequest, instructorId: string): MarketplacePayoutRequest {
+    if (request.instructor_id !== instructorId) {
+      throw new ConflictException(biBody('This Idempotency-Key is already in use', 'مفتاح عدم التكرار مستخدم بالفعل'));
+    }
+    return request;
   }
 
   /** FR-214: an instructor may cancel their own request only while it is still `REQUESTED`. */

@@ -32,6 +32,7 @@ function buildService(opts: { dailyCount?: number; settleOutcome?: string; cours
   const ordersRepo = {
     count: jest.fn().mockResolvedValue(opts.dailyCount ?? 0),
     findOneOrFail: jest.fn().mockResolvedValue({ ...order, status: MarketplaceOrderStatus.PAID }),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
   const service = new FreeEnrollmentService(orders as never, settlement as never, catalogQuery as never, dataSource as never, ordersRepo as never);
   return { service, orders, settlement, ordersRepo, catalogQuery };
@@ -43,9 +44,20 @@ describe('FreeEnrollmentService (T111, T115)', () => {
 
     const result = await service.enrollFree('learner-1', 'course-1');
 
-    expect(orders.createOrder).toHaveBeenCalledWith('learner-1', 'course-1');
+    expect(orders.createOrder).toHaveBeenCalledWith('learner-1', 'course-1', MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true });
     expect(settlement.settleFree).toHaveBeenCalledWith('order-1', expect.anything());
     expect(result.status).toBe(MarketplaceOrderStatus.PAID);
+  });
+
+  it('cancels the order when settlement fails so the learner is not wedged on a 409 (MP-17)', async () => {
+    const { service, settlement, ordersRepo } = buildService();
+    settlement.settleFree.mockRejectedValueOnce(new Error('settlement down'));
+
+    await expect(service.enrollFree('learner-1', 'course-1')).rejects.toThrow('settlement down');
+    expect(ordersRepo.update).toHaveBeenCalledWith(
+      { id: 'order-1', status: MarketplaceOrderStatus.AWAITING_PAYMENT },
+      { status: MarketplaceOrderStatus.CANCELLED },
+    );
   });
 
   it('refuses once the rolling-24h cap of 10 successful free enrollments is reached, naming the per_day limit (FR-121)', async () => {

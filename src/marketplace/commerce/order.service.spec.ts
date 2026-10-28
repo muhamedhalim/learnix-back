@@ -16,6 +16,8 @@ function buildService(opts: {
   course?: Record<string, unknown> | null;
   existingOrder?: Record<string, unknown> | null;
   saveImpl?: (order: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  payment?: Record<string, unknown> | null;
+  updateAffected?: number;
 } = {}) {
   const course = 'course' in opts ? opts.course : {
     id: 'course-1',
@@ -31,6 +33,8 @@ function buildService(opts: {
     createQueryBuilder: jest.fn(() => buildQb(opts.existingOrder ?? null)),
     create: jest.fn((data: Record<string, unknown>) => data),
     save: jest.fn(opts.saveImpl ?? (async (data: Record<string, unknown>) => ({ id: 'order-1', ...data }))),
+    update: jest.fn().mockResolvedValue({ affected: opts.updateAffected ?? 1 }),
+    manager: { findOne: jest.fn().mockResolvedValue('payment' in opts ? opts.payment : null) },
   };
   const catalogQuery = {
     baseVisibleQuery: jest.fn(() => buildQb(course)),
@@ -102,6 +106,65 @@ describe('MarketplaceOrderService (T096)', () => {
     const { service } = buildService({ existingOrder: { id: 'existing-order' } });
     await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'ORDER_ALREADY_OPEN' }),
+    });
+  });
+
+  it('refuses a free course at checkout; only the free-enrollment flow may open an order for it (MP-17)', async () => {
+    const free = {
+      id: 'course-1', price_minor: 0, currency: 'EGP', current_version_id: 'v1', instructor_id: 'instructor-1',
+      instructor: { user_id: 'instructor-user-1', display_name: 'Nour Ahmed' }, title: 'Free',
+    };
+    const { service } = buildService({ course: free });
+    await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'COURSE_IS_FREE' }),
+    });
+    await expect(
+      service.createOrder('learner-1', 'course-1', MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true }),
+    ).resolves.toMatchObject({ is_zero_value: true });
+  });
+
+  describe('abandoned open orders (MP-17)', () => {
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    const open = (overrides: Record<string, unknown> = {}) => ({
+      id: 'old-order', status: MarketplaceOrderStatus.AWAITING_PAYMENT, created_at: stale, payment_id: null, ...overrides,
+    });
+
+    it('closes a day-old order whose payment never started and lets a new one through', async () => {
+      const { service, orders } = buildService({ existingOrder: open() });
+      await expect(service.createOrder('learner-1', 'course-1')).resolves.toMatchObject({ learner_id: 'learner-1' });
+      expect(orders.update).toHaveBeenCalledWith(
+        { id: 'old-order', status: MarketplaceOrderStatus.AWAITING_PAYMENT },
+        { status: MarketplaceOrderStatus.EXPIRED },
+      );
+    });
+
+    it('closes it when its payment already failed or expired', async () => {
+      const { service } = buildService({ existingOrder: open({ payment_id: 'p1' }), payment: { id: 'p1', status: 'expired' } });
+      await expect(service.createOrder('learner-1', 'course-1')).resolves.toBeDefined();
+    });
+
+    it('keeps blocking while the payment may still settle (pending, processing, completed)', async () => {
+      for (const status of ['pending', 'processing', 'completed']) {
+        const { service, orders } = buildService({ existingOrder: open({ payment_id: 'p1' }), payment: { id: 'p1', status } });
+        await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'ORDER_ALREADY_OPEN' }),
+        });
+        expect(orders.update).not.toHaveBeenCalled();
+      }
+    });
+
+    it('keeps blocking a recent order', async () => {
+      const { service } = buildService({ existingOrder: open({ created_at: new Date() }) });
+      await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'ORDER_ALREADY_OPEN' }),
+      });
+    });
+
+    it('does not create a second order when another request closed it first', async () => {
+      const { service } = buildService({ existingOrder: open(), updateAffected: 0 });
+      await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'ORDER_ALREADY_OPEN' }),
+      });
     });
   });
 

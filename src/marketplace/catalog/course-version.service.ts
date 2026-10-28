@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { loadLessonsBySection } from './curriculum.util';
@@ -68,14 +68,23 @@ export class CourseVersionService {
     private readonly versions: Repository<MarketplaceCourseVersion>,
   ) {}
 
-  public async publishSnapshot(courseId: string, publishedBy: string): Promise<MarketplaceCourseVersion> {
-    const course = await this.courses.findOne({ where: { id: courseId } });
+  public async publishSnapshot(
+    courseId: string,
+    publishedBy: string,
+    manager?: EntityManager,
+  ): Promise<MarketplaceCourseVersion> {
+    // Inside a caller's transaction every read and write goes through its manager (MP-16).
+    const coursesRepo = manager ? manager.getRepository(MarketplaceCourse) : this.courses;
+    const sectionsRepo = manager ? manager.getRepository(MarketplaceCourseSection) : this.sections;
+    const lessonsRepo = manager ? manager.getRepository(MarketplaceCourseLesson) : this.lessons;
+    const versionsRepo = manager ? manager.getRepository(MarketplaceCourseVersion) : this.versions;
+    const course = await coursesRepo.findOne({ where: { id: courseId } });
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
-    const sections = await this.sections.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
+    const sections = await sectionsRepo.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
     // One statement for every section's lessons, in section order (T071).
-    const lessonsBySection = await loadLessonsBySection(this.lessons, sections);
+    const lessonsBySection = await loadLessonsBySection(lessonsRepo, sections);
 
     const snapshot: CourseSnapshot = {
       title: course.title,
@@ -117,18 +126,18 @@ export class CourseVersionService {
       })),
     };
 
-    const lastVersion = await this.versions.findOne({
+    const lastVersion = await versionsRepo.findOne({
       where: { course_id: courseId },
       order: { version_number: 'DESC' },
     });
-    const version = this.versions.create({
+    const version = versionsRepo.create({
       course_id: courseId,
       version_number: (lastVersion?.version_number ?? 0) + 1,
       snapshot: snapshot as unknown as Record<string, unknown>,
       published_by: publishedBy,
     });
-    const saved = await this.versions.save(version);
-    await this.courses.update({ id: courseId }, { current_version_id: saved.id });
+    const saved = await versionsRepo.save(version);
+    await coursesRepo.update({ id: courseId }, { current_version_id: saved.id });
     return saved;
   }
 

@@ -72,6 +72,7 @@ export const MARKETPLACE_ERROR_CODES = {
   PAYOUT_REQUEST_RATE_LIMITED: 'PAYOUT_REQUEST_RATE_LIMITED',
   /** FR-111 — the free-enrollment endpoint only ever grants a genuinely zero-value course; a paid course must go through checkout. */
   COURSE_NOT_FREE: 'COURSE_NOT_FREE',
+  COURSE_IS_FREE: 'COURSE_IS_FREE',
   /** FR-054a — a permanently removed course can never be republished or reopened for editing. */
   COURSE_PERMANENTLY_REMOVED: 'COURSE_PERMANENTLY_REMOVED',
   /** FR-255, `UQ_mp_reviews_learner_course` — a learner may hold at most one review per course. */
@@ -413,6 +414,14 @@ export function payoutRequestRateLimited(limit: 'per_minute'): MarketplaceUnproc
 }
 
 /** FR-111. Checked before any order is created — never leaves a stray order behind for a course that turns out not to be free. */
+export function courseIsFree(): MarketplaceUnprocessableException {
+  return new MarketplaceUnprocessableException(
+    MARKETPLACE_ERROR_CODES.COURSE_IS_FREE,
+    'This course is free — enroll directly instead of checking out',
+    'هذه الدورة مجانية — سجّل مباشرة بدلاً من الدفع',
+  );
+}
+
 export function courseNotFree(): MarketplaceUnprocessableException {
   return new MarketplaceUnprocessableException(
     MARKETPLACE_ERROR_CODES.COURSE_NOT_FREE,

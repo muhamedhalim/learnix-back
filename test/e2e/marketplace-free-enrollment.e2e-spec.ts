@@ -135,6 +135,22 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
     await instructorUser.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(403);
   });
 
+  it('refuses a free course at paid checkout and leaves no zero-value order behind (MP-17)', async () => {
+    const { instructorUser, admin, learner, category } = await actors();
+    const course = await publishFreeCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+
+    const refused = await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/orders`)
+      .set('Idempotency-Key', `order-${Date.now()}`)
+      .send({ courseId: course.id })
+      .expect(422);
+    expect(refused.body).toMatchObject({ code: 'COURSE_IS_FREE' });
+    expect(await dataSource.getRepository(MarketplaceOrder).count({ where: { course_id: course.id } })).toBe(0);
+
+    // The proper route is untouched, and is not wedged by the refused attempt.
+    await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+  });
+
   it('refuses free enrollment in a paid course — this endpoint only ever grants a genuinely zero-value order', async () => {
     const { instructorUser, admin, learner, category } = await actors();
     const created = await instructorUser.agent

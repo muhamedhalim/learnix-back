@@ -32,6 +32,11 @@ function buildService(
       return matches ? course : null;
     }),
     save: jest.fn(async (entity: MarketplaceCourse) => entity),
+    manager: {
+      transaction: jest.fn(async (work: (manager: unknown) => Promise<unknown>) =>
+        work({ save: jest.fn(async (_target: unknown, entity: unknown) => entity) }),
+      ),
+    },
     update: jest.fn(async (criteria: { status?: string }, partial: Partial<MarketplaceCourse>) => {
       if (course && (!criteria.status || course.status === criteria.status)) {
         Object.assign(course, partial);
@@ -174,7 +179,16 @@ describe('CourseLifecycleService — FR-059/FR-060 state machine', () => {
       expect(result.status).toBe(MarketplaceCourseStatus.PUBLISHED);
       expect(result.first_published_at).toBeInstanceOf(Date);
       expect(result.last_published_at).toBeInstanceOf(Date);
-      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1');
+      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1', expect.anything());
+    });
+
+    it('publishes atomically: a snapshot failure rejects the publish and emits no event (MP-16)', async () => {
+      const { service, versions, eventEmitter } = buildService(
+        buildCourse({ status: MarketplaceCourseStatus.APPROVED, first_published_at: null }),
+      );
+      versions.publishSnapshot.mockRejectedValueOnce(new Error('snapshot failed'));
+      await expect(service.publish('instr-1', 'course-1')).rejects.toThrow('snapshot failed');
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
     it('never advances first_published_at on a later republish', async () => {
@@ -231,7 +245,7 @@ describe('CourseLifecycleService — FR-059/FR-060 state machine', () => {
       );
       const result = await service.republish('instr-1', 'course-1');
       expect(result.status).toBe(MarketplaceCourseStatus.PUBLISHED);
-      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1');
+      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1', expect.anything());
     });
 
     it('unpublished → draft (reopened for edit)', async () => {
