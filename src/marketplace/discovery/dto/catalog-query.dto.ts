@@ -1,8 +1,21 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 
 import { CourseLevel } from '../../common/enums';
 import type { CatalogSort } from '../catalog-query.service';
+
+/**
+ * Query strings arrive as text, and `@Type(() => Boolean)` turns every non-empty string, including
+ * "false" and "0", into `true` (MP-22). Anything that is not clearly true/false is passed through so
+ * `@IsBoolean` rejects it with a 400.
+ */
+export function parseQueryBoolean({ value }: { value: unknown }): unknown {
+  if (typeof value !== 'string') return value;
+  const text = value.trim().toLowerCase();
+  if (text === 'true' || text === '1') return true;
+  if (text === 'false' || text === '0') return false;
+  return value;
+}
 
 const SORTS: CatalogSort[] = ['newest', 'popular', 'rating', 'price_asc', 'price_desc'];
 
@@ -44,7 +57,7 @@ export class CatalogQueryDto {
   currency?: string;
 
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(parseQueryBoolean)
   @IsBoolean()
   freeOnly?: boolean;
 
@@ -68,7 +81,7 @@ export class CatalogQueryDto {
   maxDurationSeconds?: number;
 
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(parseQueryBoolean)
   @IsBoolean()
   certificateOnly?: boolean;
 

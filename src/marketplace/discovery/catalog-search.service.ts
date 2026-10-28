@@ -41,7 +41,7 @@ export class CatalogSearchService {
 
     const like = this.likePattern(normalized);
     const courseText = this.foldExpr(
-      "coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '') || ' ' || coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '') || ' ' || coalesce(course.description, '')",
+      "coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '') || ' ' || coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '') || ' ' || coalesce(course.description, '') || ' ' || coalesce(course.description_ar, '')",
     );
     const categoryText = this.foldExpr("coalesce(category.name_en, '') || ' ' || coalesce(category.name_ar, '')");
     const instructorText = this.foldExpr("coalesce(instructor.display_name, '')");
@@ -52,7 +52,7 @@ export class CatalogSearchService {
 
     const titleText = this.foldExpr("coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '')");
     const summaryText = this.foldExpr("coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '')");
-    const descriptionText = this.foldExpr("coalesce(course.description, '')");
+    const descriptionText = this.foldExpr("coalesce(course.description, '') || ' ' || coalesce(course.description_ar, '')");
     qb.addSelect(
       `CASE
         WHEN ${titleText} ILIKE :searchLike ESCAPE '\\' THEN 4

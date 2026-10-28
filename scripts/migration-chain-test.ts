@@ -71,6 +71,8 @@ interface Report {
   tableCount: number;
   /** SQL TypeORM would still run to make the migrated schema match the entities. */
   driftStatements: string[];
+  /** Migration-only objects (see MIGRATION_ONLY_OBJECTS) absent after the chain. */
+  missingMigrationOnlyObjects: string[];
   durationMs: number;
 }
 
@@ -209,10 +211,21 @@ async function runChain(
     await dataSource.query(
       'CREATE TABLE IF NOT EXISTS "typeorm_metadata" ("type" varchar NOT NULL, "database" varchar, "schema" varchar, "table" varchar, "name" varchar, "value" text)',
     );
+    // Objects only a migration can create. The e2e schema is built by `synchronize` from entities, so
+    // none of these exist there and no e2e test can notice if a migration stops creating them (MP-25).
+    const present = (await dataSource.query(
+      `SELECT indexname AS name FROM pg_indexes WHERE schemaname = 'public'
+       UNION SELECT conname FROM pg_constraint
+       UNION SELECT tgname FROM pg_trigger WHERE NOT tgisinternal`,
+    )) as Array<{ name: string }>;
+    const presentNames = new Set(present.map((row) => row.name));
+    const missingMigrationOnlyObjects = MIGRATION_ONLY_OBJECTS.filter((name) => !presentNames.has(name));
+
     const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
     const driftStatements = sqlInMemory.upQueries.map((q) => q.query.replace(/\s+/g, ' ').trim());
 
     return {
+      missingMigrationOnlyObjects,
       driftStatements,
       discoveredMigrations,
       appliedMigrations: applied.length,
@@ -224,6 +237,23 @@ async function runChain(
     await dataSource.destroy();
   }
 }
+
+/** Marketplace indexes, constraints and triggers that exist only because a migration created them. */
+const MIGRATION_ONLY_OBJECTS = [
+  'IDX_mp_courses_title_trgm',
+  'IDX_mp_courses_title_ar_trgm',
+  'IDX_mp_courses_summary_trgm',
+  'IDX_mp_courses_description_trgm',
+  'IDX_mp_courses_featured',
+  'IDX_mp_applications_retention_sweep',
+  'CHK_mp_applications_years_nonneg',
+  'CHK_mp_orders_split',
+  'CHK_mp_orders_zero_value',
+  'FK_mp_payout_accounts_instructor',
+  'FK_mp_payout_requests_account',
+  'FK_mp_payout_requests_instructor',
+  'TRG_mp_ledger_immutable',
+];
 
 const DRIFT_BASELINE = join(__dirname, 'schema-drift-baseline.json');
 
@@ -251,6 +281,10 @@ function driftProblems(statements: string[]): string[] {
 
 function assertReport(report: Report): void {
   const problems: string[] = [...driftProblems(report.driftStatements)];
+
+  for (const name of report.missingMigrationOnlyObjects) {
+    problems.push(`migration-only database object is missing after the chain: ${name}`);
+  }
 
   if (report.appliedMigrations !== report.discoveredMigrations) {
     problems.push(
