@@ -70,7 +70,12 @@ export class MarketplaceApplicationAttemptsResetEvent extends AuditEvent {
 
 /** An administrator re-sent the password-setup link of an account provisioned from a public application. */
 export class MarketplaceInstructorSetupLinkResentEvent extends AuditEvent {
-  constructor(adminId: string, instructorId: string, details: { instructorName: string }, ipAddress?: string) {
+  constructor(
+    adminId: string,
+    instructorId: string,
+    details: { instructorName: string },
+    ipAddress?: string,
+  ) {
     super(
       adminId,
       'marketplace_instructor_setup_link_resent',
@@ -132,7 +137,12 @@ export class MarketplaceInstructorProfileChangesDecisionEvent extends AuditEvent
   constructor(
     adminId: string,
     instructorId: string,
-    details: { instructorName: string; decision: 'approved' | 'rejected'; fields: string[]; reason?: string },
+    details: {
+      instructorName: string;
+      decision: 'approved' | 'rejected';
+      fields: string[];
+      reason?: string;
+    },
     ipAddress?: string,
   ) {
     super(
@@ -148,7 +158,12 @@ export class MarketplaceInstructorProfileChangesDecisionEvent extends AuditEvent
 }
 
 export class MarketplaceCourseApprovedEvent extends AuditEvent {
-  constructor(adminId: string, courseId: string, details: { courseTitle: string }, ipAddress?: string) {
+  constructor(
+    adminId: string,
+    courseId: string,
+    details: { courseTitle: string },
+    ipAddress?: string,
+  ) {
     super(
       adminId,
       'marketplace_course_approved',
@@ -182,7 +197,12 @@ export class MarketplaceCourseRejectedEvent extends AuditEvent {
 
 /** An administrator's decision on a material edit to an already-published course (FR-071). */
 export class MarketplaceCoursePendingEditApprovedEvent extends AuditEvent {
-  constructor(adminId: string, courseId: string, details: { courseTitle: string }, ipAddress?: string) {
+  constructor(
+    adminId: string,
+    courseId: string,
+    details: { courseTitle: string },
+    ipAddress?: string,
+  ) {
     super(
       adminId,
       'marketplace_course_pending_edit_approved',
@@ -221,7 +241,12 @@ export class MarketplaceCoursePendingEditRejectedEvent extends AuditEvent {
  * privileged-vs-self-service line the applications events draw.
  */
 export class MarketplaceCourseUnpublishedEvent extends AuditEvent {
-  constructor(adminId: string, courseId: string, details: { courseTitle: string; reason: string }, ipAddress?: string) {
+  constructor(
+    adminId: string,
+    courseId: string,
+    details: { courseTitle: string; reason: string },
+    ipAddress?: string,
+  ) {
     super(
       adminId,
       'marketplace_course_unpublished',
@@ -278,7 +303,12 @@ export class MarketplaceRefundDecisionEvent extends AuditEvent {
   constructor(
     adminId: string,
     refundRequestId: string,
-    details: { orderId: string; decision: 'approved' | 'rejected'; discretionary: boolean; reason?: string },
+    details: {
+      orderId: string;
+      decision: 'approved' | 'rejected';
+      discretionary: boolean;
+      reason?: string;
+    },
     ipAddress?: string,
   ) {
     super(

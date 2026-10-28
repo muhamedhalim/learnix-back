@@ -36,10 +36,17 @@ export class FreeEnrollmentService {
     await this.assertDailyCapNotExceeded(learnerId);
     await this.assertCourseIsFree(courseId);
 
-    const order = await this.orders.createOrder(learnerId, courseId, MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true });
+    const order = await this.orders.createOrder(
+      learnerId,
+      courseId,
+      MarketplaceOrderStatus.AWAITING_PAYMENT,
+      { allowFree: true },
+    );
 
     try {
-      await retryTransaction(this.dataSource, (manager) => this.settlement.settleFree(order.id, manager));
+      await retryTransaction(this.dataSource, (manager) =>
+        this.settlement.settleFree(order.id, manager),
+      );
     } catch (error) {
       // MP-17: the order and its settlement are separate transactions; a failed settlement must not
       // leave an `awaiting_payment` zero-value order that answers 409 to every later attempt.
@@ -61,7 +68,10 @@ export class FreeEnrollmentService {
    * later, legitimate purchase via `UQ_mp_orders_open_per_course`.
    */
   private async assertCourseIsFree(courseId: string): Promise<void> {
-    const course = await this.catalogQuery.baseVisibleQuery().andWhere('course.id = :id', { id: courseId }).getOne();
+    const course = await this.catalogQuery
+      .baseVisibleQuery()
+      .andWhere('course.id = :id', { id: courseId })
+      .getOne();
     if (!course) {
       throw courseNotPurchasable();
     }

@@ -29,6 +29,8 @@ describe('GrantAdminMarketplaceFinancePermissions migration', () => {
   });
 
   it('never removes a permission on the way down', async () => {
-    await expect(new GrantAdminMarketplaceFinancePermissions2211000000000().down()).resolves.toBeUndefined();
+    await expect(
+      new GrantAdminMarketplaceFinancePermissions2211000000000().down(),
+    ).resolves.toBeUndefined();
   });
 });

@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Patch, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Post,
+  Patch,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -8,8 +19,15 @@ import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { biBody } from '../../../i18n/error-translator.util';
-import { MAX_MARKETPLACE_IMAGE_BYTES, MarketplaceImageService, type UploadedImageFile } from '../../common/marketplace-image.service';
-import { ApplicationDocumentsService, MAX_DOCUMENT_SIZE_BYTES } from '../application-documents.service';
+import {
+  MAX_MARKETPLACE_IMAGE_BYTES,
+  MarketplaceImageService,
+  type UploadedImageFile,
+} from '../../common/marketplace-image.service';
+import {
+  ApplicationDocumentsService,
+  MAX_DOCUMENT_SIZE_BYTES,
+} from '../application-documents.service';
 import { UpdateInstructorApplicationDto } from '../dto';
 import { InstructorApplication } from '../entities';
 import { InstructorApplicationService } from '../instructor-application.service';
@@ -41,7 +59,9 @@ export class ApplicationsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a draft instructor application (409 on a second open application, FR-015)' })
+  @ApiOperation({
+    summary: 'Create a draft instructor application (409 on a second open application, FR-015)',
+  })
   public async create(
     @GetUser() user: JwtPayload,
     @Body() dto: UpdateInstructorApplicationDto,
@@ -60,7 +80,9 @@ export class ApplicationsController {
 
   @Post('me/submit')
   @Throttle({ default: THROTTLE.STRICT })
-  @ApiOperation({ summary: 'Submit for review; 422 lists each missing mandatory field (FR-011, FR-308)' })
+  @ApiOperation({
+    summary: 'Submit for review; 422 lists each missing mandatory field (FR-011, FR-308)',
+  })
   public async submit(@GetUser() user: JwtPayload): Promise<InstructorApplication> {
     return this.applications.submit(user.userId);
   }
@@ -72,10 +94,15 @@ export class ApplicationsController {
   }
 
   @Post('me/documents')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES, files: 1 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES, files: 1 } }),
+  )
   @Throttle({ default: THROTTLE.FILE_UPLOAD })
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload a private supporting document — returns a storage key, never a URL (FR-010, FR-303)' })
+  @ApiOperation({
+    summary:
+      'Upload a private supporting document — returns a storage key, never a URL (FR-010, FR-303)',
+  })
   public async uploadDocument(
     @GetUser() user: JwtPayload,
     @UploadedFile() file?: Express.Multer.File,
@@ -96,10 +123,14 @@ export class ApplicationsController {
    * as `photo_key` on the application.
    */
   @Post('me/photo')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_MARKETPLACE_IMAGE_BYTES, files: 1 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_MARKETPLACE_IMAGE_BYTES, files: 1 } }),
+  )
   @Throttle({ default: THROTTLE.FILE_UPLOAD })
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload the applicant photo (JPEG, PNG or WebP, up to 5 MB). Returns a storage key.' })
+  @ApiOperation({
+    summary: 'Upload the applicant photo (JPEG, PNG or WebP, up to 5 MB). Returns a storage key.',
+  })
   public async uploadPhoto(
     @GetUser() user: JwtPayload,
     @UploadedFile() file?: UploadedImageFile,

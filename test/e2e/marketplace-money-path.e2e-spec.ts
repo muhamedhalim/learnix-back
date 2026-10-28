@@ -33,7 +33,12 @@ describe('marketplace money path (Phase 4)', () => {
 
   async function queue(eventName: string): Promise<string> {
     const saved = await events().save(
-      events().create({ event_name: eventName, dedupe_key: `e2e:${randomUUID()}`, payload: { payment_id: randomUUID() }, published_at: null }),
+      events().create({
+        event_name: eventName,
+        dedupe_key: `e2e:${randomUUID()}`,
+        payload: { payment_id: randomUUID() },
+        published_at: null,
+      }),
     );
     return saved.id;
   }
@@ -49,7 +54,12 @@ describe('marketplace money path (Phase 4)', () => {
     try {
       expect(await operations.publishOutbox()).toBe(0);
       const deferred = await events().findOneOrFail({ where: { id } });
-      expect(deferred).toMatchObject({ status: 'pending', published_at: null, attempts: 0, lease_token: null });
+      expect(deferred).toMatchObject({
+        status: 'pending',
+        published_at: null,
+        attempts: 0,
+        lease_token: null,
+      });
       expect(deferred.next_retry_at).toBeInstanceOf(Date);
 
       // Re-enabled: the very same fact is delivered, not lost.
@@ -58,7 +68,9 @@ describe('marketplace money path (Phase 4)', () => {
       await events().update({ id }, { next_retry_at: null });
       expect(await operations.publishOutbox()).toBe(1);
       expect(received).toHaveLength(1);
-      expect(await events().findOneOrFail({ where: { id } })).toMatchObject({ status: 'published' });
+      expect(await events().findOneOrFail({ where: { id } })).toMatchObject({
+        status: 'published',
+      });
     } finally {
       emitter.removeAllListeners(name);
       for (const listener of registered) emitter.on(name, listener as never);

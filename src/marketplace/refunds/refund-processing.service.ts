@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, EntityManager, Not } from 'typeorm';
 
@@ -99,9 +105,16 @@ export class RefundProcessingService {
         // No refund API (EasyKash): this is not a failure. The request waits, approved, for an
         // administrator to pay it back and record it. Sending it to the provider would only fail
         // and tell the learner their refund "could not be completed".
-        return retryTransaction(this.dataSource, (manager) => this.markAwaitingManual(manager, request.id));
+        return retryTransaction(this.dataSource, (manager) =>
+          this.markAwaitingManual(manager, request.id),
+        );
       }
-      providerReference = await this.callGateway(order, payment.provider_reference as string, provider, request.id);
+      providerReference = await this.callGateway(
+        order,
+        payment.provider_reference as string,
+        provider,
+        request.id,
+      );
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown provider error';
       this.logger.error(`Marketplace refund ${request.id} failed at the provider: ${reason}`);
@@ -115,7 +128,9 @@ export class RefundProcessingService {
     );
   }
 
-  private async resolveProvider(order: MarketplaceOrder): Promise<{ payment: Payment; provider: PaymentGateway }> {
+  private async resolveProvider(
+    order: MarketplaceOrder,
+  ): Promise<{ payment: Payment; provider: PaymentGateway }> {
     const payment = order.payment_id
       ? await this.dataSource.getRepository(Payment).findOne({ where: { id: order.payment_id } })
       : null;
@@ -326,7 +341,11 @@ export class RefundProcessingService {
 
       // An order is refunded at most once (FIA-009).
       const completedSibling = await manager.findOne(MarketplaceRefundRequest, {
-        where: { order_id: request.order_id, id: Not(request.id), status: RefundRequestStatus.COMPLETED },
+        where: {
+          order_id: request.order_id,
+          id: Not(request.id),
+          status: RefundRequestStatus.COMPLETED,
+        },
       });
       if (order.status === MarketplaceOrderStatus.REFUNDED || completedSibling) {
         throw new ConflictException(

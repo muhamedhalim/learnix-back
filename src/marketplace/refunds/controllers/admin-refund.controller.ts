@@ -99,7 +99,8 @@ export class AdminRefundController {
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
   @FinancePermissions('marketplace.refunds.process')
   @ApiOperation({
-    summary: 'Record a refund paid back outside the gateway API and complete it; reference mandatory',
+    summary:
+      'Record a refund paid back outside the gateway API and complete it; reference mandatory',
   })
   public async completeManually(
     @GetUser() user: JwtPayload,

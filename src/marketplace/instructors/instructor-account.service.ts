@@ -158,7 +158,9 @@ export class InstructorAccountService {
    * without a password hash, so an instructor whose first email never arrived would otherwise be locked
    * out with no way back in.
    */
-  public async resendSetupLink(userId: string): Promise<'sent' | 'failed' | 'has_password' | 'not_found'> {
+  public async resendSetupLink(
+    userId: string,
+  ): Promise<'sent' | 'failed' | 'has_password' | 'not_found'> {
     const user = await this.users
       .createQueryBuilder('user')
       .addSelect('user.password_hash')

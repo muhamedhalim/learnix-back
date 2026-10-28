@@ -377,7 +377,10 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
   });
 
   /** A gateway that CAN refund through an API, so a failure is a provider failure and not "no API". */
-  function gatewayWithRefundApi(payment: Payment, refund: () => Promise<{ providerReference: string; status: 'succeeded' | 'processing' }>) {
+  function gatewayWithRefundApi(
+    payment: Payment,
+    refund: () => Promise<{ providerReference: string; status: 'succeeded' | 'processing' }>,
+  ) {
     const gateway = app.get(PaymentProviderRegistry).get(payment.provider);
     const supportsRefunds = jest.spyOn(gateway, 'supportsRefunds').mockReturnValue(true);
     const providerRefund = jest.spyOn(gateway, 'refund').mockImplementation(refund);
@@ -443,12 +446,18 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
 
       // It is in the admin queue, waiting.
       await grantRefundPermission(admin.userId);
-      const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/refunds?status=approved`).expect(200);
-      expect((queue.body.data as Array<{ id: string }>).map((r) => r.id)).toContain(requested.body.id);
+      const queue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/refunds?status=approved`)
+        .expect(200);
+      expect((queue.body.data as Array<{ id: string }>).map((r) => r.id)).toContain(
+        requested.body.id,
+      );
 
       // Permission, learner access and input are checked first.
       await learner.agent.post(route).send({ refundReference: 'BANK-1' }).expect(403);
-      await dataSource.getRepository(User).update({ id: admin.userId }, { finance_permissions: [] });
+      await dataSource
+        .getRepository(User)
+        .update({ id: admin.userId }, { finance_permissions: [] });
       await admin.agent.post(route).send({ refundReference: 'BANK-1' }).expect(403);
       await grantRefundPermission(admin.userId);
       await admin.agent.post(route).send({}).expect(400);
@@ -458,7 +467,10 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       ).resolves.toMatchObject({ status: MarketplaceOrderStatus.PAID });
 
       // Recording the payout completes it.
-      const done = await admin.agent.post(route).send({ refundReference: '  BANK-TRANSFER-8841  ' }).expect(201);
+      const done = await admin.agent
+        .post(route)
+        .send({ refundReference: '  BANK-TRANSFER-8841  ' })
+        .expect(201);
       expect(done.body).toMatchObject({
         id: requested.body.id,
         status: RefundRequestStatus.COMPLETED,
@@ -474,7 +486,9 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       await expect(
         dataSource.getRepository(InstructorEarning).findOneByOrFail({ order_id: order.id }),
       ).resolves.toMatchObject({ status: 'reversed' });
-      const ledgerRows = await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id });
+      const ledgerRows = await dataSource
+        .getRepository(MarketplaceLedgerEntry)
+        .countBy({ order_id: order.id });
       expect(ledgerRows).toBe(4);
 
       // Who did it is on record.
@@ -503,7 +517,10 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
         .expect(201);
       expect(requested.body.status).toBe(RefundRequestStatus.APPROVED);
 
-      const api = gatewayWithRefundApi(payment, async () => ({ providerReference: 'x', status: 'succeeded' }));
+      const api = gatewayWithRefundApi(payment, async () => ({
+        providerReference: 'x',
+        status: 'succeeded',
+      }));
       try {
         await admin.agent
           .post(`${API_PREFIX}/marketplace/admin/refunds/${requested.body.id}/complete-manually`)
@@ -554,7 +571,9 @@ describe('marketplace refunds — eligibility, request lifecycle, provider-failu
       await expect(
         dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ id: enrollment.id }),
       ).resolves.toMatchObject({ status: 'active' });
-      expect(await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id })).toBe(2);
+      expect(
+        await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
+      ).toBe(2);
     });
   });
 

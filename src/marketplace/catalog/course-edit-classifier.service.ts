@@ -47,8 +47,12 @@ export class CourseEditClassifierService {
     private readonly activityLogs: ActivityLogsService,
   ) {}
 
-  public classifyCourseFieldEdit(changedFields: (keyof UpdateCourseDto)[]): CourseEditClassification {
-    return changedFields.some((field) => MATERIAL_COURSE_FIELDS.has(field)) ? 'material' : 'cosmetic';
+  public classifyCourseFieldEdit(
+    changedFields: (keyof UpdateCourseDto)[],
+  ): CourseEditClassification {
+    return changedFields.some((field) => MATERIAL_COURSE_FIELDS.has(field))
+      ? 'material'
+      : 'cosmetic';
   }
 
   /**
@@ -108,12 +112,18 @@ export class CourseEditClassifierService {
       }),
     );
     await this.activityLogs.recordAuditEvent(
-      new MarketplaceCoursePendingEditApprovedEvent(adminId, courseId, { courseTitle: course.title }),
+      new MarketplaceCoursePendingEditApprovedEvent(adminId, courseId, {
+        courseTitle: course.title,
+      }),
     );
   }
 
   /** Admin rejection: the pending marker clears; the live row's edit is left as-is for the instructor to revise — nothing new ever went public, so there is nothing to revert. */
-  public async rejectPendingEdit(courseId: string, adminId: string, reasons: string[]): Promise<void> {
+  public async rejectPendingEdit(
+    courseId: string,
+    adminId: string,
+    reasons: string[],
+  ): Promise<void> {
     const course = await this.getPendingOrThrow(courseId);
     await this.claimPending(courseId);
     await this.decisions.save(
@@ -126,7 +136,10 @@ export class CourseEditClassifierService {
       }),
     );
     await this.activityLogs.recordAuditEvent(
-      new MarketplaceCoursePendingEditRejectedEvent(adminId, courseId, { courseTitle: course.title, reasons }),
+      new MarketplaceCoursePendingEditRejectedEvent(adminId, courseId, {
+        courseTitle: course.title,
+        reasons,
+      }),
     );
   }
 
@@ -157,7 +170,12 @@ export class CourseEditClassifierService {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
     if (!course.pending_review_since) {
-      throw new NotFoundException(biBody('This course has no pending edit awaiting review', 'لا يوجد لهذه الدورة تعديل بانتظار المراجعة'));
+      throw new NotFoundException(
+        biBody(
+          'This course has no pending edit awaiting review',
+          'لا يوجد لهذه الدورة تعديل بانتظار المراجعة',
+        ),
+      );
     }
     return course;
   }

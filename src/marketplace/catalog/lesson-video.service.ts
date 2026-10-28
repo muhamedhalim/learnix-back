@@ -112,7 +112,9 @@ export class LessonVideoService {
     lessonId: string,
     uploadId: string,
   ): Promise<{ video_id: string; status: 'processing' | 'failed' }> {
-    const lesson = await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId, { forEdit: true });
+    const lesson = await this.getOwnedLessonOrThrow(instructorId, courseId, lessonId, {
+      forEdit: true,
+    });
     this.assertAwsEnabled();
     const completed = await this.directUploads!.complete(userId, uploadId);
     if (completed.purpose !== 'lesson_video') {

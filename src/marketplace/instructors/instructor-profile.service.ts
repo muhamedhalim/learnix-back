@@ -111,7 +111,8 @@ export class InstructorProfileService {
 
     // The stored photo and a photo already queued for review are both "unchanged" values.
     const queuedPhoto = pending.find((change) => change.field === 'photo_key')?.proposed_value;
-    if (fields.photo_key !== queuedPhoto) assertMarketplaceImageKey(fields.photo_key, instructor.photo_key);
+    if (fields.photo_key !== queuedPhoto)
+      assertMarketplaceImageKey(fields.photo_key, instructor.photo_key);
 
     for (const [field, proposedValue] of Object.entries(fields)) {
       if (proposedValue === undefined) continue;
@@ -126,7 +127,12 @@ export class InstructorProfileService {
           continue;
         }
 
-        const entry: PendingProfileChange = { field, previous_value: previousValue, proposed_value: proposedValue, requested_at: now };
+        const entry: PendingProfileChange = {
+          field,
+          previous_value: previousValue,
+          proposed_value: proposedValue,
+          requested_at: now,
+        };
         if (existingIndex >= 0) pending[existingIndex] = entry;
         else pending.push(entry);
       } else {
@@ -139,7 +145,10 @@ export class InstructorProfileService {
   }
 
   /** Applies every currently queued edit at once and clears the queue. */
-  public async approvePendingChanges(instructorId: string, adminId: string): Promise<MarketplaceInstructor> {
+  public async approvePendingChanges(
+    instructorId: string,
+    adminId: string,
+  ): Promise<MarketplaceInstructor> {
     const instructor = await this.getPendingOrThrow(instructorId);
     const pending = instructor.pending_profile_changes as PendingProfileChange[];
     const live = instructor as unknown as Record<string, unknown>;
@@ -198,7 +207,10 @@ export class InstructorProfileService {
     }
     if (!instructor.pending_profile_changes || instructor.pending_profile_changes.length === 0) {
       throw new NotFoundException(
-        biBody('No pending profile changes to review', 'لا توجد تعديلات على الملف الشخصي بانتظار المراجعة'),
+        biBody(
+          'No pending profile changes to review',
+          'لا توجد تعديلات على الملف الشخصي بانتظار المراجعة',
+        ),
       );
     }
     return instructor;

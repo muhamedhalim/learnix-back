@@ -5,7 +5,13 @@ import { LessonContentType } from '../../src/marketplace/common/enums';
 import { MarketplaceCategory, MarketplaceCourse } from '../../src/marketplace/catalog/entities';
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
@@ -66,9 +72,15 @@ describe('marketplace authoring — phase 2 seams', () => {
   async function publishedCourse() {
     const ctx = await setup();
     const base = `${API_PREFIX}/marketplace/instructor/courses`;
-    const created = await ctx.instructor.agent.post(base).send(courseBody(ctx.category.id)).expect(201);
+    const created = await ctx.instructor.agent
+      .post(base)
+      .send(courseBody(ctx.category.id))
+      .expect(201);
     const courseId = created.body.id as string;
-    const section = await ctx.instructor.agent.post(`${base}/${courseId}/sections`).send({ title: 'Start' }).expect(201);
+    const section = await ctx.instructor.agent
+      .post(`${base}/${courseId}/sections`)
+      .send({ title: 'Start' })
+      .expect(201);
     for (let i = 0; i < 3; i++) {
       await ctx.instructor.agent
         .post(`${base}/${courseId}/lessons`)
@@ -82,7 +94,10 @@ describe('marketplace authoring — phase 2 seams', () => {
         .expect(201);
     }
     await ctx.instructor.agent.post(`${base}/${courseId}/submit`).send({}).expect(201);
-    await ctx.admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
+    await ctx.admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
     await ctx.instructor.agent.post(`${base}/${courseId}/publish`).send({}).expect(201);
     return { ...ctx, courseId, base };
   }
@@ -95,22 +110,35 @@ describe('marketplace authoring — phase 2 seams', () => {
     return rows[0].n;
   };
   const pendingSince = async (courseId: string): Promise<Date | null> =>
-    (await dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } })).pending_review_since;
+    (await dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } }))
+      .pending_review_since;
 
   describe('pricing is EGP-only and bounded (MP-11, D4)', () => {
     it('refuses another currency, and a paid price outside the registry bounds, on create and on update', async () => {
       const { instructor, category } = await setup();
       const base = `${API_PREFIX}/marketplace/instructor/courses`;
 
-      await instructor.agent.post(base).send({ ...courseBody(category.id), currency: 'USD' }).expect(400);
-      await instructor.agent.post(base).send({ ...courseBody(category.id), price_minor: 100 }).expect(400);
-      await instructor.agent.post(base).send({ ...courseBody(category.id), price_minor: 2_000_001 }).expect(400);
+      await instructor.agent
+        .post(base)
+        .send({ ...courseBody(category.id), currency: 'USD' })
+        .expect(400);
+      await instructor.agent
+        .post(base)
+        .send({ ...courseBody(category.id), price_minor: 100 })
+        .expect(400);
+      await instructor.agent
+        .post(base)
+        .send({ ...courseBody(category.id), price_minor: 2_000_001 })
+        .expect(400);
 
       const created = await instructor.agent.post(base).send(courseBody(category.id)).expect(201);
       const id = created.body.id as string;
       await instructor.agent.patch(`${base}/${id}`).send({ currency: 'SAR' }).expect(400);
       await instructor.agent.patch(`${base}/${id}`).send({ price_minor: 100 }).expect(400);
-      const ok = await instructor.agent.patch(`${base}/${id}`).send({ price_minor: 25_000 }).expect(200);
+      const ok = await instructor.agent
+        .patch(`${base}/${id}`)
+        .send({ price_minor: 25_000 })
+        .expect(200);
       expect(ok.body.price_minor).toBe(25_000);
 
       // A free course is always inside the bounds.
@@ -126,11 +154,16 @@ describe('marketplace authoring — phase 2 seams', () => {
       await dataSource.getRepository(MarketplaceCourse).update(id, { currency: 'USD' });
 
       const readiness = await instructor.agent.get(`${base}/${id}/readiness`).expect(200);
-      expect(readiness.body.items.find((i: { key: string }) => i.key === 'currency').passed).toBe(false);
+      expect(readiness.body.items.find((i: { key: string }) => i.key === 'currency').passed).toBe(
+        false,
+      );
       expect(readiness.body.ready).toBe(false);
 
       // Unrelated edits to that legacy course are still possible.
-      await instructor.agent.patch(`${base}/${id}`).send({ title: 'Retitled', currency: 'USD', price_minor: 10_000 }).expect(200);
+      await instructor.agent
+        .patch(`${base}/${id}`)
+        .send({ title: 'Retitled', currency: 'USD', price_minor: 10_000 })
+        .expect(200);
     });
   });
 
@@ -158,7 +191,11 @@ describe('marketplace authoring — phase 2 seams', () => {
 
       await instructor.agent
         .patch(`${base}/${courseId}`)
-        .send({ ...courseBody(category.id), title: 'Backend Engineering 101 (updated)', price_minor: 30_000 })
+        .send({
+          ...courseBody(category.id),
+          title: 'Backend Engineering 101 (updated)',
+          price_minor: 30_000,
+        })
         .expect(200);
       expect(await pendingSince(courseId)).not.toBeNull();
       expect(await versionCount(courseId)).toBe(before + 1);
@@ -166,25 +203,41 @@ describe('marketplace authoring — phase 2 seams', () => {
       // A later typo fix must not carry the unapproved price into the public version.
       await instructor.agent
         .patch(`${base}/${courseId}`)
-        .send({ ...courseBody(category.id), title: 'Backend Engineering 101 (updated!)', price_minor: 30_000 })
+        .send({
+          ...courseBody(category.id),
+          title: 'Backend Engineering 101 (updated!)',
+          price_minor: 30_000,
+        })
         .expect(200);
       expect(await versionCount(courseId)).toBe(before + 1);
 
       // The admin queue lists it, and only it.
-      const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`).expect(200);
+      const queue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`)
+        .expect(200);
       expect((queue.body as Array<{ id: string }>).map((c) => c.id)).toEqual([courseId]);
-      const everything = await admin.agent.get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=false`).expect(200);
+      const everything = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=false`)
+        .expect(200);
       expect((everything.body as unknown[]).length).toBeGreaterThanOrEqual(1);
 
       // Approval publishes the pending state as the new public version and empties the queue.
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`).send({}).expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`)
+        .send({})
+        .expect(201);
       expect(await pendingSince(courseId)).toBeNull();
       expect(await versionCount(courseId)).toBe(before + 2);
-      const emptyQueue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`).expect(200);
+      const emptyQueue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`)
+        .expect(200);
       expect(emptyQueue.body).toEqual([]);
 
       // Nothing left to decide.
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`).send({}).expect(404);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`)
+        .send({})
+        .expect(404);
 
       const audit = (await dataSource.query(
         "SELECT action FROM audit_logs WHERE action = 'marketplace_course_pending_edit_approved'",
@@ -203,11 +256,16 @@ describe('marketplace authoring — phase 2 seams', () => {
 
       const reject = `${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/reject`;
       await admin.agent.post(reject).send({ reasons: [] }).expect(400);
-      await admin.agent.post(reject).send({ reasons: ['Price is out of line with the content'] }).expect(201);
+      await admin.agent
+        .post(reject)
+        .send({ reasons: ['Price is out of line with the content'] })
+        .expect(201);
 
       expect(await pendingSince(courseId)).toBeNull();
       expect(await versionCount(courseId)).toBe(before);
-      const decisions = await instructor.agent.get(`${base}/${courseId}/review-decisions`).expect(200);
+      const decisions = await instructor.agent
+        .get(`${base}/${courseId}/review-decisions`)
+        .expect(200);
       expect((decisions.body as Array<{ decision: string; reasons: string[] }>)[0]).toMatchObject({
         decision: 'rejected',
         reasons: ['Price is out of line with the content'],
@@ -216,19 +274,33 @@ describe('marketplace authoring — phase 2 seams', () => {
 
     it('keeps the pending-edit endpoints to administrators', async () => {
       const { instructor, courseId } = await publishedCourse();
-      await instructor.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`).send({}).expect(403);
-      await instructor.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/reject`).send({ reasons: ['x'] }).expect(403);
-      await instructor.agent.get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`).expect(403);
+      await instructor.agent
+        .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`)
+        .send({})
+        .expect(403);
+      await instructor.agent
+        .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/reject`)
+        .send({ reasons: ['x'] })
+        .expect(403);
+      await instructor.agent
+        .get(`${API_PREFIX}/marketplace/admin/courses?pending_edit=true`)
+        .expect(403);
     });
 
     it('two administrators deciding at once get exactly one outcome', async () => {
       const { instructor, admin, courseId, base, category } = await publishedCourse();
-      await instructor.agent.patch(`${base}/${courseId}`).send({ ...courseBody(category.id), price_minor: 50_000 }).expect(200);
+      await instructor.agent
+        .patch(`${base}/${courseId}`)
+        .send({ ...courseBody(category.id), price_minor: 50_000 })
+        .expect(200);
       const second = await createAuthenticatedUser(app, dataSource);
       await setUserRole(dataSource, second.userId, 'admin');
 
       const url = `${API_PREFIX}/marketplace/admin/courses/${courseId}/pending-edit/approve`;
-      const results = await Promise.all([admin.agent.post(url).send({}), second.agent.post(url).send({})]);
+      const results = await Promise.all([
+        admin.agent.post(url).send({}),
+        second.agent.post(url).send({}),
+      ]);
       expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
     });
   });
@@ -247,13 +319,24 @@ describe('marketplace authoring — phase 2 seams', () => {
 
     it('shows the applicant their rejected application with the reason, lets them edit it, and still hides a withdrawn one', async () => {
       const learner = await createAuthenticatedUser(app, dataSource);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);
-      await learner.agent.patch(`${API_PREFIX}/marketplace/applications/me`).send(application).expect(200);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications/me/submit`).send({}).expect(201);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications`)
+        .send({ display_name: 'Nour' })
+        .expect(201);
+      await learner.agent
+        .patch(`${API_PREFIX}/marketplace/applications/me`)
+        .send(application)
+        .expect(200);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications/me/submit`)
+        .send({})
+        .expect(201);
 
       const admin = await createAuthenticatedUser(app, dataSource);
       await setUserRole(dataSource, admin.userId, 'admin');
-      const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/applications`).expect(200);
+      const queue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications`)
+        .expect(200);
       const id = queue.body.items[0].id as string;
       await admin.agent
         .post(`${API_PREFIX}/marketplace/admin/applications/${id}/reject`)
@@ -261,7 +344,11 @@ describe('marketplace authoring — phase 2 seams', () => {
         .expect(201);
 
       const mine = await learner.agent.get(`${API_PREFIX}/marketplace/applications/me`).expect(200);
-      expect(mine.body).toMatchObject({ id, status: 'rejected', decision_reason: 'Please add a portfolio link' });
+      expect(mine.body).toMatchObject({
+        id,
+        status: 'rejected',
+        decision_reason: 'Please add a portfolio link',
+      });
 
       // It is the row they edit and resubmit.
       const edited = await learner.agent
@@ -272,33 +359,59 @@ describe('marketplace authoring — phase 2 seams', () => {
 
       // Withdrawn applications are the applicant's own choice and are not offered back.
       const other = await createAuthenticatedUser(app, dataSource);
-      await other.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Sara' }).expect(201);
-      await other.agent.post(`${API_PREFIX}/marketplace/applications/me/withdraw`).send({}).expect(201);
+      await other.agent
+        .post(`${API_PREFIX}/marketplace/applications`)
+        .send({ display_name: 'Sara' })
+        .expect(201);
+      await other.agent
+        .post(`${API_PREFIX}/marketplace/applications/me/withdraw`)
+        .send({})
+        .expect(201);
       await other.agent.get(`${API_PREFIX}/marketplace/applications/me`).expect(404);
     });
 
     it('attaches a supporting document to the application being edited, not to an older rejected one', async () => {
       const learner = await createAuthenticatedUser(app, dataSource);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);
-      await learner.agent.patch(`${API_PREFIX}/marketplace/applications/me`).send(application).expect(200);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications/me/submit`).send({}).expect(201);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications`)
+        .send({ display_name: 'Nour' })
+        .expect(201);
+      await learner.agent
+        .patch(`${API_PREFIX}/marketplace/applications/me`)
+        .send(application)
+        .expect(200);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications/me/submit`)
+        .send({})
+        .expect(201);
       const admin = await createAuthenticatedUser(app, dataSource);
       await setUserRole(dataSource, admin.userId, 'admin');
-      const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/applications`).expect(200);
+      const queue = await admin.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications`)
+        .expect(200);
       const rejectedId = queue.body.items[0].id as string;
-      await admin.agent.post(`${API_PREFIX}/marketplace/admin/applications/${rejectedId}/reject`).send({ reason: 'More detail' }).expect(201);
+      await admin.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${rejectedId}/reject`)
+        .send({ reason: 'More detail' })
+        .expect(201);
 
       // A second, newer draft next to the rejected one (once the wait is over the applicant opens a fresh draft).
       await dataSource.query(
         "UPDATE marketplace_instructor_applications SET reviewed_at = now() - interval '30 days' WHERE id = $1",
         [rejectedId],
       );
-      const draft = await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);
+      const draft = await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications`)
+        .send({ display_name: 'Nour' })
+        .expect(201);
       const draftId = draft.body.id as string;
 
       await learner.agent
         .post(`${API_PREFIX}/marketplace/applications/me/documents`)
-        .attach('file', Buffer.from('%PDF-1.4 test'), { filename: 'cert.pdf', contentType: 'application/pdf' })
+        .attach('file', Buffer.from('%PDF-1.4 test'), {
+          filename: 'cert.pdf',
+          contentType: 'application/pdf',
+        })
         .expect(201);
 
       const rows = (await dataSource.query(

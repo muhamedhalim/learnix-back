@@ -219,7 +219,9 @@ async function runChain(
        UNION SELECT tgname FROM pg_trigger WHERE NOT tgisinternal`,
     )) as Array<{ name: string }>;
     const presentNames = new Set(present.map((row) => row.name));
-    const missingMigrationOnlyObjects = MIGRATION_ONLY_OBJECTS.filter((name) => !presentNames.has(name));
+    const missingMigrationOnlyObjects = MIGRATION_ONLY_OBJECTS.filter(
+      (name) => !presentNames.has(name),
+    );
 
     const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
     const driftStatements = sqlInMemory.upQueries.map((q) => q.query.replace(/\s+/g, ' ').trim());
@@ -265,8 +267,11 @@ const DRIFT_BASELINE = join(__dirname, 'schema-drift-baseline.json');
 function driftProblems(statements: string[]): string[] {
   const unique = [...new Set(statements)].sort();
   if (process.env['UPDATE_DRIFT_BASELINE'] === '1') {
-    writeFileSync(DRIFT_BASELINE, `${JSON.stringify(unique, null, 2)}
-`);
+    writeFileSync(
+      DRIFT_BASELINE,
+      `${JSON.stringify(unique, null, 2)}
+`,
+    );
     return [];
   }
   const baseline = new Set<string>(
@@ -337,7 +342,9 @@ async function main(): Promise<void> {
     process.stdout.write(`  recorded in table     : ${String(report.recordedMigrations)}\n`);
     process.stdout.write(`  pending after run     : ${String(report.pendingAfterRun)}\n`);
     process.stdout.write(`  public tables created : ${String(report.tableCount)}\n`);
-    process.stdout.write(`  drift statements      : ${String(report.driftStatements.length)} (baseline-tolerated)\n`);
+    process.stdout.write(
+      `  drift statements      : ${String(report.driftStatements.length)} (baseline-tolerated)\n`,
+    );
     process.stdout.write(`  duration              : ${String(report.durationMs)}ms\n\n`);
 
     assertReport(report);

@@ -1,5 +1,8 @@
 import type { ActivityLogsService } from '../../activity-logs/activity-logs.service';
-import type { MarketplaceInstructor, PendingProfileChange } from './entities/marketplace-instructor.entity';
+import type {
+  MarketplaceInstructor,
+  PendingProfileChange,
+} from './entities/marketplace-instructor.entity';
 import { InstructorProfileService } from './instructor-profile.service';
 
 function buildInstructor(overrides: Partial<MarketplaceInstructor> = {}): MarketplaceInstructor {
@@ -71,28 +74,52 @@ describe('InstructorProfileService', () => {
 
   describe('updateProfile — review-required fields (FR-029)', () => {
     it('queues the edit in pending_profile_changes and leaves the live value untouched', async () => {
-      const { service } = buildService(buildInstructor({ display_name: 'Nour', headline: 'Senior Engineer' }));
+      const { service } = buildService(
+        buildInstructor({ display_name: 'Nour', headline: 'Senior Engineer' }),
+      );
       const result = await service.updateProfile('user-1', { display_name: 'Nour Ahmed' });
 
       expect(result.display_name).toBe('Nour');
       expect(result.pending_profile_changes).toEqual([
-        expect.objectContaining({ field: 'display_name', previous_value: 'Nour', proposed_value: 'Nour Ahmed' }),
+        expect.objectContaining({
+          field: 'display_name',
+          previous_value: 'Nour',
+          proposed_value: 'Nour Ahmed',
+        }),
       ]);
     });
 
     it('accepts a photo only as an uploaded key, or as the value already stored or already queued (MP-10)', async () => {
       const stored = buildInstructor({ photo_key: 'https://legacy.example/p.jpg' } as never);
       const { service } = buildService(stored);
-      await expect(service.updateProfile('user-1', { photo_key: 'https://tracker.example/p.gif' } as never)).rejects.toMatchObject({
+      await expect(
+        service.updateProfile('user-1', { photo_key: 'https://tracker.example/p.gif' } as never),
+      ).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
       });
       // Unchanged legacy value: fine.
-      await expect(service.updateProfile('user-1', { photo_key: 'https://legacy.example/p.jpg' } as never)).resolves.toBeDefined();
+      await expect(
+        service.updateProfile('user-1', { photo_key: 'https://legacy.example/p.jpg' } as never),
+      ).resolves.toBeDefined();
       // A real upload is queued for review like any other public-profile change.
-      const uploaded = await service.updateProfile('user-1', { photo_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' } as never);
-      expect(uploaded.pending_profile_changes).toEqual([expect.objectContaining({ field: 'photo_key', proposed_value: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' })]);
+      const uploaded = await service.updateProfile('user-1', {
+        photo_key:
+          'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+      } as never);
+      expect(uploaded.pending_profile_changes).toEqual([
+        expect.objectContaining({
+          field: 'photo_key',
+          proposed_value:
+            'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        }),
+      ]);
       // Saving again with the queued key is not an error.
-      await expect(service.updateProfile('user-1', { photo_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' } as never)).resolves.toBeDefined();
+      await expect(
+        service.updateProfile('user-1', {
+          photo_key:
+            'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        } as never),
+      ).resolves.toBeDefined();
     });
 
     it('queues nothing when a whole untouched form is saved, with empty strings for the null optional fields', async () => {
@@ -120,10 +147,18 @@ describe('InstructorProfileService', () => {
     it('still queues a real change next to untouched empty fields', async () => {
       const instructor = buildInstructor({ photo_key: null, headline_ar: null } as never);
       const { service } = buildService(instructor);
-      const result = await service.updateProfile('user-1', { photo_key: '', headline_ar: '', headline: 'Staff Engineer' } as never);
+      const result = await service.updateProfile('user-1', {
+        photo_key: '',
+        headline_ar: '',
+        headline: 'Staff Engineer',
+      } as never);
 
       expect(result.pending_profile_changes).toEqual([
-        expect.objectContaining({ field: 'headline', previous_value: 'Senior Engineer', proposed_value: 'Staff Engineer' }),
+        expect.objectContaining({
+          field: 'headline',
+          previous_value: 'Senior Engineer',
+          proposed_value: 'Staff Engineer',
+        }),
       ]);
     });
 
@@ -131,7 +166,12 @@ describe('InstructorProfileService', () => {
       const instructor = buildInstructor({
         display_name: 'Nour',
         pending_profile_changes: [
-          { field: 'display_name', previous_value: 'Nour', proposed_value: 'Noura', requested_at: '2026-01-01T00:00:00.000Z' },
+          {
+            field: 'display_name',
+            previous_value: 'Nour',
+            proposed_value: 'Noura',
+            requested_at: '2026-01-01T00:00:00.000Z',
+          },
         ],
       });
       const { service } = buildService(instructor);
@@ -150,7 +190,12 @@ describe('InstructorProfileService', () => {
       const instructor = buildInstructor({
         display_name: 'Nour',
         pending_profile_changes: [
-          { field: 'display_name', previous_value: 'Nour', proposed_value: 'Noura', requested_at: '2026-01-01T00:00:00.000Z' },
+          {
+            field: 'display_name',
+            previous_value: 'Nour',
+            proposed_value: 'Noura',
+            requested_at: '2026-01-01T00:00:00.000Z',
+          },
         ],
       });
       const { service } = buildService(instructor);
@@ -164,8 +209,18 @@ describe('InstructorProfileService', () => {
         display_name: 'Nour',
         headline: 'Senior Engineer',
         pending_profile_changes: [
-          { field: 'display_name', previous_value: 'Nour', proposed_value: 'Noura', requested_at: '2026-01-01T00:00:00.000Z' },
-          { field: 'headline', previous_value: 'Senior Engineer', proposed_value: 'Staff Engineer', requested_at: '2026-01-01T00:00:00.000Z' },
+          {
+            field: 'display_name',
+            previous_value: 'Nour',
+            proposed_value: 'Noura',
+            requested_at: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            field: 'headline',
+            previous_value: 'Senior Engineer',
+            proposed_value: 'Staff Engineer',
+            requested_at: '2026-01-01T00:00:00.000Z',
+          },
         ],
       });
       const { service } = buildService(instructor);
@@ -182,14 +237,22 @@ describe('InstructorProfileService', () => {
       const result = await service.updateProfile('user-1', { portfolio_items: items });
 
       expect(result.portfolio_items).toEqual([]);
-      expect(result.pending_profile_changes?.[0]).toMatchObject({ field: 'portfolio_items', proposed_value: items });
+      expect(result.pending_profile_changes?.[0]).toMatchObject({
+        field: 'portfolio_items',
+        proposed_value: items,
+      });
     });
   });
 
   describe('updateProfile — mixed edit', () => {
     it('applies immediate fields and queues review-required fields in the same call', async () => {
-      const { service } = buildService(buildInstructor({ display_name: 'Nour', skills: ['typescript'] }));
-      const result = await service.updateProfile('user-1', { display_name: 'Nour Ahmed', skills: ['python'] });
+      const { service } = buildService(
+        buildInstructor({ display_name: 'Nour', skills: ['typescript'] }),
+      );
+      const result = await service.updateProfile('user-1', {
+        display_name: 'Nour Ahmed',
+        skills: ['python'],
+      });
 
       expect(result.skills).toEqual(['python']);
       expect(result.display_name).toBe('Nour');
@@ -201,10 +264,24 @@ describe('InstructorProfileService', () => {
   describe('approvePendingChanges', () => {
     it('applies every queued field and clears the queue, recording one audit event', async () => {
       const pending: PendingProfileChange[] = [
-        { field: 'display_name', previous_value: 'Nour', proposed_value: 'Nour Ahmed', requested_at: '2026-01-01T00:00:00.000Z' },
-        { field: 'headline', previous_value: 'Senior Engineer', proposed_value: 'Staff Engineer', requested_at: '2026-01-01T00:00:00.000Z' },
+        {
+          field: 'display_name',
+          previous_value: 'Nour',
+          proposed_value: 'Nour Ahmed',
+          requested_at: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          field: 'headline',
+          previous_value: 'Senior Engineer',
+          proposed_value: 'Staff Engineer',
+          requested_at: '2026-01-01T00:00:00.000Z',
+        },
       ];
-      const instructor = buildInstructor({ display_name: 'Nour', headline: 'Senior Engineer', pending_profile_changes: pending });
+      const instructor = buildInstructor({
+        display_name: 'Nour',
+        headline: 'Senior Engineer',
+        pending_profile_changes: pending,
+      });
       const { service, activityLogs } = buildService(instructor);
 
       const result = await service.approvePendingChanges('instr-1', 'admin-1');
@@ -224,9 +301,17 @@ describe('InstructorProfileService', () => {
   describe('rejectPendingChanges', () => {
     it('discards the queue without touching the live values, recording one audit event with the reason', async () => {
       const pending: PendingProfileChange[] = [
-        { field: 'display_name', previous_value: 'Nour', proposed_value: 'Nour Ahmed', requested_at: '2026-01-01T00:00:00.000Z' },
+        {
+          field: 'display_name',
+          previous_value: 'Nour',
+          proposed_value: 'Nour Ahmed',
+          requested_at: '2026-01-01T00:00:00.000Z',
+        },
       ];
-      const instructor = buildInstructor({ display_name: 'Nour', pending_profile_changes: pending });
+      const instructor = buildInstructor({
+        display_name: 'Nour',
+        pending_profile_changes: pending,
+      });
       const { service, activityLogs } = buildService(instructor);
 
       const result = await service.rejectPendingChanges('instr-1', 'admin-1', 'Unverifiable claim');

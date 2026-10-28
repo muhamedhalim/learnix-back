@@ -8,7 +8,11 @@ import { retryTransaction } from '../../common/utils/transaction-retry.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { CurrencyRegistryService } from '../common/currency-registry.service';
 import { PayoutRequestStatus } from '../common/enums';
-import { payoutAccountCurrencyMismatch, payoutBelowMinimum, payoutInsufficientBalance } from '../common/errors';
+import {
+  payoutAccountCurrencyMismatch,
+  payoutBelowMinimum,
+  payoutInsufficientBalance,
+} from '../common/errors';
 import { EarningsService } from '../earnings/earnings.service';
 import { InstructorEarning } from '../earnings/entities/instructor-earning.entity';
 import { InstructorEarningStatus } from '../common/enums';
@@ -16,8 +20,16 @@ import { MarketplacePayoutRequestedEvent } from '../events/domain.events';
 import { MarketplacePayoutAccount, MarketplacePayoutRequest } from './entities';
 
 const TRANSITIONS: Record<PayoutRequestStatus, PayoutRequestStatus[]> = {
-  [PayoutRequestStatus.REQUESTED]: [PayoutRequestStatus.APPROVED, PayoutRequestStatus.REJECTED, PayoutRequestStatus.CANCELLED],
-  [PayoutRequestStatus.APPROVED]: [PayoutRequestStatus.PROCESSING, PayoutRequestStatus.REJECTED, PayoutRequestStatus.CANCELLED],
+  [PayoutRequestStatus.REQUESTED]: [
+    PayoutRequestStatus.APPROVED,
+    PayoutRequestStatus.REJECTED,
+    PayoutRequestStatus.CANCELLED,
+  ],
+  [PayoutRequestStatus.APPROVED]: [
+    PayoutRequestStatus.PROCESSING,
+    PayoutRequestStatus.REJECTED,
+    PayoutRequestStatus.CANCELLED,
+  ],
   [PayoutRequestStatus.PROCESSING]: [PayoutRequestStatus.PAID, PayoutRequestStatus.FAILED],
   [PayoutRequestStatus.PAID]: [PayoutRequestStatus.FAILED],
   [PayoutRequestStatus.REJECTED]: [],
@@ -65,13 +77,21 @@ export class PayoutRequestService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  public async createRequest(instructorId: string, input: CreatePayoutRequestInput, idempotencyKey: string): Promise<MarketplacePayoutRequest> {
-    const existing = await this.payoutRequests.findOne({ where: { idempotency_key: idempotencyKey } });
+  public async createRequest(
+    instructorId: string,
+    input: CreatePayoutRequestInput,
+    idempotencyKey: string,
+  ): Promise<MarketplacePayoutRequest> {
+    const existing = await this.payoutRequests.findOne({
+      where: { idempotency_key: idempotencyKey },
+    });
     if (existing) {
       return this.replayOrRefuse(existing, instructorId);
     }
 
-    const account = await this.payoutAccounts.findOne({ where: { id: input.payoutAccountId, instructor_id: instructorId } });
+    const account = await this.payoutAccounts.findOne({
+      where: { id: input.payoutAccountId, instructor_id: instructorId },
+    });
     if (!account) {
       throw new NotFoundException(biBody('Payout account not found', 'حساب السحب غير موجود'));
     }
@@ -122,7 +142,9 @@ export class PayoutRequestService {
       } catch (error) {
         const dbError = error as { code?: string };
         if (dbError.code === '23505') {
-          const raced = await manager.findOne(MarketplacePayoutRequest, { where: { idempotency_key: idempotencyKey } });
+          const raced = await manager.findOne(MarketplacePayoutRequest, {
+            where: { idempotency_key: idempotencyKey },
+          });
           if (raced) return this.replayOrRefuse(raced, instructorId);
         }
         throw error;
@@ -145,9 +167,14 @@ export class PayoutRequestService {
    * The key is unique across all instructors, so a replay is only a replay for its owner. Another
    * instructor's request is never returned (MP-18): the colliding key is refused as a conflict.
    */
-  private replayOrRefuse(request: MarketplacePayoutRequest, instructorId: string): MarketplacePayoutRequest {
+  private replayOrRefuse(
+    request: MarketplacePayoutRequest,
+    instructorId: string,
+  ): MarketplacePayoutRequest {
     if (request.instructor_id !== instructorId) {
-      throw new ConflictException(biBody('This Idempotency-Key is already in use', 'مفتاح عدم التكرار مستخدم بالفعل'));
+      throw new ConflictException(
+        biBody('This Idempotency-Key is already in use', 'مفتاح عدم التكرار مستخدم بالفعل'),
+      );
     }
     return request;
   }
@@ -172,11 +199,25 @@ export class PayoutRequestService {
     manager: EntityManager,
     request: MarketplacePayoutRequest,
     to: PayoutRequestStatus,
-    extra: Partial<Pick<MarketplacePayoutRequest, 'decided_by' | 'reason' | 'payout_reference' | 'approved_at' | 'processing_at' | 'paid_at' | 'failed_at'>> = {},
+    extra: Partial<
+      Pick<
+        MarketplacePayoutRequest,
+        | 'decided_by'
+        | 'reason'
+        | 'payout_reference'
+        | 'approved_at'
+        | 'processing_at'
+        | 'paid_at'
+        | 'failed_at'
+      >
+    > = {},
   ): Promise<MarketplacePayoutRequest> {
     if (!TRANSITIONS[request.status].includes(to)) {
       throw new ConflictException(
-        biBody(`A payout request cannot move from ${request.status} to ${to}`, `لا يمكن أن ينتقل طلب السحب من ${request.status} إلى ${to}`),
+        biBody(
+          `A payout request cannot move from ${request.status} to ${to}`,
+          `لا يمكن أن ينتقل طلب السحب من ${request.status} إلى ${to}`,
+        ),
       );
     }
     Object.assign(request, extra, { status: to });
@@ -184,7 +225,11 @@ export class PayoutRequestService {
   }
 
   /** Admin queue (T174) — every instructor's requests, optionally narrowed by status. */
-  public async listQueue(status?: PayoutRequestStatus, page = 1, limit = 20): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
+  public async listQueue(
+    status?: PayoutRequestStatus,
+    page = 1,
+    limit = 20,
+  ): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
     const where = status ? { status } : {};
     const [data, total] = await this.payoutRequests.findAndCount({
       where,
@@ -205,7 +250,11 @@ export class PayoutRequestService {
   }
 
   /** T173: the caller's own payout-request history, most recent first. */
-  public async listOwn(instructorId: string, page = 1, limit = 20): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
+  public async listOwn(
+    instructorId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<PaginatedResponse<MarketplacePayoutRequest>> {
     const [data, total] = await this.payoutRequests.findAndCount({
       where: { instructor_id: instructorId },
       order: { requested_at: 'DESC' },
@@ -231,14 +280,19 @@ export class PayoutRequestService {
 
   /** IDOR-safe single lookup for an instructor reading their own request — unlike `getOwnedOrThrow`, scoped by `instructor_id` and takes no row lock. */
   public async getOwn(instructorId: string, requestId: string): Promise<MarketplacePayoutRequest> {
-    const request = await this.payoutRequests.findOne({ where: { id: requestId, instructor_id: instructorId } });
+    const request = await this.payoutRequests.findOne({
+      where: { id: requestId, instructor_id: instructorId },
+    });
     if (!request) {
       throw new NotFoundException(biBody('Payout request not found', 'طلب السحب غير موجود'));
     }
     return request;
   }
 
-  public async getOwnedOrThrow(manager: EntityManager, requestId: string): Promise<MarketplacePayoutRequest> {
+  public async getOwnedOrThrow(
+    manager: EntityManager,
+    requestId: string,
+  ): Promise<MarketplacePayoutRequest> {
     const request = await manager.findOne(MarketplacePayoutRequest, {
       where: { id: requestId },
       lock: { mode: 'pessimistic_write' },
@@ -251,7 +305,9 @@ export class PayoutRequestService {
 
   /** Returns every earning locked under this request to `AVAILABLE_BALANCE` — used on rejection, cancellation and failure. */
   public async releaseEarnings(manager: EntityManager, requestId: string): Promise<void> {
-    const earnings = await manager.find(InstructorEarning, { where: { payout_request_id: requestId } });
+    const earnings = await manager.find(InstructorEarning, {
+      where: { payout_request_id: requestId },
+    });
     for (const earning of earnings) {
       await this.earningsService.releaseToAvailable(manager, earning.id);
     }

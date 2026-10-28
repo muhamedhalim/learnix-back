@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { extensionMatchesMime, hasExpectedMagicBytes } from '../../common/utils/file-signature.util';
+import {
+  extensionMatchesMime,
+  hasExpectedMagicBytes,
+} from '../../common/utils/file-signature.util';
 import { biBody } from '../../i18n/error-translator.util';
 import { invalidImageReference } from './errors';
 import { MarketplaceStorageService } from './marketplace-storage.service';
@@ -68,7 +71,10 @@ export class MarketplaceImageService {
   constructor(private readonly storage: MarketplaceStorageService) {}
 
   /** Stores one validated image in the caller's folder and returns its key (never a storage URL). */
-  public async upload(userId: string, file: UploadedImageFile | undefined): Promise<{ key: string }> {
+  public async upload(
+    userId: string,
+    file: UploadedImageFile | undefined,
+  ): Promise<{ key: string }> {
     if (!file) {
       throw new BadRequestException(biBody('No file provided', 'لم يتم توفير أي ملف'));
     }
@@ -101,7 +107,11 @@ export class MarketplaceImageService {
     }
 
     const key = `${marketplaceImagePrefix(userId)}${randomUUID()}.${EXTENSION_BY_MIME[file.mimetype]}`;
-    await this.storage.uploadPublicImage({ buffer: file.buffer, path: key, contentType: file.mimetype });
+    await this.storage.uploadPublicImage({
+      buffer: file.buffer,
+      path: key,
+      contentType: file.mimetype,
+    });
     return { key };
   }
 }

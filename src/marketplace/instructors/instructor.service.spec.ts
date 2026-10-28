@@ -41,7 +41,10 @@ function buildInstructor(overrides: Partial<MarketplaceInstructor> = {}): Market
   } as unknown as MarketplaceInstructor;
 }
 
-function buildService(instructorRow: MarketplaceInstructor | null, applicationRow: InstructorApplication | null) {
+function buildService(
+  instructorRow: MarketplaceInstructor | null,
+  applicationRow: InstructorApplication | null,
+) {
   const instructors = {
     findOne: jest.fn().mockResolvedValue(instructorRow),
     save: jest.fn(async (entity: MarketplaceInstructor) => entity),
@@ -70,13 +73,17 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
   const manager = {
     // "Does this applicant already hold the capability?" — no, unless a test says otherwise.
     findOne: jest.fn().mockResolvedValue(null),
-    create: jest.fn((_entity: unknown, data: Partial<MarketplaceInstructor>) => data as MarketplaceInstructor),
+    create: jest.fn(
+      (_entity: unknown, data: Partial<MarketplaceInstructor>) => data as MarketplaceInstructor,
+    ),
     save: jest.fn(async (entity: MarketplaceInstructor) => ({ ...entity, id: 'instr-new' })),
     getRepository: jest.fn(() => applications),
   };
   const dataSource = {
     transaction: jest.fn(async (isolationOrFn: unknown, maybeFn?: unknown) => {
-      const fn = (typeof isolationOrFn === 'function' ? isolationOrFn : maybeFn) as (m: unknown) => Promise<unknown>;
+      const fn = (typeof isolationOrFn === 'function' ? isolationOrFn : maybeFn) as (
+        m: unknown,
+      ) => Promise<unknown>;
       return fn(manager);
     }),
   };
@@ -89,14 +96,25 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
     dataSource as never,
     eventEmitter,
   );
-  return { service, instructors, applicationService, accounts, activityLogs, eventEmitter, manager };
+  return {
+    service,
+    instructors,
+    applicationService,
+    accounts,
+    activityLogs,
+    eventEmitter,
+    manager,
+  };
 }
 
 describe('InstructorService', () => {
   describe('approveApplication', () => {
     it('creates the capability record from the approved application, in the same transaction, with users.role never read or written (FR-009, Q2)', async () => {
       const application = buildApplication();
-      const { service, manager, accounts, activityLogs, eventEmitter } = buildService(null, application);
+      const { service, manager, accounts, activityLogs, eventEmitter } = buildService(
+        null,
+        application,
+      );
 
       const result = await service.approveApplication('app-1', 'admin-1');
 
@@ -114,7 +132,11 @@ describe('InstructorService', () => {
       expect(activityLogs.recordAuditEvent).toHaveBeenCalledTimes(1);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         'marketplace.application.approved',
-        expect.objectContaining({ applicationId: 'app-1', applicantUserId: 'user-1', instructorId: 'instr-new' }),
+        expect.objectContaining({
+          applicationId: 'app-1',
+          applicantUserId: 'user-1',
+          instructorId: 'instr-new',
+        }),
       );
       expect(result.id).toBe('instr-new');
 
@@ -136,10 +158,15 @@ describe('InstructorService', () => {
     });
 
     it('answers 409, writes nothing and raises no event when the applicant already is an instructor', async () => {
-      const { service, manager, activityLogs, eventEmitter } = buildService(null, buildApplication());
+      const { service, manager, activityLogs, eventEmitter } = buildService(
+        null,
+        buildApplication(),
+      );
       manager.findOne.mockResolvedValueOnce({ id: 'instr-existing', user_id: 'user-1' });
 
-      await expect(service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+      await expect(service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({
+        status: 409,
+      });
 
       expect(manager.save).not.toHaveBeenCalled();
       expect(activityLogs.recordAuditEvent).not.toHaveBeenCalled();
@@ -147,7 +174,10 @@ describe('InstructorService', () => {
     });
 
     it('generates a slug from the display name', async () => {
-      const { service, manager } = buildService(null, buildApplication({ display_name: 'Nour Ahmed' }));
+      const { service, manager } = buildService(
+        null,
+        buildApplication({ display_name: 'Nour Ahmed' }),
+      );
       await service.approveApplication('app-1', 'admin-1');
       const created = manager.create.mock.calls[0]?.[1] as { slug: string };
       expect(created.slug).toMatch(/^nour-ahmed-[0-9a-f]{6}$/);
@@ -156,7 +186,10 @@ describe('InstructorService', () => {
 
   describe('resendSetupLink (MP-15)', () => {
     it('re-sends the link to an instructor with no password and audits who asked', async () => {
-      const { service, instructors, accounts, activityLogs } = buildService(buildInstructor({ user_id: 'user-9' }), null);
+      const { service, instructors, accounts, activityLogs } = buildService(
+        buildInstructor({ user_id: 'user-9' }),
+        null,
+      );
       (accounts.resendSetupLink as jest.Mock).mockResolvedValue('sent');
 
       await expect(service.resendSetupLink('instr-1', 'admin-1')).resolves.toEqual({ sent: true });
@@ -164,7 +197,11 @@ describe('InstructorService', () => {
       expect(instructors.findOne).toHaveBeenCalledWith({ where: { id: 'instr-1' } });
       expect(accounts.resendSetupLink).toHaveBeenCalledWith('user-9');
       expect(activityLogs.recordAuditEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ adminId: 'admin-1', action: 'marketplace_instructor_setup_link_resent', targetId: 'instr-1' }),
+        expect.objectContaining({
+          adminId: 'admin-1',
+          action: 'marketplace_instructor_setup_link_resent',
+          targetId: 'instr-1',
+        }),
       );
     });
 
@@ -181,27 +218,43 @@ describe('InstructorService', () => {
 
     it('answers 404 for an unknown instructor without touching the account', async () => {
       const { service, accounts } = buildService(null, null);
-      await expect(service.resendSetupLink('missing', 'admin-1')).rejects.toMatchObject({ status: 404 });
+      await expect(service.resendSetupLink('missing', 'admin-1')).rejects.toMatchObject({
+        status: 404,
+      });
       expect(accounts.resendSetupLink).not.toHaveBeenCalled();
     });
   });
 
   describe('rejectApplication', () => {
     it('delegates to the application service and records an audit event plus the domain event', async () => {
-      const { service, applicationService, activityLogs, eventEmitter } = buildService(null, buildApplication());
+      const { service, applicationService, activityLogs, eventEmitter } = buildService(
+        null,
+        buildApplication(),
+      );
       await service.rejectApplication('app-1', 'admin-1', 'Incomplete portfolio');
-      expect(applicationService.reject).toHaveBeenCalledWith('app-1', 'admin-1', 'Incomplete portfolio');
+      expect(applicationService.reject).toHaveBeenCalledWith(
+        'app-1',
+        'admin-1',
+        'Incomplete portfolio',
+      );
       expect(activityLogs.recordAuditEvent).toHaveBeenCalledTimes(1);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         'marketplace.application.rejected',
-        expect.objectContaining({ applicationId: 'app-1', applicantUserId: 'user-1', reason: 'Incomplete portfolio' }),
+        expect.objectContaining({
+          applicationId: 'app-1',
+          applicantUserId: 'user-1',
+          reason: 'Incomplete portfolio',
+        }),
       );
     });
   });
 
   describe('suspend', () => {
     it('sets suspension fields and records an audit event, touching nothing else (FR-022, FR-023)', async () => {
-      const { service, instructors, activityLogs, eventEmitter } = buildService(buildInstructor(), null);
+      const { service, instructors, activityLogs, eventEmitter } = buildService(
+        buildInstructor(),
+        null,
+      );
       const result = await service.suspend('instr-1', 'admin-1', 'Policy violation');
 
       expect(result.status).toBe(MarketplaceInstructorStatus.SUSPENDED);
@@ -211,7 +264,11 @@ describe('InstructorService', () => {
       expect(activityLogs.recordAuditEvent).toHaveBeenCalledTimes(1);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         'marketplace.instructor.suspended',
-        expect.objectContaining({ instructorId: 'instr-1', userId: 'user-1', reason: 'Policy violation' }),
+        expect.objectContaining({
+          instructorId: 'instr-1',
+          userId: 'user-1',
+          reason: 'Policy violation',
+        }),
       );
     });
 
@@ -246,7 +303,10 @@ describe('InstructorService', () => {
     });
 
     it('refuses to reinstate an instructor who is not currently suspended', async () => {
-      const { service } = buildService(buildInstructor({ status: MarketplaceInstructorStatus.APPROVED }), null);
+      const { service } = buildService(
+        buildInstructor({ status: MarketplaceInstructorStatus.APPROVED }),
+        null,
+      );
       await expect(service.reinstate('instr-1', 'admin-1')).rejects.toThrow();
     });
   });

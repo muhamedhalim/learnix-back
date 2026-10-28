@@ -65,7 +65,10 @@ export class MarketplaceStorageService {
     if (!authorized) {
       throw signedUrlExpired();
     }
-    const ttl = Math.min(expiresInSeconds ?? MAX_SIGNED_URL_TTL_SECONDS, MAX_SIGNED_URL_TTL_SECONDS);
+    const ttl = Math.min(
+      expiresInSeconds ?? MAX_SIGNED_URL_TTL_SECONDS,
+      MAX_SIGNED_URL_TTL_SECONDS,
+    );
     return this.storage.getSignedUrl(path, ttl);
   }
 }

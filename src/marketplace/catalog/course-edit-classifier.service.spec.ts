@@ -28,7 +28,12 @@ function buildService(course: MarketplaceCourse | null) {
     publishSnapshot: jest.fn().mockResolvedValue({ id: 'version-1', version_number: 1 }),
   } as unknown as jest.Mocked<CourseVersionService>;
   const activityLogs = { recordAuditEvent: jest.fn().mockResolvedValue(undefined) };
-  const service = new CourseEditClassifierService(courses as never, decisions as never, versions, activityLogs as never);
+  const service = new CourseEditClassifierService(
+    courses as never,
+    decisions as never,
+    versions,
+    activityLogs as never,
+  );
   return { service, courses, decisions, versions, activityLogs };
 }
 
@@ -68,7 +73,9 @@ describe('CourseEditClassifierService', () => {
 
   describe('handleCourseFieldEdit', () => {
     it('is a no-op for a non-published course', async () => {
-      const { service, versions, courses } = buildService(buildCourse({ status: MarketplaceCourseStatus.DRAFT }));
+      const { service, versions, courses } = buildService(
+        buildCourse({ status: MarketplaceCourseStatus.DRAFT }),
+      );
       await service.handleCourseFieldEdit('course-1', ['title'], 'instr-1');
       expect(versions.publishSnapshot).not.toHaveBeenCalled();
       expect(courses.update).not.toHaveBeenCalled();
@@ -148,7 +155,9 @@ describe('CourseEditClassifierService', () => {
       await service.approvePendingEdit('course-1', 'admin-1');
       expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'admin-1');
       expect(course.pending_review_since).toBeNull();
-      expect(decisions.create).toHaveBeenCalledWith(expect.objectContaining({ decision: 'approved' }));
+      expect(decisions.create).toHaveBeenCalledWith(
+        expect.objectContaining({ decision: 'approved' }),
+      );
     });
 
     it('rejection clears the pending marker without publishing anything new', async () => {
@@ -163,12 +172,19 @@ describe('CourseEditClassifierService', () => {
     });
 
     it('records an audit event for each decision (FR-290)', async () => {
-      const approved = buildService(buildCourse({ pending_review_since: new Date(), title: 'T' } as never));
+      const approved = buildService(
+        buildCourse({ pending_review_since: new Date(), title: 'T' } as never),
+      );
       await approved.service.approvePendingEdit('course-1', 'admin-1');
       expect(approved.activityLogs.recordAuditEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'marketplace_course_pending_edit_approved', adminId: 'admin-1' }),
+        expect.objectContaining({
+          action: 'marketplace_course_pending_edit_approved',
+          adminId: 'admin-1',
+        }),
       );
-      const rejected = buildService(buildCourse({ pending_review_since: new Date(), title: 'T' } as never));
+      const rejected = buildService(
+        buildCourse({ pending_review_since: new Date(), title: 'T' } as never),
+      );
       await rejected.service.rejectPendingEdit('course-1', 'admin-1', ['No']);
       expect(rejected.activityLogs.recordAuditEvent).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'marketplace_course_pending_edit_rejected' }),
@@ -179,7 +195,9 @@ describe('CourseEditClassifierService', () => {
       const course = buildCourse({ pending_review_since: new Date() });
       const { service, courses, versions, decisions } = buildService(course);
       courses.update.mockResolvedValueOnce({ affected: 0 });
-      await expect(service.approvePendingEdit('course-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+      await expect(service.approvePendingEdit('course-1', 'admin-1')).rejects.toMatchObject({
+        status: 409,
+      });
       expect(versions.publishSnapshot).not.toHaveBeenCalled();
       expect(decisions.save).not.toHaveBeenCalled();
     });
@@ -189,7 +207,9 @@ describe('CourseEditClassifierService', () => {
       const course = buildCourse({ pending_review_since: pendingSince });
       const { service, versions, decisions } = buildService(course);
       versions.publishSnapshot.mockRejectedValueOnce(new Error('snapshot failed'));
-      await expect(service.approvePendingEdit('course-1', 'admin-1')).rejects.toThrow('snapshot failed');
+      await expect(service.approvePendingEdit('course-1', 'admin-1')).rejects.toThrow(
+        'snapshot failed',
+      );
       expect(course.pending_review_since).toBe(pendingSince);
       expect(decisions.save).not.toHaveBeenCalled();
     });

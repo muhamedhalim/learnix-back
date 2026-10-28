@@ -154,7 +154,9 @@ export class AdminCoursesController {
 
   @Post(':id/pending-edit/reject')
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
-  @ApiOperation({ summary: 'Reject the pending material edit of a published course; reasons mandatory (FR-071)' })
+  @ApiOperation({
+    summary: 'Reject the pending material edit of a published course; reasons mandatory (FR-071)',
+  })
   public async rejectPendingEdit(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectCourseDto,

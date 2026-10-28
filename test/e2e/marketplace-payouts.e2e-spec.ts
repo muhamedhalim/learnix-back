@@ -289,14 +289,12 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .findOneByOrFail({ id: earning.id });
       expect(paidEarning.status).toBe(InstructorEarningStatus.PAID_OUT);
 
-      const ledgerEntries = await dataSource
-        .getRepository(MarketplaceLedgerEntry)
-        .find({
-          where: {
-            instructor_id: earning.instructor_id,
-            entry_type: MarketplaceLedgerEntryType.PAYOUT,
-          },
-        });
+      const ledgerEntries = await dataSource.getRepository(MarketplaceLedgerEntry).find({
+        where: {
+          instructor_id: earning.instructor_id,
+          entry_type: MarketplaceLedgerEntryType.PAYOUT,
+        },
+      });
       expect(ledgerEntries).toHaveLength(1);
       expect(ledgerEntries[0]!.direction).toBe(MarketplaceLedgerDirection.CREDIT);
       expect(Number(ledgerEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
@@ -481,14 +479,12 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         .findOneByOrFail({ id: earning.id });
       expect(reverted.status).toBe(InstructorEarningStatus.AVAILABLE_BALANCE);
 
-      const reversalEntries = await dataSource
-        .getRepository(MarketplaceLedgerEntry)
-        .find({
-          where: {
-            instructor_id: earning.instructor_id,
-            entry_type: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
-          },
-        });
+      const reversalEntries = await dataSource.getRepository(MarketplaceLedgerEntry).find({
+        where: {
+          instructor_id: earning.instructor_id,
+          entry_type: MarketplaceLedgerEntryType.PAYOUT_REVERSAL,
+        },
+      });
       expect(reversalEntries).toHaveLength(1);
       expect(reversalEntries[0]!.direction).toBe(MarketplaceLedgerDirection.DEBIT);
       expect(Number(reversalEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
@@ -619,14 +615,12 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
       expect(unchangedSettlement.paid_at).toBeNull();
 
       // The marketplace ledger carries only the marketplace amount — never netted against, offset by, or inflated by the academic settlement.
-      const paidOutEntries = await dataSource
-        .getRepository(MarketplaceLedgerEntry)
-        .find({
-          where: {
-            instructor_id: earning.instructor_id,
-            entry_type: MarketplaceLedgerEntryType.PAYOUT,
-          },
-        });
+      const paidOutEntries = await dataSource.getRepository(MarketplaceLedgerEntry).find({
+        where: {
+          instructor_id: earning.instructor_id,
+          entry_type: MarketplaceLedgerEntryType.PAYOUT,
+        },
+      });
       expect(paidOutEntries).toHaveLength(1);
       expect(Number(paidOutEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
 

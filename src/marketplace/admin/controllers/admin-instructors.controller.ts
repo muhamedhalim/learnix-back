@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../../auth/guards/jwt-auth.guard';
@@ -14,7 +23,11 @@ import type { MarketplaceInstructor } from '../../instructors/entities';
 import { InstructorProfileService } from '../../instructors/instructor-profile.service';
 import { InstructorService } from '../../instructors/instructor.service';
 import { InstructorRosterQueryDto } from '../dto/report-query.dto';
-import { InstructorAdminService, InstructorFullRecord, InstructorRosterRow } from '../instructor-admin.service';
+import {
+  InstructorAdminService,
+  InstructorFullRecord,
+  InstructorRosterRow,
+} from '../instructor-admin.service';
 
 /**
  * Contracts §5. `GET /:id` (full record) is not itself named in the
@@ -36,7 +49,9 @@ export class AdminInstructorsController {
 
   @Get()
   @ApiOperation({ summary: 'Roster including a financial summary per instructor (FR-283)' })
-  public async roster(@Query() query: InstructorRosterQueryDto): Promise<PaginatedResponse<InstructorRosterRow>> {
+  public async roster(
+    @Query() query: InstructorRosterQueryDto,
+  ): Promise<PaginatedResponse<InstructorRosterRow>> {
     return this.instructorAdmin.listRoster(
       query.status as MarketplaceInstructorStatus | undefined,
       query.page,
@@ -45,8 +60,13 @@ export class AdminInstructorsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: "One instructor's full record: application, profile, courses, learners, earnings, ledger, balances, payouts (FR-283)" })
-  public async getFullRecord(@Param('id', ParseUUIDPipe) id: string): Promise<InstructorFullRecord> {
+  @ApiOperation({
+    summary:
+      "One instructor's full record: application, profile, courses, learners, earnings, ledger, balances, payouts (FR-283)",
+  })
+  public async getFullRecord(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<InstructorFullRecord> {
     return this.instructorAdmin.getFullRecord(id);
   }
 
@@ -70,7 +90,9 @@ export class AdminInstructorsController {
   @Post(':id/resend-setup-link')
   // Writes `users` (the single-use setup token) and `audit_logs`; `admin_dashboard` reads audit logs (T031).
   @InvalidatesCache(['admin_dashboard'])
-  @ApiOperation({ summary: 'Re-send the password-setup link to an instructor who has not set a password' })
+  @ApiOperation({
+    summary: 'Re-send the password-setup link to an instructor who has not set a password',
+  })
   public async resendSetupLink(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() admin: JwtPayload,
@@ -92,7 +114,7 @@ export class AdminInstructorsController {
   @Post(':id/profile-changes/approve')
   // Writes `marketplace_instructors` (queued profile edits go live) and `audit_logs` (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
-  @ApiOperation({ summary: "Apply every currently queued FR-029 profile edit at once" })
+  @ApiOperation({ summary: 'Apply every currently queued FR-029 profile edit at once' })
   public async approveProfileChanges(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() admin: JwtPayload,
@@ -103,7 +125,10 @@ export class AdminInstructorsController {
   @Post(':id/profile-changes/reject')
   // Writes `marketplace_instructors` (clears the pending queue) and `audit_logs` (T031).
   @InvalidatesCache(['marketplace_catalog', 'admin_dashboard'])
-  @ApiOperation({ summary: 'Discard every currently queued FR-029 profile edit; live values untouched; reason mandatory' })
+  @ApiOperation({
+    summary:
+      'Discard every currently queued FR-029 profile edit; live values untouched; reason mandatory',
+  })
   public async rejectProfileChanges(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MarketplaceReasonDto,

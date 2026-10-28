@@ -12,7 +12,13 @@ import { MarketplaceInstructorStatus } from '../../src/marketplace/common/enums'
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { User } from '../../src/users/entities/user.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
@@ -46,7 +52,11 @@ describe('marketplace admin operations (Phase 3)', () => {
 
   const mail = () => app.get(MailService, { strict: false });
 
-  async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs = 4000): Promise<T> {
+  async function eventually<T>(
+    read: () => Promise<T>,
+    accept: (value: T) => boolean,
+    timeoutMs = 4000,
+  ): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     let value = await read();
     while (!accept(value) && Date.now() < deadline) {
@@ -94,10 +104,17 @@ describe('marketplace admin operations (Phase 3)', () => {
     it('opens every finance-gated marketplace page to an administrator who predates them, without touching anyone else', async () => {
       // An administrator as 2058 left them: finance permissions, none of the marketplace ones.
       const old = await admin();
-      await dataSource.getRepository(User).update({ id: old.userId }, { finance_permissions: ['reports.view', 'refunds.create'] as never });
+      await dataSource
+        .getRepository(User)
+        .update(
+          { id: old.userId },
+          { finance_permissions: ['reports.view', 'refunds.create'] as never },
+        );
       // One who has nothing, one who already has them all, and a learner.
       const empty = await admin();
-      await dataSource.getRepository(User).update({ id: empty.userId }, { finance_permissions: [] });
+      await dataSource
+        .getRepository(User)
+        .update({ id: empty.userId }, { finance_permissions: [] });
       const learner = await createAuthenticatedUser(app, dataSource);
 
       for (const route of MARKETPLACE_ADMIN_ROUTES) {
@@ -120,9 +137,21 @@ describe('marketplace admin operations (Phase 3)', () => {
       }
 
       const held = async (id: string): Promise<string[]> =>
-        ((await dataSource.getRepository(User).findOneByOrFail({ id })).finance_permissions as string[]).slice().sort();
+        (
+          (await dataSource.getRepository(User).findOneByOrFail({ id }))
+            .finance_permissions as string[]
+        )
+          .slice()
+          .sort();
       const oldPermissions = await held(old.userId);
-      expect(oldPermissions).toEqual(expect.arrayContaining(['reports.view', 'refunds.create', 'marketplace.payouts.pay', 'marketplace.ledger.adjust']));
+      expect(oldPermissions).toEqual(
+        expect.arrayContaining([
+          'reports.view',
+          'refunds.create',
+          'marketplace.payouts.pay',
+          'marketplace.ledger.adjust',
+        ]),
+      );
       expect(oldPermissions.filter((p) => p.startsWith('marketplace.'))).toHaveLength(9);
       expect(new Set(oldPermissions).size).toBe(oldPermissions.length);
 
@@ -148,14 +177,18 @@ describe('marketplace admin operations (Phase 3)', () => {
 
       expect(approved.body.account_setup_email).toBe('failed');
       const user = await dataSource.getRepository(User).findOneByOrFail({ email });
-      const instructor = await dataSource.getRepository(MarketplaceInstructor).findOneByOrFail({ user_id: user.id });
+      const instructor = await dataSource
+        .getRepository(MarketplaceInstructor)
+        .findOneByOrFail({ user_id: user.id });
       expect(instructor.status).toBe(MarketplaceInstructorStatus.APPROVED);
     });
 
     it('does not fail either when queueing the email throws', async () => {
       const applicationId = await submitPublic(`p3.${randomUUID().slice(0, 8)}@example.com`);
       const boss = await admin();
-      jest.spyOn(mail(), 'sendInvitationEmail').mockRejectedValue(new Error('Email could not be queued for delivery.'));
+      jest
+        .spyOn(mail(), 'sendInvitationEmail')
+        .mockRejectedValue(new Error('Email could not be queued for delivery.'));
 
       const approved = await boss.agent
         .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
@@ -164,12 +197,14 @@ describe('marketplace admin operations (Phase 3)', () => {
       expect(approved.body.account_setup_email).toBe('failed');
     });
 
-    it('answers 409, not 500, when the applicant\'s email now belongs to an account that already is an instructor', async () => {
+    it("answers 409, not 500, when the applicant's email now belongs to an account that already is an instructor", async () => {
       const email = `p3.${randomUUID().slice(0, 8)}@example.com`;
       const applicationId = await submitPublic(email);
       // They registered in the meantime, and were made an instructor through another application.
       const existing = await createAuthenticatedUser(app, dataSource, { overrides: { email } });
-      await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: existing.userId }));
+      await dataSource
+        .getRepository(MarketplaceInstructor)
+        .save(buildInstructorFixture({ user_id: existing.userId }));
       const boss = await admin();
 
       const res = await boss.agent
@@ -179,7 +214,10 @@ describe('marketplace admin operations (Phase 3)', () => {
       expect(res.body.message ?? res.body.detail).toEqual(expect.any(String));
 
       // The application is untouched and can still be rejected.
-      const rows = (await dataSource.query('SELECT status FROM marketplace_instructor_applications WHERE id = $1', [applicationId])) as Array<{ status: string }>;
+      const rows = (await dataSource.query(
+        'SELECT status FROM marketplace_instructor_applications WHERE id = $1',
+        [applicationId],
+      )) as Array<{ status: string }>;
       expect(['submitted', 'under_review']).toContain(rows[0]!.status);
       await boss.agent
         .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/reject`)
@@ -192,9 +230,14 @@ describe('marketplace admin operations (Phase 3)', () => {
       const applicationId = await submitPublic(email);
       const boss = await admin();
       const outbox = jest.spyOn(mail(), 'sendInvitationEmail').mockResolvedValue(false);
-      await boss.agent.post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`).send({}).expect(201);
+      await boss.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
+        .send({})
+        .expect(201);
       const user = await dataSource.getRepository(User).findOneByOrFail({ email });
-      const instructor = await dataSource.getRepository(MarketplaceInstructor).findOneByOrFail({ user_id: user.id });
+      const instructor = await dataSource
+        .getRepository(MarketplaceInstructor)
+        .findOneByOrFail({ user_id: user.id });
       const resend = `${API_PREFIX}/marketplace/admin/instructors/${instructor.id}/resend-setup-link`;
 
       // Mail still down: the administrator is told, not given a false "sent".
@@ -217,7 +260,9 @@ describe('marketplace admin operations (Phase 3)', () => {
       // Now the account has a password, so there is nothing to resend.
       await boss.agent.post(resend).send({}).expect(409);
 
-      const audit = (await dataSource.query("SELECT admin_id FROM audit_logs WHERE action = 'marketplace_instructor_setup_link_resent'")) as Array<{ admin_id: string }>;
+      const audit = (await dataSource.query(
+        "SELECT admin_id FROM audit_logs WHERE action = 'marketplace_instructor_setup_link_resent'",
+      )) as Array<{ admin_id: string }>;
       expect(audit).toHaveLength(1);
       expect(audit[0]!.admin_id).toBe(boss.userId);
     });
@@ -235,25 +280,43 @@ describe('marketplace admin operations (Phase 3)', () => {
   describe('telling the applicant the decision (MP-20)', () => {
     const submitSignedIn = async () => {
       const learner = await createAuthenticatedUser(app, dataSource);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications`).send({ display_name: 'Nour' }).expect(201);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications`)
+        .send({ display_name: 'Nour' })
+        .expect(201);
       await learner.agent
         .patch(`${API_PREFIX}/marketplace/applications/me`)
         .send({ ...application, photo_key: TEST_IMAGE_KEY })
         .expect(200);
-      await learner.agent.post(`${API_PREFIX}/marketplace/applications/me/submit`).send({}).expect(201);
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/applications/me/submit`)
+        .send({})
+        .expect(201);
       const boss = await admin();
-      const queue = await boss.agent.get(`${API_PREFIX}/marketplace/admin/applications`).expect(200);
+      const queue = await boss.agent
+        .get(`${API_PREFIX}/marketplace/admin/applications`)
+        .expect(200);
       return { learner, boss, applicationId: queue.body.items[0].id as string };
     };
 
     const titles = async (userId: string): Promise<string[]> =>
-      ((await dataSource.query('SELECT title FROM notifications WHERE user_id = $1', [userId])) as Array<{ title: string }>).map((r) => r.title);
+      (
+        (await dataSource.query('SELECT title FROM notifications WHERE user_id = $1', [
+          userId,
+        ])) as Array<{ title: string }>
+      ).map((r) => r.title);
 
     it('notifies a signed-in applicant of approval', async () => {
       const { learner, boss, applicationId } = await submitSignedIn();
-      await boss.agent.post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`).send({}).expect(201);
+      await boss.agent
+        .post(`${API_PREFIX}/marketplace/admin/applications/${applicationId}/approve`)
+        .send({})
+        .expect(201);
 
-      const seen = await eventually(() => titles(learner.userId), (t) => t.length > 0);
+      const seen = await eventually(
+        () => titles(learner.userId),
+        (t) => t.length > 0,
+      );
       expect(seen).toContain('Your instructor application was approved');
     });
 
@@ -264,9 +327,15 @@ describe('marketplace admin operations (Phase 3)', () => {
         .send({ reason: 'Please add a portfolio link' })
         .expect(201);
 
-      const seen = await eventually(() => titles(learner.userId), (t) => t.length > 0);
+      const seen = await eventually(
+        () => titles(learner.userId),
+        (t) => t.length > 0,
+      );
       expect(seen).toContain('Your instructor application was not approved');
-      const messages = (await dataSource.query('SELECT message FROM notifications WHERE user_id = $1', [learner.userId])) as Array<{ message: string }>;
+      const messages = (await dataSource.query(
+        'SELECT message FROM notifications WHERE user_id = $1',
+        [learner.userId],
+      )) as Array<{ message: string }>;
       expect(messages.some((m) => m.message.includes('Please add a portfolio link'))).toBe(true);
     });
 
@@ -281,8 +350,13 @@ describe('marketplace admin operations (Phase 3)', () => {
         .send({ reason: 'Needs more detail' })
         .expect(201);
 
-      await eventually(() => Promise.resolve(send.mock.calls.length), (n) => n > 0);
-      expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: email, text: expect.stringContaining('Needs more detail') }));
+      await eventually(
+        () => Promise.resolve(send.mock.calls.length),
+        (n) => n > 0,
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: email, text: expect.stringContaining('Needs more detail') }),
+      );
     });
   });
 });

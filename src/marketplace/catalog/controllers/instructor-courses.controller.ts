@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { InvalidatesCache } from '../../../common/cache/cache-invalidation.decorator';
@@ -11,7 +21,12 @@ import { CourseLifecycleService } from '../course-lifecycle.service';
 import { CourseReadinessService, type ReadinessResult } from '../course-readiness.service';
 import { CourseStatusQueryDto } from '../dto/course-query.dto';
 import { CreateCourseDto, UpdateCourseDto } from '../dto/course.dto';
-import type { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseReviewDecision, MarketplaceCourseSection } from '../entities';
+import type {
+  MarketplaceCourse,
+  MarketplaceCourseLesson,
+  MarketplaceCourseReviewDecision,
+  MarketplaceCourseSection,
+} from '../entities';
 
 /** Contracts §3 course block. FR-300: every query is scoped to the caller's own instructor row, never by a role check. */
 @ApiTags('Marketplace / Instructor Courses')
@@ -58,14 +73,21 @@ export class InstructorCoursesController {
   @Patch(':id')
   // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
   @InvalidatesCache(['marketplace_catalog'])
-  @ApiOperation({ summary: 'Edit own course; on a published course, classifies the edit as material (FR-071) or cosmetic (FR-072)' })
+  @ApiOperation({
+    summary:
+      'Edit own course; on a published course, classifies the edit as material (FR-071) or cosmetic (FR-072)',
+  })
   public async update(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCourseDto,
   ): Promise<MarketplaceCourse> {
     // Classify what really changed, not which keys the client sent: forms are saved whole.
-    const { course, changedFields } = await this.authoring.applyCourseUpdate(instructor.id, id, dto);
+    const { course, changedFields } = await this.authoring.applyCourseUpdate(
+      instructor.id,
+      id,
+      dto,
+    );
     await this.editClassifier.handleCourseFieldEdit(id, changedFields, instructor.id);
     return course;
   }
@@ -73,7 +95,9 @@ export class InstructorCoursesController {
   @Delete(':id')
   // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
   @InvalidatesCache(['marketplace_catalog'])
-  @ApiOperation({ summary: 'Delete own course; refused when it has ever had an enrollment (FR-054)' })
+  @ApiOperation({
+    summary: 'Delete own course; refused when it has ever had an enrollment (FR-054)',
+  })
   public async remove(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('id', ParseUUIDPipe) id: string,
@@ -105,13 +129,19 @@ export class InstructorCoursesController {
   public async getCurriculum(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ course: MarketplaceCourse; sections: (MarketplaceCourseSection & { lessons: MarketplaceCourseLesson[] })[] }> {
+  ): Promise<{
+    course: MarketplaceCourse;
+    sections: (MarketplaceCourseSection & { lessons: MarketplaceCourseLesson[] })[];
+  }> {
     await this.authoring.getOwnCourse(instructor.id, id);
     return this.authoring.getCourseWithCurriculum(id);
   }
 
   @Get(':id/review-decisions')
-  @ApiOperation({ summary: 'Every admin decision on this course, newest first — reasons and per-item notes (FR-066)' })
+  @ApiOperation({
+    summary:
+      'Every admin decision on this course, newest first — reasons and per-item notes (FR-066)',
+  })
   public async listReviewDecisions(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,7 +152,10 @@ export class InstructorCoursesController {
   @Post(':id/submit')
   // Writes only marketplace catalogue tables (courses, versions, review decisions); no audit log (T031).
   @InvalidatesCache(['marketplace_catalog'])
-  @ApiOperation({ summary: 'draft|rejected → submitted_for_review; 422 lists every unmet readiness item (FR-056, FR-063)' })
+  @ApiOperation({
+    summary:
+      'draft|rejected → submitted_for_review; 422 lists every unmet readiness item (FR-056, FR-063)',
+  })
   public async submit(
     @CurrentInstructor() instructor: MarketplaceInstructor,
     @Param('id', ParseUUIDPipe) id: string,

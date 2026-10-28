@@ -12,27 +12,34 @@ function buildQb(result: unknown) {
   return qb;
 }
 
-function buildService(opts: {
-  course?: Record<string, unknown> | null;
-  existingOrder?: Record<string, unknown> | null;
-  saveImpl?: (order: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  payment?: Record<string, unknown> | null;
-  updateAffected?: number;
-} = {}) {
-  const course = 'course' in opts ? opts.course : {
-    id: 'course-1',
-    price_minor: 5000,
-    currency: 'EGP',
-    current_version_id: 'v1',
-    instructor_id: 'instructor-1',
-    instructor: { user_id: 'instructor-user-1', display_name: 'Nour Ahmed' },
-    title: 'React Basics',
-  };
+function buildService(
+  opts: {
+    course?: Record<string, unknown> | null;
+    existingOrder?: Record<string, unknown> | null;
+    saveImpl?: (order: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    payment?: Record<string, unknown> | null;
+    updateAffected?: number;
+  } = {},
+) {
+  const course =
+    'course' in opts
+      ? opts.course
+      : {
+          id: 'course-1',
+          price_minor: 5000,
+          currency: 'EGP',
+          current_version_id: 'v1',
+          instructor_id: 'instructor-1',
+          instructor: { user_id: 'instructor-user-1', display_name: 'Nour Ahmed' },
+          title: 'React Basics',
+        };
 
   const orders = {
     createQueryBuilder: jest.fn(() => buildQb(opts.existingOrder ?? null)),
     create: jest.fn((data: Record<string, unknown>) => data),
-    save: jest.fn(opts.saveImpl ?? (async (data: Record<string, unknown>) => ({ id: 'order-1', ...data }))),
+    save: jest.fn(
+      opts.saveImpl ?? (async (data: Record<string, unknown>) => ({ id: 'order-1', ...data })),
+    ),
     update: jest.fn().mockResolvedValue({ affected: opts.updateAffected ?? 1 }),
     manager: { findOne: jest.fn().mockResolvedValue('payment' in opts ? opts.payment : null) },
   };
@@ -40,7 +47,11 @@ function buildService(opts: {
     baseVisibleQuery: jest.fn(() => buildQb(course)),
   };
   const commission = {
-    resolveEffectiveRate: jest.fn().mockResolvedValue({ rateBps: 3000, scope: MarketplaceCommissionScope.PLATFORM, scopeRefId: null }),
+    resolveEffectiveRate: jest.fn().mockResolvedValue({
+      rateBps: 3000,
+      scope: MarketplaceCommissionScope.PLATFORM,
+      scopeRefId: null,
+    }),
     calculate: jest.fn((netMinor: number, rateBps: number) => ({
       platformCommissionBps: rateBps,
       platformCommissionMinor: Math.floor((netMinor * rateBps) / 10000),
@@ -50,7 +61,12 @@ function buildService(opts: {
   const eventEmitter = new EventEmitter2();
   const emitSpy = jest.spyOn(eventEmitter, 'emit');
 
-  const service = new MarketplaceOrderService(orders as never, catalogQuery as never, commission as never, eventEmitter);
+  const service = new MarketplaceOrderService(
+    orders as never,
+    catalogQuery as never,
+    commission as never,
+    eventEmitter,
+  );
   return { service, orders, catalogQuery, commission, emitSpy };
 }
 
@@ -111,27 +127,40 @@ describe('MarketplaceOrderService (T096)', () => {
 
   it('refuses a free course at checkout; only the free-enrollment flow may open an order for it (MP-17)', async () => {
     const free = {
-      id: 'course-1', price_minor: 0, currency: 'EGP', current_version_id: 'v1', instructor_id: 'instructor-1',
-      instructor: { user_id: 'instructor-user-1', display_name: 'Nour Ahmed' }, title: 'Free',
+      id: 'course-1',
+      price_minor: 0,
+      currency: 'EGP',
+      current_version_id: 'v1',
+      instructor_id: 'instructor-1',
+      instructor: { user_id: 'instructor-user-1', display_name: 'Nour Ahmed' },
+      title: 'Free',
     };
     const { service } = buildService({ course: free });
     await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'COURSE_IS_FREE' }),
     });
     await expect(
-      service.createOrder('learner-1', 'course-1', MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true }),
+      service.createOrder('learner-1', 'course-1', MarketplaceOrderStatus.AWAITING_PAYMENT, {
+        allowFree: true,
+      }),
     ).resolves.toMatchObject({ is_zero_value: true });
   });
 
   describe('abandoned open orders (MP-17)', () => {
     const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
     const open = (overrides: Record<string, unknown> = {}) => ({
-      id: 'old-order', status: MarketplaceOrderStatus.AWAITING_PAYMENT, created_at: stale, payment_id: null, ...overrides,
+      id: 'old-order',
+      status: MarketplaceOrderStatus.AWAITING_PAYMENT,
+      created_at: stale,
+      payment_id: null,
+      ...overrides,
     });
 
     it('closes a day-old order whose payment never started and lets a new one through', async () => {
       const { service, orders } = buildService({ existingOrder: open() });
-      await expect(service.createOrder('learner-1', 'course-1')).resolves.toMatchObject({ learner_id: 'learner-1' });
+      await expect(service.createOrder('learner-1', 'course-1')).resolves.toMatchObject({
+        learner_id: 'learner-1',
+      });
       expect(orders.update).toHaveBeenCalledWith(
         { id: 'old-order', status: MarketplaceOrderStatus.AWAITING_PAYMENT },
         { status: MarketplaceOrderStatus.EXPIRED },
@@ -139,13 +168,19 @@ describe('MarketplaceOrderService (T096)', () => {
     });
 
     it('closes it when its payment already failed or expired', async () => {
-      const { service } = buildService({ existingOrder: open({ payment_id: 'p1' }), payment: { id: 'p1', status: 'expired' } });
+      const { service } = buildService({
+        existingOrder: open({ payment_id: 'p1' }),
+        payment: { id: 'p1', status: 'expired' },
+      });
       await expect(service.createOrder('learner-1', 'course-1')).resolves.toBeDefined();
     });
 
     it('keeps blocking while the payment may still settle (pending, processing, completed)', async () => {
       for (const status of ['pending', 'processing', 'completed']) {
-        const { service, orders } = buildService({ existingOrder: open({ payment_id: 'p1' }), payment: { id: 'p1', status } });
+        const { service, orders } = buildService({
+          existingOrder: open({ payment_id: 'p1' }),
+          payment: { id: 'p1', status },
+        });
         await expect(service.createOrder('learner-1', 'course-1')).rejects.toMatchObject({
           response: expect.objectContaining({ code: 'ORDER_ALREADY_OPEN' }),
         });
@@ -182,6 +217,9 @@ describe('MarketplaceOrderService (T096)', () => {
   it('emits MarketplaceOrderCreatedEvent after saving', async () => {
     const { service, emitSpy } = buildService();
     await service.createOrder('learner-1', 'course-1');
-    expect(emitSpy).toHaveBeenCalledWith('marketplace.order.created', expect.objectContaining({ orderId: 'order-1', learnerId: 'learner-1', courseId: 'course-1' }));
+    expect(emitSpy).toHaveBeenCalledWith(
+      'marketplace.order.created',
+      expect.objectContaining({ orderId: 'order-1', learnerId: 'learner-1', courseId: 'course-1' }),
+    );
   });
 });

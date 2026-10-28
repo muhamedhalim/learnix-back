@@ -7,7 +7,11 @@ import { THROTTLE } from '../../../common/constants';
 import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { ApprovedInstructor } from '../../common/decorators/approved-instructor.decorator';
-import { MAX_MARKETPLACE_IMAGE_BYTES, MarketplaceImageService, type UploadedImageFile } from '../../common/marketplace-image.service';
+import {
+  MAX_MARKETPLACE_IMAGE_BYTES,
+  MarketplaceImageService,
+  type UploadedImageFile,
+} from '../../common/marketplace-image.service';
 
 /**
  * The approved instructor's image upload: a course cover or the profile photo. Returns a storage key,
@@ -25,10 +29,15 @@ export class InstructorUploadsController {
   constructor(private readonly images: MarketplaceImageService) {}
 
   @Post('image')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_MARKETPLACE_IMAGE_BYTES, files: 1 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_MARKETPLACE_IMAGE_BYTES, files: 1 } }),
+  )
   @Throttle({ default: THROTTLE.FILE_UPLOAD })
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload a course cover or profile photo (JPEG, PNG or WebP, up to 5 MB). Returns a storage key.' })
+  @ApiOperation({
+    summary:
+      'Upload a course cover or profile photo (JPEG, PNG or WebP, up to 5 MB). Returns a storage key.',
+  })
   public async uploadImage(
     @GetUser() user: JwtPayload,
     @UploadedFile() file?: UploadedImageFile,

@@ -19,7 +19,9 @@ function buildService() {
   return { service, storage };
 }
 
-const file = (over: Partial<{ originalname: string; mimetype: string; size: number; buffer: Buffer }> = {}) => ({
+const file = (
+  over: Partial<{ originalname: string; mimetype: string; size: number; buffer: Buffer }> = {},
+) => ({
   originalname: 'cover.jpg',
   mimetype: 'image/jpeg',
   size: 1000,
@@ -54,25 +56,36 @@ describe('marketplace image keys', () => {
     expect(() => assertMarketplaceImageKey('')).not.toThrow();
     expect(() => assertMarketplaceImageKey(KEY)).not.toThrow();
     expect(() => assertMarketplaceImageKey('covers/legacy.jpg', 'covers/legacy.jpg')).not.toThrow();
-    expect(() => assertMarketplaceImageKey('https://tracker.example/p.gif', 'covers/legacy.jpg')).toThrow(
-      expect.objectContaining({ response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }) }),
+    expect(() =>
+      assertMarketplaceImageKey('https://tracker.example/p.gif', 'covers/legacy.jpg'),
+    ).toThrow(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
+      }),
     );
     expect(() => assertMarketplaceImageKey('covers/legacy.jpg')).toThrow();
   });
 });
 
 describe('MarketplaceImageService.upload', () => {
-  it('stores a valid image in the uploader\'s own folder and returns a key, never a URL', async () => {
+  it("stores a valid image in the uploader's own folder and returns a key, never a URL", async () => {
     const { service, storage } = buildService();
     const { key } = await service.upload(USER, file());
     expect(key.startsWith(marketplaceImagePrefix(USER))).toBe(true);
     expect(isMarketplaceImageKey(key)).toBe(true);
-    expect(storage.uploadPublicImage).toHaveBeenCalledWith({ buffer: JPEG, path: key, contentType: 'image/jpeg' });
+    expect(storage.uploadPublicImage).toHaveBeenCalledWith({
+      buffer: JPEG,
+      path: key,
+      contentType: 'image/jpeg',
+    });
   });
 
   it('derives the extension from the verified type, not from the file name', async () => {
     const { service } = buildService();
-    const { key } = await service.upload(USER, file({ originalname: 'photo.png', mimetype: 'image/png', buffer: PNG }));
+    const { key } = await service.upload(
+      USER,
+      file({ originalname: 'photo.png', mimetype: 'image/png', buffer: PNG }),
+    );
     expect(key.endsWith('.png')).toBe(true);
   });
 
@@ -88,7 +101,10 @@ describe('MarketplaceImageService.upload', () => {
     ['a type that is not allowed (gif)', file({ mimetype: 'image/gif', originalname: 'a.gif' })],
     ['a PDF', file({ mimetype: 'application/pdf', originalname: 'a.pdf' })],
     ['an extension that does not match the type', file({ originalname: 'cover.png' })],
-    ['content that is not the declared type', file({ buffer: Buffer.from('<script>alert(1)</script>') })],
+    [
+      'content that is not the declared type',
+      file({ buffer: Buffer.from('<script>alert(1)</script>') }),
+    ],
     ['a path in the file name', file({ originalname: '../cover.jpg' })],
     ['a file over 5 MB', file({ size: 5 * 1024 * 1024 + 1 })],
   ])('refuses %s and stores nothing', async (_label, input) => {
@@ -107,21 +123,31 @@ describe('MarketplaceStorageService.uploadPublicImage', () => {
   it('publishes only inside images/marketplace/', async () => {
     const { storage, raw } = buildStorage();
     await storage.uploadPublicImage({ buffer: JPEG, path: KEY, contentType: 'image/jpeg' });
-    expect(raw.upload).toHaveBeenCalledWith(expect.objectContaining({ path: KEY, visibility: 'public' }));
+    expect(raw.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ path: KEY, visibility: 'public' }),
+    );
   });
 
-  it.each(['lessons/video.mp4', 'marketplace/applications/a/documents/d', 'images/teacher/x.jpg', 'images/marketplace/../books/x.pdf'])(
-    'refuses %s, so nothing else can be published through it',
-    async (path) => {
-      const { storage, raw } = buildStorage();
-      await expect(storage.uploadPublicImage({ buffer: JPEG, path, contentType: 'image/jpeg' })).rejects.toThrow();
-      expect(raw.upload).not.toHaveBeenCalled();
-    },
-  );
+  it.each([
+    'lessons/video.mp4',
+    'marketplace/applications/a/documents/d',
+    'images/teacher/x.jpg',
+    'images/marketplace/../books/x.pdf',
+  ])('refuses %s, so nothing else can be published through it', async (path) => {
+    const { storage, raw } = buildStorage();
+    await expect(
+      storage.uploadPublicImage({ buffer: JPEG, path, contentType: 'image/jpeg' }),
+    ).rejects.toThrow();
+    expect(raw.upload).not.toHaveBeenCalled();
+  });
 
   it('keeps every other marketplace upload private', async () => {
     const { storage, raw } = buildStorage();
-    await storage.uploadPrivate({ buffer: JPEG, path: 'marketplace/applications/a/documents/d', contentType: 'application/pdf' });
+    await storage.uploadPrivate({
+      buffer: JPEG,
+      path: 'marketplace/applications/a/documents/d',
+      contentType: 'application/pdf',
+    });
     expect(raw.upload).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'private' }));
   });
 });

@@ -110,7 +110,9 @@ describe('LessonVideoService', () => {
         [buildSection()],
         [buildLesson()],
       );
-      const expected = { response: expect.objectContaining({ code: 'COURSE_NOT_EDITABLE_UNDER_REVIEW' }) };
+      const expected = {
+        response: expect.objectContaining({ code: 'COURSE_NOT_EDITABLE_UNDER_REVIEW' }),
+      };
       await expect(
         service.startAwsUpload('instr-1', 'user-1', 'course-1', 'lesson-1', UPLOAD),
       ).rejects.toMatchObject(expected);
@@ -126,7 +128,9 @@ describe('LessonVideoService', () => {
         [buildSection()],
         [buildLesson({ video_id: 'aws:asset-1' } as never)],
       );
-      await expect(service.getVideoStatus('instr-1', 'course-1', 'lesson-1')).resolves.toBeDefined();
+      await expect(
+        service.getVideoStatus('instr-1', 'course-1', 'lesson-1'),
+      ).resolves.toBeDefined();
     });
 
     it('refuses when the course belongs to a different instructor (no IDOR)', async () => {

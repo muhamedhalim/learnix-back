@@ -24,7 +24,13 @@ function buildCourse(overrides: Partial<MarketplaceCourse> = {}): MarketplaceCou
 }
 
 function buildSection(overrides: Partial<MarketplaceCourseSection> = {}): MarketplaceCourseSection {
-  return { id: 'section-1', course_id: 'course-1', title: 'Section 1', position: 0, ...overrides } as unknown as MarketplaceCourseSection;
+  return {
+    id: 'section-1',
+    course_id: 'course-1',
+    title: 'Section 1',
+    position: 0,
+    ...overrides,
+  } as unknown as MarketplaceCourseSection;
 }
 
 function buildLesson(overrides: Partial<MarketplaceCourseLesson> = {}): MarketplaceCourseLesson {
@@ -45,10 +51,14 @@ function buildRepo<T extends { id: string }>(rows: T[]) {
   return {
     rows,
     find: jest.fn(
-      async ({
-        where,
-        order,
-      }: { where: Record<string, unknown>; order?: Record<string, 'ASC' | 'DESC'> } = { where: {} }) => {
+      async (
+        {
+          where,
+          order,
+        }: { where: Record<string, unknown>; order?: Record<string, 'ASC' | 'DESC'> } = {
+          where: {},
+        },
+      ) => {
         const matched = rows.filter((r) =>
           Object.entries(where ?? {}).every(([k, v]) => {
             const value = (r as unknown as Record<string, unknown>)[k];
@@ -66,11 +76,21 @@ function buildRepo<T extends { id: string }>(rows: T[]) {
         });
       },
     ),
-    findOne: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
-      rows.find((r) => Object.entries(where).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v)) ?? null,
+    findOne: jest.fn(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        rows.find((r) =>
+          Object.entries(where).every(
+            ([k, v]) => (r as unknown as Record<string, unknown>)[k] === v,
+          ),
+        ) ?? null,
     ),
-    count: jest.fn(async ({ where }: { where: Record<string, unknown> } = { where: {} }) =>
-      rows.filter((r) => Object.entries(where ?? {}).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v)).length,
+    count: jest.fn(
+      async ({ where }: { where: Record<string, unknown> } = { where: {} }) =>
+        rows.filter((r) =>
+          Object.entries(where ?? {}).every(
+            ([k, v]) => (r as unknown as Record<string, unknown>)[k] === v,
+          ),
+        ).length,
     ),
     create: jest.fn((data: Partial<T>) => data as T),
     save: jest.fn(async (entity: T) => {
@@ -120,13 +140,17 @@ function buildService(
       }),
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),
-      getCount: jest.fn(async () => (onlyPreview ? lessonRows.filter((l) => l.is_free_preview).length : lessonRows.length)),
+      getCount: jest.fn(async () =>
+        onlyPreview ? lessonRows.filter((l) => l.is_free_preview).length : lessonRows.length,
+      ),
       getRawOne: jest.fn(async () => ({
         count: String(lessonRows.length),
         totalDuration: String(lessonRows.reduce((sum, l) => sum + l.duration_seconds, 0)),
       })),
       getOne: jest.fn(async () => {
-        const courseSectionIds = sectionRows.filter((s) => s.course_id === params['courseId']).map((s) => s.id);
+        const courseSectionIds = sectionRows
+          .filter((s) => s.course_id === params['courseId'])
+          .map((s) => s.id);
         return (
           lessonRows.find(
             (l) => l.id === params['lessonId'] && courseSectionIds.includes(l.section_id),
@@ -152,13 +176,19 @@ function buildService(
   } = {
     transaction: jest.fn(async (work: (m: typeof manager) => Promise<unknown>) => work(manager)),
     remove: jest.fn(async (entity: { course_id?: string }) =>
-      entity.course_id === undefined ? lessons.remove(entity as never) : sections.remove(entity as never),
+      entity.course_id === undefined
+        ? lessons.remove(entity as never)
+        : sections.remove(entity as never),
     ),
     find: jest.fn(async (target: unknown, options: Record<string, unknown>) =>
-      target === MarketplaceCourseSection ? sections.find(options as never) : lessons.find(options as never),
+      target === MarketplaceCourseSection
+        ? sections.find(options as never)
+        : lessons.find(options as never),
     ),
     query: jest.fn(async (sql: string, params: unknown[]) => {
-      const rows: Array<{ id: string; position: number }> = sql.includes('marketplace_course_sections')
+      const rows: Array<{ id: string; position: number }> = sql.includes(
+        'marketplace_course_sections',
+      )
         ? sectionRows
         : lessonRows;
       const ids = params[1] as string[];
@@ -181,7 +211,8 @@ function buildService(
   // Mirrors the seeded registry: only EGP is enabled, with the launch price bounds.
   const currencies = {
     resolve: jest.fn(async (code: string) => {
-      if (code !== 'EGP') throw Object.assign(new Error(`Currency ${code} is not enabled`), { status: 400 });
+      if (code !== 'EGP')
+        throw Object.assign(new Error(`Currency ${code} is not enabled`), { status: 400 });
       return { code };
     }),
     assertPriceInBounds: jest.fn(async (_code: string, priceMinor: number) => {
@@ -208,7 +239,7 @@ describe('CourseAuthoringService', () => {
     const course = (id: string, status: MarketplaceCourseStatus): MarketplaceCourse =>
       buildCourse({ id, status });
 
-    it('reads no decisions when none of the instructor\'s courses is rejected', async () => {
+    it("reads no decisions when none of the instructor's courses is rejected", async () => {
       const rows = [
         course('c1', MarketplaceCourseStatus.DRAFT),
         course('c2', MarketplaceCourseStatus.PUBLISHED),
@@ -221,7 +252,7 @@ describe('CourseAuthoringService', () => {
       expect(result.map((item) => 'latest_review_reasons' in item)).toEqual([false, false]);
     });
 
-    it('fetches the latest reasons of every rejected course in ONE statement, keyed only by this instructor\'s ids', async () => {
+    it("fetches the latest reasons of every rejected course in ONE statement, keyed only by this instructor's ids", async () => {
       const rows = [
         course('c1', MarketplaceCourseStatus.REJECTED),
         course('c2', MarketplaceCourseStatus.DRAFT),
@@ -262,7 +293,10 @@ describe('CourseAuthoringService', () => {
       const result = await service.listOwnCourses('instr-1');
 
       expect(courses.find).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { instructor_id: 'instr-1' }, order: { created_at: 'DESC' } }),
+        expect.objectContaining({
+          where: { instructor_id: 'instr-1' },
+          order: { created_at: 'DESC' },
+        }),
       );
       expect(result.map((item) => item.id)).toEqual(['c1', 'c2']);
     });
@@ -280,7 +314,8 @@ describe('CourseAuthoringService', () => {
         language: 'en',
         price_minor: 10_000,
         currency: 'EGP',
-        cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        cover_image_key:
+          'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
       });
       expect(result.instructor_id).toBe('instr-1');
       expect(result.status).toBe(MarketplaceCourseStatus.DRAFT);
@@ -290,13 +325,17 @@ describe('CourseAuthoringService', () => {
     it('refuses to fetch or edit a course owned by a different instructor (no IDOR)', async () => {
       const course = buildCourse({ instructor_id: 'instr-1' });
       const { service } = buildService([course], [], []);
-      await expect(service.updateCourse('instr-2', 'course-1', { title: 'Hijacked' })).rejects.toThrow();
+      await expect(
+        service.updateCourse('instr-2', 'course-1', { title: 'Hijacked' }),
+      ).rejects.toThrow();
     });
 
     it('refuses to edit a course that is submitted_for_review (FR-063)', async () => {
       const course = buildCourse({ status: MarketplaceCourseStatus.SUBMITTED_FOR_REVIEW });
       const { service } = buildService([course], [], []);
-      await expect(service.updateCourse('instr-1', 'course-1', { title: 'X' })).rejects.toMatchObject({
+      await expect(
+        service.updateCourse('instr-1', 'course-1', { title: 'X' }),
+      ).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'COURSE_NOT_EDITABLE_UNDER_REVIEW' }),
       });
     });
@@ -310,30 +349,60 @@ describe('CourseAuthoringService', () => {
 
     it('accepts only an uploaded image key as a cover, never a URL or a path of its own making (MP-10)', async () => {
       const base = {
-        title: 'New Course', summary: 'A summary', description: 'A description', category_id: 'cat-1',
-        level: CourseLevel.BEGINNER, language: 'en', price_minor: 0, currency: 'EGP',
+        title: 'New Course',
+        summary: 'A summary',
+        description: 'A description',
+        category_id: 'cat-1',
+        level: CourseLevel.BEGINNER,
+        language: 'en',
+        price_minor: 0,
+        currency: 'EGP',
       };
       const { service, courses } = buildService([], [], []);
-      for (const bad of ['https://example.com/x.jpg', 'covers/1.jpg', 'images/other/1.jpg', '../images/marketplace/x.jpg', 'images/marketplace/not-a-uuid/22222222-2222-4222-8222-222222222222.jpg']) {
-        await expect(service.createCourse('instr-1', { ...base, cover_image_key: bad })).rejects.toMatchObject({
+      for (const bad of [
+        'https://example.com/x.jpg',
+        'covers/1.jpg',
+        'images/other/1.jpg',
+        '../images/marketplace/x.jpg',
+        'images/marketplace/not-a-uuid/22222222-2222-4222-8222-222222222222.jpg',
+      ]) {
+        await expect(
+          service.createCourse('instr-1', { ...base, cover_image_key: bad }),
+        ).rejects.toMatchObject({
           response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
         });
       }
       expect(courses.save).not.toHaveBeenCalled();
-      await expect(service.createCourse('instr-1', { ...base, cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' })).resolves.toBeDefined();
+      await expect(
+        service.createCourse('instr-1', {
+          ...base,
+          cover_image_key:
+            'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        }),
+      ).resolves.toBeDefined();
     });
 
     it('lets an update keep the stored cover as it is, and replace it only with an uploaded key (MP-10)', async () => {
       const legacy = buildCourse({ cover_image_key: 'covers/legacy.jpg' } as never);
       const { service } = buildService([legacy], [], []);
       await expect(
-        service.applyCourseUpdate('instr-1', 'course-1', { title: 'Retitled', cover_image_key: 'covers/legacy.jpg' }),
+        service.applyCourseUpdate('instr-1', 'course-1', {
+          title: 'Retitled',
+          cover_image_key: 'covers/legacy.jpg',
+        }),
       ).resolves.toMatchObject({ changedFields: ['title'] });
       await expect(
-        service.applyCourseUpdate('instr-1', 'course-1', { cover_image_key: 'https://tracker.example/pixel.gif' }),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }) });
+        service.applyCourseUpdate('instr-1', 'course-1', {
+          cover_image_key: 'https://tracker.example/pixel.gif',
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
+      });
       await expect(
-        service.applyCourseUpdate('instr-1', 'course-1', { cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' }),
+        service.applyCourseUpdate('instr-1', 'course-1', {
+          cover_image_key:
+            'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        }),
       ).resolves.toMatchObject({ changedFields: ['cover_image_key'] });
     });
 
@@ -345,14 +414,23 @@ describe('CourseAuthoringService', () => {
         category_id: 'cat-1',
         level: CourseLevel.BEGINNER,
         language: 'en',
-        cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
+        cover_image_key:
+          'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
       };
       const { service, courses } = buildService([], [], []);
-      await expect(service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'USD' })).rejects.toThrow(/not enabled/);
-      await expect(service.createCourse('instr-1', { ...base, price_minor: 100, currency: 'EGP' })).rejects.toThrow(/out of bounds/);
+      await expect(
+        service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'USD' }),
+      ).rejects.toThrow(/not enabled/);
+      await expect(
+        service.createCourse('instr-1', { ...base, price_minor: 100, currency: 'EGP' }),
+      ).rejects.toThrow(/out of bounds/);
       expect(courses.save).not.toHaveBeenCalled();
-      await expect(service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'EGP' })).resolves.toBeDefined();
-      await expect(service.createCourse('instr-1', { ...base, price_minor: 0, currency: 'EGP' })).resolves.toBeDefined();
+      await expect(
+        service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'EGP' }),
+      ).resolves.toBeDefined();
+      await expect(
+        service.createCourse('instr-1', { ...base, price_minor: 0, currency: 'EGP' }),
+      ).resolves.toBeDefined();
     });
   });
 
@@ -375,9 +453,19 @@ describe('CourseAuthoringService', () => {
 
     it('reports no changed fields, and does not write, when the whole form is sent back unchanged', async () => {
       const course = buildCourse({
-        title: 'Same', summary: 'S', description: 'D', category_id: 'cat-1', level: CourseLevel.BEGINNER, language: 'en',
-        price_minor: 10_000, currency: 'EGP', cover_image_key: 'k', learning_outcomes: ['a'], prerequisites: [],
-        target_audience: [], certificate_enabled: false,
+        title: 'Same',
+        summary: 'S',
+        description: 'D',
+        category_id: 'cat-1',
+        level: CourseLevel.BEGINNER,
+        language: 'en',
+        price_minor: 10_000,
+        currency: 'EGP',
+        cover_image_key: 'k',
+        learning_outcomes: ['a'],
+        prerequisites: [],
+        target_audience: [],
+        certificate_enabled: false,
       });
       const { service, courses } = buildService([course], [], []);
       const result = await service.applyCourseUpdate('instr-1', 'course-1', fullForm(course));
@@ -388,15 +476,27 @@ describe('CourseAuthoringService', () => {
     it('treats null and an empty string as the same empty value', async () => {
       const course = buildCourse({ title: 'T', title_ar: null, description_ar: null } as never);
       const { service } = buildService([course], [], []);
-      const result = await service.applyCourseUpdate('instr-1', 'course-1', { title: 'T', title_ar: '', description_ar: '' });
+      const result = await service.applyCourseUpdate('instr-1', 'course-1', {
+        title: 'T',
+        title_ar: '',
+        description_ar: '',
+      });
       expect(result.changedFields).toEqual([]);
     });
 
     it('lists exactly the fields that differ', async () => {
-      const course = buildCourse({ title: 'Old', price_minor: 10_000, currency: 'EGP', learning_outcomes: ['a'] });
+      const course = buildCourse({
+        title: 'Old',
+        price_minor: 10_000,
+        currency: 'EGP',
+        learning_outcomes: ['a'],
+      });
       const { service } = buildService([course], [], []);
       const result = await service.applyCourseUpdate('instr-1', 'course-1', {
-        title: 'New', price_minor: 12_000, currency: 'EGP', learning_outcomes: ['a'],
+        title: 'New',
+        price_minor: 12_000,
+        currency: 'EGP',
+        learning_outcomes: ['a'],
       });
       expect(result.changedFields.sort()).toEqual(['price_minor', 'title']);
       expect(result.course.price_minor).toBe(12_000);
@@ -407,17 +507,25 @@ describe('CourseAuthoringService', () => {
       const { service, currencies } = buildService([legacy], [], []);
       // A legacy non-EGP draft can still be retitled: the unchanged money fields are not re-checked.
       await expect(
-        service.applyCourseUpdate('instr-1', 'course-1', { title: 'New', price_minor: 10_000, currency: 'USD' }),
+        service.applyCourseUpdate('instr-1', 'course-1', {
+          title: 'New',
+          price_minor: 10_000,
+          currency: 'USD',
+        }),
       ).resolves.toMatchObject({ changedFields: ['title'] });
       expect(currencies.resolve).not.toHaveBeenCalled();
       // Changing the price is checked against the (non-enabled) currency.
-      await expect(service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 20_000 })).rejects.toThrow(/not enabled/);
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 20_000 }),
+      ).rejects.toThrow(/not enabled/);
     });
 
     it('refuses a new price outside the bounds without saving', async () => {
       const course = buildCourse({ price_minor: 10_000, currency: 'EGP' });
       const { service, courses } = buildService([course], [], []);
-      await expect(service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 100 })).rejects.toThrow(/out of bounds/);
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { price_minor: 100 }),
+      ).rejects.toThrow(/out of bounds/);
       expect(courses.save).not.toHaveBeenCalled();
     });
   });
@@ -433,7 +541,10 @@ describe('CourseAuthoringService', () => {
 
     it('listAllCourses filters by status when given one', async () => {
       const draft = buildCourse({ id: 'a', status: MarketplaceCourseStatus.DRAFT });
-      const submitted = buildCourse({ id: 'b', status: MarketplaceCourseStatus.SUBMITTED_FOR_REVIEW });
+      const submitted = buildCourse({
+        id: 'b',
+        status: MarketplaceCourseStatus.SUBMITTED_FOR_REVIEW,
+      });
       const { service } = buildService([draft, submitted], [], []);
       const result = await service.listAllCourses(MarketplaceCourseStatus.SUBMITTED_FOR_REVIEW);
       expect(result.map((c) => c.id)).toEqual(['b']);
@@ -483,7 +594,12 @@ describe('CourseAuthoringService', () => {
 
     it('refuses when at least one enrollment exists, querying the real marketplace_enrollments table', async () => {
       const course = buildCourse();
-      const { service, courses } = buildService([course], [], [], [{ id: 'enr-1', course_id: 'course-1' }]);
+      const { service, courses } = buildService(
+        [course],
+        [],
+        [],
+        [{ id: 'enr-1', course_id: 'course-1' }],
+      );
       await expect(service.deleteCourse('instr-1', 'course-1')).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'COURSE_HAS_ENROLLMENTS' }),
       });
@@ -533,7 +649,9 @@ describe('CourseAuthoringService', () => {
       const a = buildSection({ id: 'a', position: 0 });
       const b = buildSection({ id: 'b', position: 1 });
       const { service, manager } = buildService([course], [a, b], []);
-      await expect(service.reorderSections('instr-1', 'course-1', ['b', 'a', 'x'])).rejects.toThrow();
+      await expect(
+        service.reorderSections('instr-1', 'course-1', ['b', 'a', 'x']),
+      ).rejects.toThrow();
       expect(manager.transaction).not.toHaveBeenCalled();
       expect(manager.query).not.toHaveBeenCalled();
     });
@@ -544,14 +662,19 @@ describe('CourseAuthoringService', () => {
       const b = buildSection({ id: 'b', position: 1 });
       const { service, manager } = buildService([course], [a, b], []);
       await service.reorderSections('instr-1', 'course-1', ['a', 'b', 'a']);
-      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['course-1', ['b', 'a']]);
+      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual([
+        'course-1',
+        ['b', 'a'],
+      ]);
     });
 
     it('refuses a reorder list that does not match the existing section set exactly', async () => {
       const course = buildCourse();
       const a = buildSection({ id: 'a' });
       const { service } = buildService([course], [a], []);
-      await expect(service.reorderSections('instr-1', 'course-1', ['a', 'not-a-real-id'])).rejects.toThrow();
+      await expect(
+        service.reorderSections('instr-1', 'course-1', ['a', 'not-a-real-id']),
+      ).rejects.toThrow();
     });
 
     it('recompacts positions and recomputes course totals after deleting a section', async () => {
@@ -573,7 +696,10 @@ describe('CourseAuthoringService', () => {
       await service.deleteSection('instr-1', 'course-1', 'a');
       expect(manager.transaction).toHaveBeenCalledTimes(1);
       expect(manager.remove).toHaveBeenCalledWith(a);
-      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual(['course-1', ['b', 'c']]);
+      expect((manager.query.mock.calls[0] as [string, unknown[]])[1]).toEqual([
+        'course-1',
+        ['b', 'c'],
+      ]);
       expect([b.position, c.position]).toEqual([0, 1]);
     });
   });
@@ -589,7 +715,10 @@ describe('CourseAuthoringService', () => {
         content_type: LessonContentType.TEXT,
         duration_seconds: 120,
       });
-      expect(courses.update).toHaveBeenCalledWith({ id: 'course-1' }, { lesson_count: 1, total_duration_seconds: 120 });
+      expect(courses.update).toHaveBeenCalledWith(
+        { id: 'course-1' },
+        { lesson_count: 1, total_duration_seconds: 120 },
+      );
     });
 
     it('defaults a lesson to required unless it is a free preview (FR-242)', async () => {
@@ -598,12 +727,19 @@ describe('CourseAuthoringService', () => {
       const { service } = buildService([course], [section], []);
 
       const required = await service.createLesson('instr-1', 'course-1', {
-        section_id: 'section-1', title: 'A', content_type: LessonContentType.TEXT, duration_seconds: 60,
+        section_id: 'section-1',
+        title: 'A',
+        content_type: LessonContentType.TEXT,
+        duration_seconds: 60,
       });
       expect(required.is_required_for_completion).toBe(true);
 
       const preview = await service.createLesson('instr-1', 'course-1', {
-        section_id: 'section-1', title: 'B', content_type: LessonContentType.TEXT, duration_seconds: 60, is_free_preview: true,
+        section_id: 'section-1',
+        title: 'B',
+        content_type: LessonContentType.TEXT,
+        duration_seconds: 60,
+        is_free_preview: true,
       });
       expect(preview.is_required_for_completion).toBe(false);
     });
@@ -613,8 +749,12 @@ describe('CourseAuthoringService', () => {
       const section = buildSection();
       const { service } = buildService([course], [section], []);
       const lesson = await service.createLesson('instr-1', 'course-1', {
-        section_id: 'section-1', title: 'A', content_type: LessonContentType.TEXT, duration_seconds: 60,
-        is_free_preview: true, is_required_for_completion: true,
+        section_id: 'section-1',
+        title: 'A',
+        content_type: LessonContentType.TEXT,
+        duration_seconds: 60,
+        is_free_preview: true,
+        is_required_for_completion: true,
       });
       expect(lesson.is_required_for_completion).toBe(true);
     });
@@ -633,9 +773,15 @@ describe('CourseAuthoringService', () => {
       const { service } = buildService([course], [section], existingLessons);
       await expect(
         service.createLesson('instr-1', 'course-1', {
-          section_id: 'section-1', title: 'New preview', content_type: LessonContentType.TEXT, duration_seconds: 60, is_free_preview: true,
+          section_id: 'section-1',
+          title: 'New preview',
+          content_type: LessonContentType.TEXT,
+          duration_seconds: 60,
+          is_free_preview: true,
         }),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'COURSE_FREE_PREVIEW_BOUND_EXCEEDED' }) });
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'COURSE_FREE_PREVIEW_BOUND_EXCEEDED' }),
+      });
     });
 
     it('allows marking an already-free-preview lesson without re-checking the bound (no-op on the flag)', async () => {
@@ -652,7 +798,9 @@ describe('CourseAuthoringService', () => {
       const otherSection = buildSection({ id: 'other-section', course_id: 'other-course' });
       const lesson = buildLesson({ id: 'l1', section_id: 'other-section' });
       const { service } = buildService([course], [otherSection], [lesson]);
-      await expect(service.updateLesson('instr-1', 'course-1', 'l1', { title: 'Hijacked' })).rejects.toThrow();
+      await expect(
+        service.updateLesson('instr-1', 'course-1', 'l1', { title: 'Hijacked' }),
+      ).rejects.toThrow();
     });
 
     it('reorders lessons within a section', async () => {
@@ -676,7 +824,10 @@ describe('CourseAuthoringService', () => {
       const { service, courses } = buildService([course], [section], [l1, l2]);
       await service.deleteLesson('instr-1', 'course-1', 'l1');
       expect(l2.position).toBe(0);
-      expect(courses.update).toHaveBeenLastCalledWith({ id: 'course-1' }, { lesson_count: 1, total_duration_seconds: 90 });
+      expect(courses.update).toHaveBeenLastCalledWith(
+        { id: 'course-1' },
+        { lesson_count: 1, total_duration_seconds: 90 },
+      );
     });
   });
 });

@@ -39,7 +39,8 @@ export class ApplicationDecisionNotificationListener {
   private readonly logger = new Logger(ApplicationDecisionNotificationListener.name);
 
   constructor(
-    @InjectRepository(InstructorApplication) private readonly applications: Repository<InstructorApplication>,
+    @InjectRepository(InstructorApplication)
+    private readonly applications: Repository<InstructorApplication>,
     private readonly notifications: NotificationsService,
     private readonly mail: MailService,
   ) {}
@@ -61,7 +62,9 @@ export class ApplicationDecisionNotificationListener {
         false,
       );
     } catch (error) {
-      this.logger.error(`Failed to notify the applicant of approval ${event.applicationId}: ${this.describe(error)}`);
+      this.logger.error(
+        `Failed to notify the applicant of approval ${event.applicationId}: ${this.describe(error)}`,
+      );
     }
   }
 
@@ -86,7 +89,8 @@ export class ApplicationDecisionNotificationListener {
       const email = application?.applicant_email?.trim();
       if (!email) return;
       const subject = 'Update on your instructor application';
-      const intro = 'Thank you for applying to teach on Learnix. We reviewed your application and could not approve it this time.';
+      const intro =
+        'Thank you for applying to teach on Learnix. We reviewed your application and could not approve it this time.';
       const reason = `Reason: ${event.reason}`;
       await this.mail.send({
         to: email,
@@ -96,7 +100,9 @@ export class ApplicationDecisionNotificationListener {
         html: `<div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;color:#1f2937"><h2>${subject}</h2><p>${intro}</p><p>${escapeHtml(reason)}</p></div>`,
       });
     } catch (error) {
-      this.logger.error(`Failed to notify the applicant of rejection ${event.applicationId}: ${this.describe(error)}`);
+      this.logger.error(
+        `Failed to notify the applicant of rejection ${event.applicationId}: ${this.describe(error)}`,
+      );
     }
   }
 

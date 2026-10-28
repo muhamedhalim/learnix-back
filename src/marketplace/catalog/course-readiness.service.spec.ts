@@ -131,9 +131,17 @@ describe('CourseReadinessService', () => {
   });
 
   it('refuses a paid price outside the currency bounds, while a free course is always in bounds', async () => {
-    const tooLow = await buildService(buildCourse({ price_minor: 100 }), 1, READY_LESSONS).service.evaluate('course-1');
+    const tooLow = await buildService(
+      buildCourse({ price_minor: 100 }),
+      1,
+      READY_LESSONS,
+    ).service.evaluate('course-1');
     expect(tooLow.items.find((i) => i.key === 'price')?.passed).toBe(false);
-    const free = await buildService(buildCourse({ price_minor: 0 }), 1, READY_LESSONS).service.evaluate('course-1');
+    const free = await buildService(
+      buildCourse({ price_minor: 0 }),
+      1,
+      READY_LESSONS,
+    ).service.evaluate('course-1');
     expect(free.items.find((i) => i.key === 'price')?.passed).toBe(true);
   });
 

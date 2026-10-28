@@ -8,7 +8,13 @@ import { MarketplaceLedgerEntry } from '../../src/marketplace/earnings/entities/
 import { MarketplaceEnrollment, MarketplaceOrder } from '../../src/marketplace/commerce/entities';
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
-import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import {
+  API_PREFIX,
+  createAuthenticatedUser,
+  createE2EApp,
+  resetDatabase,
+  setUserRole,
+} from './fixtures';
 import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
@@ -31,7 +37,9 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
   afterAll(async () => app.close());
 
   async function seedInstructor(userId: string) {
-    return dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: userId }));
+    return dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: userId }));
   }
 
   async function seedCategory() {
@@ -85,9 +93,18 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
         .expect(201);
     }
 
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await opts.adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await opts.adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     return dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } });
   }
@@ -104,40 +121,79 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
 
   it('grants access with a zero-value order and no gateway interaction, and leaves absolutely no financial trace (FR-111 – FR-114)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishFreeCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishFreeCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
 
     const res = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
       .send({ courseId: course.id })
       .expect(201);
 
-    expect(res.body).toMatchObject({ status: MarketplaceOrderStatus.PAID, is_zero_value: true, net_amount_minor: 0 });
-    const order = await dataSource.getRepository(MarketplaceOrder).findOneByOrFail({ id: res.body.id as string });
+    expect(res.body).toMatchObject({
+      status: MarketplaceOrderStatus.PAID,
+      is_zero_value: true,
+      net_amount_minor: 0,
+    });
+    const order = await dataSource
+      .getRepository(MarketplaceOrder)
+      .findOneByOrFail({ id: res.body.id as string });
     await expect(
       dataSource.getRepository(MarketplaceEnrollment).findOneByOrFail({ order_id: order.id }),
-    ).resolves.toMatchObject({ status: 'active', learner_id: learner.userId, course_id: course.id });
-    expect(await dataSource.getRepository(InstructorEarning).countBy({ order_id: order.id })).toBe(0);
-    expect(await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id })).toBe(0);
+    ).resolves.toMatchObject({
+      status: 'active',
+      learner_id: learner.userId,
+      course_id: course.id,
+    });
+    expect(await dataSource.getRepository(InstructorEarning).countBy({ order_id: order.id })).toBe(
+      0,
+    );
+    expect(
+      await dataSource.getRepository(MarketplaceLedgerEntry).countBy({ order_id: order.id }),
+    ).toBe(0);
   });
 
   it('refuses a second free enrollment for the same course (already open/paid) — the same duplicate rule paid orders get (FR-095, FR-096)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishFreeCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishFreeCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
 
-    await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
-    await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(409);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(201);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(409);
   });
 
   it("refuses an instructor enrolling free in their own course (FR-098's self-purchase rule applies here too)", async () => {
     const { instructorUser, admin, category } = await actors();
-    const course = await publishFreeCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishFreeCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
 
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(403);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(403);
   });
 
   it('refuses a free course at paid checkout and leaves no zero-value order behind (MP-17)', async () => {
     const { instructorUser, admin, learner, category } = await actors();
-    const course = await publishFreeCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
+    const course = await publishFreeCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
 
     const refused = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/orders`)
@@ -145,10 +201,15 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
       .send({ courseId: course.id })
       .expect(422);
     expect(refused.body).toMatchObject({ code: 'COURSE_IS_FREE' });
-    expect(await dataSource.getRepository(MarketplaceOrder).count({ where: { course_id: course.id } })).toBe(0);
+    expect(
+      await dataSource.getRepository(MarketplaceOrder).count({ where: { course_id: course.id } }),
+    ).toBe(0);
 
     // The proper route is untouched, and is not wedged by the refused attempt.
-    await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(201);
   });
 
   it('refuses free enrollment in a paid course — this endpoint only ever grants a genuinely zero-value order', async () => {
@@ -176,17 +237,40 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
     for (let i = 0; i < 3; i++) {
       await instructorUser.agent
         .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/lessons`)
-        .send({ section_id: section.body.id, title: `Lesson ${i + 1}`, content_type: LessonContentType.TEXT, content_html: '<p>x</p>', duration_seconds: 60, is_free_preview: i === 0 })
+        .send({
+          section_id: section.body.id,
+          title: `Lesson ${i + 1}`,
+          content_type: LessonContentType.TEXT,
+          content_html: '<p>x</p>',
+          duration_seconds: 60,
+          is_free_preview: i === 0,
+        })
         .expect(201);
     }
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await admin.agent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await instructorUser.agent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await admin.agent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await instructorUser.agent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
-    const refused = await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId }).expect(422);
+    const refused = await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId })
+      .expect(422);
     expect(refused.body).toMatchObject({ code: 'COURSE_NOT_FREE' });
-    expect(await dataSource.getRepository(MarketplaceEnrollment).countBy({ course_id: courseId })).toBe(0);
-    expect(await dataSource.getRepository(MarketplaceOrder).countBy({ course_id: courseId })).toBe(0);
+    expect(
+      await dataSource.getRepository(MarketplaceEnrollment).countBy({ course_id: courseId }),
+    ).toBe(0);
+    expect(await dataSource.getRepository(MarketplaceOrder).countBy({ course_id: courseId })).toBe(
+      0,
+    );
   });
 
   it('refuses the 6th free-enrollment request within a minute, per account, naming per_minute (FR-121)', async () => {
@@ -200,12 +284,17 @@ describe('marketplace free enrollment (contracts §4, T110)', () => {
     // per-minute limit first.
     const { learner } = await actors();
     for (let i = 0; i < 5; i++) {
-      await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: '00000000-0000-4000-8000-000000000000' });
+      await learner.agent
+        .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+        .send({ courseId: '00000000-0000-4000-8000-000000000000' });
     }
     const refused = await learner.agent
       .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
       .send({ courseId: '00000000-0000-4000-8000-000000000000' })
       .expect(422);
-    expect(refused.body).toMatchObject({ code: 'FREE_ENROLLMENT_RATE_LIMITED', details: ['per_minute'] });
+    expect(refused.body).toMatchObject({
+      code: 'FREE_ENROLLMENT_RATE_LIMITED',
+      details: ['per_minute'],
+    });
   });
 });

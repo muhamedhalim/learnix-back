@@ -37,7 +37,8 @@ export class RefundNotificationListener {
 
   constructor(
     @InjectRepository(MarketplaceOrder) private readonly orders: Repository<MarketplaceOrder>,
-    @InjectRepository(MarketplaceInstructor) private readonly instructors: Repository<MarketplaceInstructor>,
+    @InjectRepository(MarketplaceInstructor)
+    private readonly instructors: Repository<MarketplaceInstructor>,
     private readonly notifications: NotificationsService,
   ) {}
 

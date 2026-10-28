@@ -916,7 +916,10 @@ export class PaymentOperationsService {
         // MP-12: with the marketplace switched off nothing listens for these, and `emitAsync` would
         // resolve with no handler and mark a captured payment "published" without ever enrolling the
         // learner. Keep it queued (no attempt consumed) so it settles once the module is enabled.
-        if (event.event_name.startsWith('payment.marketplace_') && this.eventEmitter.listenerCount(event.event_name) === 0) {
+        if (
+          event.event_name.startsWith('payment.marketplace_') &&
+          this.eventEmitter.listenerCount(event.event_name) === 0
+        ) {
           await this.deferOutboxEvent(event.id, event.lease_token!);
           continue;
         }
@@ -1003,7 +1006,11 @@ export class PaymentOperationsService {
         lease_expires_at: null,
         next_retry_at: new Date(Date.now() + 5 * 60_000),
       })
-      .where('id = :id AND status = :status AND lease_token = :leaseToken', { id: eventId, status: 'processing', leaseToken })
+      .where('id = :id AND status = :status AND lease_token = :leaseToken', {
+        id: eventId,
+        status: 'processing',
+        leaseToken,
+      })
       .execute();
   }
 

@@ -11,7 +11,12 @@ import { CatalogQueryService } from '../discovery/catalog-query.service';
 import { MarketplaceOrderStatus } from '../common/enums';
 import { Payment } from '../../payments/entities/payment.entity';
 import { PaymentStatus } from '../../payments/entities/payment-status.enum';
-import { courseIsFree, courseNotPurchasable, orderAlreadyOpen, selfPurchaseNotAllowed } from '../common/errors';
+import {
+  courseIsFree,
+  courseNotPurchasable,
+  orderAlreadyOpen,
+  selfPurchaseNotAllowed,
+} from '../common/errors';
 import { MarketplaceOrderCreatedEvent } from '../events/domain.events';
 import { MarketplaceCommissionService } from '../earnings/commission.service';
 import { MarketplaceOrder } from './entities';
@@ -53,7 +58,10 @@ export class MarketplaceOrderService {
     initialStatus: MarketplaceOrderStatus = MarketplaceOrderStatus.AWAITING_PAYMENT,
     options: { allowFree?: boolean } = {},
   ): Promise<MarketplaceOrder> {
-    const course = await this.catalogQuery.baseVisibleQuery().andWhere('course.id = :id', { id: courseId }).getOne();
+    const course = await this.catalogQuery
+      .baseVisibleQuery()
+      .andWhere('course.id = :id', { id: courseId })
+      .getOne();
     if (!course) {
       throw courseNotPurchasable();
     }
@@ -128,10 +136,21 @@ export class MarketplaceOrderService {
    */
   private async expireIfAbandoned(existing: MarketplaceOrder): Promise<boolean> {
     if (existing.status !== MarketplaceOrderStatus.AWAITING_PAYMENT) return false;
-    if (!(existing.created_at instanceof Date) || Date.now() - existing.created_at.getTime() < STALE_ORDER_AFTER_MS) return false;
+    if (
+      !(existing.created_at instanceof Date) ||
+      Date.now() - existing.created_at.getTime() < STALE_ORDER_AFTER_MS
+    )
+      return false;
     if (existing.payment_id) {
-      const payment = await this.orders.manager.findOne(Payment, { where: { id: existing.payment_id } });
-      if (payment && payment.status !== PaymentStatus.FAILED && payment.status !== PaymentStatus.EXPIRED) return false;
+      const payment = await this.orders.manager.findOne(Payment, {
+        where: { id: existing.payment_id },
+      });
+      if (
+        payment &&
+        payment.status !== PaymentStatus.FAILED &&
+        payment.status !== PaymentStatus.EXPIRED
+      )
+        return false;
     }
     const result = await this.orders.update(
       { id: existing.id, status: MarketplaceOrderStatus.AWAITING_PAYMENT },
@@ -161,7 +180,14 @@ export class MarketplaceOrderService {
     const totalPages = Math.ceil(total / limit);
     return {
       data,
-      meta: { total, page, limit, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 },
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     };
   }
 

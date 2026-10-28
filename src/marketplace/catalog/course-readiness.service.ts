@@ -74,7 +74,10 @@ export class CourseReadinessService {
           course.price_minor >= 0 &&
           (await this.priceAllowed(course)),
       },
-      { key: 'currency', passed: !!course.currency?.trim() && (await this.currencyEnabled(course.currency)) },
+      {
+        key: 'currency',
+        passed: !!course.currency?.trim() && (await this.currencyEnabled(course.currency)),
+      },
       { key: 'cover_image', passed: !!course.cover_image_key?.trim() },
       { key: 'at_least_one_section', passed: sectionCount >= 1 },
       { key: 'minimum_lessons', passed: totalLessons >= config.minLessonsForPublication },

@@ -56,7 +56,9 @@ describe('academic certificate regression under the marketplace extension (Phase
   /** A genuine `marketplace_courses` row — `FK_certificates_marketplace_course` (2100000000000) requires a real referenced row, not an arbitrary UUID. Seeded directly via repositories; the full instructor-application/course-builder HTTP workflow is out of scope for this certificate-regression suite. */
   async function seedMarketplaceCourse(): Promise<MarketplaceCourse> {
     const instructorUser = await createAuthenticatedUser(app, dataSource);
-    const instructor = await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    const instructor = await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const category = await dataSource.getRepository(MarketplaceCategory).save({
       name_en: 'Programming',
       name_ar: 'البرمجة',
@@ -108,9 +110,13 @@ describe('academic certificate regression under the marketplace extension (Phase
     const student = await createAuthenticatedUser(app, dataSource);
     const academicPackage = await seedAcademicPackage();
     const certs = dataSource.getRepository(Certificate);
-    const cert = await certs.save(certs.create(buildAcademicCertificate(student.userId, academicPackage.id)));
+    const cert = await certs.save(
+      certs.create(buildAcademicCertificate(student.userId, academicPackage.id)),
+    );
 
-    const res = await request(server).get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`).expect(200);
+    const res = await request(server)
+      .get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`)
+      .expect(200);
 
     expect(res.body.valid).toBe(true);
     expect(res.body.certificate.certificate_number).toBe(cert.certificate_number);
@@ -136,7 +142,9 @@ describe('academic certificate regression under the marketplace extension (Phase
       ),
     );
 
-    const res = await request(server).get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`).expect(200);
+    const res = await request(server)
+      .get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`)
+      .expect(200);
 
     expect(res.body.valid).toBe(false);
     expect(res.body.certificate.status).toBe(CertificateStatus.REVOKED);
@@ -165,7 +173,9 @@ describe('academic certificate regression under the marketplace extension (Phase
       } as Partial<Certificate>),
     );
 
-    const res = await request(server).get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`).expect(200);
+    const res = await request(server)
+      .get(`${API_PREFIX}/certificates/verify/${cert.verification_code}`)
+      .expect(200);
 
     expect(res.body.valid).toBe(true);
     expect(res.body.certificate.certificate_number).toBe(cert.certificate_number);

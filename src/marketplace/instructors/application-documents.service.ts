@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
@@ -15,7 +20,13 @@ import { InstructorApplication } from './entities/instructor-application.entity'
  * "identity document" kind at all, so there is nothing for a caller to
  * mislabel into one.
  */
-const ALLOWED_DOCUMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+const ALLOWED_DOCUMENT_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+];
 /** 10MB — matches the existing evidence-document ceiling (CALL_CENTER_ATTACHMENT_MAX_SIZE). Exported so the controller's upload interceptor rejects an oversized file before it reaches this service. */
 export const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_DOCUMENTS_PER_APPLICATION = 10;
@@ -35,7 +46,10 @@ export class ApplicationDocumentsService {
   ) {}
 
   /** Uploads one document and appends its private storage key to the applicant's own draft/rejected application. */
-  public async upload(userId: string, input: UploadApplicationDocumentInput): Promise<{ key: string }> {
+  public async upload(
+    userId: string,
+    input: UploadApplicationDocumentInput,
+  ): Promise<{ key: string }> {
     // The newest draft/rejected application — the one `PATCH applications/me` and `submit` act on.
     // Picking "any row of this user" attached the file to an older application (or refused it) when
     // the applicant had been rejected before and had since opened a new draft.
@@ -51,7 +65,10 @@ export class ApplicationDocumentsService {
         throw new NotFoundException(biBody('No application found', 'لا يوجد طلب'));
       }
       throw new ForbiddenException(
-        biBody('Documents can only be uploaded to a draft or rejected application', 'يمكن رفع المستندات فقط لطلب في حالة مسودة أو مرفوض'),
+        biBody(
+          'Documents can only be uploaded to a draft or rejected application',
+          'يمكن رفع المستندات فقط لطلب في حالة مسودة أو مرفوض',
+        ),
       );
     }
     if (!ALLOWED_DOCUMENT_TYPES.includes(input.contentType)) {
@@ -80,7 +97,11 @@ export class ApplicationDocumentsService {
     }
 
     const key = `marketplace/applications/${application.id}/documents/${randomUUID()}`;
-    await this.storage.uploadPrivate({ buffer: input.buffer, path: key, contentType: input.contentType });
+    await this.storage.uploadPrivate({
+      buffer: input.buffer,
+      path: key,
+      contentType: input.contentType,
+    });
 
     application.document_keys = [...(application.document_keys ?? []), key];
     await this.applications.save(application);

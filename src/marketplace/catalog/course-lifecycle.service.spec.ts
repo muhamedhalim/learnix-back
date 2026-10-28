@@ -179,7 +179,11 @@ describe('CourseLifecycleService — FR-059/FR-060 state machine', () => {
       expect(result.status).toBe(MarketplaceCourseStatus.PUBLISHED);
       expect(result.first_published_at).toBeInstanceOf(Date);
       expect(result.last_published_at).toBeInstanceOf(Date);
-      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1', expect.anything());
+      expect(versions.publishSnapshot).toHaveBeenCalledWith(
+        'course-1',
+        'instr-1',
+        expect.anything(),
+      );
     });
 
     it('publishes atomically: a snapshot failure rejects the publish and emits no event (MP-16)', async () => {
@@ -245,7 +249,11 @@ describe('CourseLifecycleService — FR-059/FR-060 state machine', () => {
       );
       const result = await service.republish('instr-1', 'course-1');
       expect(result.status).toBe(MarketplaceCourseStatus.PUBLISHED);
-      expect(versions.publishSnapshot).toHaveBeenCalledWith('course-1', 'instr-1', expect.anything());
+      expect(versions.publishSnapshot).toHaveBeenCalledWith(
+        'course-1',
+        'instr-1',
+        expect.anything(),
+      );
     });
 
     it('unpublished → draft (reopened for edit)', async () => {

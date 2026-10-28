@@ -109,7 +109,10 @@ describe('public instructor application (no account required)', () => {
   it('does not require a photo from someone who cannot upload one yet, and refuses a URL in its place (MP-10)', async () => {
     const { service, applications } = buildApplicationService();
     await expect(
-      service.submitPublic({ email: 'nour@example.com', phone: '01011111111' }, { ...COMPLETE_FIELDS }),
+      service.submitPublic(
+        { email: 'nour@example.com', phone: '01011111111' },
+        { ...COMPLETE_FIELDS },
+      ),
     ).resolves.toBeDefined();
     expect(applications.save).toHaveBeenCalledTimes(1);
 
@@ -118,7 +121,9 @@ describe('public instructor application (no account required)', () => {
         { email: 'other@example.com', phone: '01022222222' },
         { ...COMPLETE_FIELDS, photo_key: 'https://tracker.example/p.gif' },
       ),
-    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }) });
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
+    });
     expect(applications.save).toHaveBeenCalledTimes(1);
   });
 
@@ -215,14 +220,21 @@ describe('provisioning the account behind an approved public application', () =>
   });
 
   it('returns false, instead of throwing, when the setup email cannot be queued (MP-15)', async () => {
-    const user = { id: 'user-new', email: 'nour@example.com', name: 'Nour Ahmed', preferred_language: null } as never;
+    const user = {
+      id: 'user-new',
+      email: 'nour@example.com',
+      name: 'Nour Ahmed',
+      preferred_language: null,
+    } as never;
 
     const unconfigured = buildAccountService();
     unconfigured.mailService.sendInvitationEmail.mockResolvedValue(false);
     await expect(unconfigured.service.sendAccountSetupLink(user)).resolves.toBe(false);
 
     const broken = buildAccountService();
-    broken.mailService.sendInvitationEmail.mockRejectedValue(new Error('Email could not be queued for delivery.'));
+    broken.mailService.sendInvitationEmail.mockRejectedValue(
+      new Error('Email could not be queued for delivery.'),
+    );
     await expect(broken.service.sendAccountSetupLink(user)).resolves.toBe(false);
 
     const ok = buildAccountService();
@@ -242,14 +254,24 @@ describe('provisioning the account behind an approved public application', () =>
     }
 
     it('sends a fresh link to an account that has no password', async () => {
-      const { service, users, mailService } = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: null });
+      const { service, users, mailService } = withLookup({
+        id: 'u1',
+        email: 'a@example.com',
+        name: 'A',
+        password_hash: null,
+      });
       await expect(service.resendSetupLink('u1')).resolves.toBe('sent');
       expect(users.update).toHaveBeenCalledTimes(1);
       expect(mailService.sendInvitationEmail).toHaveBeenCalledTimes(1);
     });
 
     it('refuses an account that already has a password, and sends nothing', async () => {
-      const { service, users, mailService } = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: '$2b$hash' });
+      const { service, users, mailService } = withLookup({
+        id: 'u1',
+        email: 'a@example.com',
+        name: 'A',
+        password_hash: '$2b$hash',
+      });
       await expect(service.resendSetupLink('u1')).resolves.toBe('has_password');
       expect(users.update).not.toHaveBeenCalled();
       expect(mailService.sendInvitationEmail).not.toHaveBeenCalled();
@@ -257,7 +279,12 @@ describe('provisioning the account behind an approved public application', () =>
 
     it('reports an unknown account, and a failed send', async () => {
       await expect(withLookup(null).service.resendSetupLink('nope')).resolves.toBe('not_found');
-      const failing = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: null });
+      const failing = withLookup({
+        id: 'u1',
+        email: 'a@example.com',
+        name: 'A',
+        password_hash: null,
+      });
       failing.mailService.sendInvitationEmail.mockResolvedValue(false);
       await expect(failing.service.resendSetupLink('u1')).resolves.toBe('failed');
     });
@@ -377,19 +404,27 @@ describe('approving a public application', () => {
 
   it('answers 409 instead of 500 when the matching account already has an open application or is already an instructor (MP-15)', async () => {
     const duplicateOpenApplication = buildApprovalService(applicationRow());
-    duplicateOpenApplication.applicationsRepo.save.mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505' }));
-    await expect(duplicateOpenApplication.service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+    duplicateOpenApplication.applicationsRepo.save.mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key'), { code: '23505' }),
+    );
+    await expect(
+      duplicateOpenApplication.service.approveApplication('app-1', 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
     expect(duplicateOpenApplication.manager.save).not.toHaveBeenCalled();
 
     const alreadyInstructor = buildApprovalService(applicationRow());
     alreadyInstructor.manager.findOne.mockResolvedValueOnce({ id: 'instr-existing' });
-    await expect(alreadyInstructor.service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+    await expect(
+      alreadyInstructor.service.approveApplication('app-1', 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
     expect(alreadyInstructor.manager.save).not.toHaveBeenCalled();
 
     // Any other database error is still an error.
     const other = buildApprovalService(applicationRow());
     other.applicationsRepo.save.mockRejectedValueOnce(new Error('connection lost'));
-    await expect(other.service.approveApplication('app-1', 'admin-1')).rejects.toThrow('connection lost');
+    await expect(other.service.approveApplication('app-1', 'admin-1')).rejects.toThrow(
+      'connection lost',
+    );
   });
 
   it('does not email a setup link to an applicant who already had an account', async () => {

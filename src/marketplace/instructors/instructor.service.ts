@@ -43,7 +43,9 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
  */
 export type AccountSetupEmailOutcome = 'sent' | 'failed' | 'not_needed';
 
-export type ApprovedInstructor = MarketplaceInstructor & { account_setup_email: AccountSetupEmailOutcome };
+export type ApprovedInstructor = MarketplaceInstructor & {
+  account_setup_email: AccountSetupEmailOutcome;
+};
 
 @Injectable()
 export class InstructorService {
@@ -78,81 +80,88 @@ export class InstructorService {
    * a deadlock-retried attempt commit an audit row for a database write
    * that never landed, or the successful retry double it.
    */
-  public async approveApplication(applicationId: string, adminId: string): Promise<ApprovedInstructor> {
+  public async approveApplication(
+    applicationId: string,
+    adminId: string,
+  ): Promise<ApprovedInstructor> {
     const { instructor, application, account, applicantUserId } = await retryTransaction(
       this.dataSource,
       async (manager) => {
-      const application = await this.applicationService.markApprovedWithManager(manager, applicationId, adminId);
+        const application = await this.applicationService.markApprovedWithManager(
+          manager,
+          applicationId,
+          adminId,
+        );
 
-      // A public application carries no platform identity: approval is what
-      // provisions one, in this same transaction so a mid-way failure can
-      // never leave an account without its capability or the reverse. An
-      // applicant who already had an account keeps it untouched.
-      const account =
-        application.user_id === null
-          ? await this.accounts.resolveOrCreateAccount(manager, application)
-          : null;
-      if (account !== null) {
-        application.user_id = account.user.id;
-        try {
-          await manager.getRepository(InstructorApplication).save(application);
-        } catch (error) {
-          // The account found for the applicant's email already has an open application of its own.
-          if ((error as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION) {
-            throw new ConflictException(
-              biBody(
-                'The account with this applicant\'s email already has another open application. Reject this one or resolve the other first.',
-                'الحساب المرتبط ببريد مقدّم الطلب لديه طلب آخر مفتوح. ارفض هذا الطلب أو عالج الآخر أولاً.',
-              ),
-            );
+        // A public application carries no platform identity: approval is what
+        // provisions one, in this same transaction so a mid-way failure can
+        // never leave an account without its capability or the reverse. An
+        // applicant who already had an account keeps it untouched.
+        const account =
+          application.user_id === null
+            ? await this.accounts.resolveOrCreateAccount(manager, application)
+            : null;
+        if (account !== null) {
+          application.user_id = account.user.id;
+          try {
+            await manager.getRepository(InstructorApplication).save(application);
+          } catch (error) {
+            // The account found for the applicant's email already has an open application of its own.
+            if ((error as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION) {
+              throw new ConflictException(
+                biBody(
+                  "The account with this applicant's email already has another open application. Reject this one or resolve the other first.",
+                  'الحساب المرتبط ببريد مقدّم الطلب لديه طلب آخر مفتوح. ارفض هذا الطلب أو عالج الآخر أولاً.',
+                ),
+              );
+            }
+            throw error;
           }
-          throw error;
         }
-      }
 
-      const applicantUserId = application.user_id;
-      if (applicantUserId === null) {
-        throw new ConflictException(
-          biBody('Could not resolve the applicant account', 'تعذّر تحديد حساب مقدّم الطلب'),
-        );
-      }
+        const applicantUserId = application.user_id;
+        if (applicantUserId === null) {
+          throw new ConflictException(
+            biBody('Could not resolve the applicant account', 'تعذّر تحديد حساب مقدّم الطلب'),
+          );
+        }
 
-      // One capability record per person. An applicant who is already an instructor (or whose email
-      // belongs to one) used to hit the unique index and surface as a 500.
-      if (await manager.findOne(MarketplaceInstructor, { where: { user_id: applicantUserId } })) {
-        throw new ConflictException(
-          biBody(
-            'This applicant is already an instructor. Reject this application.',
-            'مقدّم الطلب مدرّب بالفعل. ارفض هذا الطلب.',
-          ),
-        );
-      }
+        // One capability record per person. An applicant who is already an instructor (or whose email
+        // belongs to one) used to hit the unique index and surface as a 500.
+        if (await manager.findOne(MarketplaceInstructor, { where: { user_id: applicantUserId } })) {
+          throw new ConflictException(
+            biBody(
+              'This applicant is already an instructor. Reject this application.',
+              'مقدّم الطلب مدرّب بالفعل. ارفض هذا الطلب.',
+            ),
+          );
+        }
 
-      const instructor = manager.create(MarketplaceInstructor, {
-        user_id: applicantUserId,
-        application_id: application.id,
-        status: MarketplaceInstructorStatus.APPROVED,
-        slug: slugify(application.display_name, 'instructor'),
-        display_name: application.display_name,
-        headline: application.headline,
-        headline_ar: application.headline_ar,
-        bio: application.bio,
-        bio_ar: application.bio_ar,
-        years_of_experience: application.years_of_experience,
-        education: application.education,
-        certifications: application.certifications,
-        work_experience: application.work_experience,
-        specializations: application.specializations,
-        skills: application.skills,
-        teaching_category_ids: application.intended_category_ids,
-        portfolio_items: application.portfolio_items,
-        professional_links: application.professional_links,
-        photo_key: application.photo_key,
-        approved_at: new Date(),
-        approved_by: adminId,
-      });
-      const saved = await manager.save(instructor);
-      return { instructor: saved, application, account, applicantUserId };
+        const instructor = manager.create(MarketplaceInstructor, {
+          user_id: applicantUserId,
+          application_id: application.id,
+          status: MarketplaceInstructorStatus.APPROVED,
+          slug: slugify(application.display_name, 'instructor'),
+          display_name: application.display_name,
+          headline: application.headline,
+          headline_ar: application.headline_ar,
+          bio: application.bio,
+          bio_ar: application.bio_ar,
+          years_of_experience: application.years_of_experience,
+          education: application.education,
+          certifications: application.certifications,
+          work_experience: application.work_experience,
+          specializations: application.specializations,
+          skills: application.skills,
+          teaching_category_ids: application.intended_category_ids,
+          portfolio_items: application.portfolio_items,
+          professional_links: application.professional_links,
+          photo_key: application.photo_key,
+          approved_at: new Date(),
+          approved_by: adminId,
+        });
+        const saved = await manager.save(instructor);
+        return { instructor: saved, application, account, applicantUserId };
       },
     );
 
@@ -171,7 +180,9 @@ export class InstructorService {
     // reported in the result, but never unwinds (or fails) the approval above.
     let accountSetupEmail: AccountSetupEmailOutcome = 'not_needed';
     if (account?.created === true) {
-      accountSetupEmail = (await this.accounts.sendAccountSetupLink(account.user)) ? 'sent' : 'failed';
+      accountSetupEmail = (await this.accounts.sendAccountSetupLink(account.user))
+        ? 'sent'
+        : 'failed';
     }
 
     return Object.assign(instructor, { account_setup_email: accountSetupEmail });
@@ -208,12 +219,18 @@ export class InstructorService {
       );
     }
     await this.activityLogs.recordAuditEvent(
-      new MarketplaceInstructorSetupLinkResentEvent(adminId, instructor.id, { instructorName: instructor.display_name }),
+      new MarketplaceInstructorSetupLinkResentEvent(adminId, instructor.id, {
+        instructorName: instructor.display_name,
+      }),
     );
     return { sent: true };
   }
 
-  public async rejectApplication(applicationId: string, adminId: string, reason: string): Promise<void> {
+  public async rejectApplication(
+    applicationId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<void> {
     const application = await this.applicationService.reject(applicationId, adminId, reason);
     await this.activityLogs.recordAuditEvent(
       new MarketplaceApplicationRejectedEvent(adminId, applicationId, {
@@ -234,7 +251,11 @@ export class InstructorService {
    * belong to other services this method does not call, which is the
    * actual guarantee (not an assertion this method makes about itself).
    */
-  public async suspend(instructorId: string, adminId: string, reason: string): Promise<MarketplaceInstructor> {
+  public async suspend(
+    instructorId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<MarketplaceInstructor> {
     const instructor = await this.getOrThrow(instructorId);
     instructor.status = MarketplaceInstructorStatus.SUSPENDED;
     instructor.suspension_reason = reason;
@@ -269,7 +290,9 @@ export class InstructorService {
     const saved = await this.instructors.save(instructor);
 
     await this.activityLogs.recordAuditEvent(
-      new MarketplaceInstructorReinstatedEvent(adminId, instructorId, { instructorName: instructor.display_name }),
+      new MarketplaceInstructorReinstatedEvent(adminId, instructorId, {
+        instructorName: instructor.display_name,
+      }),
     );
     this.eventEmitter.emit(
       InstructorReinstatedDomainEvent.EVENT_NAME,

@@ -408,14 +408,12 @@ describe('marketplace replay protection (Phase 14, T211)', () => {
       .send({ payout_reference: 'TXN-REPLAY-1' })
       .expect(409);
 
-    const ledgerEntries = await dataSource
-      .getRepository(MarketplaceLedgerEntry)
-      .find({
-        where: {
-          instructor_id: earning.instructor_id,
-          entry_type: MarketplaceLedgerEntryType.PAYOUT,
-        },
-      });
+    const ledgerEntries = await dataSource.getRepository(MarketplaceLedgerEntry).find({
+      where: {
+        instructor_id: earning.instructor_id,
+        entry_type: MarketplaceLedgerEntryType.PAYOUT,
+      },
+    });
     expect(ledgerEntries).toHaveLength(1);
     expect(Number(ledgerEntries[0]!.amount_minor)).toBe(earning.net_amount_minor);
   });

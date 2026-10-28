@@ -50,12 +50,16 @@ function eventClasses(): Array<[string, new (...args: never[]) => object]> {
 
 describe('marketplace domain events (plan.md §7)', () => {
   it('defines every event plan.md §7 lists, each with a marketplace.<domain>.<verb> name', () => {
-    const names = eventClasses().map(([, Ctor]) => (Ctor as unknown as { EVENT_NAME: string }).EVENT_NAME);
+    const names = eventClasses().map(
+      ([, Ctor]) => (Ctor as unknown as { EVENT_NAME: string }).EVENT_NAME,
+    );
     expect(names.sort()).toEqual(EXPECTED_EVENT_NAMES.sort());
   });
 
   it('every EVENT_NAME is unique', () => {
-    const names = eventClasses().map(([, Ctor]) => (Ctor as unknown as { EVENT_NAME: string }).EVENT_NAME);
+    const names = eventClasses().map(
+      ([, Ctor]) => (Ctor as unknown as { EVENT_NAME: string }).EVENT_NAME,
+    );
     expect(new Set(names).size).toBe(names.length);
   });
 
@@ -66,7 +70,13 @@ describe('marketplace domain events (plan.md §7)', () => {
       new DomainEvents.MarketplaceEarningCreatedEvent('earning-1', 'order-1', 'instructor-1'),
       new DomainEvents.MarketplaceEarningClearedEvent('earning-1', 'order-1', 'instructor-1'),
       new DomainEvents.MarketplaceEarningReversedEvent('earning-1', 'order-1', 'instructor-1'),
-      new DomainEvents.MarketplaceRefundCompletedEvent('refund-1', 'order-1', 'learner-1', 'instructor-1', false),
+      new DomainEvents.MarketplaceRefundCompletedEvent(
+        'refund-1',
+        'order-1',
+        'learner-1',
+        'instructor-1',
+        false,
+      ),
     ])('%#: carries orderId and no amount field', (event) => {
       expect((event as unknown as { orderId: string }).orderId).toBe('order-1');
       expect(Object.keys(event)).not.toEqual(
@@ -76,8 +86,20 @@ describe('marketplace domain events (plan.md §7)', () => {
   });
 
   it('MarketplaceEnrollmentGrantedEvent distinguishes a paid sale from a free enrollment (FR-275)', () => {
-    const paid = new DomainEvents.MarketplaceEnrollmentGrantedEvent('enr-1', 'order-1', 'learner-1', 'course-1', false);
-    const free = new DomainEvents.MarketplaceEnrollmentGrantedEvent('enr-2', 'order-2', 'learner-1', 'course-1', true);
+    const paid = new DomainEvents.MarketplaceEnrollmentGrantedEvent(
+      'enr-1',
+      'order-1',
+      'learner-1',
+      'course-1',
+      false,
+    );
+    const free = new DomainEvents.MarketplaceEnrollmentGrantedEvent(
+      'enr-2',
+      'order-2',
+      'learner-1',
+      'course-1',
+      true,
+    );
     expect(paid.isZeroValue).toBe(false);
     expect(free.isZeroValue).toBe(true);
   });

@@ -104,7 +104,9 @@ describe('marketplace — public instructor (no academic role) end to end', () =
   it('provisions an approved instructor with no academic role and no password yet', async () => {
     await applyAndApprove();
 
-    const user = await dataSource.getRepository(User).findOneOrFail({ where: { email: applicantEmail } });
+    const user = await dataSource
+      .getRepository(User)
+      .findOneOrFail({ where: { email: applicantEmail } });
     expect(user.role).toBeNull();
     // `password_hash` is not a default-selected column, so read it directly.
     const [{ password_hash }] = (await dataSource.query(

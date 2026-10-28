@@ -43,16 +43,27 @@ export class CatalogSearchService {
     const courseText = this.foldExpr(
       "coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '') || ' ' || coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '') || ' ' || coalesce(course.description, '') || ' ' || coalesce(course.description_ar, '')",
     );
-    const categoryText = this.foldExpr("coalesce(category.name_en, '') || ' ' || coalesce(category.name_ar, '')");
+    const categoryText = this.foldExpr(
+      "coalesce(category.name_en, '') || ' ' || coalesce(category.name_ar, '')",
+    );
     const instructorText = this.foldExpr("coalesce(instructor.display_name, '')");
 
-    qb.andWhere(`(${courseText} ILIKE :searchLike ESCAPE '\\' OR ${categoryText} ILIKE :searchLike ESCAPE '\\' OR ${instructorText} ILIKE :searchLike ESCAPE '\\')`, {
-      searchLike: like,
-    });
+    qb.andWhere(
+      `(${courseText} ILIKE :searchLike ESCAPE '\\' OR ${categoryText} ILIKE :searchLike ESCAPE '\\' OR ${instructorText} ILIKE :searchLike ESCAPE '\\')`,
+      {
+        searchLike: like,
+      },
+    );
 
-    const titleText = this.foldExpr("coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '')");
-    const summaryText = this.foldExpr("coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '')");
-    const descriptionText = this.foldExpr("coalesce(course.description, '') || ' ' || coalesce(course.description_ar, '')");
+    const titleText = this.foldExpr(
+      "coalesce(course.title, '') || ' ' || coalesce(course.title_ar, '')",
+    );
+    const summaryText = this.foldExpr(
+      "coalesce(course.summary, '') || ' ' || coalesce(course.summary_ar, '')",
+    );
+    const descriptionText = this.foldExpr(
+      "coalesce(course.description, '') || ' ' || coalesce(course.description_ar, '')",
+    );
     qb.addSelect(
       `CASE
         WHEN ${titleText} ILIKE :searchLike ESCAPE '\\' THEN 4

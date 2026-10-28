@@ -28,7 +28,9 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
   afterAll(async () => app.close());
 
   async function seedInstructor(userId: string) {
-    return dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: userId }));
+    return dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: userId }));
   }
 
   async function seedCategory() {
@@ -81,9 +83,18 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
         .expect(201);
     }
 
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`).send({}).expect(201);
-    await opts.adminAgent.post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`).send({}).expect(201);
-    await opts.instructorAgent.post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`).send({}).expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/submit`)
+      .send({})
+      .expect(201);
+    await opts.adminAgent
+      .post(`${API_PREFIX}/marketplace/admin/courses/${courseId}/approve`)
+      .send({})
+      .expect(201);
+    await opts.instructorAgent
+      .post(`${API_PREFIX}/marketplace/instructor/courses/${courseId}/publish`)
+      .send({})
+      .expect(201);
 
     return dataSource.getRepository(MarketplaceCourse).findOneOrFail({ where: { id: courseId } });
   }
@@ -94,8 +105,15 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
     const admin = await createAuthenticatedUser(app, dataSource, { role: 'admin' });
     const learner = await createAuthenticatedUser(app, dataSource);
     const category = await seedCategory();
-    const course = await publishCourse({ instructorAgent: instructorUser.agent, adminAgent: admin.agent, categoryId: category.id });
-    await learner.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+    const course = await publishCourse({
+      instructorAgent: instructorUser.agent,
+      adminAgent: admin.agent,
+      categoryId: category.id,
+    });
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(201);
     return { instructorUser, admin, learner, course };
   }
 
@@ -122,11 +140,15 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       .expect(201);
     expect(created.body).toMatchObject({ rating: 4, comment: 'Pretty good', status: 'approved' });
 
-    const afterCreate = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const afterCreate = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(afterCreate.body.data).toHaveLength(1);
     expect(afterCreate.body.meta.total).toBe(1);
 
-    const detailAfterCreate = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    const detailAfterCreate = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+      .expect(200);
     expect(detailAfterCreate.body.review_count).toBe(1);
     expect(detailAfterCreate.body.average_rating).toBe(4);
 
@@ -135,12 +157,18 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       .send({ rating: 2 })
       .expect(200);
 
-    const detailAfterEdit = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    const detailAfterEdit = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+      .expect(200);
     expect(detailAfterEdit.body.average_rating).toBe(2);
 
-    await learner.agent.delete(`${API_PREFIX}/marketplace/me/reviews/${created.body.id}`).expect(200);
+    await learner.agent
+      .delete(`${API_PREFIX}/marketplace/me/reviews/${created.body.id}`)
+      .expect(200);
 
-    const detailAfterDelete = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    const detailAfterDelete = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+      .expect(200);
     expect(detailAfterDelete.body.review_count).toBe(0);
     expect(detailAfterDelete.body.average_rating).toBe(0);
   });
@@ -150,14 +178,16 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
     const others = [] as Awaited<ReturnType<typeof createAuthenticatedUser>>[];
     for (let i = 0; i < 4; i += 1) {
       const next = await createAuthenticatedUser(app, dataSource);
-      await next.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+      await next.agent
+        .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+        .send({ courseId: course.id })
+        .expect(201);
       others.push(next);
     }
     const ratings = [5, 4, 4, 1, 3];
     const all = [learner, ...others];
     for (let i = 0; i < all.length; i += 1) {
-      await all[i]!.agent
-        .post(`${API_PREFIX}/marketplace/me/reviews`)
+      await all[i]!.agent.post(`${API_PREFIX}/marketplace/me/reviews`)
         .send({ courseId: course.id, rating: ratings[i] })
         .expect(201);
     }
@@ -171,7 +201,9 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       [others[3]!.userId],
     );
 
-    const detail = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    const detail = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+      .expect(200);
     expect(detail.body.review_count).toBe(3);
     expect(detail.body.average_rating).toBe(4.33);
     expect(detail.body.rating_distribution).toEqual({ 1: 0, 2: 0, 3: 0, 4: 2, 5: 1 });
@@ -179,19 +211,29 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
 
   it('refuses a second review for the same course from the same learner (FR-255)', async () => {
     const { learner, course } = await actors();
-    await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
-    const second = await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 1 });
+    const second = await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 1 });
     expect(second.status).toBe(409);
     expect(second.body.code).toBe('REVIEW_ALREADY_EXISTS');
   });
 
   it('lets the owning instructor reply, edit and remove the reply, but refuses another instructor (FR-259)', async () => {
     const { instructorUser, learner, course } = await actors();
-    const created = await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    const created = await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
     const outsiderInstructor = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: outsiderInstructor.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: outsiderInstructor.userId }));
     await outsiderInstructor.agent
       .post(`${API_PREFIX}/marketplace/instructor/reviews/${created.body.id}/reply`)
       .send({ reply: 'Not my course' })
@@ -203,7 +245,9 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       .expect(201);
     expect(replied.body.instructor_reply).toBe('Thanks for the feedback!');
 
-    const publicList = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const publicList = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(publicList.body.data[0].instructor_reply).toBe('Thanks for the feedback!');
 
     const edited = await instructorUser.agent
@@ -212,27 +256,45 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       .expect(200);
     expect(edited.body.instructor_reply).toBe('Edited reply');
 
-    const removed = await instructorUser.agent.delete(`${API_PREFIX}/marketplace/instructor/reviews/${created.body.id}/reply`).expect(200);
+    const removed = await instructorUser.agent
+      .delete(`${API_PREFIX}/marketplace/instructor/reviews/${created.body.id}/reply`)
+      .expect(200);
     expect(removed.body.instructor_reply).toBeNull();
   });
 
   it('lists every review across the instructor’s own courses with a per-course aggregate (FR-266)', async () => {
     const { instructorUser, learner, course } = await actors();
-    await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
-    const mine = await instructorUser.agent.get(`${API_PREFIX}/marketplace/instructor/reviews`).expect(200);
+    const mine = await instructorUser.agent
+      .get(`${API_PREFIX}/marketplace/instructor/reviews`)
+      .expect(200);
     expect(mine.body.data).toHaveLength(1);
-    expect(mine.body.aggregatesByCourse[course.id]).toMatchObject({ averageRating: 5, reviewCount: 1 });
+    expect(mine.body.aggregatesByCourse[course.id]).toMatchObject({
+      averageRating: 5,
+      reviewCount: 1,
+    });
   });
 
   it('reporting does not itself hide the review (FR-260), and moderation (hide) removes it from public surfaces and the aggregate', async () => {
     const { admin, learner, course } = await actors();
-    const created = await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    const created = await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
     const reporter = await createAuthenticatedUser(app, dataSource);
-    await reporter.agent.post(`${API_PREFIX}/marketplace/reviews/${created.body.id}/report`).send({ reason: 'Seems fake' }).expect(201);
+    await reporter.agent
+      .post(`${API_PREFIX}/marketplace/reviews/${created.body.id}/report`)
+      .send({ reason: 'Seems fake' })
+      .expect(201);
 
-    const stillVisible = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const stillVisible = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(stillVisible.body.data).toHaveLength(1);
 
     const queue = await admin.agent.get(`${API_PREFIX}/marketplace/admin/reviews`).expect(200);
@@ -243,15 +305,22 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
       .send({ action: 'hide', reason: 'Under investigation' })
       .expect(201);
 
-    const hidden = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const hidden = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(hidden.body.data).toHaveLength(0);
-    const detail = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}`).expect(200);
+    const detail = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}`)
+      .expect(200);
     expect(detail.body.review_count).toBe(0);
   });
 
   it('requires a reason to hide or remove, but not to approve', async () => {
     const { admin, learner, course } = await actors();
-    const created = await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 3 }).expect(201);
+    const created = await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 3 })
+      .expect(201);
 
     await admin.agent
       .post(`${API_PREFIX}/marketplace/admin/reviews/${created.body.id}/moderate`)
@@ -272,7 +341,10 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
 
   it('withdraws the review when the underlying enrollment is revoked for any reason (FR-263)', async () => {
     const { learner, course } = await actors();
-    const created = await learner.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    const created = await learner.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
     const enrollment = await dataSource
       .getRepository(MarketplaceEnrollment)
@@ -285,10 +357,14 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
     await enrollmentService.revoke(enrollment.id, 'Suspended for cause');
     await waitForListeners();
 
-    const review = await dataSource.getRepository(MarketplaceCourseReview).findOneByOrFail({ id: created.body.id });
+    const review = await dataSource
+      .getRepository(MarketplaceCourseReview)
+      .findOneByOrFail({ id: created.body.id });
     expect(review.withdrawn_at).not.toBeNull();
 
-    const publicList = await learner.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const publicList = await learner.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(publicList.body.data).toHaveLength(0);
   });
 
@@ -296,16 +372,32 @@ describe('marketplace reviews — post, moderate, aggregate (Phase 10)', () => {
     const { course } = await actors();
     const learnerA = await createAuthenticatedUser(app, dataSource);
     const learnerB = await createAuthenticatedUser(app, dataSource);
-    await learnerA.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
-    await learnerB.agent.post(`${API_PREFIX}/marketplace/checkout/enroll-free`).send({ courseId: course.id }).expect(201);
+    await learnerA.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(201);
+    await learnerB.agent
+      .post(`${API_PREFIX}/marketplace/checkout/enroll-free`)
+      .send({ courseId: course.id })
+      .expect(201);
 
-    await learnerA.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 2 }).expect(201);
-    await learnerB.agent.post(`${API_PREFIX}/marketplace/me/reviews`).send({ courseId: course.id, rating: 5 }).expect(201);
+    await learnerA.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 2 })
+      .expect(201);
+    await learnerB.agent
+      .post(`${API_PREFIX}/marketplace/me/reviews`)
+      .send({ courseId: course.id, rating: 5 })
+      .expect(201);
 
-    const byRating = await learnerA.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews?sort=rating`).expect(200);
+    const byRating = await learnerA.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews?sort=rating`)
+      .expect(200);
     expect(byRating.body.data[0].rating).toBe(5);
 
-    const byRecency = await learnerA.agent.get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`).expect(200);
+    const byRecency = await learnerA.agent
+      .get(`${API_PREFIX}/marketplace/courses/${course.slug}/reviews`)
+      .expect(200);
     expect(byRecency.body.data[0].rating).toBe(5); // learnerB reviewed last
   });
 });

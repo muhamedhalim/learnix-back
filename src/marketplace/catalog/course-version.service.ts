@@ -4,7 +4,12 @@ import { EntityManager, Repository } from 'typeorm';
 
 import { biBody } from '../../i18n/error-translator.util';
 import { loadLessonsBySection } from './curriculum.util';
-import { MarketplaceCourse, MarketplaceCourseLesson, MarketplaceCourseSection, MarketplaceCourseVersion } from './entities';
+import {
+  MarketplaceCourse,
+  MarketplaceCourseLesson,
+  MarketplaceCourseSection,
+  MarketplaceCourseVersion,
+} from './entities';
 
 export interface CourseSnapshot {
   title: string;
@@ -82,7 +87,10 @@ export class CourseVersionService {
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
-    const sections = await sectionsRepo.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
+    const sections = await sectionsRepo.find({
+      where: { course_id: courseId },
+      order: { position: 'ASC' },
+    });
     // One statement for every section's lessons, in section order (T071).
     const lessonsBySection = await loadLessonsBySection(lessonsRepo, sections);
 

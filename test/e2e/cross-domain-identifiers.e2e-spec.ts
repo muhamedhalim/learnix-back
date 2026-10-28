@@ -57,7 +57,9 @@ describe('cross-domain identifier rejection (Phase 13, T206)', () => {
 
   it('a marketplace course id at the academic public package-detail route never partially resolves', async () => {
     const instructorUser = await createAuthenticatedUser(app, dataSource);
-    await dataSource.getRepository(MarketplaceInstructor).save(buildInstructorFixture({ user_id: instructorUser.userId }));
+    await dataSource
+      .getRepository(MarketplaceInstructor)
+      .save(buildInstructorFixture({ user_id: instructorUser.userId }));
     const category = await dataSource.getRepository(MarketplaceCategory).save({
       name_en: 'Programming',
       name_ar: 'البرمجة',
@@ -81,9 +83,7 @@ describe('cross-domain identifier rejection (Phase 13, T206)', () => {
       .expect(201);
     const marketplaceCourseId = created.body.id as string;
 
-    await instructorUser.agent
-      .get(`${API_PREFIX}/packages/${marketplaceCourseId}`)
-      .expect(404);
+    await instructorUser.agent.get(`${API_PREFIX}/packages/${marketplaceCourseId}`).expect(404);
   });
 
   it('a marketplace order can never be created for an academic package id passed as courseId', async () => {

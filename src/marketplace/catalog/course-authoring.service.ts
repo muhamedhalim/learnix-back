@@ -7,11 +7,20 @@ import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
 import { MarketplaceEnrollment } from '../commerce/entities';
 import { MarketplaceCourseStatus } from '../common/enums';
-import { courseFreePreviewBoundExceeded, courseHasEnrollments, courseNotEditableWhileUnderReview } from '../common/errors';
+import {
+  courseFreePreviewBoundExceeded,
+  courseHasEnrollments,
+  courseNotEditableWhileUnderReview,
+} from '../common/errors';
 import { CurrencyRegistryService } from '../common/currency-registry.service';
 import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import { slugify } from '../common/utils/slugify.util';
-import type { CreateCourseDto, CreateSectionDto, UpdateCourseDto, UpdateSectionDto } from './dto/course.dto';
+import type {
+  CreateCourseDto,
+  CreateSectionDto,
+  UpdateCourseDto,
+  UpdateSectionDto,
+} from './dto/course.dto';
 import type { CreateLessonDto, UpdateLessonDto } from './dto/lesson.dto';
 import { loadLessonsBySection } from './curriculum.util';
 import {
@@ -70,13 +79,18 @@ export class CourseAuthoringService {
 
   // -------------------------------------------------------------- course
 
-  public async listOwnCourses(instructorId: string, status?: MarketplaceCourseStatus): Promise<OwnCourseListItem[]> {
+  public async listOwnCourses(
+    instructorId: string,
+    status?: MarketplaceCourseStatus,
+  ): Promise<OwnCourseListItem[]> {
     const rows: OwnCourseListItem[] = await this.courses.find({
       where: status ? { instructor_id: instructorId, status } : { instructor_id: instructorId },
       order: { created_at: 'DESC' },
     });
     // The ids come from this instructor's own rows only, so no other tenant's decisions can be read.
-    const rejectedIds = rows.filter((course) => course.status === MarketplaceCourseStatus.REJECTED).map((course) => course.id);
+    const rejectedIds = rows
+      .filter((course) => course.status === MarketplaceCourseStatus.REJECTED)
+      .map((course) => course.id);
     if (rejectedIds.length === 0) return rows;
 
     // One row per rejected course: the latest decision, whatever its `decision` value (what the
@@ -103,12 +117,17 @@ export class CourseAuthoringService {
   }
 
   /** FR-282: every course, any state, any instructor — admin-only, not scoped by `instructorId`. */
-  public async listAllCourses(status?: MarketplaceCourseStatus, pendingEdit?: boolean): Promise<MarketplaceCourse[]> {
+  public async listAllCourses(
+    status?: MarketplaceCourseStatus,
+    pendingEdit?: boolean,
+  ): Promise<MarketplaceCourse[]> {
     return this.courses.find({
       where: {
         ...(status ? { status } : {}),
         // FR-071: published courses whose material edit still awaits a decision.
-        ...(pendingEdit ? { status: MarketplaceCourseStatus.PUBLISHED, pending_review_since: Not(IsNull()) } : {}),
+        ...(pendingEdit
+          ? { status: MarketplaceCourseStatus.PUBLISHED, pending_review_since: Not(IsNull()) }
+          : {}),
       },
       // Waiting-time ordering — the same role `updated_at` plays for `IDX_mp_courses_review_queue`.
       order: { updated_at: 'ASC' },
@@ -124,17 +143,26 @@ export class CourseAuthoringService {
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
-    const sections = await this.sections.find({ where: { course_id: courseId }, order: { position: 'ASC' } });
+    const sections = await this.sections.find({
+      where: { course_id: courseId },
+      order: { position: 'ASC' },
+    });
     // One statement for every section's lessons, grouped back into section order (T071).
     const lessonsBySection = await loadLessonsBySection(this.lessons, sections);
     return {
       course,
-      sections: sections.map((section, index) => ({ ...section, lessons: lessonsBySection[index]! })),
+      sections: sections.map((section, index) => ({
+        ...section,
+        lessons: lessonsBySection[index]!,
+      })),
     };
   }
 
   /** FR-041: only an approved, non-suspended instructor may create — enforced by `ApprovedInstructorGuard`, not here. */
-  public async createCourse(instructorId: string, dto: CreateCourseDto): Promise<MarketplaceCourse> {
+  public async createCourse(
+    instructorId: string,
+    dto: CreateCourseDto,
+  ): Promise<MarketplaceCourse> {
     await this.assertSellable(dto.currency, dto.price_minor);
     assertMarketplaceImageKey(dto.cover_image_key);
     const course = this.courses.create({
@@ -146,7 +174,9 @@ export class CourseAuthoringService {
       summary: this.sanitization.sanitizeStrict(dto.summary),
       summary_ar: dto.summary_ar != null ? this.sanitization.sanitizeStrict(dto.summary_ar) : null,
       description: this.sanitization.sanitizeBasic(dto.description),
-      description_ar: dto.description_ar ? this.sanitization.sanitizeBasic(dto.description_ar) : null,
+      description_ar: dto.description_ar
+        ? this.sanitization.sanitizeBasic(dto.description_ar)
+        : null,
       level: dto.level,
       language: dto.language,
       price_minor: dto.price_minor,
@@ -162,7 +192,11 @@ export class CourseAuthoringService {
     return this.courses.save(course);
   }
 
-  public async updateCourse(instructorId: string, courseId: string, dto: UpdateCourseDto): Promise<MarketplaceCourse> {
+  public async updateCourse(
+    instructorId: string,
+    courseId: string,
+    dto: UpdateCourseDto,
+  ): Promise<MarketplaceCourse> {
     return (await this.applyCourseUpdate(instructorId, courseId, dto)).course;
   }
 
@@ -172,7 +206,11 @@ export class CourseAuthoringService {
    * instructor changed; classifying the edit (FR-070 – FR-072) from the keys made every save of a
    * published course "material" and left it waiting for a review that never ended.
    */
-  public async applyCourseUpdate(instructorId: string, courseId: string, dto: UpdateCourseDto): Promise<CourseUpdateResult> {
+  public async applyCourseUpdate(
+    instructorId: string,
+    courseId: string,
+    dto: UpdateCourseDto,
+  ): Promise<CourseUpdateResult> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
 
@@ -198,7 +236,8 @@ export class CourseAuthoringService {
     if (dto.learning_outcomes !== undefined) proposed.learning_outcomes = dto.learning_outcomes;
     if (dto.prerequisites !== undefined) proposed.prerequisites = dto.prerequisites;
     if (dto.target_audience !== undefined) proposed.target_audience = dto.target_audience;
-    if (dto.certificate_enabled !== undefined) proposed.certificate_enabled = dto.certificate_enabled;
+    if (dto.certificate_enabled !== undefined)
+      proposed.certificate_enabled = dto.certificate_enabled;
 
     assertMarketplaceImageKey(dto.cover_image_key, course.cover_image_key);
 
@@ -249,7 +288,11 @@ export class CourseAuthoringService {
 
   // ------------------------------------------------------------ section
 
-  public async createSection(instructorId: string, courseId: string, dto: CreateSectionDto): Promise<MarketplaceCourseSection> {
+  public async createSection(
+    instructorId: string,
+    courseId: string,
+    dto: CreateSectionDto,
+  ): Promise<MarketplaceCourseSection> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
 
@@ -274,11 +317,16 @@ export class CourseAuthoringService {
     const section = await this.getOwnedSectionOrThrow(course.id, sectionId);
 
     if (dto.title !== undefined) section.title = this.sanitization.sanitizeStrict(dto.title);
-    if (dto.title_ar !== undefined) section.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
+    if (dto.title_ar !== undefined)
+      section.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
     return this.sections.save(section);
   }
 
-  public async deleteSection(instructorId: string, courseId: string, sectionId: string): Promise<void> {
+  public async deleteSection(
+    instructorId: string,
+    courseId: string,
+    sectionId: string,
+  ): Promise<void> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
     const section = await this.getOwnedSectionOrThrow(course.id, sectionId);
@@ -291,14 +339,28 @@ export class CourseAuthoringService {
     await this.recomputeDerivedTotals(course.id);
   }
 
-  public async reorderSections(instructorId: string, courseId: string, orderedIds: string[]): Promise<void> {
+  public async reorderSections(
+    instructorId: string,
+    courseId: string,
+    orderedIds: string[],
+  ): Promise<void> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
     const existing = await this.sections.find({ where: { course_id: course.id } });
-    this.assertSameIdSet(existing.map((s) => s.id), orderedIds, 'section');
+    this.assertSameIdSet(
+      existing.map((s) => s.id),
+      orderedIds,
+      'section',
+    );
 
     await this.sections.manager.transaction(async (manager) =>
-      this.renumberPositions(manager, 'marketplace_course_sections', 'course_id', course.id, orderedIds),
+      this.renumberPositions(
+        manager,
+        'marketplace_course_sections',
+        'course_id',
+        course.id,
+        orderedIds,
+      ),
     );
   }
 
@@ -355,13 +417,16 @@ export class CourseAuthoringService {
     }
 
     if (dto.title !== undefined) lesson.title = this.sanitization.sanitizeStrict(dto.title);
-    if (dto.title_ar !== undefined) lesson.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
+    if (dto.title_ar !== undefined)
+      lesson.title_ar = this.sanitization.sanitizeStrict(dto.title_ar);
     if (dto.content_type !== undefined) lesson.content_type = dto.content_type;
     if (dto.video_id !== undefined) lesson.video_id = dto.video_id;
-    if (dto.content_html !== undefined) lesson.content_html = this.sanitization.sanitizeBasic(dto.content_html);
+    if (dto.content_html !== undefined)
+      lesson.content_html = this.sanitization.sanitizeBasic(dto.content_html);
     if (dto.duration_seconds !== undefined) lesson.duration_seconds = dto.duration_seconds;
     if (dto.is_free_preview !== undefined) lesson.is_free_preview = dto.is_free_preview;
-    if (dto.is_required_for_completion !== undefined) lesson.is_required_for_completion = dto.is_required_for_completion;
+    if (dto.is_required_for_completion !== undefined)
+      lesson.is_required_for_completion = dto.is_required_for_completion;
 
     const saved = await this.lessons.save(lesson);
     if (dto.duration_seconds !== undefined) {
@@ -370,7 +435,11 @@ export class CourseAuthoringService {
     return saved;
   }
 
-  public async deleteLesson(instructorId: string, courseId: string, lessonId: string): Promise<void> {
+  public async deleteLesson(
+    instructorId: string,
+    courseId: string,
+    lessonId: string,
+  ): Promise<void> {
     const course = await this.getOwnedCourseOrThrow(instructorId, courseId);
     this.assertEditable(course);
     const lesson = await this.getOwnedLessonInCourseOrThrow(course.id, lessonId);
@@ -392,24 +461,42 @@ export class CourseAuthoringService {
     this.assertEditable(course);
     const section = await this.getOwnedSectionOrThrow(course.id, sectionId);
     const existing = await this.lessons.find({ where: { section_id: section.id } });
-    this.assertSameIdSet(existing.map((l) => l.id), orderedIds, 'lesson');
+    this.assertSameIdSet(
+      existing.map((l) => l.id),
+      orderedIds,
+      'lesson',
+    );
 
     await this.lessons.manager.transaction(async (manager) =>
-      this.renumberPositions(manager, 'marketplace_course_lessons', 'section_id', section.id, orderedIds),
+      this.renumberPositions(
+        manager,
+        'marketplace_course_lessons',
+        'section_id',
+        section.id,
+        orderedIds,
+      ),
     );
   }
 
   // -------------------------------------------------------------- utils
 
-  private async getOwnedCourseOrThrow(instructorId: string, courseId: string): Promise<MarketplaceCourse> {
-    const course = await this.courses.findOne({ where: { id: courseId, instructor_id: instructorId } });
+  private async getOwnedCourseOrThrow(
+    instructorId: string,
+    courseId: string,
+  ): Promise<MarketplaceCourse> {
+    const course = await this.courses.findOne({
+      where: { id: courseId, instructor_id: instructorId },
+    });
     if (!course) {
       throw new NotFoundException(biBody('Course not found', 'الدورة غير موجودة'));
     }
     return course;
   }
 
-  private async getOwnedSectionOrThrow(courseId: string, sectionId: string): Promise<MarketplaceCourseSection> {
+  private async getOwnedSectionOrThrow(
+    courseId: string,
+    sectionId: string,
+  ): Promise<MarketplaceCourseSection> {
     const section = await this.sections.findOne({ where: { id: sectionId, course_id: courseId } });
     if (!section) {
       throw new NotFoundException(biBody('Section not found', 'القسم غير موجود'));
@@ -418,7 +505,10 @@ export class CourseAuthoringService {
   }
 
   /** Finds a lesson by id, verifying (via its section) that it belongs to the given course — used by the flat `.../lessons/:lessonId` routes, which don't carry a section id. */
-  private async getOwnedLessonInCourseOrThrow(courseId: string, lessonId: string): Promise<MarketplaceCourseLesson> {
+  private async getOwnedLessonInCourseOrThrow(
+    courseId: string,
+    lessonId: string,
+  ): Promise<MarketplaceCourseLesson> {
     const lesson = await this.lessons
       .createQueryBuilder('l')
       .innerJoin(MarketplaceCourseSection, 's', 's.id = l.section_id')
@@ -447,9 +537,15 @@ export class CourseAuthoringService {
       .addSelect('COALESCE(SUM(l.duration_seconds), 0)', 'totalDuration')
       .where('s.course_id = :courseId', { courseId })
       .getRawOne<{ count: string; totalDuration: string }>()
-      .then((row) => ({ count: Number(row?.count ?? 0), totalDuration: Number(row?.totalDuration ?? 0) }));
+      .then((row) => ({
+        count: Number(row?.count ?? 0),
+        totalDuration: Number(row?.totalDuration ?? 0),
+      }));
 
-    await this.courses.update({ id: courseId }, { lesson_count: count, total_duration_seconds: totalDuration });
+    await this.courses.update(
+      { id: courseId },
+      { lesson_count: count, total_duration_seconds: totalDuration },
+    );
   }
 
   private async countLessonsInCourse(courseId: string): Promise<number> {
@@ -467,7 +563,10 @@ export class CourseAuthoringService {
    * lesson on a create, or the course's current total (unchanged) on an
    * update, since the lesson being flagged already exists there.
    */
-  private async assertFreePreviewBound(courseId: string, totalLessonsAfterChange: number): Promise<void> {
+  private async assertFreePreviewBound(
+    courseId: string,
+    totalLessonsAfterChange: number,
+  ): Promise<void> {
     const config = getMarketplaceConfig();
     const currentPreviews = await this.lessons
       .createQueryBuilder('l')
@@ -546,15 +645,26 @@ export class CourseAuthoringService {
     );
   }
 
-  private assertSameIdSet(existingIds: string[], orderedIds: string[], kind: 'section' | 'lesson'): void {
+  private assertSameIdSet(
+    existingIds: string[],
+    orderedIds: string[],
+    kind: 'section' | 'lesson',
+  ): void {
     const existingSet = new Set(existingIds);
     const orderedSet = new Set(orderedIds);
-    const matches = existingSet.size === orderedSet.size && [...existingSet].every((id) => orderedSet.has(id));
+    const matches =
+      existingSet.size === orderedSet.size && [...existingSet].every((id) => orderedSet.has(id));
     if (!matches) {
       const message =
         kind === 'section'
-          ? biBody('The reorder list must contain exactly the course’s existing sections', 'يجب أن تحتوي قائمة إعادة الترتيب على أقسام الدورة الحالية بالضبط')
-          : biBody('The reorder list must contain exactly the section’s existing lessons', 'يجب أن تحتوي قائمة إعادة الترتيب على دروس القسم الحالية بالضبط');
+          ? biBody(
+              'The reorder list must contain exactly the course’s existing sections',
+              'يجب أن تحتوي قائمة إعادة الترتيب على أقسام الدورة الحالية بالضبط',
+            )
+          : biBody(
+              'The reorder list must contain exactly the section’s existing lessons',
+              'يجب أن تحتوي قائمة إعادة الترتيب على دروس القسم الحالية بالضبط',
+            );
       throw new NotFoundException(message);
     }
   }

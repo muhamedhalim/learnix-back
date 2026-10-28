@@ -12,7 +12,9 @@ function buildOrder(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function buildService(opts: { dailyCount?: number; settleOutcome?: string; coursePriceMinor?: number | null } = {}) {
+function buildService(
+  opts: { dailyCount?: number; settleOutcome?: string; coursePriceMinor?: number | null } = {},
+) {
   const order = buildOrder();
   const orders = {
     createOrder: jest.fn().mockResolvedValue(order),
@@ -23,7 +25,9 @@ function buildService(opts: { dailyCount?: number; settleOutcome?: string; cours
   const priceMinor = 'coursePriceMinor' in opts ? opts.coursePriceMinor : 0;
   const queryBuilder = {
     andWhere: jest.fn().mockReturnThis(),
-    getOne: jest.fn().mockResolvedValue(priceMinor === null ? null : { id: 'course-1', price_minor: priceMinor }),
+    getOne: jest
+      .fn()
+      .mockResolvedValue(priceMinor === null ? null : { id: 'course-1', price_minor: priceMinor }),
   };
   const catalogQuery = { baseVisibleQuery: jest.fn().mockReturnValue(queryBuilder) };
   const dataSource = {
@@ -34,7 +38,13 @@ function buildService(opts: { dailyCount?: number; settleOutcome?: string; cours
     findOneOrFail: jest.fn().mockResolvedValue({ ...order, status: MarketplaceOrderStatus.PAID }),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
-  const service = new FreeEnrollmentService(orders as never, settlement as never, catalogQuery as never, dataSource as never, ordersRepo as never);
+  const service = new FreeEnrollmentService(
+    orders as never,
+    settlement as never,
+    catalogQuery as never,
+    dataSource as never,
+    ordersRepo as never,
+  );
   return { service, orders, settlement, ordersRepo, catalogQuery };
 }
 
@@ -44,7 +54,12 @@ describe('FreeEnrollmentService (T111, T115)', () => {
 
     const result = await service.enrollFree('learner-1', 'course-1');
 
-    expect(orders.createOrder).toHaveBeenCalledWith('learner-1', 'course-1', MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true });
+    expect(orders.createOrder).toHaveBeenCalledWith(
+      'learner-1',
+      'course-1',
+      MarketplaceOrderStatus.AWAITING_PAYMENT,
+      { allowFree: true },
+    );
     expect(settlement.settleFree).toHaveBeenCalledWith('order-1', expect.anything());
     expect(result.status).toBe(MarketplaceOrderStatus.PAID);
   });

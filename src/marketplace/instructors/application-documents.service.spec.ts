@@ -23,7 +23,9 @@ function buildService(row: InstructorApplication | null): {
       if (!row) return null;
       const where = options?.where;
       if (Array.isArray(where)) {
-        return where.some((condition: { status?: string }) => condition.status === row.status) ? row : null;
+        return where.some((condition: { status?: string }) => condition.status === row.status)
+          ? row
+          : null;
       }
       return row;
     }),
@@ -31,7 +33,9 @@ function buildService(row: InstructorApplication | null): {
     save: jest.fn(async (entity: InstructorApplication) => entity),
   };
   const storage = {
-    uploadPrivate: jest.fn().mockResolvedValue({ url: '', path: 'k', size: 100, visibility: 'private' }),
+    uploadPrivate: jest
+      .fn()
+      .mockResolvedValue({ url: '', path: 'k', size: 100, visibility: 'private' }),
     getSignedUrl: jest.fn(async (path: string, authorize: () => Promise<boolean> | boolean) => {
       const ok = await authorize();
       if (!ok) throw new Error('forbidden');
@@ -39,7 +43,11 @@ function buildService(row: InstructorApplication | null): {
     }),
   } as unknown as jest.Mocked<MarketplaceStorageService>;
 
-  return { service: new ApplicationDocumentsService(applications as never, storage), storage, applications };
+  return {
+    service: new ApplicationDocumentsService(applications as never, storage),
+    storage,
+    applications,
+  };
 }
 
 const validInput = { buffer: Buffer.from('x'), contentType: 'application/pdf', size: 1000 };
@@ -66,13 +74,17 @@ describe('ApplicationDocumentsService', () => {
     });
 
     it('answers 404 when the user has no application and 403 when none is editable', async () => {
-      await expect(buildService(null).service.upload('user-1', validInput)).rejects.toMatchObject({ status: 404 });
+      await expect(buildService(null).service.upload('user-1', validInput)).rejects.toMatchObject({
+        status: 404,
+      });
       const { service } = buildService(buildApplication({ status: 'submitted' } as never));
       await expect(service.upload('user-1', validInput)).rejects.toMatchObject({ status: 403 });
     });
 
     it('looks for the newest draft or rejected application, not just any row of the user', async () => {
-      const { service, applications } = buildService(buildApplication({ status: 'rejected' } as never));
+      const { service, applications } = buildService(
+        buildApplication({ status: 'rejected' } as never),
+      );
       await service.upload('user-1', validInput);
       expect(applications.findOne).toHaveBeenCalledWith({
         where: [
@@ -105,29 +117,39 @@ describe('ApplicationDocumentsService', () => {
 
     it('accepts a valid image document', async () => {
       const { service } = buildService(buildApplication());
-      await expect(service.upload('user-1', { ...validInput, contentType: 'image/png' })).resolves.toBeDefined();
+      await expect(
+        service.upload('user-1', { ...validInput, contentType: 'image/png' }),
+      ).resolves.toBeDefined();
     });
   });
 
   describe('getSignedDocumentUrl', () => {
     it('authorizes the applicant themselves', async () => {
       const { service } = buildService(buildApplication({ document_keys: ['k1'] } as never));
-      await expect(service.getSignedDocumentUrl('app-1', 'k1', 'user-1', false)).resolves.toContain('https://signed');
+      await expect(service.getSignedDocumentUrl('app-1', 'k1', 'user-1', false)).resolves.toContain(
+        'https://signed',
+      );
     });
 
     it('authorizes a reviewing administrator', async () => {
       const { service } = buildService(buildApplication({ document_keys: ['k1'] } as never));
-      await expect(service.getSignedDocumentUrl('app-1', 'k1', 'some-admin', true)).resolves.toContain('https://signed');
+      await expect(
+        service.getSignedDocumentUrl('app-1', 'k1', 'some-admin', true),
+      ).resolves.toContain('https://signed');
     });
 
     it('refuses a third party who is neither the applicant nor an admin', async () => {
       const { service } = buildService(buildApplication({ document_keys: ['k1'] } as never));
-      await expect(service.getSignedDocumentUrl('app-1', 'k1', 'stranger', false)).rejects.toThrow();
+      await expect(
+        service.getSignedDocumentUrl('app-1', 'k1', 'stranger', false),
+      ).rejects.toThrow();
     });
 
     it('refuses a key that is not actually attached to the application, even for the applicant', async () => {
       const { service } = buildService(buildApplication({ document_keys: ['k1'] } as never));
-      await expect(service.getSignedDocumentUrl('app-1', 'not-a-real-key', 'user-1', false)).rejects.toThrow();
+      await expect(
+        service.getSignedDocumentUrl('app-1', 'not-a-real-key', 'user-1', false),
+      ).rejects.toThrow();
     });
   });
 });

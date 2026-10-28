@@ -28,7 +28,10 @@ function buildRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function buildDataSource(manager: { getRepository?: jest.Mock }, eligible: ReturnType<typeof buildEarning>[]) {
+function buildDataSource(
+  manager: { getRepository?: jest.Mock },
+  eligible: ReturnType<typeof buildEarning>[],
+) {
   const earningsQb = {
     setLock: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
@@ -49,7 +52,13 @@ describe('PayoutRequestService (T167, T168)', () => {
   let payoutAccountsRepo: { findOne: jest.Mock };
   let currencyRegistry: { resolve: jest.Mock };
   let earningsService: { lockForPayout: jest.Mock; releaseToAvailable: jest.Mock };
-  let manager: { create: jest.Mock; save: jest.Mock; find: jest.Mock; findOne: jest.Mock; getRepository?: jest.Mock };
+  let manager: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+    findOne: jest.Mock;
+    getRepository?: jest.Mock;
+  };
   let eventEmitter: { emit: jest.Mock };
   let service: PayoutRequestService;
 
@@ -60,7 +69,10 @@ describe('PayoutRequestService (T167, T168)', () => {
     earningsService = { lockForPayout: jest.fn(), releaseToAvailable: jest.fn() };
     manager = {
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
-      save: jest.fn(async (_entity: unknown, data: Record<string, unknown>) => ({ id: 'request-1', ...data })),
+      save: jest.fn(async (_entity: unknown, data: Record<string, unknown>) => ({
+        id: 'request-1',
+        ...data,
+      })),
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
     };
@@ -80,7 +92,11 @@ describe('PayoutRequestService (T167, T168)', () => {
       const existing = buildRequest();
       payoutRequestsRepo.findOne.mockResolvedValue(existing);
 
-      const result = await service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1');
+      const result = await service.createRequest(
+        'instructor-1',
+        { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+        'idem-1',
+      );
 
       expect(result).toBe(existing);
       expect(payoutAccountsRepo.findOne).not.toHaveBeenCalled();
@@ -91,7 +107,11 @@ describe('PayoutRequestService (T167, T168)', () => {
       payoutAccountsRepo.findOne.mockResolvedValue(null);
 
       await expect(
-        service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1'),
+        service.createRequest(
+          'instructor-1',
+          { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+          'idem-1',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -100,8 +120,14 @@ describe('PayoutRequestService (T167, T168)', () => {
       payoutAccountsRepo.findOne.mockResolvedValue({ id: 'account-1', currency: 'USD' });
 
       await expect(
-        service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1'),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PAYOUT_ACCOUNT_CURRENCY_MISMATCH' }) });
+        service.createRequest(
+          'instructor-1',
+          { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+          'idem-1',
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PAYOUT_ACCOUNT_CURRENCY_MISMATCH' }),
+      });
     });
 
     it('refuses an amount below the currency minimum payout', async () => {
@@ -110,36 +136,82 @@ describe('PayoutRequestService (T167, T168)', () => {
       currencyRegistry.resolve.mockResolvedValue({ min_payout_minor: 10000 });
 
       await expect(
-        service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1'),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PAYOUT_BELOW_MINIMUM' }) });
+        service.createRequest(
+          'instructor-1',
+          { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+          'idem-1',
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PAYOUT_BELOW_MINIMUM' }),
+      });
     });
 
     it('refuses when available earnings cannot cover the requested minimum', async () => {
       payoutRequestsRepo.findOne.mockResolvedValue(null);
       payoutAccountsRepo.findOne.mockResolvedValue({ id: 'account-1', currency: 'EGP' });
       const dataSource = buildDataSource(manager, [buildEarning({ net_amount_minor: 1000 })]);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
 
       await expect(
-        service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1'),
-      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PAYOUT_INSUFFICIENT_BALANCE' }) });
+        service.createRequest(
+          'instructor-1',
+          { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+          'idem-1',
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'PAYOUT_INSUFFICIENT_BALANCE' }),
+      });
       expect(earningsService.lockForPayout).not.toHaveBeenCalled();
     });
 
     it('covers earnings oldest-first and sets amount_minor to the real cumulative sum, not the requested minimum', async () => {
       payoutRequestsRepo.findOne.mockResolvedValue(null);
       payoutAccountsRepo.findOne.mockResolvedValue({ id: 'account-1', currency: 'EGP' });
-      const older = buildEarning({ id: 'earning-older', net_amount_minor: 3000, available_at: new Date('2026-01-01T00:00:00.000Z') });
-      const newer = buildEarning({ id: 'earning-newer', net_amount_minor: 3000, available_at: new Date('2026-01-02T00:00:00.000Z') });
+      const older = buildEarning({
+        id: 'earning-older',
+        net_amount_minor: 3000,
+        available_at: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      const newer = buildEarning({
+        id: 'earning-newer',
+        net_amount_minor: 3000,
+        available_at: new Date('2026-01-02T00:00:00.000Z'),
+      });
       const dataSource = buildDataSource(manager, [older, newer]);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
 
-      const result = await service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1');
+      const result = await service.createRequest(
+        'instructor-1',
+        { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+        'idem-1',
+      );
 
       // 3000 alone doesn't cover 5000, so both earnings are pulled — real total is 6000, not 5000.
       expect(result.amount_minor).toBe(6000);
-      expect(earningsService.lockForPayout).toHaveBeenCalledWith(manager, 'earning-older', 'request-1');
-      expect(earningsService.lockForPayout).toHaveBeenCalledWith(manager, 'earning-newer', 'request-1');
+      expect(earningsService.lockForPayout).toHaveBeenCalledWith(
+        manager,
+        'earning-older',
+        'request-1',
+      );
+      expect(earningsService.lockForPayout).toHaveBeenCalledWith(
+        manager,
+        'earning-newer',
+        'request-1',
+      );
       expect(earningsService.lockForPayout).toHaveBeenCalledTimes(2);
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         'marketplace.payout.requested',
@@ -147,10 +219,16 @@ describe('PayoutRequestService (T167, T168)', () => {
       );
     });
 
-    it('never replays another instructor\'s request that happens to share the key (MP-18)', async () => {
-      payoutRequestsRepo.findOne.mockResolvedValueOnce(buildRequest({ instructor_id: 'instructor-2' }));
+    it("never replays another instructor's request that happens to share the key (MP-18)", async () => {
+      payoutRequestsRepo.findOne.mockResolvedValueOnce(
+        buildRequest({ instructor_id: 'instructor-2' }),
+      );
       await expect(
-        service.createRequest('instructor-1', { payoutAccountId: 'account-1', currency: 'EGP', amountMinor: 5000 }, 'idem-1'),
+        service.createRequest(
+          'instructor-1',
+          { payoutAccountId: 'account-1', currency: 'EGP', amountMinor: 5000 },
+          'idem-1',
+        ),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(payoutAccountsRepo.findOne).not.toHaveBeenCalled();
     });
@@ -159,12 +237,23 @@ describe('PayoutRequestService (T167, T168)', () => {
       payoutRequestsRepo.findOne.mockResolvedValue(null);
       payoutAccountsRepo.findOne.mockResolvedValue({ id: 'account-1', currency: 'EGP' });
       const dataSource = buildDataSource(manager, [buildEarning({ net_amount_minor: 6000 })]);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
       const raced = buildRequest({ id: 'raced-request' });
       manager.save.mockRejectedValueOnce({ code: '23505' });
       manager.findOne.mockResolvedValueOnce(raced);
 
-      const result = await service.createRequest('instructor-1', { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' }, 'idem-1');
+      const result = await service.createRequest(
+        'instructor-1',
+        { payoutAccountId: 'account-1', amountMinor: 5000, currency: 'EGP' },
+        'idem-1',
+      );
 
       expect(result).toBe(raced);
       expect(earningsService.lockForPayout).not.toHaveBeenCalled();
@@ -174,7 +263,14 @@ describe('PayoutRequestService (T167, T168)', () => {
   describe('cancel', () => {
     it('404s a request that does not belong to the caller', async () => {
       const dataSource = buildDataSource(manager, []);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
       manager.findOne.mockResolvedValue(null);
 
       await expect(service.cancel('instructor-1', 'request-1')).rejects.toThrow(NotFoundException);
@@ -182,9 +278,19 @@ describe('PayoutRequestService (T167, T168)', () => {
 
     it('cancels a REQUESTED request and releases its locked earnings', async () => {
       const dataSource = buildDataSource(manager, []);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
       manager.findOne.mockResolvedValue(buildRequest());
-      manager.find.mockResolvedValue([buildEarning({ id: 'earning-1' }), buildEarning({ id: 'earning-2' })]);
+      manager.find.mockResolvedValue([
+        buildEarning({ id: 'earning-1' }),
+        buildEarning({ id: 'earning-2' }),
+      ]);
 
       const result = await service.cancel('instructor-1', 'request-1');
 
@@ -195,7 +301,14 @@ describe('PayoutRequestService (T167, T168)', () => {
 
     it('refuses to cancel a request that already left REQUESTED', async () => {
       const dataSource = buildDataSource(manager, []);
-      service = new PayoutRequestService(payoutRequestsRepo as never, payoutAccountsRepo as never, currencyRegistry as never, earningsService as never, dataSource as never, eventEmitter as never);
+      service = new PayoutRequestService(
+        payoutRequestsRepo as never,
+        payoutAccountsRepo as never,
+        currencyRegistry as never,
+        earningsService as never,
+        dataSource as never,
+        eventEmitter as never,
+      );
       manager.findOne.mockResolvedValue(buildRequest({ status: PayoutRequestStatus.PAID }));
 
       await expect(service.cancel('instructor-1', 'request-1')).rejects.toThrow(ConflictException);
@@ -227,7 +340,9 @@ describe('PayoutRequestService (T167, T168)', () => {
         const result = await service.transition(manager as never, request as never, to);
         expect(result.status).toBe(to);
       } else {
-        await expect(service.transition(manager as never, request as never, to)).rejects.toThrow(ConflictException);
+        await expect(service.transition(manager as never, request as never, to)).rejects.toThrow(
+          ConflictException,
+        );
       }
     });
   });
@@ -235,7 +350,9 @@ describe('PayoutRequestService (T167, T168)', () => {
   describe('getOwnedOrThrow', () => {
     it('404s when the request row is absent', async () => {
       manager.findOne.mockResolvedValue(null);
-      await expect(service.getOwnedOrThrow(manager as never, 'request-1')).rejects.toThrow(NotFoundException);
+      await expect(service.getOwnedOrThrow(manager as never, 'request-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });
