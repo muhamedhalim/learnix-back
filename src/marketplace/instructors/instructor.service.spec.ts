@@ -59,7 +59,8 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
   } as unknown as jest.Mocked<ActivityLogsService>;
   const accounts = {
     resolveOrCreateAccount: jest.fn(),
-    sendAccountSetupLink: jest.fn().mockResolvedValue(undefined),
+    sendAccountSetupLink: jest.fn().mockResolvedValue(true),
+    resendSetupLink: jest.fn(),
     findByEmailOrPhone: jest.fn().mockResolvedValue(null),
   } as unknown as jest.Mocked<InstructorAccountService>;
   const eventEmitter = { emit: jest.fn() } as unknown as jest.Mocked<EventEmitter2>;
@@ -67,6 +68,8 @@ function buildService(instructorRow: MarketplaceInstructor | null, applicationRo
     save: jest.fn(async (entity: InstructorApplication) => entity),
   };
   const manager = {
+    // "Does this applicant already hold the capability?" — no, unless a test says otherwise.
+    findOne: jest.fn().mockResolvedValue(null),
     create: jest.fn((_entity: unknown, data: Partial<MarketplaceInstructor>) => data as MarketplaceInstructor),
     save: jest.fn(async (entity: MarketplaceInstructor) => ({ ...entity, id: 'instr-new' })),
     getRepository: jest.fn(() => applications),
@@ -126,11 +129,60 @@ describe('InstructorService', () => {
       expect(accounts.sendAccountSetupLink).not.toHaveBeenCalled();
     });
 
+    it('reports that no account email was needed for an applicant who already had an account', async () => {
+      const { service } = buildService(null, buildApplication());
+      const result = await service.approveApplication('app-1', 'admin-1');
+      expect(result.account_setup_email).toBe('not_needed');
+    });
+
+    it('answers 409, writes nothing and raises no event when the applicant already is an instructor', async () => {
+      const { service, manager, activityLogs, eventEmitter } = buildService(null, buildApplication());
+      manager.findOne.mockResolvedValueOnce({ id: 'instr-existing', user_id: 'user-1' });
+
+      await expect(service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+
+      expect(manager.save).not.toHaveBeenCalled();
+      expect(activityLogs.recordAuditEvent).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+
     it('generates a slug from the display name', async () => {
       const { service, manager } = buildService(null, buildApplication({ display_name: 'Nour Ahmed' }));
       await service.approveApplication('app-1', 'admin-1');
       const created = manager.create.mock.calls[0]?.[1] as { slug: string };
       expect(created.slug).toMatch(/^nour-ahmed-[0-9a-f]{6}$/);
+    });
+  });
+
+  describe('resendSetupLink (MP-15)', () => {
+    it('re-sends the link to an instructor with no password and audits who asked', async () => {
+      const { service, instructors, accounts, activityLogs } = buildService(buildInstructor({ user_id: 'user-9' }), null);
+      (accounts.resendSetupLink as jest.Mock).mockResolvedValue('sent');
+
+      await expect(service.resendSetupLink('instr-1', 'admin-1')).resolves.toEqual({ sent: true });
+
+      expect(instructors.findOne).toHaveBeenCalledWith({ where: { id: 'instr-1' } });
+      expect(accounts.resendSetupLink).toHaveBeenCalledWith('user-9');
+      expect(activityLogs.recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ adminId: 'admin-1', action: 'marketplace_instructor_setup_link_resent', targetId: 'instr-1' }),
+      );
+    });
+
+    it.each([
+      ['has_password', 409],
+      ['not_found', 404],
+      ['failed', 503],
+    ])('answers %s with %i and records nothing', async (outcome, status) => {
+      const { service, accounts, activityLogs } = buildService(buildInstructor(), null);
+      (accounts.resendSetupLink as jest.Mock).mockResolvedValue(outcome);
+      await expect(service.resendSetupLink('instr-1', 'admin-1')).rejects.toMatchObject({ status });
+      expect(activityLogs.recordAuditEvent).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 for an unknown instructor without touching the account', async () => {
+      const { service, accounts } = buildService(null, null);
+      await expect(service.resendSetupLink('missing', 'admin-1')).rejects.toMatchObject({ status: 404 });
+      expect(accounts.resendSetupLink).not.toHaveBeenCalled();
     });
   });
 

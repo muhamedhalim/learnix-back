@@ -214,6 +214,55 @@ describe('provisioning the account behind an approved public application', () =>
     expect(users.save).not.toHaveBeenCalled();
   });
 
+  it('returns false, instead of throwing, when the setup email cannot be queued (MP-15)', async () => {
+    const user = { id: 'user-new', email: 'nour@example.com', name: 'Nour Ahmed', preferred_language: null } as never;
+
+    const unconfigured = buildAccountService();
+    unconfigured.mailService.sendInvitationEmail.mockResolvedValue(false);
+    await expect(unconfigured.service.sendAccountSetupLink(user)).resolves.toBe(false);
+
+    const broken = buildAccountService();
+    broken.mailService.sendInvitationEmail.mockRejectedValue(new Error('Email could not be queued for delivery.'));
+    await expect(broken.service.sendAccountSetupLink(user)).resolves.toBe(false);
+
+    const ok = buildAccountService();
+    await expect(ok.service.sendAccountSetupLink(user)).resolves.toBe(true);
+  });
+
+  describe('resendSetupLink', () => {
+    function withLookup(user: unknown) {
+      const built = buildAccountService();
+      const qb = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(user),
+      };
+      (built.users as Record<string, unknown>)['createQueryBuilder'] = jest.fn(() => qb);
+      return { ...built, qb };
+    }
+
+    it('sends a fresh link to an account that has no password', async () => {
+      const { service, users, mailService } = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: null });
+      await expect(service.resendSetupLink('u1')).resolves.toBe('sent');
+      expect(users.update).toHaveBeenCalledTimes(1);
+      expect(mailService.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses an account that already has a password, and sends nothing', async () => {
+      const { service, users, mailService } = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: '$2b$hash' });
+      await expect(service.resendSetupLink('u1')).resolves.toBe('has_password');
+      expect(users.update).not.toHaveBeenCalled();
+      expect(mailService.sendInvitationEmail).not.toHaveBeenCalled();
+    });
+
+    it('reports an unknown account, and a failed send', async () => {
+      await expect(withLookup(null).service.resendSetupLink('nope')).resolves.toBe('not_found');
+      const failing = withLookup({ id: 'u1', email: 'a@example.com', name: 'A', password_hash: null });
+      failing.mailService.sendInvitationEmail.mockResolvedValue(false);
+      await expect(failing.service.resendSetupLink('u1')).resolves.toBe('failed');
+    });
+  });
+
   it('issues a setup link through the existing reset-password machinery', async () => {
     const { service, users, mailService } = buildAccountService();
 
@@ -246,7 +295,7 @@ describe('approving a public application', () => {
     const provisioned = { id: 'user-new', email: 'nour@example.com', name: 'Nour Ahmed' };
     const accounts = {
       resolveOrCreateAccount: jest.fn().mockResolvedValue({ user: provisioned, created: true }),
-      sendAccountSetupLink: jest.fn().mockResolvedValue(undefined),
+      sendAccountSetupLink: jest.fn().mockResolvedValue(true),
       findByEmailOrPhone: jest.fn(),
     } as unknown as jest.Mocked<InstructorAccountService>;
     const activityLogs = {
@@ -255,6 +304,7 @@ describe('approving a public application', () => {
     const eventEmitter = { emit: jest.fn() } as unknown as jest.Mocked<EventEmitter2>;
     const applicationsRepo = { save: jest.fn(async (row: unknown) => row) };
     const manager = {
+      findOne: jest.fn().mockResolvedValue(null),
       create: jest.fn((_entity: unknown, data: Partial<MarketplaceInstructor>) => data),
       save: jest.fn(async (entity: Partial<MarketplaceInstructor>) => ({
         ...entity,
@@ -306,6 +356,40 @@ describe('approving a public application', () => {
     );
     // Only a brand-new account needs to choose a password.
     expect(accounts.sendAccountSetupLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports whether the setup email went out, and never fails the approval when it did not (MP-15)', async () => {
+    const sent = buildApprovalService(applicationRow());
+    await expect(sent.service.approveApplication('app-1', 'admin-1')).resolves.toMatchObject({
+      account_setup_email: 'sent',
+    });
+
+    const notSent = buildApprovalService(applicationRow());
+    (notSent.accounts.sendAccountSetupLink as jest.Mock).mockResolvedValue(false);
+    const result = await notSent.service.approveApplication('app-1', 'admin-1');
+    // The capability is granted and the approval event raised; the administrator is told to resend.
+    expect(result).toMatchObject({ id: 'instr-new', account_setup_email: 'failed' });
+    expect(notSent.eventEmitter.emit).toHaveBeenCalledWith(
+      'marketplace.application.approved',
+      expect.objectContaining({ applicantUserId: 'user-new' }),
+    );
+  });
+
+  it('answers 409 instead of 500 when the matching account already has an open application or is already an instructor (MP-15)', async () => {
+    const duplicateOpenApplication = buildApprovalService(applicationRow());
+    duplicateOpenApplication.applicationsRepo.save.mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505' }));
+    await expect(duplicateOpenApplication.service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+    expect(duplicateOpenApplication.manager.save).not.toHaveBeenCalled();
+
+    const alreadyInstructor = buildApprovalService(applicationRow());
+    alreadyInstructor.manager.findOne.mockResolvedValueOnce({ id: 'instr-existing' });
+    await expect(alreadyInstructor.service.approveApplication('app-1', 'admin-1')).rejects.toMatchObject({ status: 409 });
+    expect(alreadyInstructor.manager.save).not.toHaveBeenCalled();
+
+    // Any other database error is still an error.
+    const other = buildApprovalService(applicationRow());
+    other.applicationsRepo.save.mockRejectedValueOnce(new Error('connection lost'));
+    await expect(other.service.approveApplication('app-1', 'admin-1')).rejects.toThrow('connection lost');
   });
 
   it('does not email a setup link to an applicant who already had an account', async () => {
