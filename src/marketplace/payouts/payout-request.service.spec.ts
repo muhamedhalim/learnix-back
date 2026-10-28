@@ -147,6 +147,14 @@ describe('PayoutRequestService (T167, T168)', () => {
       );
     });
 
+    it('never replays another instructor\'s request that happens to share the key (MP-18)', async () => {
+      payoutRequestsRepo.findOne.mockResolvedValueOnce(buildRequest({ instructor_id: 'instructor-2' }));
+      await expect(
+        service.createRequest('instructor-1', { payoutAccountId: 'account-1', currency: 'EGP', amountMinor: 5000 }, 'idem-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(payoutAccountsRepo.findOne).not.toHaveBeenCalled();
+    });
+
     it('returns the raced-in row when a concurrent request wins the idempotency-key insert', async () => {
       payoutRequestsRepo.findOne.mockResolvedValue(null);
       payoutAccountsRepo.findOne.mockResolvedValue({ id: 'account-1', currency: 'EGP' });

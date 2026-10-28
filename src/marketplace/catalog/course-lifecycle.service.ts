@@ -134,8 +134,11 @@ export class CourseLifecycleService {
     const now = new Date();
     if (!course.first_published_at) course.first_published_at = now;
     course.last_published_at = now;
-    const saved = await this.courses.save(course);
-    const version = await this.versions.publishSnapshot(courseId, instructorId);
+    // MP-16: status flip and first snapshot commit together, never a published course with no version.
+    const { saved, version } = await this.courses.manager.transaction(async (manager) => ({
+      saved: await manager.save(MarketplaceCourse, course),
+      version: await this.versions.publishSnapshot(courseId, instructorId, manager),
+    }));
     this.eventEmitter.emit(
       CoursePublishedDomainEvent.EVENT_NAME,
       new CoursePublishedDomainEvent(courseId, instructorId, version.id),
@@ -189,8 +192,10 @@ export class CourseLifecycleService {
     );
     course.status = MarketplaceCourseStatus.PUBLISHED;
     course.last_published_at = new Date();
-    const saved = await this.courses.save(course);
-    const version = await this.versions.publishSnapshot(courseId, instructorId);
+    const { saved, version } = await this.courses.manager.transaction(async (manager) => ({
+      saved: await manager.save(MarketplaceCourse, course),
+      version: await this.versions.publishSnapshot(courseId, instructorId, manager),
+    }));
     this.eventEmitter.emit(
       CoursePublishedDomainEvent.EVENT_NAME,
       new CoursePublishedDomainEvent(courseId, instructorId, version.id),

@@ -36,9 +36,19 @@ export class FreeEnrollmentService {
     await this.assertDailyCapNotExceeded(learnerId);
     await this.assertCourseIsFree(courseId);
 
-    const order = await this.orders.createOrder(learnerId, courseId);
+    const order = await this.orders.createOrder(learnerId, courseId, MarketplaceOrderStatus.AWAITING_PAYMENT, { allowFree: true });
 
-    await retryTransaction(this.dataSource, (manager) => this.settlement.settleFree(order.id, manager));
+    try {
+      await retryTransaction(this.dataSource, (manager) => this.settlement.settleFree(order.id, manager));
+    } catch (error) {
+      // MP-17: the order and its settlement are separate transactions; a failed settlement must not
+      // leave an `awaiting_payment` zero-value order that answers 409 to every later attempt.
+      await this.ordersRepo.update(
+        { id: order.id, status: MarketplaceOrderStatus.AWAITING_PAYMENT },
+        { status: MarketplaceOrderStatus.CANCELLED },
+      );
+      throw error;
+    }
 
     return this.ordersRepo.findOneOrFail({ where: { id: order.id } });
   }

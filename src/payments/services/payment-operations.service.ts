@@ -913,6 +913,13 @@ export class PaymentOperationsService {
     let published = 0;
     for (const event of pending) {
       try {
+        // MP-12: with the marketplace switched off nothing listens for these, and `emitAsync` would
+        // resolve with no handler and mark a captured payment "published" without ever enrolling the
+        // learner. Keep it queued (no attempt consumed) so it settles once the module is enabled.
+        if (event.event_name.startsWith('payment.marketplace_') && this.eventEmitter.listenerCount(event.event_name) === 0) {
+          await this.deferOutboxEvent(event.id, event.lease_token!);
+          continue;
+        }
         await this.eventEmitter.emitAsync(event.event_name, event.payload);
         await this.events.update(
           { id: event.id, status: 'processing', lease_token: event.lease_token! },
@@ -979,6 +986,25 @@ export class PaymentOperationsService {
       }
       return candidates.filter((event) => event.status === 'processing');
     });
+  }
+
+  /** Hands a claimed event back unpublished, without counting the claim as an attempt. */
+  private async deferOutboxEvent(eventId: string, leaseToken: string): Promise<void> {
+    await this.events
+      .createQueryBuilder()
+      .update(PaymentDomainEvent)
+      .set({
+        status: 'pending',
+        attempts: () => 'GREATEST(attempts - 1, 0)',
+        last_error: 'Deferred: no listener registered (marketplace module disabled)',
+        lease_token: null,
+        claimed_by: null,
+        claimed_at: null,
+        lease_expires_at: null,
+        next_retry_at: new Date(Date.now() + 5 * 60_000),
+      })
+      .where('id = :id AND status = :status AND lease_token = :leaseToken', { id: eventId, status: 'processing', leaseToken })
+      .execute();
   }
 
   private async failOutboxEvent(eventId: string, leaseToken: string, error: string): Promise<void> {
