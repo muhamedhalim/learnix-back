@@ -18,6 +18,7 @@ import { GetUser } from '../../../common/decorators/get-user.decorator';
 import type { JwtPayload } from '../../../common/interfaces/user-request.interface';
 import { FinancePermissions } from '../../../payments/decorators/finance-permissions.decorator';
 import { FinancePermissionsGuard } from '../../../payments/guards/finance-permissions.guard';
+import { CompleteManualRefundDto } from '../dto/complete-manual-refund.dto';
 import { DiscretionaryRefundDto } from '../dto/discretionary-refund.dto';
 import { AdminRefundQueueQueryDto } from '../dto/refund-queue-query.dto';
 import { MarketplaceRefundRequest } from '../entities';
@@ -87,5 +88,24 @@ export class AdminRefundController {
   @ApiOperation({ summary: 'Retry a refund stuck FAILED after a provider outage' })
   public async retry(@Param('id', ParseUUIDPipe) id: string): Promise<MarketplaceRefundRequest> {
     return this.refundProcessing.process(id);
+  }
+
+  /**
+   * D1 — EasyKash has no refund API. The administrator pays the learner back (gateway dashboard, bank
+   * transfer, wallet) and records the reference here; only then are access, certificate, review and
+   * the instructor's earning reversed. Same write set as a gateway refund, plus an `audit_logs` row.
+   */
+  @Post(':id/complete-manually')
+  @InvalidatesCache(['marketplace_catalog', 'admin_dashboard', 'platform_report'])
+  @FinancePermissions('marketplace.refunds.process')
+  @ApiOperation({
+    summary: 'Record a refund paid back outside the gateway API and complete it; reference mandatory',
+  })
+  public async completeManually(
+    @GetUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteManualRefundDto,
+  ): Promise<MarketplaceRefundRequest> {
+    return this.refundProcessing.completeManually(user.userId, id, dto.refundReference);
   }
 }

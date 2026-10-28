@@ -7,6 +7,7 @@ import { NotificationType } from '../../notifications/entities/notification-type
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { MarketplaceOrder } from '../commerce/entities';
 import {
+  MarketplaceRefundAwaitingPayoutEvent,
   MarketplaceRefundCompletedEvent,
   MarketplaceRefundFailedEvent,
   MarketplaceRefundRefusedEvent,
@@ -109,6 +110,15 @@ export class RefundNotificationListener {
         `Failed to notify instructor of refund completion for order ${event.orderId}: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
     }
+  }
+
+  @OnEvent(MarketplaceRefundAwaitingPayoutEvent.EVENT_NAME)
+  public async handleAwaitingPayout(event: MarketplaceRefundAwaitingPayoutEvent): Promise<void> {
+    await this.safeNotifyLearner(event.orderId, undefined, async (order) => ({
+      title: 'Refund approved',
+      message: `Your refund for "${order.course_title_snapshot}" was approved. It is paid back by hand, which can take a few business days; we'll let you know as soon as it has been sent.`,
+      data: { order_id: event.orderId, refund_request_id: event.refundRequestId },
+    }));
   }
 
   @OnEvent(MarketplaceRefundFailedEvent.EVENT_NAME)

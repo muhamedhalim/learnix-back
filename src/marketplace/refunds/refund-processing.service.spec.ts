@@ -16,12 +16,13 @@ import {
 } from '../common/enums';
 import { InstructorEarning } from '../earnings/entities/instructor-earning.entity';
 import {
+  MarketplaceRefundAwaitingPayoutEvent,
   MarketplaceRefundCompletedEvent,
   MarketplaceRefundFailedEvent,
 } from '../events/domain.events';
 import { MarketplaceCourseReview } from '../reviews/entities/marketplace-course-review.entity';
 import { MarketplaceRefundRequest } from './entities';
-import { RefundProcessingService } from './refund-processing.service';
+import { MANUAL_REFUND_REQUIRED, RefundProcessingService } from './refund-processing.service';
 
 function defaultRefundRequest(
   overrides: Partial<MarketplaceRefundRequest> = {},
@@ -114,6 +115,10 @@ interface ManagerState {
   earning: InstructorEarning | null;
   /** Another COMPLETED request for the same order, returned to the `id: Not(...)` sibling lookup only. */
   completedSibling?: MarketplaceRefundRequest | null;
+  /** The payment behind the order, read through the manager by `completeManually`. */
+  payment?: Payment | null;
+  /** Another request that already used the refund reference, returned to the `refund_reference` lookup only. */
+  referenceHolder?: MarketplaceRefundRequest | null;
 }
 
 function buildManager(state: ManagerState) {
@@ -132,10 +137,14 @@ function buildManager(state: ManagerState) {
     [Certificate, 'certificate'],
     [MarketplaceCourseReview, 'review'],
     [InstructorEarning, 'earning'],
+    [Payment, 'payment'],
   ]);
 
   const manager = {
-    findOne: jest.fn(async (entity: new () => unknown, options?: { where?: { id?: unknown } }) => {
+    findOne: jest.fn(async (entity: new () => unknown, options?: { where?: { id?: unknown; refund_reference?: unknown } }) => {
+      if (entity === MarketplaceRefundRequest && options?.where?.refund_reference !== undefined) {
+        return state.referenceHolder ?? null;
+      }
       if (entity === MarketplaceRefundRequest && options?.where?.id instanceof FindOperator) {
         return state.completedSibling ?? null;
       }
@@ -182,6 +191,10 @@ function buildLedger() {
   };
 }
 
+function buildActivityLogs() {
+  return { recordAuditEvent: jest.fn().mockResolvedValue(undefined) };
+}
+
 function buildBalance() {
   return { recordShortfall: jest.fn().mockResolvedValue(undefined) };
 }
@@ -224,6 +237,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
       balance as never,
       providers as never,
       eventEmitter,
+      buildActivityLogs() as never,
     );
     const result = await service.process('refund-1');
 
@@ -281,6 +295,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
       buildBalance() as never,
       providers as never,
       new EventEmitter2(),
+      buildActivityLogs() as never,
     );
 
     await service.process('refund-1');
@@ -311,6 +326,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
       balance as never,
       providers as never,
       new EventEmitter2(),
+      buildActivityLogs() as never,
     );
 
     await service.process('refund-1');
@@ -349,6 +365,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
 
       const result = await service.process('refund-1');
@@ -378,6 +395,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
 
       await expect(service.process('refund-1')).rejects.toThrow(ConflictException);
@@ -401,6 +419,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildProviders(async () => ({ status: 'succeeded', providerReference: 'x' }))
           .providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
 
       await expect(service.process('refund-1')).rejects.toThrow(ConflictException);
@@ -432,6 +451,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         eventEmitter,
+        buildActivityLogs() as never,
       );
       const result = await service.process('refund-1');
 
@@ -470,6 +490,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
       const result = await service.process('refund-1');
 
@@ -499,6 +520,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
       const result = await service.process('refund-1');
 
@@ -531,6 +553,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
         buildBalance() as never,
         providers as never,
         new EventEmitter2(),
+        buildActivityLogs() as never,
       );
       const result = await service.process('refund-1');
 
@@ -555,6 +578,7 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
           manager,
           defaultOrder({ status: MarketplaceOrderStatus.REFUNDED }),
           defaultPayment(),
+        buildActivityLogs() as never,
         ) as never,
         ledger as never,
         buildBalance() as never,
@@ -611,6 +635,211 @@ describe('RefundProcessingService (T136, T137, T138)', () => {
       expect(provider.refund).not.toHaveBeenCalled();
       expect(result.status).toBe(RefundRequestStatus.FAILED);
       expect(result.failure_reason).toMatch(/already refunded/);
+    });
+  });
+
+  describe('gateway without a refund API (D1)', () => {
+    function setup(overrides: { supportsRefunds: boolean }) {
+      const { manager, state } = buildManager({
+        refundRequest: defaultRefundRequest({ status: RefundRequestStatus.APPROVED }),
+        order: defaultOrder(),
+        enrollment: defaultEnrollment(),
+        certificate: { status: CertificateStatus.ISSUED, is_public: true },
+        review: { withdrawn_at: null },
+        earning: defaultEarning(),
+        payment: defaultPayment(),
+      });
+      const dataSource = buildDataSource(manager, defaultOrder(), defaultPayment());
+      const ledger = buildLedger();
+      const eventEmitter = new EventEmitter2();
+      const awaiting: unknown[] = [];
+      const failed: unknown[] = [];
+      eventEmitter.on(MarketplaceRefundAwaitingPayoutEvent.EVENT_NAME, (e: unknown) => awaiting.push(e));
+      eventEmitter.on(MarketplaceRefundFailedEvent.EVENT_NAME, (e: unknown) => failed.push(e));
+      const { providers, provider } = buildProviders(async () => ({ status: 'succeeded', providerReference: 'x' }));
+      provider.supportsRefunds.mockReturnValue(overrides.supportsRefunds);
+      const activityLogs = buildActivityLogs();
+      const service = new RefundProcessingService(
+        dataSource as never,
+        ledger as never,
+        buildBalance() as never,
+        providers as never,
+        eventEmitter,
+        activityLogs as never,
+      );
+      return { service, state, manager, ledger, provider, awaiting, failed, activityLogs };
+    }
+
+    it('parks the request approved and waiting, instead of failing it, and tells the learner it is on its way', async () => {
+      const { service, state, provider, awaiting, failed, ledger } = setup({ supportsRefunds: false });
+
+      const result = await service.process('refund-1');
+
+      expect(provider.refund).not.toHaveBeenCalled();
+      expect(result.status).toBe(RefundRequestStatus.APPROVED);
+      expect(result.failure_reason).toBe(MANUAL_REFUND_REQUIRED);
+      expect(failed).toHaveLength(0);
+      expect(awaiting).toHaveLength(1);
+      // Nothing is reversed while the money has not moved.
+      expect((state.order as MarketplaceOrder).status).toBe(MarketplaceOrderStatus.PAID);
+      expect((state.enrollment as MarketplaceEnrollment).status).toBe(MarketplaceEnrollmentStatus.ACTIVE);
+      expect((state.earning as InstructorEarning).status).toBe(InstructorEarningStatus.PENDING_EARNINGS);
+      expect(ledger.calls).toHaveLength(0);
+    });
+
+    it('tells the learner once, however often the request is processed again', async () => {
+      const { service, awaiting } = setup({ supportsRefunds: false });
+      await service.process('refund-1');
+      await service.process('refund-1');
+      expect(awaiting).toHaveLength(1);
+    });
+
+    it('still sends a refund to a gateway that can do it by API', async () => {
+      const { service, provider, awaiting } = setup({ supportsRefunds: true });
+      await service.process('refund-1');
+      expect(provider.refund).toHaveBeenCalledTimes(1);
+      expect(awaiting).toHaveLength(0);
+    });
+  });
+
+  describe('completeManually (D1)', () => {
+    function setup(
+      options: {
+        request?: Partial<MarketplaceRefundRequest>;
+        order?: Partial<MarketplaceOrder>;
+        payment?: Payment | null;
+        supportsRefunds?: boolean;
+        completedSibling?: MarketplaceRefundRequest | null;
+        referenceHolder?: MarketplaceRefundRequest | null;
+        earning?: InstructorEarning;
+      } = {},
+    ) {
+      const { manager, state } = buildManager({
+        refundRequest: defaultRefundRequest({
+          status: RefundRequestStatus.APPROVED,
+          failure_reason: MANUAL_REFUND_REQUIRED,
+          ...options.request,
+        }),
+        order: defaultOrder(options.order),
+        enrollment: defaultEnrollment(),
+        certificate: { status: CertificateStatus.ISSUED, is_public: true },
+        review: { withdrawn_at: null },
+        earning: options.earning ?? defaultEarning(),
+        payment: options.payment === undefined ? defaultPayment() : options.payment,
+        completedSibling: options.completedSibling ?? null,
+        referenceHolder: options.referenceHolder ?? null,
+      });
+      const dataSource = buildDataSource(manager, defaultOrder(), defaultPayment());
+      const ledger = buildLedger();
+      const balance = buildBalance();
+      const eventEmitter = new EventEmitter2();
+      const completed: unknown[] = [];
+      eventEmitter.on(MarketplaceRefundCompletedEvent.EVENT_NAME, (e: unknown) => completed.push(e));
+      const { providers, provider } = buildProviders(async () => ({ status: 'succeeded', providerReference: 'x' }));
+      provider.supportsRefunds.mockReturnValue(options.supportsRefunds ?? false);
+      const activityLogs = buildActivityLogs();
+      const service = new RefundProcessingService(
+        dataSource as never,
+        ledger as never,
+        balance as never,
+        providers as never,
+        eventEmitter,
+        activityLogs as never,
+      );
+      return { service, state, ledger, balance, provider, completed, activityLogs };
+    }
+
+    it('reverses access, certificate, review and earning once the payout is recorded, and audits who did it', async () => {
+      const { service, state, ledger, provider, completed, activityLogs } = setup();
+
+      const result = await service.completeManually('admin-1', 'refund-1', 'BANK-TRANSFER-8841');
+
+      expect(provider.refund).not.toHaveBeenCalled();
+      expect(result.status).toBe(RefundRequestStatus.COMPLETED);
+      expect(result.refund_reference).toBe('BANK-TRANSFER-8841');
+      expect(result.failure_reason).toBeNull();
+      expect((state.order as MarketplaceOrder).status).toBe(MarketplaceOrderStatus.REFUNDED);
+      expect((state.enrollment as MarketplaceEnrollment).status).toBe(MarketplaceEnrollmentStatus.REVOKED);
+      expect((state.certificate as Record<string, unknown>).status).toBe(CertificateStatus.REVOKED);
+      expect((state.review as Record<string, unknown>).withdrawn_at).not.toBeNull();
+      expect((state.earning as InstructorEarning).status).toBe(InstructorEarningStatus.REVERSED);
+      expect(ledger.calls).toHaveLength(2);
+      expect(completed).toHaveLength(1);
+      expect(activityLogs.recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adminId: 'admin-1',
+          action: 'marketplace_refund_manually_completed',
+          targetId: 'refund-1',
+          details: expect.objectContaining({ refundReference: 'BANK-TRANSFER-8841', amountMinor: 5000, currency: 'EGP' }),
+        }),
+      );
+    });
+
+    it('also completes a request that had been marked FAILED', async () => {
+      const { service } = setup({ request: { status: RefundRequestStatus.FAILED, failure_reason: 'old provider error' } });
+      const result = await service.completeManually('admin-1', 'refund-1', 'REF-1');
+      expect(result.status).toBe(RefundRequestStatus.COMPLETED);
+      expect(result.failure_reason).toBeNull();
+    });
+
+    it('requires a reference', async () => {
+      const { service, state } = setup();
+      await expect(service.completeManually('admin-1', 'refund-1', '   ')).rejects.toMatchObject({ status: 400 });
+      expect((state.order as MarketplaceOrder).status).toBe(MarketplaceOrderStatus.PAID);
+    });
+
+    it('is idempotent for the same reference and refuses a different one on a completed refund', async () => {
+      const { service, activityLogs, ledger } = setup({
+        request: { status: RefundRequestStatus.COMPLETED, refund_reference: 'REF-1', failure_reason: null },
+      });
+      const again = await service.completeManually('admin-1', 'refund-1', 'REF-1');
+      expect(again.status).toBe(RefundRequestStatus.COMPLETED);
+      expect(activityLogs.recordAuditEvent).not.toHaveBeenCalled();
+      expect(ledger.calls).toHaveLength(0);
+      await expect(service.completeManually('admin-1', 'refund-1', 'REF-2')).rejects.toMatchObject({ status: 409 });
+    });
+
+    it.each([
+      ['processing', RefundRequestStatus.PROCESSING],
+      ['requested', RefundRequestStatus.REQUESTED],
+      ['rejected', RefundRequestStatus.REJECTED],
+    ])('refuses a request that is %s', async (_label, status) => {
+      const { service, state } = setup({ request: { status } });
+      await expect(service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+      expect((state.order as MarketplaceOrder).status).toBe(MarketplaceOrderStatus.PAID);
+    });
+
+    it('refuses when the gateway can refund through its API, so it cannot be used to skip a real refund', async () => {
+      const { service, state } = setup({ supportsRefunds: true });
+      await expect(service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+      expect((state.enrollment as MarketplaceEnrollment).status).toBe(MarketplaceEnrollmentStatus.ACTIVE);
+    });
+
+    it('refuses an order with no payment behind it', async () => {
+      const { service } = setup({ payment: null });
+      await expect(service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+    });
+
+    it('never refunds an order twice: not when it is already refunded, nor when another request completed', async () => {
+      const refunded = setup({ order: { status: MarketplaceOrderStatus.REFUNDED } });
+      await expect(refunded.service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+      const sibling = setup({ completedSibling: defaultRefundRequest({ id: 'refund-0', status: RefundRequestStatus.COMPLETED }) });
+      await expect(sibling.service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+      expect(sibling.ledger.calls).toHaveLength(0);
+    });
+
+    it('does not let one payout reference close two refunds', async () => {
+      const { service, ledger } = setup({
+        referenceHolder: defaultRefundRequest({ id: 'refund-9', status: RefundRequestStatus.COMPLETED, refund_reference: 'REF-1' }),
+      });
+      await expect(service.completeManually('admin-1', 'refund-1', 'REF-1')).rejects.toMatchObject({ status: 409 });
+      expect(ledger.calls).toHaveLength(0);
+    });
+
+    it('records the shortfall in full when the earning had already been paid out', async () => {
+      const { service, balance } = setup({ earning: defaultEarning({ status: InstructorEarningStatus.PAID_OUT }) });
+      await service.completeManually('admin-1', 'refund-1', 'REF-1');
+      expect(balance.recordShortfall).toHaveBeenCalledWith(expect.anything(), 'instructor-1', 3500, 'EGP', 'refund-1');
     });
   });
 });
