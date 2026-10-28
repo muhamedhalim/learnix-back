@@ -80,6 +80,21 @@ describe('InstructorProfileService', () => {
       ]);
     });
 
+    it('accepts a photo only as an uploaded key, or as the value already stored or already queued (MP-10)', async () => {
+      const stored = buildInstructor({ photo_key: 'https://legacy.example/p.jpg' } as never);
+      const { service } = buildService(stored);
+      await expect(service.updateProfile('user-1', { photo_key: 'https://tracker.example/p.gif' } as never)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
+      });
+      // Unchanged legacy value: fine.
+      await expect(service.updateProfile('user-1', { photo_key: 'https://legacy.example/p.jpg' } as never)).resolves.toBeDefined();
+      // A real upload is queued for review like any other public-profile change.
+      const uploaded = await service.updateProfile('user-1', { photo_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' } as never);
+      expect(uploaded.pending_profile_changes).toEqual([expect.objectContaining({ field: 'photo_key', proposed_value: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' })]);
+      // Saving again with the queued key is not an error.
+      await expect(service.updateProfile('user-1', { photo_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' } as never)).resolves.toBeDefined();
+    });
+
     it('queues nothing when a whole untouched form is saved, with empty strings for the null optional fields', async () => {
       const instructor = buildInstructor({
         display_name: 'Nour',

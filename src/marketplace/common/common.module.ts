@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { StorageModule } from '../../storage/storage.module';
+import { MarketplaceImageService } from './marketplace-image.service';
 import { MarketplaceStorageService } from './marketplace-storage.service';
 
 /**
@@ -11,7 +12,7 @@ import { MarketplaceStorageService } from './marketplace-storage.service';
  */
 @Module({
   imports: [StorageModule],
-  providers: [MarketplaceStorageService],
-  exports: [MarketplaceStorageService],
+  providers: [MarketplaceStorageService, MarketplaceImageService],
+  exports: [MarketplaceStorageService, MarketplaceImageService],
 })
 export class MarketplaceCommonModule {}

@@ -12,6 +12,7 @@ import { ApplicationDocumentsService } from './application-documents.service';
 import { AdminApplicationsController } from './controllers/admin-applications.controller';
 import { ApplicationsController } from './controllers/applications.controller';
 import { InstructorProfileController } from './controllers/instructor-profile.controller';
+import { InstructorUploadsController } from './controllers/instructor-uploads.controller';
 import { PublicInstructorController } from './controllers/public-instructor.controller';
 import { PublicApplicationsController } from './controllers/public-applications.controller';
 import { InstructorApplication, MarketplaceInstructor } from './entities';
@@ -43,6 +44,7 @@ import { PublicInstructorProfileService } from './public-instructor-profile.serv
     AdminApplicationsController,
     PublicInstructorController,
     InstructorProfileController,
+    InstructorUploadsController,
   ],
   providers: [
     ApprovedInstructorGuard,

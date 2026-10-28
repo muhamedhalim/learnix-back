@@ -29,6 +29,7 @@ import { SettlementStatus } from '../../src/payments/entities/settlement-status.
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 11's independent test (tasks.md): earnings clear on schedule; a
@@ -88,7 +89,7 @@ describe('marketplace payouts — earn, clear, request, and settle (Phase 11)', 
         language: 'en',
         price_minor: opts.priceMinor ?? 200000,
         currency: opts.currency ?? 'EGP',
-        cover_image_key: 'covers/payouts-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Understand payouts'],
       })
       .expect(201);

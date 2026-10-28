@@ -27,6 +27,7 @@ import {
   resetDatabase,
   setUserRole,
 } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T093 — contracts §4's payment-integrity guarantee end to end: a real
@@ -91,7 +92,7 @@ describe('marketplace payment integrity — webhook settlement (contracts §4, T
         language: 'en',
         price_minor: opts.priceMinor ?? 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/backend-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Build a REST API'],
       })
       .expect(201);

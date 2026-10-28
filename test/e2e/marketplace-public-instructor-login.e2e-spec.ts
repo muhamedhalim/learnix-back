@@ -17,6 +17,7 @@ import {
   resetDatabase,
   setUserRole,
 } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 1 of the marketplace remediation (MP-02): a person who applies without
@@ -43,7 +44,7 @@ describe('marketplace — public instructor (no academic role) end to end', () =
     applicant_email: applicantEmail,
     applicant_phone: applicantPhone,
     display_name: 'Layla Hassan',
-    photo_key: 'https://cdn.example.com/photos/layla.jpg',
+    photo_key: TEST_IMAGE_KEY,
     headline: 'Data Engineer',
     bio: 'Eight years building data platforms.',
     years_of_experience: 8,

@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { biBody } from '../../i18n/error-translator.util';
+import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import { MarketplaceInstructorProfileChangesDecisionEvent } from '../events/audit.events';
 import type {
   ApplicationCertificationEntry,
@@ -107,6 +108,10 @@ export class InstructorProfileService {
     const live = instructor as unknown as Record<string, unknown>;
     const pending = [...(instructor.pending_profile_changes ?? [])];
     const now = new Date().toISOString();
+
+    // The stored photo and a photo already queued for review are both "unchanged" values.
+    const queuedPhoto = pending.find((change) => change.field === 'photo_key')?.proposed_value;
+    if (fields.photo_key !== queuedPhoto) assertMarketplaceImageKey(fields.photo_key, instructor.photo_key);
 
     for (const [field, proposedValue] of Object.entries(fields)) {
       if (proposedValue === undefined) continue;

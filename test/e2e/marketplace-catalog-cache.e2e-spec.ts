@@ -19,6 +19,7 @@ import { PaymentOperationsService } from '../../src/payments/services/payment-op
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
 import { createEnrolledStudent } from './helpers/enrolled-student';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T213 (US11 Phase 14, performance/caching). FR-330: the public catalogue
@@ -81,7 +82,7 @@ describe('marketplace public catalogue cache (Phase 14, T213)', () => {
         language: 'en',
         price_minor: 100000,
         currency: 'EGP',
-        cover_image_key: 'covers/cache-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);

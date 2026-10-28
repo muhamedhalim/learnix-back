@@ -12,6 +12,7 @@ import { FINANCE_PERMISSIONS } from '../../src/payments/finance-permissions';
 import { User } from '../../src/users/entities';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T142's synchronous half: unpublish, stamp removal, create the summary
@@ -68,7 +69,7 @@ describe('marketplace course removal — synchronous half (T142, FR-054a)', () =
         language: 'en',
         price_minor: 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/removal-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['Understand removal'],
       })
       .expect(201);
@@ -230,7 +231,7 @@ describe('marketplace course removal — synchronous half (T142, FR-054a)', () =
         language: 'en',
         price_minor: 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/draft.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['x'],
       })
       .expect(201);

@@ -6,6 +6,7 @@ import { MarketplaceCategory, MarketplaceCourse } from '../../src/marketplace/ca
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase, setUserRole } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * Phase 2 of the marketplace remediation: the authoring seams between the instructor forms and the
@@ -42,7 +43,7 @@ describe('marketplace authoring — phase 2 seams', () => {
     language: 'en',
     price_minor: 10_000,
     currency: 'EGP',
-    cover_image_key: 'covers/backend-101.jpg',
+    cover_image_key: TEST_IMAGE_KEY,
     learning_outcomes: ['Build a REST API'],
   });
 
@@ -235,7 +236,7 @@ describe('marketplace authoring — phase 2 seams', () => {
   describe('instructor applications (MP-08, MP-13)', () => {
     const application = {
       display_name: 'Nour Ahmed',
-      photo_key: 'https://cdn.example.com/photos/nour.jpg',
+      photo_key: TEST_IMAGE_KEY,
       headline: 'Senior Software Engineer',
       bio: 'Ten years building backend systems.',
       years_of_experience: 10,

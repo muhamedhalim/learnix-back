@@ -42,6 +42,7 @@ import { buildInstructorFixture } from './factories/marketplace.factory';
 import { buildRegisterPayload } from './factories/user.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
 import { getUserIdByEmail, setUserStatus } from './helpers/database';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T201 (US11, release gate). The academic settlement machinery
@@ -286,7 +287,7 @@ describe('academic non-disruption — the academic settlement journey is unaffec
         language: 'en',
         price_minor: 200000,
         currency: 'EGP',
-        cover_image_key: 'covers/noise-101.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);

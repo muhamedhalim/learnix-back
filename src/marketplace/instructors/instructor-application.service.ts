@@ -8,6 +8,7 @@ import { ActivityLogsService } from '../../activity-logs/activity-logs.service';
 import { getMarketplaceConfig } from '../../config/marketplace.config';
 import { biBody } from '../../i18n/error-translator.util';
 import { InstructorApplicationStatus } from '../common/enums';
+import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import {
   accountAlreadyExistsForApplicant,
   applicationAlreadyDecided,
@@ -135,6 +136,7 @@ export class InstructorApplicationService {
       throw accountAlreadyExistsForApplicant();
     }
 
+    assertMarketplaceImageKey(fields.photo_key);
     const application = this.applications.create({
       user_id: null,
       applicant_email: email,
@@ -178,6 +180,7 @@ export class InstructorApplicationService {
     fields: UpdateApplicationFields,
   ): Promise<InstructorApplication> {
     await this.assertResubmissionAllowed(userId);
+    assertMarketplaceImageKey(fields.photo_key);
     try {
       // `fields` is a validated DTO instance, whose omitted optional properties are own keys holding
       // `undefined`. Spreading it first lets the explicit values below win; spreading it last used to
@@ -206,6 +209,7 @@ export class InstructorApplicationService {
     fields: UpdateApplicationFields,
   ): Promise<InstructorApplication> {
     const application = await this.getEditable(userId);
+    assertMarketplaceImageKey(fields.photo_key, application.photo_key);
     Object.assign(application, fields);
     return this.applications.save(application);
   }
@@ -385,7 +389,9 @@ export class InstructorApplicationService {
   private missingMandatoryFields(application: InstructorApplication): string[] {
     const missing: string[] = [];
     if (!application.display_name?.trim()) missing.push('display_name');
-    if (!application.photo_key?.trim()) missing.push('photo_key');
+    // A public applicant has no account yet and so no way to upload anything; their photo is added
+    // from the instructor profile after approval. A signed-in applicant uploads it with the application.
+    if (application.user_id !== null && !application.photo_key?.trim()) missing.push('photo_key');
     if (!application.headline?.trim()) missing.push('headline');
     if (!application.bio?.trim()) missing.push('bio');
     if (application.years_of_experience === null || application.years_of_experience === undefined) {

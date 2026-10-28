@@ -13,6 +13,9 @@ export interface UploadPrivateAssetParams {
   contentType: string;
 }
 
+/** Public marketing images (course covers, instructor photos) live only here — see `MarketplaceImageService`. */
+const PUBLIC_IMAGE_FOLDER_PREFIX = 'images/marketplace/';
+
 /**
  * The only way marketplace code touches object storage (FR-051, FR-303).
  * Every upload is forced private — there is no public-upload path here, so
@@ -26,6 +29,18 @@ export class MarketplaceStorageService {
 
   public async uploadPrivate(params: UploadPrivateAssetParams): Promise<StoredFile> {
     return this.storage.upload({ ...params, visibility: 'private' });
+  }
+
+  /**
+   * The single, deliberate exception to "every upload is private": a public image for a course cover
+   * or an instructor photo. It refuses any path outside `images/marketplace/`, so it cannot be used to
+   * publish a document, a video or anything else, and paid content still can never get a public URL.
+   */
+  public async uploadPublicImage(params: UploadPrivateAssetParams): Promise<StoredFile> {
+    if (!params.path.startsWith(PUBLIC_IMAGE_FOLDER_PREFIX) || params.path.includes('..')) {
+      throw new Error(`Public marketplace uploads are limited to ${PUBLIC_IMAGE_FOLDER_PREFIX}`);
+    }
+    return this.storage.upload({ ...params, visibility: 'public' });
   }
 
   /** T222 (FR-315) — the retention sweep's only storage access; kept here rather than reaching around this boundary with a raw `StorageService` injection elsewhere. */

@@ -9,6 +9,7 @@ import { MarketplaceEnrollment } from '../commerce/entities';
 import { MarketplaceCourseStatus } from '../common/enums';
 import { courseFreePreviewBoundExceeded, courseHasEnrollments, courseNotEditableWhileUnderReview } from '../common/errors';
 import { CurrencyRegistryService } from '../common/currency-registry.service';
+import { assertMarketplaceImageKey } from '../common/marketplace-image.service';
 import { slugify } from '../common/utils/slugify.util';
 import type { CreateCourseDto, CreateSectionDto, UpdateCourseDto, UpdateSectionDto } from './dto/course.dto';
 import type { CreateLessonDto, UpdateLessonDto } from './dto/lesson.dto';
@@ -135,6 +136,7 @@ export class CourseAuthoringService {
   /** FR-041: only an approved, non-suspended instructor may create — enforced by `ApprovedInstructorGuard`, not here. */
   public async createCourse(instructorId: string, dto: CreateCourseDto): Promise<MarketplaceCourse> {
     await this.assertSellable(dto.currency, dto.price_minor);
+    assertMarketplaceImageKey(dto.cover_image_key);
     const course = this.courses.create({
       instructor_id: instructorId,
       category_id: dto.category_id,
@@ -197,6 +199,8 @@ export class CourseAuthoringService {
     if (dto.prerequisites !== undefined) proposed.prerequisites = dto.prerequisites;
     if (dto.target_audience !== undefined) proposed.target_audience = dto.target_audience;
     if (dto.certificate_enabled !== undefined) proposed.certificate_enabled = dto.certificate_enabled;
+
+    assertMarketplaceImageKey(dto.cover_image_key, course.cover_image_key);
 
     const live = course as unknown as Record<string, unknown>;
     const changedFields = (Object.keys(proposed) as (keyof UpdateCourseDto)[]).filter(

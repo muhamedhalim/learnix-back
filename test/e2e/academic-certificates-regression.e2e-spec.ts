@@ -13,6 +13,7 @@ import { CourseStatus } from '../../src/packages/entities/course-status.enum';
 import { LessonPackage } from '../../src/packages/entities/lesson-package.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T205 (US11, release gate). `2100000000000-ExtendCertificatesForMarketplace`
@@ -74,7 +75,7 @@ describe('academic certificate regression under the marketplace extension (Phase
         language: 'en',
         price_minor: 100000,
         currency: 'EGP',
-        cover_image_key: 'covers/cert-regression.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         status: MarketplaceCourseStatus.PUBLISHED,
       } as Partial<MarketplaceCourse>),
     );

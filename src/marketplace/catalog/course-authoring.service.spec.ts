@@ -280,7 +280,7 @@ describe('CourseAuthoringService', () => {
         language: 'en',
         price_minor: 10_000,
         currency: 'EGP',
-        cover_image_key: 'covers/1.jpg',
+        cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
       });
       expect(result.instructor_id).toBe('instr-1');
       expect(result.status).toBe(MarketplaceCourseStatus.DRAFT);
@@ -308,6 +308,35 @@ describe('CourseAuthoringService', () => {
       expect(result.title).toBe('New title');
     });
 
+    it('accepts only an uploaded image key as a cover, never a URL or a path of its own making (MP-10)', async () => {
+      const base = {
+        title: 'New Course', summary: 'A summary', description: 'A description', category_id: 'cat-1',
+        level: CourseLevel.BEGINNER, language: 'en', price_minor: 0, currency: 'EGP',
+      };
+      const { service, courses } = buildService([], [], []);
+      for (const bad of ['https://example.com/x.jpg', 'covers/1.jpg', 'images/other/1.jpg', '../images/marketplace/x.jpg', 'images/marketplace/not-a-uuid/22222222-2222-4222-8222-222222222222.jpg']) {
+        await expect(service.createCourse('instr-1', { ...base, cover_image_key: bad })).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }),
+        });
+      }
+      expect(courses.save).not.toHaveBeenCalled();
+      await expect(service.createCourse('instr-1', { ...base, cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' })).resolves.toBeDefined();
+    });
+
+    it('lets an update keep the stored cover as it is, and replace it only with an uploaded key (MP-10)', async () => {
+      const legacy = buildCourse({ cover_image_key: 'covers/legacy.jpg' } as never);
+      const { service } = buildService([legacy], [], []);
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { title: 'Retitled', cover_image_key: 'covers/legacy.jpg' }),
+      ).resolves.toMatchObject({ changedFields: ['title'] });
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { cover_image_key: 'https://tracker.example/pixel.gif' }),
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVALID_IMAGE_REFERENCE' }) });
+      await expect(
+        service.applyCourseUpdate('instr-1', 'course-1', { cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg' }),
+      ).resolves.toMatchObject({ changedFields: ['cover_image_key'] });
+    });
+
     it('creates a paid course only in an enabled currency and inside its price bounds', async () => {
       const base = {
         title: 'New Course',
@@ -316,7 +345,7 @@ describe('CourseAuthoringService', () => {
         category_id: 'cat-1',
         level: CourseLevel.BEGINNER,
         language: 'en',
-        cover_image_key: 'covers/1.jpg',
+        cover_image_key: 'images/marketplace/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg',
       };
       const { service, courses } = buildService([], [], []);
       await expect(service.createCourse('instr-1', { ...base, price_minor: 10_000, currency: 'USD' })).rejects.toThrow(/not enabled/);

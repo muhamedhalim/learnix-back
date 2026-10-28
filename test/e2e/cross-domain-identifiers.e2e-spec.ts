@@ -7,6 +7,7 @@ import { MarketplaceCategory } from '../../src/marketplace/catalog/entities';
 import { MarketplaceInstructor } from '../../src/marketplace/instructors/entities/marketplace-instructor.entity';
 import { buildInstructorFixture } from './factories/marketplace.factory';
 import { API_PREFIX, createAuthenticatedUser, createE2EApp, resetDatabase } from './fixtures';
+import { TEST_IMAGE_KEY } from './helpers/images';
 
 /**
  * T206 (US11, release gate). Neither domain's id-lookup routes special-case
@@ -74,7 +75,7 @@ describe('cross-domain identifier rejection (Phase 13, T206)', () => {
         language: 'en',
         price_minor: 5000,
         currency: 'EGP',
-        cover_image_key: 'covers/xdomain.jpg',
+        cover_image_key: TEST_IMAGE_KEY,
         learning_outcomes: ['n/a'],
       })
       .expect(201);
