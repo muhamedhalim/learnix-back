@@ -26,7 +26,6 @@ export class HomeworkQuestionDto {
   @MaxLength(1000)
   public prompt!: string;
 
-  
   @ApiPropertyOptional({ maxLength: 1000 })
   @IsOptional()
   @IsString()
