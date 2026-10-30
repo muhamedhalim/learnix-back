@@ -74,6 +74,7 @@ describe('AuthService', () => {
   let configService: jest.Mocked<ConfigService>;
   let sessionsService: jest.Mocked<SessionsService>;
   let eventEmitter: jest.Mocked<Pick<EventEmitter2, 'emit'>>;
+  let dataSourceMock: { transaction: jest.Mock; getRepository: jest.Mock };
 
   const mockUser: Partial<User> = {
     id: 'stu_123456',
@@ -151,6 +152,7 @@ describe('AuthService', () => {
     };
 
     const mockDataSource = {
+      getRepository: jest.fn(() => sessionRepository),
       transaction: jest.fn((cb: (manager: EntityManager) => Promise<unknown>) =>
         cb({
           ...mockManager,
@@ -223,6 +225,7 @@ describe('AuthService', () => {
     configService = module.get(ConfigService);
     sessionsService = module.get(SessionsService);
     eventEmitter = module.get(EventEmitter2);
+    dataSourceMock = module.get(DataSource);
 
     configService.get.mockImplementation((key: string) => {
       if (key === 'BCRYPT_ROUNDS') {
@@ -803,6 +806,132 @@ describe('AuthService', () => {
       // Updated to use new response format
       expect((result as LoginResponse).refreshToken).toBeDefined();
       expect((result as LoginResponse).refreshToken).not.toBe(refreshToken);
+    });
+
+    describe('bcrypt work stays outside the transaction (PERF-03)', () => {
+      const sessionQuery = (hash: string | null, expiresAt = new Date(Date.now() + 60_000)) => ({
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        setLock: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(
+          hash === null
+            ? null
+            : Object.assign(new UserSession(), {
+                id: 'session-1',
+                user_id: mockUser.id,
+                refresh_token_hash: hash,
+                expires_at: expiresAt,
+              }),
+        ),
+      });
+
+      it('verifies the token and hashes the new one before opening the transaction', async () => {
+        const order: string[] = [];
+        (bcrypt.compare as jest.Mock).mockImplementation(async () => {
+          order.push('compare');
+          return true;
+        });
+        (bcrypt.hash as jest.Mock).mockImplementation(async () => {
+          order.push('hash');
+          return 'new_hashed_token';
+        });
+        dataSourceMock.transaction.mockImplementationOnce(
+          async (cb: (m: EntityManager) => Promise<unknown>) => {
+            order.push('transaction');
+            return await cb({
+              getRepository: (entity: unknown) =>
+                entity === User
+                  ? { findOneBy: jest.fn().mockResolvedValue(mockUser) }
+                  : {
+                      createQueryBuilder: () => sessionQuery('stored_hash'),
+                      update: jest.fn().mockResolvedValue({ affected: 1 }),
+                    },
+            } as unknown as EntityManager);
+          },
+        );
+        dataSourceMock.getRepository.mockReturnValueOnce({
+          createQueryBuilder: () => sessionQuery('stored_hash'),
+          delete: jest.fn(),
+        });
+        jwtService.sign.mockReturnValue('new_access_token');
+
+        await service.refresh(refreshToken);
+
+        expect(order).toEqual(['compare', 'hash', 'transaction']);
+      });
+
+      it('rejects an unknown or already rotated token without any bcrypt work or transaction', async () => {
+        dataSourceMock.getRepository.mockReturnValueOnce({
+          createQueryBuilder: () => sessionQuery(null),
+          delete: jest.fn(),
+        });
+
+        await expect(service.refresh('rotated_token')).rejects.toThrow(UnauthorizedException);
+
+        expect(bcrypt.compare).not.toHaveBeenCalled();
+        expect(bcrypt.hash).not.toHaveBeenCalled();
+        expect(dataSourceMock.transaction).not.toHaveBeenCalled();
+      });
+
+      it('rejects when the session was rotated by another request between verify and lock', async () => {
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+        (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_token');
+        const update = jest.fn();
+        dataSourceMock.getRepository.mockReturnValueOnce({
+          createQueryBuilder: () => sessionQuery('hash_seen_by_first_read'),
+          delete: jest.fn(),
+        });
+        dataSourceMock.transaction.mockImplementationOnce(
+          async (cb: (m: EntityManager) => Promise<unknown>) =>
+            await cb({
+              getRepository: () => ({
+                createQueryBuilder: () => sessionQuery('hash_written_by_other_request'),
+                update,
+              }),
+            } as unknown as EntityManager),
+        );
+
+        await expect(service.refresh(refreshToken)).rejects.toThrow(UnauthorizedException);
+
+        expect(update).not.toHaveBeenCalled();
+      });
+
+      it('rejects when the session is gone by the time the lock is taken', async () => {
+        (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+        (bcrypt.hash as jest.Mock).mockResolvedValue('new_hashed_token');
+        const update = jest.fn();
+        dataSourceMock.getRepository.mockReturnValueOnce({
+          createQueryBuilder: () => sessionQuery('stored_hash'),
+          delete: jest.fn(),
+        });
+        dataSourceMock.transaction.mockImplementationOnce(
+          async (cb: (m: EntityManager) => Promise<unknown>) =>
+            await cb({
+              getRepository: () => ({ createQueryBuilder: () => sessionQuery(null), update }),
+            } as unknown as EntityManager),
+        );
+
+        await expect(service.refresh(refreshToken)).rejects.toThrow(UnauthorizedException);
+
+        expect(update).not.toHaveBeenCalled();
+      });
+
+      it('deletes the session and rejects when the bcrypt check fails', async () => {
+        (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+        const del = jest.fn().mockResolvedValue({ affected: 1 });
+        dataSourceMock.getRepository.mockReturnValueOnce({
+          createQueryBuilder: () => sessionQuery('stored_hash'),
+          delete: del,
+        });
+        // Second getRepository call is the delete.
+        dataSourceMock.getRepository.mockReturnValueOnce({ delete: del });
+
+        await expect(service.refresh(refreshToken)).rejects.toThrow(UnauthorizedException);
+
+        expect(del).toHaveBeenCalledWith({ id: 'session-1' });
+        expect(bcrypt.hash).not.toHaveBeenCalled();
+        expect(dataSourceMock.transaction).not.toHaveBeenCalled();
+      });
     });
 
     it('should throw UnauthorizedException for pending user on refresh', async () => {

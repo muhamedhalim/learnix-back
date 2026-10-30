@@ -1,0 +1,117 @@
+# Local load-test stack. Disposable: nothing here holds real data and nothing points at a deployed environment.
+#
+#   docker compose -f learnix-infra/loadtest/docker-compose.loadtest.yml up -d --wait          # data services
+#   docker compose -f learnix-infra/loadtest/docker-compose.loadtest.yml --profile app up -d   # + api and worker
+#
+# Sizing mirrors the production launch footprint (learnix-infra/environments/production/launch.tfvars):
+#   postgres ~ db.t4g.small (2 vCPU / 2 GiB), api and worker ~ Fargate 0.5 vCPU / 1 GiB, redis ~ cache.t4g.micro.
+# Ports are offset from test/docker-compose.e2e.yml (55432 / 56379) so both stacks can run side by side.
+# Load data lives in a named volume (the M and L seed profiles are too large for tmpfs).
+name: learnix-loadtest
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: lms_load
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: lms_load_password
+    ports:
+      - '55433:5432'
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      # TLS on, like RDS (rds.force_ssl=1): the app turns SSL on for any non-loopback host and has no override.
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+      - -c
+      - ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - max_connections=200
+      # RDS parameter group parity (learnix-infra/modules/database/main.tf): slow-query and lock-wait logging.
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_lock_waits=on
+      - -c
+      - track_io_timing=on
+    cpus: 2
+    mem_limit: 2g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d lms_load']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    # noeviction matches the Valkey parameter group: BullMQ needs it (learnix-infra/modules/cache/main.tf).
+    command: ['redis-server', '--maxmemory', '400mb', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '56380:6379'
+    cpus: 1
+    mem_limit: 512m
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # The production image, run as the two roles production splits (PROCESS_ROLE, src/config/process-role.ts).
+  # Each reads ONLY loadtest.env: no `environment:` interpolation from the host shell, so a real provider key
+  # exported in the operator's terminal cannot reach these containers.
+  api:
+    profiles: ['app']
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: learnix-api:loadtest
+    env_file: loadtest.env
+    environment:
+      PROCESS_ROLE: api
+    ports:
+      - '3001:3000'
+    cpus: 0.5
+    mem_limit: 1g
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  worker:
+    profiles: ['app']
+    image: learnix-api:loadtest
+    env_file: loadtest.env
+    environment:
+      PROCESS_ROLE: worker
+    ports:
+      - '3002:3000'
+    cpus: 0.5
+    mem_limit: 1g
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:

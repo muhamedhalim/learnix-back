@@ -526,6 +526,31 @@ export class AuthService {
 
   private async rotateRefreshSession(refreshToken: string): Promise<unknown> {
     const tokenId = this.generateTokenId(refreshToken);
+    const invalidToken = (): UnauthorizedException =>
+      new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
+
+    // The two bcrypt operations (verify the presented token, hash the new one) are CPU-bound, about a second each on a
+    // 0.5 vCPU task. They run BEFORE the transaction, so no database connection or row lock is held while they
+    // compute (see docs/performance/load-test-results.md, PERF-03). Single use is still enforced under the lock below.
+    const candidate = await this.dataSource
+      .getRepository(UserSession)
+      .createQueryBuilder('session')
+      .addSelect('session.refresh_token_hash')
+      .where('session.refresh_token_id = :tokenId', { tokenId })
+      .getOne();
+
+    if (candidate === null) {
+      // Unknown, already rotated or revoked token: reject before spending any bcrypt time.
+      this.logger.warn('Invalid, reused, or revoked refresh token attempt');
+      throw invalidToken();
+    }
+
+    const isValid = await this.verifyRefreshToken(refreshToken, candidate.refresh_token_hash);
+    if (!isValid) {
+      await this.dataSource.getRepository(UserSession).delete({ id: candidate.id });
+      throw invalidToken();
+    }
+
     const newRefreshToken = this.generateRefreshToken();
     const newTokenId = this.generateTokenId(newRefreshToken);
     const newRefreshTokenHash = await this.hashRefreshToken(newRefreshToken);
@@ -535,6 +560,8 @@ export class AuthService {
 
     const rotated = await this.dataSource.transaction(async (manager) => {
       const sessionRepository = manager.getRepository(UserSession);
+      // Lock and re-read: a concurrent rotation changes refresh_token_id (so this finds nothing) and a revoke deletes
+      // the row. The stored hash must also be the one that was verified above.
       const session = await sessionRepository
         .createQueryBuilder('session')
         .addSelect('session.refresh_token_hash')
@@ -542,15 +569,9 @@ export class AuthService {
         .setLock('pessimistic_write')
         .getOne();
 
-      if (session === null) {
+      if (session === null || session.refresh_token_hash !== candidate.refresh_token_hash) {
         this.logger.warn('Invalid, reused, or revoked refresh token attempt');
-        throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
-      }
-
-      const isValid = await this.verifyRefreshToken(refreshToken, session.refresh_token_hash);
-      if (!isValid) {
-        await sessionRepository.delete({ id: session.id });
-        throw new UnauthorizedException(biBody('Invalid refresh token', 'رمز التحديث غير صالح'));
+        throw invalidToken();
       }
 
       if (session.expires_at < new Date()) {
