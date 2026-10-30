@@ -32,6 +32,8 @@
     "seed:admin": "ts-node src/database/seed-admin.ts",
     "seed:staging": "ts-node -r tsconfig-paths/register src/database/seed-staging.ts",
     "seed:marketplace-load": "ts-node -r tsconfig-paths/register scripts/seed-marketplace-load.ts",
+    "loadtest:db:build": "ts-node -r tsconfig-paths/register scripts/loadtest-db-build.ts",
+    "seed:lms-load": "ts-node -r tsconfig-paths/register scripts/seed-lms-load.ts",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- -d src/data-source.ts migration:generate",
     "migration:create": "npm run typeorm -- migration:create",

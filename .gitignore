@@ -75,3 +75,7 @@ AUDIT
 # Local-disk storage root (StorageService default PRIVATE_UPLOAD_DIR / UPLOAD_DIR). Unit/E2E runs write fixtures here;
 # they are runtime data, never source, and were committed by accident (a7bd368).
 /private-uploads
+
+# Load-test generated data and run output (credentials, k6 summaries, collector dumps)
+/learnix-infra/loadtest/.data
+/learnix-infra/loadtest/results
